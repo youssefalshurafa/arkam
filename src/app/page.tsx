@@ -1759,9 +1759,18 @@ export default function Home() {
       ) : null}
 
       {isSidebarCollapsed ? null : (
-       <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs leading-5 text-slate-300">
-        {t('database_file')} <span className="font-mono text-slate-100">{dbInfo?.dbPath ?? t('loading')}</span>
-       </p>
+       <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+        <label className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{t('language')}</label>
+        <select
+         value={language}
+         onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
+         className="mt-3 w-full cursor-pointer rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm font-semibold text-slate-100 outline-none transition focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
+        >
+         <option value="en">{t('english')}</option>
+         <option value="ar">{t('arabic')}</option>
+         <option value="fr">{t('french')}</option>
+        </select>
+       </div>
       )}
      </div>
     </aside>
