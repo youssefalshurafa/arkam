@@ -10,10 +10,6 @@ type Account = {
 type Organization = {
  id: number;
  name: string;
- email: string;
- phone: string;
- address: string;
- taxId: string;
  createdAt: string;
  updatedAt: string;
 };
@@ -21,10 +17,6 @@ type Organization = {
 type OrganizationInput = {
  id?: number;
  name: string;
- email: string;
- phone: string;
- address: string;
- taxId: string;
 };
 
 type Currency = {
@@ -122,9 +114,9 @@ type DbInfo = {
 declare global {
  interface Window {
   accountingApi?: {
-     getDbInfo: () => Promise<DbInfo>;
-     chooseDbDirectory: () => Promise<string | null>;
-     setDbDirectory: (nextDirectory: string) => Promise<DbInfo>;
+   getDbInfo: () => Promise<DbInfo>;
+   chooseDbDirectory: () => Promise<string | null>;
+   setDbDirectory: (nextDirectory: string) => Promise<DbInfo>;
    listAccounts: () => Promise<Account[]>;
    addAccount: (code: string, name: string) => Promise<{ ok: true }>;
    listOrganizations: () => Promise<Organization[]>;

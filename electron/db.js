@@ -63,10 +63,6 @@ function initializeDb(db) {
         CREATE TABLE IF NOT EXISTS organizations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
-            email TEXT DEFAULT '',
-            phone TEXT DEFAULT '',
-            address TEXT DEFAULT '',
-            tax_id TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -267,7 +263,7 @@ function addAccount(app, code, name) {
 function listOrganizations(app) {
     const { db } = getOrCreateDb(app);
     const stmt = db.prepare(`
-      SELECT id, name, email, phone, address, tax_id as taxId, created_at as createdAt, updated_at as updatedAt
+                        SELECT id, name, created_at as createdAt, updated_at as updatedAt
       FROM organizations
       ORDER BY name COLLATE NOCASE ASC
     `);
@@ -280,17 +276,8 @@ function createOrganization(app, organization) {
     }
 
     const { db } = getOrCreateDb(app);
-    const stmt = db.prepare(`
-      INSERT INTO organizations (name, email, phone, address, tax_id)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    stmt.run(
-        organization.name.trim(),
-        organization.email?.trim() || "",
-        organization.phone?.trim() || "",
-        organization.address?.trim() || "",
-        organization.taxId?.trim() || "",
-    );
+    const stmt = db.prepare("INSERT INTO organizations (name) VALUES (?)");
+    stmt.run(organization.name.trim());
 }
 
 function updateOrganization(app, organization) {
@@ -303,19 +290,8 @@ function updateOrganization(app, organization) {
     }
 
     const { db } = getOrCreateDb(app);
-    const stmt = db.prepare(`
-      UPDATE organizations
-      SET name = ?, email = ?, phone = ?, address = ?, tax_id = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `);
-    stmt.run(
-        organization.name.trim(),
-        organization.email?.trim() || "",
-        organization.phone?.trim() || "",
-        organization.address?.trim() || "",
-        organization.taxId?.trim() || "",
-        organization.id,
-    );
+    const stmt = db.prepare("UPDATE organizations SET name = ?, updated_at = datetime('now') WHERE id = ?");
+    stmt.run(organization.name.trim(), organization.id);
 }
 
 function deleteOrganization(app, organizationId) {
