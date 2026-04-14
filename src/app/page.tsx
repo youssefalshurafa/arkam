@@ -158,6 +158,7 @@ type ClientLedgerEntry = {
 
 type ClientAccountLedger = {
  accountId: number;
+ currencyName: string;
  currencyCode: string;
  currencySymbol: string;
  currentBalance: number;
@@ -180,6 +181,8 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
  'description',
 ];
 
+const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
+
 type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies';
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'accounts';
@@ -199,6 +202,38 @@ function normalizeDecimalInput(value: string) {
   .replace(/[\u066C,\s]/g, '')
   .replace(/[^0-9.\-]/g, '');
 }
+
+function getStoredLedgerColumnOrder() {
+ if (typeof window === 'undefined') {
+  return defaultLedgerColumnOrder;
+ }
+
+ try {
+  const rawValue = window.localStorage.getItem(ledgerColumnOrderStorageKey);
+  if (!rawValue) {
+   return defaultLedgerColumnOrder;
+  }
+
+  const parsedValue = JSON.parse(rawValue);
+  if (!Array.isArray(parsedValue) || parsedValue.length !== defaultLedgerColumnOrder.length) {
+   return defaultLedgerColumnOrder;
+  }
+
+  const normalizedOrder = parsedValue.filter((column): column is LedgerColumnKey => defaultLedgerColumnOrder.includes(column as LedgerColumnKey));
+  if (normalizedOrder.length !== defaultLedgerColumnOrder.length) {
+   return defaultLedgerColumnOrder;
+  }
+
+  if (new Set(normalizedOrder).size !== defaultLedgerColumnOrder.length) {
+   return defaultLedgerColumnOrder;
+  }
+
+  return normalizedOrder;
+ } catch {
+  return defaultLedgerColumnOrder;
+ }
+}
+
 function getCommissionAmount(baseAmount: number, commissionPercent: number) {
  return baseAmount * (commissionPercent / 100);
 }
@@ -348,8 +383,9 @@ export default function Home() {
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
+ const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
- const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(defaultLedgerColumnOrder);
+ const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({
   created: true,
   counterparty: true,
@@ -428,6 +464,10 @@ export default function Home() {
    window.removeEventListener('hashchange', applyHashSection);
   };
  }, []);
+
+ useEffect(() => {
+  window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
+ }, [ledgerColumnOrder]);
 
  function navigateToSection(nextSection: Section) {
   setSection(nextSection);
@@ -949,6 +989,7 @@ export default function Home() {
   { label: t('overview_clients'), value: clients.length },
   { label: t('overview_transactions'), value: transactions.length },
  ];
+ const currencyMap = new Map(currencies.map((currency) => [currency.id, currency]));
  const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
  const selectedOrganizationClients = selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : [];
 
@@ -1015,6 +1056,7 @@ export default function Home() {
 
       return {
        accountId: account.id,
+       currencyName: currencyMap.get(account.currencyId)?.name || account.currencyCode,
        currencyCode: account.currencyCode,
        currencySymbol: account.currencySymbol,
        currentBalance: runningBalance,
@@ -1024,6 +1066,14 @@ export default function Home() {
      })
      .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode))
   : [];
+
+ const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
+  if (!showLedgerCurrencySymbol) {
+   return '';
+  }
+
+  return ` ${currencySymbol || currencyCode}`;
+ };
 
  const selectedClientTransactionCount = selectedClientLedgers.reduce((sum, ledger) => sum + ledger.transactionCount, 0);
 
@@ -2276,7 +2326,7 @@ export default function Home() {
          >
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
            <div>
-            <h3 className="text-xl font-semibold text-slate-900">{ledger.currencySymbol || ledger.currencyCode}</h3>
+            <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
             <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
            </div>
 
@@ -2319,6 +2369,16 @@ export default function Home() {
                  </button>
                 );
                })}
+               <button
+                type="button"
+                onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
+                aria-pressed={showLedgerCurrencySymbol}
+                className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                 showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+               >
+                {t('currency_symbol')}
+               </button>
               </div>
              </div>
             ) : null}
@@ -2610,7 +2670,8 @@ export default function Home() {
                        />
                       ) : (
                        <>
-                        {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })} {entry.currencySymbol || entry.currencyCode}
+                        {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })}
+                        {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                        </>
                       )}
                      </td>
@@ -2661,7 +2722,8 @@ export default function Home() {
                       key={column.key}
                       className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                      >
-                      {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+                      {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}
+                      {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                      </td>
                     );
                    case 'runningBalance':
@@ -2670,7 +2732,8 @@ export default function Home() {
                       key={column.key}
                       className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                      >
-                      {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+                      {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                      {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                      </td>
                     );
                    case 'description':
