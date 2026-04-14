@@ -289,6 +289,7 @@ export default function Home() {
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
+ const [pendingDbDirectory, setPendingDbDirectory] = useState<string | null>(null);
  const [isChangingDbDirectory, setIsChangingDbDirectory] = useState(false);
  const [accounts, setAccounts] = useState<Account[]>([]);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -635,28 +636,38 @@ export default function Home() {
   }
  }
 
- async function onChangeDbDirectory() {
+ async function onChooseDbDirectory() {
   if (!window.accountingApi) {
    setError(t('error_bridge'));
    return;
   }
 
   try {
-   setIsChangingDbDirectory(true);
    const nextDirectory = await window.accountingApi.chooseDbDirectory();
-
-   if (!nextDirectory) {
-    return;
+   if (nextDirectory && nextDirectory !== dbInfo?.dbDirectory) {
+    setPendingDbDirectory(nextDirectory);
    }
+  } catch (e) {
+   console.error('[onChooseDbDirectory] error:', e);
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ }
 
-   await window.accountingApi.setDbDirectory(nextDirectory);
+ async function onSaveDbDirectory() {
+  if (!window.accountingApi || !pendingDbDirectory) {
+   return;
+  }
+
+  try {
+   setIsChangingDbDirectory(true);
+   await window.accountingApi.setDbDirectory(pendingDbDirectory);
+   setPendingDbDirectory(null);
    await loadData();
    setError('');
   } catch (e) {
-   console.error('[onChangeDbDirectory] error:', e);
+   console.error('[onSaveDbDirectory] error:', e);
    const msg = e instanceof Error ? e.message : t('error_failed_update');
    setError(msg);
-   alert(msg);
   } finally {
    setIsChangingDbDirectory(false);
   }
@@ -781,16 +792,44 @@ export default function Home() {
        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('database_file')}</p>
        <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.dbPath ?? t('loading')}</p>
       </div>
+      {pendingDbDirectory ? (
+       <div className="rounded-3xl border border-blue-300 bg-blue-50/80 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">{t('settings_database_new_folder_label')}</p>
+        <p className="mt-3 break-all font-mono text-sm text-blue-900">{pendingDbDirectory}</p>
+       </div>
+      ) : null}
      </div>
 
-     <button
-      type="button"
-      onClick={() => void onChangeDbDirectory()}
-      disabled={isChangingDbDirectory}
-      className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
-     >
-      {isChangingDbDirectory ? t('settings_database_updating') : t('settings_database_change_action')}
-     </button>
+     <div className="flex flex-col gap-2">
+      <button
+       type="button"
+       onClick={() => void onChooseDbDirectory()}
+       disabled={isChangingDbDirectory}
+       className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       {t('settings_database_change_action')}
+      </button>
+      {pendingDbDirectory ? (
+       <>
+        <button
+         type="button"
+         onClick={() => void onSaveDbDirectory()}
+         disabled={isChangingDbDirectory}
+         className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+         {isChangingDbDirectory ? t('settings_database_updating') : t('settings_database_save_action')}
+        </button>
+        <button
+         type="button"
+         onClick={() => setPendingDbDirectory(null)}
+         disabled={isChangingDbDirectory}
+         className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+         {t('cancel')}
+        </button>
+       </>
+      ) : null}
+     </div>
     </div>
 
     <p className="mt-4 text-sm text-slate-500">{t('settings_database_hint')}</p>

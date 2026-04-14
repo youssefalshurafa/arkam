@@ -42,6 +42,8 @@
  "settings_database_description": "اختر المجلد الذي يحفظ فيه أركام قاعدة بيانات SQLite الخاصة بتطبيق سطح المكتب.",
  "settings_database_folder_label": "مجلد قاعدة البيانات",
  "settings_database_change_action": "تغيير مجلد قاعدة البيانات",
+ "settings_database_save_action": "حفظ",
+ "settings_database_new_folder_label": "المجلد الجديد",
  "settings_database_updating": "جاري تحديث مجلد قاعدة البيانات...",
  "settings_database_hint": "إذا لم يكن المجلد المحدد يحتوي بالفعل على ملف قاعدة بيانات، فسيتم نسخ قاعدة البيانات الحالية إليه.",
  "settings_language_title": "اللغة",

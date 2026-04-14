@@ -42,6 +42,8 @@
  "settings_database_description": "Choose where Arkam stores the SQLite database used by the desktop app.",
  "settings_database_folder_label": "Database folder",
  "settings_database_change_action": "Change database folder",
+ "settings_database_save_action": "Save",
+ "settings_database_new_folder_label": "New folder",
  "settings_database_updating": "Updating database folder...",
  "settings_database_hint": "If the selected folder does not already contain a database file, the current database will be copied there.",
  "settings_language_title": "Language",

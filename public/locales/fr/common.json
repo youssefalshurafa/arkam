@@ -42,6 +42,8 @@
  "settings_database_description": "Choisissez l'emplacement où Arkam enregistre la base SQLite utilisée par l'application de bureau.",
  "settings_database_folder_label": "Dossier de la base de données",
  "settings_database_change_action": "Changer le dossier de la base de données",
+ "settings_database_save_action": "Enregistrer",
+ "settings_database_new_folder_label": "Nouveau dossier",
  "settings_database_updating": "Mise à jour du dossier de la base de données...",
  "settings_database_hint": "Si le dossier sélectionné ne contient pas déjà un fichier de base de données, la base actuelle y sera copiée.",
  "settings_language_title": "Langue",
