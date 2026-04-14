@@ -580,7 +580,7 @@ export default function Home() {
          currencyCode: transaction.currencyCode,
          exchangeRate: transaction.exchangeRateFrom,
          commission: transaction.commissionFrom,
-         netChange: -((transaction.amount * transaction.exchangeRateFrom) + transaction.commissionFrom),
+           netChange: (transaction.amount * transaction.exchangeRateFrom) + transaction.commissionFrom,
          runningBalance: 0,
          description: transaction.description,
         }];
@@ -598,7 +598,7 @@ export default function Home() {
          currencyCode: transaction.currencyCode,
          exchangeRate: transaction.exchangeRateTo,
          commission: transaction.commissionTo,
-         netChange: (transaction.amount * transaction.exchangeRateTo) - transaction.commissionTo,
+           netChange: -((transaction.amount * transaction.exchangeRateTo) - transaction.commissionTo),
          runningBalance: 0,
          description: transaction.description,
         }];
@@ -1197,7 +1197,7 @@ export default function Home() {
              <td className="px-4 py-3 text-slate-500">{new Date(entry.createdAt).toLocaleDateString(language)}</td>
              <td className="px-4 py-3 font-medium text-slate-900">{entry.counterpartyName}</td>
              <td className="px-4 py-3">
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
              {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
             </span>
              </td>
