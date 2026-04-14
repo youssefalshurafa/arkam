@@ -150,6 +150,15 @@ function getSectionFromHash(hash: string): Section {
  return allowedSections.includes(normalized as Section) ? (normalized as Section) : 'overview';
 }
 
+function normalizeDecimalInput(value: string) {
+ return value
+  .replace(/[\u0660-\u0669]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+  .replace(/[\u06F0-\u06F9]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
+  .replace(/\u066B/g, '.')
+  .replace(/[\u066C,\s]/g, '')
+  .replace(/[^0-9.\-]/g, '');
+}
+
 const emptyOrganizationForm = (): OrganizationForm => ({
  name: '',
  email: '',
@@ -1433,11 +1442,11 @@ export default function Home() {
        </label>
        <div className="mt-2 flex gap-2">
         <input
-         type="number"
-         step="any"
-         min="0"
+           type="text"
+           inputMode="decimal"
+           dir="ltr"
          value={transactionForm.amount}
-         onChange={(event) => setTransactionForm((current) => ({ ...current, amount: event.target.value }))}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, amount: normalizeDecimalInput(event.target.value) }))}
          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
          placeholder="0.00"
          required
@@ -1468,11 +1477,11 @@ export default function Home() {
          <div>
           <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_from')}</label>
           <input
-           type="number"
-           step="any"
-           min="0"
+           type="text"
+           inputMode="decimal"
+           dir="ltr"
            value={transactionForm.exchangeRateFrom}
-           onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: event.target.value }))}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
            placeholder="1"
           />
@@ -1480,11 +1489,11 @@ export default function Home() {
          <div>
           <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')}</label>
           <input
-           type="number"
-           step="any"
-           min="0"
+           type="text"
+           inputMode="decimal"
+           dir="ltr"
            value={transactionForm.commissionFrom}
-           onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: event.target.value }))}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
            placeholder="0"
           />
@@ -1498,11 +1507,11 @@ export default function Home() {
          <div>
           <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_to')}</label>
           <input
-           type="number"
-           step="any"
-           min="0"
+           type="text"
+           inputMode="decimal"
+           dir="ltr"
            value={transactionForm.exchangeRateTo}
-           onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: event.target.value }))}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
            placeholder="1"
           />
@@ -1510,11 +1519,11 @@ export default function Home() {
          <div>
           <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')}</label>
           <input
-           type="number"
-           step="any"
-           min="0"
+           type="text"
+           inputMode="decimal"
+           dir="ltr"
            value={transactionForm.commissionTo}
-           onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: event.target.value }))}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
            placeholder="0"
           />
