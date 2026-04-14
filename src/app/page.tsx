@@ -359,7 +359,7 @@ const emptyTransactionForm = (): TransactionForm => ({
  accountToId: null,
  currencyId: null,
  amount: '',
- type: 'exchange',
+ type: 'transfer',
  exchangeRateFrom: '1',
  commissionFrom: '0',
  exchangeRateTo: '1',
@@ -408,6 +408,7 @@ export default function Home() {
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
+ const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
  const [code, setCode] = useState('');
  const [name, setName] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
@@ -888,6 +889,7 @@ export default function Home() {
   try {
    await window.accountingApi.enableCurrency(id);
    setSelectedCatalogCurrencyId(null);
+   setCatalogCurrencyQuery('');
    setError('');
    await loadData();
   } catch (e) {
@@ -1124,7 +1126,16 @@ export default function Home() {
  }));
  const enabledCurrencies = localizedCurrencies.filter((currency) => currency.isEnabled === 1);
  const availableCurrencies = localizedCurrencies.filter((currency) => currency.isEnabled !== 1);
+ const normalizedCatalogCurrencyQuery = catalogCurrencyQuery.trim().toLocaleLowerCase();
+ const filteredAvailableCurrencies = availableCurrencies.filter((currency) => {
+  if (!normalizedCatalogCurrencyQuery) {
+   return true;
+  }
+
+  return currency.code.toLocaleLowerCase().includes(normalizedCatalogCurrencyQuery) || currency.name.toLocaleLowerCase().includes(normalizedCatalogCurrencyQuery);
+ });
  const currencyMap = new Map(localizedCurrencies.map((currency) => [currency.id, currency]));
+ const clientMap = new Map(clients.map((client) => [client.id, client]));
  const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
  const selectedOrganizationClients = selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : [];
 
@@ -1769,21 +1780,37 @@ export default function Home() {
      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
       <div className="flex-1">
        <label className="block text-sm font-medium text-slate-700">{t('currency_catalog_title')}</label>
-       <select
-        value={selectedCatalogCurrencyId ?? ''}
-        onChange={(event) => setSelectedCatalogCurrencyId(event.target.value ? Number(event.target.value) : null)}
+       <input
+        value={catalogCurrencyQuery}
+        onChange={(event) => {
+         setCatalogCurrencyQuery(event.target.value);
+         setSelectedCatalogCurrencyId(null);
+        }}
         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-       >
-        <option value="">{t('currency_catalog_placeholder')}</option>
-        {availableCurrencies.map((currency) => (
-         <option
-          key={currency.id}
-          value={currency.id}
-         >
-          {currency.code} - {currency.name}
-         </option>
-        ))}
-       </select>
+        placeholder={t('currency_catalog_search_placeholder')}
+       />
+       <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50">
+        {filteredAvailableCurrencies.length > 0 ? (
+         filteredAvailableCurrencies.map((currency) => (
+          <button
+           key={currency.id}
+           type="button"
+           onClick={() => {
+            setSelectedCatalogCurrencyId(currency.id);
+            setCatalogCurrencyQuery(`${currency.code} - ${currency.name}`);
+           }}
+           className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-sm transition ${
+            selectedCatalogCurrencyId === currency.id ? 'bg-blue-100 text-blue-900' : 'text-slate-700 hover:bg-white'
+           }`}
+          >
+           <span className="font-semibold">{currency.code}</span>
+           <span className="flex-1 truncate text-slate-600">{currency.name}</span>
+          </button>
+         ))
+        ) : (
+         <p className="px-3 py-3 text-sm text-slate-500">{t('currency_catalog_no_match')}</p>
+        )}
+       </div>
       </div>
       <button
        type="button"
@@ -3189,9 +3216,24 @@ export default function Home() {
                   </div>
                  ) : (
                   <>
-                   <div>
-                    {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                   </div>
+                   {(() => {
+                    const fromAccount = clientAccountMap.get(txn.accountFromId);
+                    const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
+
+                    return fromClient ? (
+                     <button
+                      type="button"
+                      onClick={() => openClientLedger(fromClient, 'clients')}
+                      className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                     >
+                      {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                     </button>
+                    ) : (
+                     <div>
+                      {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                     </div>
+                    );
+                   })()}
                    {txn.exchangeRateFrom !== 1 ? (
                     <div className="text-xs text-slate-500">
                      {t('transaction_exchange_rate')}: {txn.exchangeRateFrom}
@@ -3230,9 +3272,24 @@ export default function Home() {
                   </div>
                  ) : (
                   <>
-                   <div>
-                    {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
-                   </div>
+                   {(() => {
+                    const toAccount = clientAccountMap.get(txn.accountToId);
+                    const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
+
+                    return toClient ? (
+                     <button
+                      type="button"
+                      onClick={() => openClientLedger(toClient, 'clients')}
+                      className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                     >
+                      {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                     </button>
+                    ) : (
+                     <div>
+                      {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                     </div>
+                    );
+                   })()}
                    {txn.exchangeRateTo !== 1 ? (
                     <div className="text-xs text-slate-500">
                      {t('transaction_exchange_rate')}: {txn.exchangeRateTo}
