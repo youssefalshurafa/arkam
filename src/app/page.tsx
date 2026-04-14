@@ -137,6 +137,8 @@ type ClientAccountLedger = {
  entries: ClientLedgerEntry[];
 };
 
+type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
+
 type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies';
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'accounts';
@@ -304,6 +306,19 @@ export default function Home() {
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
+ const [clientLedgerTab, setClientLedgerTab] = useState<'entries' | 'settings'>('entries');
+ const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({
+  created: true,
+  counterparty: true,
+  direction: false,
+  type: false,
+  amount: true,
+  exchangeRate: true,
+  commission: true,
+  netChange: true,
+  runningBalance: true,
+  description: true,
+ });
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [code, setCode] = useState('');
@@ -382,8 +397,16 @@ export default function Home() {
 
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients') {
   setClientLedgerBackSection(origin);
+  setClientLedgerTab('entries');
   setSelectedClientForLedger(client);
   navigateToSection('client-ledger');
+ }
+
+ function toggleLedgerColumn(column: LedgerColumnKey) {
+  setLedgerColumnVisibility((current) => ({
+   ...current,
+   [column]: !current[column],
+  }));
  }
 
  async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -795,6 +818,19 @@ export default function Home() {
   : [];
 
  const selectedClientTransactionCount = selectedClientLedgers.reduce((sum, ledger) => sum + ledger.transactionCount, 0);
+
+ const ledgerColumnOptions: Array<{ key: LedgerColumnKey; label: string }> = [
+  { key: 'created', label: t('created') },
+  { key: 'counterparty', label: t('counterparty') },
+  { key: 'direction', label: t('direction') },
+  { key: 'type', label: t('transaction_type') },
+  { key: 'amount', label: t('transaction_amount') },
+  { key: 'exchangeRate', label: t('transaction_exchange_rate') },
+  { key: 'commission', label: t('commission') },
+  { key: 'netChange', label: t('net_change') },
+  { key: 'runningBalance', label: t('running_balance') },
+  { key: 'description', label: t('transaction_description') },
+ ];
 
  const panelClassName = 'rounded-4xl border border-slate-200/70 bg-white/90 p-6 shadow-[0_24px_60px_-32px_rgba(15,23,42,0.35)] backdrop-blur';
  const mutedPanelClassName = 'rounded-3xl border border-slate-200/70 bg-slate-50/85 p-4';
@@ -1985,6 +2021,29 @@ export default function Home() {
          </button>
         </div>
 
+        <div className="mt-5 flex flex-wrap gap-2">
+         <button
+          type="button"
+          onClick={() => setClientLedgerTab('entries')}
+          aria-pressed={clientLedgerTab === 'entries'}
+          className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
+           clientLedgerTab === 'entries' ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+         >
+          {t('client_ledger_tab_entries')}
+         </button>
+         <button
+          type="button"
+          onClick={() => setClientLedgerTab('settings')}
+          aria-pressed={clientLedgerTab === 'settings'}
+          className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
+           clientLedgerTab === 'settings' ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+         >
+          {t('client_ledger_tab_settings')}
+         </button>
+        </div>
+
         {selectedClientForLedger ? (
          <div className="mt-6 grid gap-4 md:grid-cols-3">
           <div className={mutedPanelClassName}>
@@ -2007,6 +2066,30 @@ export default function Home() {
         <div className={`${panelClassName} text-sm text-slate-600`}>{t('client_page_no_client')}</div>
        ) : selectedClientLedgers.length === 0 ? (
         <div className={`${panelClassName} text-sm text-slate-600`}>{t('no_client_accounts')}</div>
+       ) : clientLedgerTab === 'settings' ? (
+        <div className={panelClassName}>
+         <h3 className="text-xl font-semibold text-slate-900">{t('client_ledger_tab_settings')}</h3>
+         <p className="mt-2 text-sm text-slate-600">{t('client_ledger_settings_description')}</p>
+         <div className="mt-5 flex flex-wrap gap-2">
+          {ledgerColumnOptions.map((column) => {
+           const isVisible = ledgerColumnVisibility[column.key];
+
+           return (
+            <button
+             key={column.key}
+             type="button"
+             onClick={() => toggleLedgerColumn(column.key)}
+             aria-pressed={isVisible}
+             className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+              isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+             }`}
+            >
+             {column.label}
+            </button>
+           );
+          })}
+         </div>
+        </div>
        ) : (
         selectedClientLedgers.map((ledger) => (
          <div
@@ -2040,16 +2123,16 @@ export default function Home() {
             <table className="w-full text-sm">
              <thead className="bg-slate-100 text-slate-700">
               <tr>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('created')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('counterparty')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('direction')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('net_change')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('running_balance')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
+               {ledgerColumnVisibility.created ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('created')}</th> : null}
+               {ledgerColumnVisibility.counterparty ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('counterparty')}</th> : null}
+               {ledgerColumnVisibility.direction ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('direction')}</th> : null}
+               {ledgerColumnVisibility.type ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th> : null}
+               {ledgerColumnVisibility.amount ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th> : null}
+               {ledgerColumnVisibility.exchangeRate ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th> : null}
+               {ledgerColumnVisibility.commission ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th> : null}
+               {ledgerColumnVisibility.netChange ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('net_change')}</th> : null}
+               {ledgerColumnVisibility.runningBalance ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('running_balance')}</th> : null}
+               {ledgerColumnVisibility.description ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th> : null}
               </tr>
              </thead>
              <tbody>
@@ -2058,28 +2141,42 @@ export default function Home() {
                 key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}
                 className="border-t border-slate-200 align-top"
                >
-                <td className="px-4 py-3 text-slate-500">{new Date(entry.createdAt).toLocaleDateString(language)}</td>
-                <td className="px-4 py-3 font-medium text-slate-900">{entry.counterpartyName}</td>
-                <td className="px-4 py-3">
-                 <span
-                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
-                 >
-                  {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
-                 </span>
-                </td>
-                <td className="px-4 py-3 text-slate-600">{t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
-                <td className="px-4 py-3 text-slate-700">
-                 {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })} {entry.currencySymbol || entry.currencyCode}
-                </td>
-                <td className="px-4 py-3 text-slate-600">{entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })}</td>
-                <td className="px-4 py-3 text-slate-600">{entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}%</td>
-                <td className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                 {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
-                </td>
-                <td className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
-                 {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
-                </td>
-                <td className="px-4 py-3 text-slate-500">{entry.description || '-'}</td>
+                {ledgerColumnVisibility.created ? <td className="px-4 py-3 text-slate-500">{new Date(entry.createdAt).toLocaleDateString(language)}</td> : null}
+                {ledgerColumnVisibility.counterparty ? <td className="px-4 py-3 font-medium text-slate-900">{entry.counterpartyName}</td> : null}
+                {ledgerColumnVisibility.direction ? (
+                 <td className="px-4 py-3">
+                  <span
+                   className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                  >
+                   {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
+                  </span>
+                 </td>
+                ) : null}
+                {ledgerColumnVisibility.type ? (
+                 <td className="px-4 py-3 text-slate-600">{t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
+                ) : null}
+                {ledgerColumnVisibility.amount ? (
+                 <td className="px-4 py-3 text-slate-700">
+                  {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })} {entry.currencySymbol || entry.currencyCode}
+                 </td>
+                ) : null}
+                {ledgerColumnVisibility.exchangeRate ? (
+                 <td className="px-4 py-3 text-slate-600">{entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })}</td>
+                ) : null}
+                {ledgerColumnVisibility.commission ? (
+                 <td className="px-4 py-3 text-slate-600">{entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}%</td>
+                ) : null}
+                {ledgerColumnVisibility.netChange ? (
+                 <td className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+                 </td>
+                ) : null}
+                {ledgerColumnVisibility.runningBalance ? (
+                 <td className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+                  {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+                 </td>
+                ) : null}
+                {ledgerColumnVisibility.description ? <td className="px-4 py-3 text-slate-500">{entry.description || '-'}</td> : null}
                </tr>
               ))}
              </tbody>
