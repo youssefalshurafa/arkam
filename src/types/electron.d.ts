@@ -47,13 +47,11 @@ type Client = {
  id: number;
  organizationId: number | null;
  organizationName: string | null;
- currencyId: number | null;
- currencyCode: string | null;
- currencySymbol: string | null;
  name: string;
  email: string;
  phone: string;
  address: string;
+ accountCount: number;
  createdAt: string;
  updatedAt: string;
 };
@@ -61,26 +59,38 @@ type Client = {
 type ClientInput = {
  id?: number;
  organizationId: number | null;
- currencyId: number | null;
  name: string;
  email: string;
  phone: string;
  address: string;
 };
 
+type ClientAccount = {
+ id: number;
+ clientId: number;
+ clientName: string;
+ currencyId: number;
+ currencyCode: string;
+ currencySymbol: string;
+ createdAt: string;
+};
+
+type ClientAccountInput = {
+ clientId: number;
+ currencyId: number;
+};
+
 type Transaction = {
  id: number;
- clientFromId: number;
+ accountFromId: number;
  clientFromName: string;
- clientToId: number;
- clientToName: string;
- type: string;
- currencyFromId: number;
  currencyFromCode: string;
  currencyFromSymbol: string;
- currencyToId: number;
+ accountToId: number;
+ clientToName: string;
  currencyToCode: string;
  currencyToSymbol: string;
+ type: string;
  amountFrom: number;
  amountTo: number;
  exchangeRate: number;
@@ -89,11 +99,9 @@ type Transaction = {
 };
 
 type TransactionInput = {
- clientFromId: number;
- clientToId: number;
+ accountFromId: number;
+ accountToId: number;
  type: string;
- currencyFromId: number;
- currencyToId: number;
  amountFrom: number;
  amountTo: number;
  exchangeRate: number;
@@ -114,6 +122,10 @@ declare global {
    createClient: (client: ClientInput) => Promise<{ ok: true }>;
    updateClient: (client: ClientInput) => Promise<{ ok: true }>;
    deleteClient: (clientId: number) => Promise<{ ok: true }>;
+   listAllClientAccounts: () => Promise<ClientAccount[]>;
+   listClientAccounts: (clientId: number) => Promise<ClientAccount[]>;
+   createClientAccount: (account: ClientAccountInput) => Promise<{ ok: true }>;
+   deleteClientAccount: (accountId: number) => Promise<{ ok: true }>;
    listCurrencies: () => Promise<Currency[]>;
    createCurrency: (currency: CurrencyInput) => Promise<{ ok: true }>;
    updateCurrency: (currency: CurrencyInput) => Promise<{ ok: true }>;

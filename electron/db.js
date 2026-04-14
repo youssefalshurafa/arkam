@@ -70,22 +70,28 @@ function getOrCreateDb(app) {
             FOREIGN KEY (currency_id) REFERENCES currencies(id) ON DELETE SET NULL
         );
 
+        CREATE TABLE IF NOT EXISTS client_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER NOT NULL,
+            currency_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(client_id, currency_id),
+            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            FOREIGN KEY (currency_id) REFERENCES currencies(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client_from_id INTEGER NOT NULL,
-            client_to_id INTEGER NOT NULL,
+            account_from_id INTEGER NOT NULL,
+            account_to_id INTEGER NOT NULL,
             type TEXT NOT NULL DEFAULT 'exchange',
-            currency_from_id INTEGER NOT NULL,
-            currency_to_id INTEGER NOT NULL,
             amount_from REAL NOT NULL,
             amount_to REAL NOT NULL,
             exchange_rate REAL NOT NULL,
             description TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (client_from_id) REFERENCES clients(id) ON DELETE CASCADE,
-            FOREIGN KEY (client_to_id) REFERENCES clients(id) ON DELETE CASCADE,
-            FOREIGN KEY (currency_from_id) REFERENCES currencies(id),
-            FOREIGN KEY (currency_to_id) REFERENCES currencies(id)
+            FOREIGN KEY (account_from_id) REFERENCES client_accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY (account_to_id) REFERENCES client_accounts(id) ON DELETE CASCADE
         );
   `);
 
@@ -96,33 +102,41 @@ function getOrCreateDb(app) {
         // Column already exists – ignore
     }
 
-    // Migrate transactions table: old schema had client_id, new one has client_from_id + client_to_id
+    // Populate client_accounts from clients.currency_id (idempotent)
+    try {
+        const existingClients = dbInstance.prepare("SELECT id, currency_id FROM clients WHERE currency_id IS NOT NULL").all();
+        const insertAcc = dbInstance.prepare("INSERT OR IGNORE INTO client_accounts (client_id, currency_id) VALUES (?, ?)");
+        const migrateAccounts = dbInstance.transaction(() => {
+            for (const c of existingClients) insertAcc.run(c.id, c.currency_id);
+        });
+        migrateAccounts();
+    } catch (_e) {
+        // ignore
+    }
+
+    // Migrate old transactions schema → account_from_id / account_to_id
     try {
         const cols = dbInstance.pragma("table_info(transactions)").map((c) => c.name);
-        if (cols.includes("client_id") && !cols.includes("client_from_id")) {
-            dbInstance.exec("DROP TABLE transactions");
+        if (!cols.includes("account_from_id")) {
+            dbInstance.exec("DROP TABLE IF EXISTS transactions");
             dbInstance.exec(`
                 CREATE TABLE transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    client_from_id INTEGER NOT NULL,
-                    client_to_id INTEGER NOT NULL,
+                    account_from_id INTEGER NOT NULL,
+                    account_to_id INTEGER NOT NULL,
                     type TEXT NOT NULL DEFAULT 'exchange',
-                    currency_from_id INTEGER NOT NULL,
-                    currency_to_id INTEGER NOT NULL,
                     amount_from REAL NOT NULL,
                     amount_to REAL NOT NULL,
                     exchange_rate REAL NOT NULL,
                     description TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                    FOREIGN KEY (client_from_id) REFERENCES clients(id) ON DELETE CASCADE,
-                    FOREIGN KEY (client_to_id) REFERENCES clients(id) ON DELETE CASCADE,
-                    FOREIGN KEY (currency_from_id) REFERENCES currencies(id),
-                    FOREIGN KEY (currency_to_id) REFERENCES currencies(id)
+                    FOREIGN KEY (account_from_id) REFERENCES client_accounts(id) ON DELETE CASCADE,
+                    FOREIGN KEY (account_to_id) REFERENCES client_accounts(id) ON DELETE CASCADE
                 )
             `);
         }
     } catch (_e) {
-        // Table doesn't exist yet or already migrated – ignore
+        // ignore
     }
 
     return { db: dbInstance, dbPath: dbFilePath };
@@ -218,18 +232,15 @@ function listClients(app) {
         clients.id,
         clients.organization_id as organizationId,
         organizations.name as organizationName,
-        clients.currency_id as currencyId,
-        currencies.code as currencyCode,
-        currencies.symbol as currencySymbol,
         clients.name,
         clients.email,
         clients.phone,
         clients.address,
         clients.created_at as createdAt,
-        clients.updated_at as updatedAt
+        clients.updated_at as updatedAt,
+        (SELECT COUNT(*) FROM client_accounts WHERE client_id = clients.id) as accountCount
       FROM clients
       LEFT JOIN organizations ON organizations.id = clients.organization_id
-      LEFT JOIN currencies ON currencies.id = clients.currency_id
       ORDER BY clients.name COLLATE NOCASE ASC
     `);
     return stmt.all();
@@ -242,12 +253,11 @@ function createClient(app, client) {
 
     const { db } = getOrCreateDb(app);
     const stmt = db.prepare(`
-      INSERT INTO clients (organization_id, currency_id, name, email, phone, address)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO clients (organization_id, name, email, phone, address)
+      VALUES (?, ?, ?, ?, ?)
     `);
     stmt.run(
         client.organizationId || null,
-        client.currencyId || null,
         client.name.trim(),
         client.email?.trim() || "",
         client.phone?.trim() || "",
@@ -267,12 +277,11 @@ function updateClient(app, client) {
     const { db } = getOrCreateDb(app);
     const stmt = db.prepare(`
       UPDATE clients
-      SET organization_id = ?, currency_id = ?, name = ?, email = ?, phone = ?, address = ?, updated_at = datetime('now')
+      SET organization_id = ?, name = ?, email = ?, phone = ?, address = ?, updated_at = datetime('now')
       WHERE id = ?
     `);
     stmt.run(
         client.organizationId || null,
-        client.currencyId || null,
         client.name.trim(),
         client.email?.trim() || "",
         client.phone?.trim() || "",
@@ -285,6 +294,56 @@ function deleteClient(app, clientId) {
     const { db } = getOrCreateDb(app);
     const stmt = db.prepare("DELETE FROM clients WHERE id = ?");
     stmt.run(clientId);
+}
+
+// ── Client Accounts ─────────────────────────────────────────────────────────
+
+function listAllClientAccounts(app) {
+    const { db } = getOrCreateDb(app);
+    return db.prepare(`
+        SELECT
+            ca.id,
+            ca.client_id AS clientId,
+            c.name AS clientName,
+            ca.currency_id AS currencyId,
+            cur.code AS currencyCode,
+            cur.symbol AS currencySymbol,
+            ca.created_at AS createdAt
+        FROM client_accounts ca
+        JOIN clients c ON c.id = ca.client_id
+        JOIN currencies cur ON cur.id = ca.currency_id
+        ORDER BY c.name COLLATE NOCASE ASC, cur.code ASC
+    `).all();
+}
+
+function listClientAccounts(app, clientId) {
+    const { db } = getOrCreateDb(app);
+    return db.prepare(`
+        SELECT
+            ca.id,
+            ca.client_id AS clientId,
+            c.name AS clientName,
+            ca.currency_id AS currencyId,
+            cur.code AS currencyCode,
+            cur.symbol AS currencySymbol,
+            ca.created_at AS createdAt
+        FROM client_accounts ca
+        JOIN clients c ON c.id = ca.client_id
+        JOIN currencies cur ON cur.id = ca.currency_id
+        WHERE ca.client_id = ?
+        ORDER BY cur.code ASC
+    `).all(clientId);
+}
+
+function createClientAccount(app, { clientId, currencyId }) {
+    if (!clientId || !currencyId) throw new Error("Client and currency are required.");
+    const { db } = getOrCreateDb(app);
+    db.prepare("INSERT OR IGNORE INTO client_accounts (client_id, currency_id) VALUES (?, ?)").run(clientId, currencyId);
+}
+
+function deleteClientAccount(app, accountId) {
+    const { db } = getOrCreateDb(app);
+    db.prepare("DELETE FROM client_accounts WHERE id = ?").run(accountId);
 }
 
 // ── Currencies ──────────────────────────────────────────────────────────────
@@ -346,47 +405,44 @@ function listTransactions(app) {
     return db.prepare(`
         SELECT
             t.id,
-            t.client_from_id AS clientFromId,
-            cfrom.name AS clientFromName,
-            t.client_to_id AS clientToId,
-            cto.name AS clientToName,
+            t.account_from_id AS accountFromId,
+            c_from.name AS clientFromName,
+            cur_from.code AS currencyFromCode,
+            cur_from.symbol AS currencyFromSymbol,
+            t.account_to_id AS accountToId,
+            c_to.name AS clientToName,
+            cur_to.code AS currencyToCode,
+            cur_to.symbol AS currencyToSymbol,
             t.type,
-            t.currency_from_id AS currencyFromId,
-            cf.code AS currencyFromCode,
-            cf.symbol AS currencyFromSymbol,
-            t.currency_to_id AS currencyToId,
-            ct.code AS currencyToCode,
-            ct.symbol AS currencyToSymbol,
             t.amount_from AS amountFrom,
             t.amount_to AS amountTo,
             t.exchange_rate AS exchangeRate,
             t.description,
             t.created_at AS createdAt
         FROM transactions t
-        JOIN clients cfrom ON cfrom.id = t.client_from_id
-        JOIN clients cto ON cto.id = t.client_to_id
-        JOIN currencies cf ON cf.id = t.currency_from_id
-        JOIN currencies ct ON ct.id = t.currency_to_id
+        JOIN client_accounts ca_from ON ca_from.id = t.account_from_id
+        JOIN clients c_from ON c_from.id = ca_from.client_id
+        JOIN currencies cur_from ON cur_from.id = ca_from.currency_id
+        JOIN client_accounts ca_to ON ca_to.id = t.account_to_id
+        JOIN clients c_to ON c_to.id = ca_to.client_id
+        JOIN currencies cur_to ON cur_to.id = ca_to.currency_id
         ORDER BY t.created_at DESC
     `).all();
 }
 
 function createTransaction(app, txn) {
-    if (!txn.clientFromId || !txn.clientToId) throw new Error("Both clients are required.");
-    if (!txn.currencyFromId || !txn.currencyToId) throw new Error("Both currencies are required.");
+    if (!txn.accountFromId || !txn.accountToId) throw new Error("Both accounts are required.");
     if (!txn.amountFrom || txn.amountFrom <= 0) throw new Error("Amount must be greater than zero.");
     if (!txn.exchangeRate || txn.exchangeRate <= 0) throw new Error("Exchange rate must be greater than zero.");
 
     const { db } = getOrCreateDb(app);
     db.prepare(`
-        INSERT INTO transactions (client_from_id, client_to_id, type, currency_from_id, currency_to_id, amount_from, amount_to, exchange_rate, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO transactions (account_from_id, account_to_id, type, amount_from, amount_to, exchange_rate, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
-        txn.clientFromId,
-        txn.clientToId,
+        txn.accountFromId,
+        txn.accountToId,
         txn.type || "exchange",
-        txn.currencyFromId,
-        txn.currencyToId,
         txn.amountFrom,
         txn.amountTo,
         txn.exchangeRate,
@@ -411,6 +467,10 @@ module.exports = {
     createClient,
     updateClient,
     deleteClient,
+    listAllClientAccounts,
+    listClientAccounts,
+    createClientAccount,
+    deleteClientAccount,
     listCurrencies,
     createCurrency,
     updateCurrency,

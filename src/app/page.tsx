@@ -39,13 +39,11 @@ type Client = {
  id: number;
  organizationId: number | null;
  organizationName: string | null;
- currencyId: number | null;
- currencyCode: string | null;
- currencySymbol: string | null;
  name: string;
  email: string;
  phone: string;
  address: string;
+ accountCount: number;
  createdAt: string;
  updatedAt: string;
 };
@@ -53,11 +51,20 @@ type Client = {
 type ClientForm = {
  id?: number;
  organizationId: number | null;
- currencyId: number | null;
  name: string;
  email: string;
  phone: string;
  address: string;
+};
+
+type ClientAccount = {
+ id: number;
+ clientId: number;
+ clientName: string;
+ currencyId: number;
+ currencyCode: string;
+ currencySymbol: string;
+ createdAt: string;
 };
 
 type Currency = {
@@ -78,17 +85,15 @@ type CurrencyForm = {
 
 type Transaction = {
  id: number;
- clientFromId: number;
+ accountFromId: number;
  clientFromName: string;
- clientToId: number;
- clientToName: string;
- type: string;
- currencyFromId: number;
  currencyFromCode: string;
  currencyFromSymbol: string;
- currencyToId: number;
+ accountToId: number;
+ clientToName: string;
  currencyToCode: string;
  currencyToSymbol: string;
+ type: string;
  amountFrom: number;
  amountTo: number;
  exchangeRate: number;
@@ -97,8 +102,8 @@ type Transaction = {
 };
 
 type TransactionForm = {
- clientFromId: number | null;
- clientToId: number | null;
+ accountFromId: number | null;
+ accountToId: number | null;
  type: string;
  amountFrom: string;
  amountTo: string;
@@ -125,7 +130,6 @@ const emptyOrganizationForm = (): OrganizationForm => ({
 
 const emptyClientForm = (): ClientForm => ({
  organizationId: null,
- currencyId: null,
  name: '',
  email: '',
  phone: '',
@@ -139,8 +143,8 @@ const emptyCurrencyForm = (): CurrencyForm => ({
 });
 
 const emptyTransactionForm = (): TransactionForm => ({
- clientFromId: null,
- clientToId: null,
+ accountFromId: null,
+ accountToId: null,
  type: 'exchange',
  amountFrom: '',
  amountTo: '',
@@ -158,6 +162,9 @@ export default function Home() {
  const [clients, setClients] = useState<Client[]>([]);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
+ const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>([]);
+ const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
+ const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [code, setCode] = useState('');
  const [name, setName] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
@@ -173,13 +180,14 @@ export default function Home() {
   }
 
   try {
-   const [db, accountRows, organizationRows, clientRows, currencyRows, transactionRows] = await Promise.all([
+   const [db, accountRows, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows] = await Promise.all([
     window.accountingApi.getDbInfo(),
     window.accountingApi.listAccounts(),
     window.accountingApi.listOrganizations(),
     window.accountingApi.listClients(),
     window.accountingApi.listCurrencies(),
     window.accountingApi.listTransactions(),
+    window.accountingApi.listAllClientAccounts(),
    ]);
 
    setDbInfo(db);
@@ -188,6 +196,7 @@ export default function Home() {
    setClients(clientRows);
    setCurrencies(currencyRows);
    setTransactions(transactionRows);
+   setClientAccounts(clientAccountRows);
    setError('');
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
@@ -280,11 +289,6 @@ export default function Home() {
 
   if (!clientForm.name.trim()) {
    setError(t('client_required'));
-   return;
-  }
-
-  if (!clientForm.currencyId) {
-   setError(t('client_currency_required'));
    return;
   }
 
@@ -392,9 +396,6 @@ export default function Home() {
    if (currencyForm.id === id) {
     setCurrencyForm(emptyCurrencyForm());
    }
-   if (clientForm.currencyId === id) {
-    setClientForm((current) => ({ ...current, currencyId: null }));
-   }
    setError('');
    await loadData();
   } catch (e) {
@@ -422,16 +423,8 @@ export default function Home() {
   const amountFrom = parseFloat(transactionForm.amountFrom);
   const exchangeRate = parseFloat(transactionForm.exchangeRate);
 
-  const clientFrom = clients.find((c) => c.id === transactionForm.clientFromId);
-  const clientTo = clients.find((c) => c.id === transactionForm.clientToId);
-
-  if (!transactionForm.clientFromId || !transactionForm.clientToId || !amountFrom || !exchangeRate) {
+  if (!transactionForm.accountFromId || !transactionForm.accountToId || !amountFrom || !exchangeRate) {
    setError(t('transaction_required'));
-   return;
-  }
-
-  if (!clientFrom?.currencyId || !clientTo?.currencyId) {
-   setError(t('transaction_client_no_currency'));
    return;
   }
 
@@ -439,11 +432,9 @@ export default function Home() {
 
   try {
    await window.accountingApi.createTransaction({
-    clientFromId: transactionForm.clientFromId,
-    clientToId: transactionForm.clientToId,
+    accountFromId: transactionForm.accountFromId,
+    accountToId: transactionForm.accountToId,
     type: transactionForm.type,
-    currencyFromId: clientFrom.currencyId,
-    currencyToId: clientTo.currencyId,
     amountFrom,
     amountTo,
     exchangeRate,
@@ -471,6 +462,30 @@ export default function Home() {
   try {
    await window.accountingApi.deleteTransaction(id);
    setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ async function onAddClientAccount(clientId: number) {
+  if (!window.accountingApi || !newAccountCurrencyId) return;
+  try {
+   await window.accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId });
+   setNewAccountCurrencyId(null);
+   await loadData();
+   // Re-sync selectedClientForAccounts with updated client data
+   setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onDeleteClientAccount(accountId: number) {
+  if (!window.accountingApi) return;
+  if (!window.confirm(t('client_account_delete_confirm'))) return;
+  try {
+   await window.accountingApi.deleteClientAccount(accountId);
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
@@ -751,32 +766,6 @@ export default function Home() {
         required
        />
 
-       <label className="mt-4 block text-sm font-medium">
-        {t('client_currency')} <span className="text-red-500">*</span>
-       </label>
-       <select
-        value={clientForm.currencyId ?? ''}
-        onChange={(event) =>
-         setClientForm((current) => ({
-          ...current,
-          currencyId: event.target.value ? Number(event.target.value) : null,
-         }))
-        }
-        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-        required
-       >
-        <option value="">{t('client_currency_placeholder')}</option>
-        {currencies.map((currency) => (
-         <option
-          key={currency.id}
-          value={currency.id}
-         >
-          {currency.code} – {currency.name}
-          {currency.symbol ? ` (${currency.symbol})` : ''}
-         </option>
-        ))}
-       </select>
-
        <label className="mt-4 block text-sm font-medium">{t('client_organization')}</label>
        <select
         value={clientForm.organizationId ?? ''}
@@ -831,83 +820,152 @@ export default function Home() {
        </button>
       </form>
 
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-       <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
-       <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
-        <table className="w-full text-sm">
-         <thead className="bg-slate-100 text-slate-700">
-          <tr>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_currency')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_organization')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_email')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_phone')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
-          </tr>
-         </thead>
-         <tbody>
-          {clients.map((client) => (
-           <tr
-            key={client.id}
-            className="border-t border-slate-200 align-top"
-           >
-            <td className="px-4 py-3 font-medium text-slate-900">{client.name}</td>
-            <td className="px-4 py-3 text-slate-600">
-             {client.currencyCode ? (
-              <span className="inline-flex items-center gap-1">
-               <span className="font-semibold text-slate-800">{client.currencyCode}</span>
-               {client.currencySymbol ? <span className="text-slate-500">({client.currencySymbol})</span> : null}
-              </span>
-             ) : (
-              '-'
-             )}
-            </td>
-            <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
-            <td className="px-4 py-3 text-slate-600">{client.email || '-'}</td>
-            <td className="px-4 py-3 text-slate-600">{client.phone || '-'}</td>
-            <td className="px-4 py-3">
-             <div className="flex flex-wrap gap-2">
-              <button
-               type="button"
-               onClick={() =>
-                setClientForm({
-                 id: client.id,
-                 organizationId: client.organizationId,
-                 currencyId: client.currencyId,
-                 name: client.name,
-                 email: client.email,
-                 phone: client.phone,
-                 address: client.address,
-                })
-               }
-               className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-               {t('edit')}
-              </button>
-              <button
-               type="button"
-               onClick={() => onDeleteClient(client.id)}
-               className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-              >
-               {t('delete')}
-              </button>
-             </div>
-            </td>
-           </tr>
-          ))}
-          {clients.length === 0 ? (
+      <div className="flex flex-col gap-4">
+       <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+         <table className="w-full text-sm">
+          <thead className="bg-slate-100 text-slate-700">
            <tr>
-            <td
-             className="px-4 py-6 text-slate-500"
-             colSpan={6}
-            >
-             {t('no_clients')}
-            </td>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_organization')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_email')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_phone')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
            </tr>
-          ) : null}
-         </tbody>
-        </table>
+          </thead>
+          <tbody>
+           {clients.map((client) => (
+            <tr
+             key={client.id}
+             className="border-t border-slate-200 align-top"
+            >
+             <td className="px-4 py-3 font-medium text-slate-900">{client.name}</td>
+             <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
+             <td className="px-4 py-3 text-slate-600">{client.email || '-'}</td>
+             <td className="px-4 py-3 text-slate-600">{client.phone || '-'}</td>
+             <td className="px-4 py-3">
+              <button
+               type="button"
+               onClick={() => setSelectedClientForAccounts(selectedClientForAccounts?.id === client.id ? null : client)}
+               className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                selectedClientForAccounts?.id === client.id ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+               }`}
+              >
+               {t('client_accounts')} ({client.accountCount})
+              </button>
+             </td>
+             <td className="px-4 py-3">
+              <div className="flex flex-wrap gap-2">
+               <button
+                type="button"
+                onClick={() =>
+                 setClientForm({
+                  id: client.id,
+                  organizationId: client.organizationId,
+                  name: client.name,
+                  email: client.email,
+                  phone: client.phone,
+                  address: client.address,
+                 })
+                }
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+               >
+                {t('edit')}
+               </button>
+               <button
+                type="button"
+                onClick={() => onDeleteClient(client.id)}
+                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+               >
+                {t('delete')}
+               </button>
+              </div>
+             </td>
+            </tr>
+           ))}
+           {clients.length === 0 ? (
+            <tr>
+             <td
+              className="px-4 py-6 text-slate-500"
+              colSpan={6}
+             >
+              {t('no_clients')}
+             </td>
+            </tr>
+           ) : null}
+          </tbody>
+         </table>
+        </div>
        </div>
+
+       {selectedClientForAccounts ? (
+        <div className="rounded-2xl bg-white p-6 shadow-sm">
+         <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">
+           {t('client_accounts_for')}: <span className="text-blue-700">{selectedClientForAccounts.name}</span>
+          </h2>
+          <button
+           type="button"
+           onClick={() => setSelectedClientForAccounts(null)}
+           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+           {t('cancel')}
+          </button>
+         </div>
+
+         <div className="mt-4 space-y-2">
+          {clientAccounts
+           .filter((a) => a.clientId === selectedClientForAccounts.id)
+           .map((account) => (
+            <div
+             key={account.id}
+             className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3"
+            >
+             <span className="font-mono font-semibold text-slate-800">{account.currencyCode}</span>
+             {account.currencySymbol ? <span className="text-slate-500">{account.currencySymbol}</span> : null}
+             <button
+              type="button"
+              onClick={() => onDeleteClientAccount(account.id)}
+              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+             >
+              {t('delete')}
+             </button>
+            </div>
+           ))}
+          {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
+         </div>
+
+         <div className="mt-4 flex gap-2">
+          <select
+           value={newAccountCurrencyId ?? ''}
+           onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          >
+           <option value="">{t('client_account_currency_placeholder')}</option>
+           {currencies
+            .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
+            .map((cur) => (
+             <option
+              key={cur.id}
+              value={cur.id}
+             >
+              {cur.code} – {cur.name}
+             </option>
+            ))}
+          </select>
+          <button
+           type="button"
+           onClick={() => onAddClientAccount(selectedClientForAccounts.id)}
+           disabled={!newAccountCurrencyId}
+           className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+           {t('client_account_open')}
+          </button>
+         </div>
+        </div>
+       ) : null}
       </div>
      </section>
     ) : null}
@@ -1064,45 +1122,51 @@ export default function Home() {
        </div>
 
        <label className="mt-5 block text-sm font-medium">
-        {t('transaction_client_from')} <span className="text-red-500">*</span>
+        {t('transaction_account_from')} <span className="text-red-500">*</span>
        </label>
        <select
-        value={transactionForm.clientFromId ?? ''}
+        value={transactionForm.accountFromId ?? ''}
         onChange={(event) =>
          setTransactionForm((current) => ({
           ...current,
-          clientFromId: event.target.value ? Number(event.target.value) : null,
+          accountFromId: event.target.value ? Number(event.target.value) : null,
          }))
         }
         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
         required
        >
-        <option value="">{t('transaction_client_placeholder')}</option>
-        {clients.map((client) => (
-         <option key={client.id} value={client.id}>
-          {client.name}{client.currencyCode ? ` — ${client.currencyCode}` : ''}
+        <option value="">{t('transaction_account_placeholder')}</option>
+        {clientAccounts.map((account) => (
+         <option
+          key={account.id}
+          value={account.id}
+         >
+          {account.clientName} — {account.currencyCode}
          </option>
         ))}
        </select>
 
        <label className="mt-4 block text-sm font-medium">
-        {t('transaction_client_to')} <span className="text-red-500">*</span>
+        {t('transaction_account_to')} <span className="text-red-500">*</span>
        </label>
        <select
-        value={transactionForm.clientToId ?? ''}
+        value={transactionForm.accountToId ?? ''}
         onChange={(event) =>
          setTransactionForm((current) => ({
           ...current,
-          clientToId: event.target.value ? Number(event.target.value) : null,
+          accountToId: event.target.value ? Number(event.target.value) : null,
          }))
         }
         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
         required
        >
-        <option value="">{t('transaction_client_placeholder')}</option>
-        {clients.map((client) => (
-         <option key={client.id} value={client.id}>
-          {client.name}{client.currencyCode ? ` — ${client.currencyCode}` : ''}
+        <option value="">{t('transaction_account_placeholder')}</option>
+        {clientAccounts.map((account) => (
+         <option
+          key={account.id}
+          value={account.id}
+         >
+          {account.clientName} — {account.currencyCode}
          </option>
         ))}
        </select>
@@ -1194,8 +1258,8 @@ export default function Home() {
         <table className="w-full text-sm">
          <thead className="bg-slate-100 text-slate-700">
           <tr>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_client_from')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_client_to')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount_from')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th>
@@ -1206,18 +1270,23 @@ export default function Home() {
          </thead>
          <tbody>
           {transactions.map((txn) => (
-           <tr key={txn.id} className="border-t border-slate-200 align-top">
-            <td className="px-4 py-3 font-medium text-slate-900">{txn.clientFromName}</td>
-            <td className="px-4 py-3 font-medium text-slate-900">{txn.clientToName}</td>
+           <tr
+            key={txn.id}
+            className="border-t border-slate-200 align-top"
+           >
+            <td className="px-4 py-3 font-medium text-slate-900">
+             {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.currencyFromCode}</span>
+            </td>
+            <td className="px-4 py-3 font-medium text-slate-900">
+             {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.currencyToCode}</span>
+            </td>
             <td className="px-4 py-3 text-slate-600 capitalize">{t(txn.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
             <td className="px-4 py-3 text-slate-700">
-             <span className="font-semibold">{txn.amountFrom.toLocaleString()}</span>{' '}
-             <span className="text-slate-500">{txn.currencyFromCode}</span>
+             <span className="font-semibold">{txn.amountFrom.toLocaleString()}</span> <span className="text-slate-500">{txn.currencyFromCode}</span>
             </td>
             <td className="px-4 py-3 font-mono text-slate-600">{txn.exchangeRate}</td>
             <td className="px-4 py-3 text-slate-700">
-             <span className="font-semibold">{txn.amountTo.toLocaleString()}</span>{' '}
-             <span className="text-slate-500">{txn.currencyToCode}</span>
+             <span className="font-semibold">{txn.amountTo.toLocaleString()}</span> <span className="text-slate-500">{txn.currencyToCode}</span>
             </td>
             <td className="px-4 py-3 text-slate-500">{new Date(txn.createdAt).toLocaleString(language)}</td>
             <td className="px-4 py-3">
@@ -1233,7 +1302,10 @@ export default function Home() {
           ))}
           {transactions.length === 0 ? (
            <tr>
-            <td className="px-4 py-6 text-slate-500" colSpan={8}>
+            <td
+             className="px-4 py-6 text-slate-500"
+             colSpan={8}
+            >
              {t('no_transactions')}
             </td>
            </tr>
