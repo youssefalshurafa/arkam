@@ -114,10 +114,17 @@ type TransactionInput = {
  description: string;
 };
 
+type DbInfo = {
+ dbPath: string;
+ dbDirectory: string;
+};
+
 declare global {
  interface Window {
   accountingApi?: {
-   getDbInfo: () => Promise<{ dbPath: string }>;
+     getDbInfo: () => Promise<DbInfo>;
+     chooseDbDirectory: () => Promise<string | null>;
+     setDbDirectory: (nextDirectory: string) => Promise<DbInfo>;
    listAccounts: () => Promise<Account[]>;
    addAccount: (code: string, name: string) => Promise<{ ok: true }>;
    listOrganizations: () => Promise<Organization[]>;

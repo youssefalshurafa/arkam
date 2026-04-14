@@ -6,6 +6,30 @@ const Database = require("better-sqlite3");
 let dbInstance;
 let dbFilePath;
 
+function getSettingsFilePath(app) {
+    return path.join(app.getPath("userData"), "settings.json");
+}
+
+function readSettings(app) {
+    const settingsPath = getSettingsFilePath(app);
+
+    try {
+        if (!fs.existsSync(settingsPath)) {
+            return {};
+        }
+
+        return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    } catch {
+        return {};
+    }
+}
+
+function writeSettings(app, nextSettings) {
+    const settingsPath = getSettingsFilePath(app);
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify(nextSettings, null, 2));
+}
+
 function getBaseDataDirectory(app) {
     const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
     if (portableDir) {
@@ -15,20 +39,20 @@ function getBaseDataDirectory(app) {
     return path.join(app.getPath("userData"), "data");
 }
 
-function getOrCreateDb(app) {
-    if (dbInstance) {
-        return { db: dbInstance, dbPath: dbFilePath };
+function getConfiguredDataDirectory(app) {
+    const settings = readSettings(app);
+
+    if (typeof settings.dbDirectory === "string" && settings.dbDirectory.trim()) {
+        return settings.dbDirectory;
     }
 
-    const baseDir = getBaseDataDirectory(app);
-    fs.mkdirSync(baseDir, { recursive: true });
+    return getBaseDataDirectory(app);
+}
 
-    dbFilePath = path.join(baseDir, "accounting.sqlite");
-    dbInstance = new Database(dbFilePath);
-
-    dbInstance.pragma("foreign_keys = ON");
-    dbInstance.pragma("journal_mode = WAL");
-    dbInstance.exec(`
+function initializeDb(db) {
+    db.pragma("foreign_keys = ON");
+    db.pragma("journal_mode = WAL");
+    db.exec(`
     CREATE TABLE IF NOT EXISTS chart_accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       code TEXT NOT NULL UNIQUE,
@@ -99,31 +123,28 @@ function getOrCreateDb(app) {
         );
   `);
 
-    // Migrate existing clients table to add currency_id if it doesn't exist
     try {
-        dbInstance.exec("ALTER TABLE clients ADD COLUMN currency_id INTEGER REFERENCES currencies(id) ON DELETE SET NULL");
-    } catch (_e) {
+        db.exec("ALTER TABLE clients ADD COLUMN currency_id INTEGER REFERENCES currencies(id) ON DELETE SET NULL");
+    } catch {
         // Column already exists – ignore
     }
 
-    // Populate client_accounts from clients.currency_id (idempotent)
     try {
-        const existingClients = dbInstance.prepare("SELECT id, currency_id FROM clients WHERE currency_id IS NOT NULL").all();
-        const insertAcc = dbInstance.prepare("INSERT OR IGNORE INTO client_accounts (client_id, currency_id) VALUES (?, ?)");
-        const migrateAccounts = dbInstance.transaction(() => {
+        const existingClients = db.prepare("SELECT id, currency_id FROM clients WHERE currency_id IS NOT NULL").all();
+        const insertAcc = db.prepare("INSERT OR IGNORE INTO client_accounts (client_id, currency_id) VALUES (?, ?)");
+        const migrateAccounts = db.transaction(() => {
             for (const c of existingClients) insertAcc.run(c.id, c.currency_id);
         });
         migrateAccounts();
-    } catch (_e) {
+    } catch {
         // ignore
     }
 
-    // Migrate old transactions schema → account_from_id / account_to_id
     try {
-        const cols = dbInstance.pragma("table_info(transactions)").map((c) => c.name);
+        const cols = db.pragma("table_info(transactions)").map((c) => c.name);
         if (!cols.includes("account_from_id") || !cols.includes("currency_id") || cols.includes("currency_from_id")) {
-            dbInstance.exec("DROP TABLE IF EXISTS transactions");
-            dbInstance.exec(`
+            db.exec("DROP TABLE IF EXISTS transactions");
+            db.exec(`
                 CREATE TABLE transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     account_from_id INTEGER NOT NULL,
@@ -143,16 +164,86 @@ function getOrCreateDb(app) {
                 )
             `);
         }
-    } catch (_e) {
+    } catch {
         // ignore
     }
+}
+
+function closeDb() {
+    if (!dbInstance) {
+        return;
+    }
+
+    try {
+        dbInstance.pragma("wal_checkpoint(TRUNCATE)");
+    } catch {
+        // ignore
+    }
+
+    dbInstance.close();
+    dbInstance = undefined;
+    dbFilePath = undefined;
+}
+
+function copyDatabaseArtifacts(sourceDbPath, targetDbPath) {
+    for (const suffix of ["", "-wal", "-shm"]) {
+        const sourcePath = `${sourceDbPath}${suffix}`;
+        const targetPath = `${targetDbPath}${suffix}`;
+
+        if (fs.existsSync(sourcePath)) {
+            fs.copyFileSync(sourcePath, targetPath);
+        }
+    }
+}
+
+function getOrCreateDb(app) {
+    if (dbInstance) {
+        return { db: dbInstance, dbPath: dbFilePath };
+    }
+
+    const baseDir = getConfiguredDataDirectory(app);
+    fs.mkdirSync(baseDir, { recursive: true });
+
+    dbFilePath = path.join(baseDir, "accounting.sqlite");
+    dbInstance = new Database(dbFilePath);
+    initializeDb(dbInstance);
 
     return { db: dbInstance, dbPath: dbFilePath };
 }
 
 function getDbInfo(app) {
     const { dbPath } = getOrCreateDb(app);
-    return { dbPath };
+    return {
+        dbPath,
+        dbDirectory: path.dirname(dbPath),
+    };
+}
+
+function setDbDirectory(app, nextDirectory) {
+    if (!nextDirectory?.trim()) {
+        throw new Error("Database folder is required.");
+    }
+
+    const resolvedDirectory = path.resolve(nextDirectory.trim());
+    const targetDbPath = path.join(resolvedDirectory, "accounting.sqlite");
+    const { dbPath: currentDbPath } = getOrCreateDb(app);
+
+    if (path.resolve(currentDbPath) === path.resolve(targetDbPath)) {
+        writeSettings(app, { ...readSettings(app), dbDirectory: resolvedDirectory });
+        return getDbInfo(app);
+    }
+
+    fs.mkdirSync(resolvedDirectory, { recursive: true });
+
+    closeDb();
+
+    if (!fs.existsSync(targetDbPath)) {
+        copyDatabaseArtifacts(currentDbPath, targetDbPath);
+    }
+
+    writeSettings(app, { ...readSettings(app), dbDirectory: resolvedDirectory });
+
+    return getDbInfo(app);
 }
 
 function listAccounts(app) {
@@ -472,6 +563,7 @@ function deleteTransaction(app, transactionId) {
 
 module.exports = {
     getDbInfo,
+    setDbDirectory,
     listAccounts,
     addAccount,
     listOrganizations,

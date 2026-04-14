@@ -1,12 +1,14 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const path = require("node:path");
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const db = require("./db");
 
 const isDev = process.env.NODE_ENV === "development";
 
+let mainWindow;
+
 function createMainWindow() {
-    const mainWindow = new BrowserWindow({
+    mainWindow = new BrowserWindow({
         width: 1360,
         height: 900,
         minWidth: 1024,
@@ -31,6 +33,30 @@ function createMainWindow() {
 
 function registerIpcHandlers() {
     ipcMain.handle("db:get-info", () => db.getDbInfo(app));
+    ipcMain.handle("db:choose-directory", async () => {
+        const { dbDirectory } = db.getDbInfo(app);
+        const result = await dialog.showOpenDialog(mainWindow, {
+            defaultPath: dbDirectory,
+            properties: ["openDirectory", "createDirectory"],
+        });
+
+        if (result.canceled || result.filePaths.length === 0) {
+            return null;
+        }
+
+        return result.filePaths[0];
+    });
+    ipcMain.handle("db:set-directory", (_event, nextDirectory) => {
+        console.log("[db:set-directory] changing to:", nextDirectory);
+        try {
+            const result = db.setDbDirectory(app, nextDirectory);
+            console.log("[db:set-directory] success:", result);
+            return result;
+        } catch (err) {
+            console.error("[db:set-directory] error:", err);
+            throw err;
+        }
+    });
     ipcMain.handle("accounts:list", () => db.listAccounts(app));
     ipcMain.handle("accounts:add", (_event, payload) => {
         db.addAccount(app, payload.code, payload.name);

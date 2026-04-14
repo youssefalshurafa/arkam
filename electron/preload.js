@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("accountingApi", {
     getDbInfo: () => ipcRenderer.invoke("db:get-info"),
+    chooseDbDirectory: () => ipcRenderer.invoke("db:choose-directory"),
+    setDbDirectory: (nextDirectory) => ipcRenderer.invoke("db:set-directory", nextDirectory),
     listAccounts: () => ipcRenderer.invoke("accounts:list"),
     addAccount: (code, name) => ipcRenderer.invoke("accounts:add", { code, name }),
     listOrganizations: () => ipcRenderer.invoke("organizations:list"),
