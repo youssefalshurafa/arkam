@@ -1,18 +1,67 @@
 export {};
 
+type Account = {
+ id: number;
+ code: string;
+ name: string;
+ createdAt: string;
+};
+
+type Organization = {
+ id: number;
+ name: string;
+ email: string;
+ phone: string;
+ address: string;
+ taxId: string;
+ createdAt: string;
+ updatedAt: string;
+};
+
+type OrganizationInput = {
+ id?: number;
+ name: string;
+ email: string;
+ phone: string;
+ address: string;
+ taxId: string;
+};
+
+type Client = {
+ id: number;
+ organizationId: number | null;
+ organizationName: string | null;
+ name: string;
+ email: string;
+ phone: string;
+ address: string;
+ createdAt: string;
+ updatedAt: string;
+};
+
+type ClientInput = {
+ id?: number;
+ organizationId: number | null;
+ name: string;
+ email: string;
+ phone: string;
+ address: string;
+};
+
 declare global {
  interface Window {
   accountingApi?: {
    getDbInfo: () => Promise<{ dbPath: string }>;
-   listAccounts: () => Promise<
-    Array<{
-     id: number;
-     code: string;
-     name: string;
-     createdAt: string;
-    }>
-   >;
+    listAccounts: () => Promise<Account[]>;
    addAccount: (code: string, name: string) => Promise<{ ok: true }>;
+    listOrganizations: () => Promise<Organization[]>;
+    createOrganization: (organization: OrganizationInput) => Promise<{ ok: true }>;
+    updateOrganization: (organization: OrganizationInput) => Promise<{ ok: true }>;
+    deleteOrganization: (organizationId: number) => Promise<{ ok: true }>;
+    listClients: () => Promise<Client[]>;
+    createClient: (client: ClientInput) => Promise<{ ok: true }>;
+    updateClient: (client: ClientInput) => Promise<{ ok: true }>;
+    deleteClient: (clientId: number) => Promise<{ ok: true }>;
   };
  }
 }

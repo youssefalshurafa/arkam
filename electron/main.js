@@ -36,6 +36,32 @@ function registerIpcHandlers() {
         db.addAccount(app, payload.code, payload.name);
         return { ok: true };
     });
+    ipcMain.handle("organizations:list", () => db.listOrganizations(app));
+    ipcMain.handle("organizations:create", (_event, payload) => {
+        db.createOrganization(app, payload);
+        return { ok: true };
+    });
+    ipcMain.handle("organizations:update", (_event, payload) => {
+        db.updateOrganization(app, payload);
+        return { ok: true };
+    });
+    ipcMain.handle("organizations:delete", (_event, organizationId) => {
+        db.deleteOrganization(app, organizationId);
+        return { ok: true };
+    });
+    ipcMain.handle("clients:list", () => db.listClients(app));
+    ipcMain.handle("clients:create", (_event, payload) => {
+        db.createClient(app, payload);
+        return { ok: true };
+    });
+    ipcMain.handle("clients:update", (_event, payload) => {
+        db.updateClient(app, payload);
+        return { ok: true };
+    });
+    ipcMain.handle("clients:delete", (_event, clientId) => {
+        db.deleteClient(app, clientId);
+        return { ok: true };
+    });
 }
 
 app.whenReady().then(() => {
