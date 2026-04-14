@@ -26,7 +26,7 @@ function getOrCreateDb(app) {
     dbFilePath = path.join(baseDir, "accounting.sqlite");
     dbInstance = new Database(dbFilePath);
 
-        dbInstance.pragma("foreign_keys = ON");
+    dbInstance.pragma("foreign_keys = ON");
     dbInstance.pragma("journal_mode = WAL");
     dbInstance.exec(`
     CREATE TABLE IF NOT EXISTS chart_accounts (
@@ -47,18 +47,36 @@ function getOrCreateDb(app) {
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        CREATE TABLE IF NOT EXISTS currencies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            symbol TEXT NOT NULL DEFAULT '',
+            is_main INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             organization_id INTEGER,
+            currency_id INTEGER,
             name TEXT NOT NULL,
             email TEXT DEFAULT '',
             phone TEXT DEFAULT '',
             address TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
+            FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL,
+            FOREIGN KEY (currency_id) REFERENCES currencies(id) ON DELETE SET NULL
         );
   `);
+
+    // Migrate existing clients table to add currency_id if it doesn't exist
+    try {
+        dbInstance.exec("ALTER TABLE clients ADD COLUMN currency_id INTEGER REFERENCES currencies(id) ON DELETE SET NULL");
+    } catch (_e) {
+        // Column already exists – ignore
+    }
 
     return { db: dbInstance, dbPath: dbFilePath };
 }
@@ -153,6 +171,9 @@ function listClients(app) {
         clients.id,
         clients.organization_id as organizationId,
         organizations.name as organizationName,
+        clients.currency_id as currencyId,
+        currencies.code as currencyCode,
+        currencies.symbol as currencySymbol,
         clients.name,
         clients.email,
         clients.phone,
@@ -161,6 +182,7 @@ function listClients(app) {
         clients.updated_at as updatedAt
       FROM clients
       LEFT JOIN organizations ON organizations.id = clients.organization_id
+      LEFT JOIN currencies ON currencies.id = clients.currency_id
       ORDER BY clients.name COLLATE NOCASE ASC
     `);
     return stmt.all();
@@ -173,11 +195,12 @@ function createClient(app, client) {
 
     const { db } = getOrCreateDb(app);
     const stmt = db.prepare(`
-      INSERT INTO clients (organization_id, name, email, phone, address)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO clients (organization_id, currency_id, name, email, phone, address)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
         client.organizationId || null,
+        client.currencyId || null,
         client.name.trim(),
         client.email?.trim() || "",
         client.phone?.trim() || "",
@@ -197,11 +220,12 @@ function updateClient(app, client) {
     const { db } = getOrCreateDb(app);
     const stmt = db.prepare(`
       UPDATE clients
-      SET organization_id = ?, name = ?, email = ?, phone = ?, address = ?, updated_at = datetime('now')
+      SET organization_id = ?, currency_id = ?, name = ?, email = ?, phone = ?, address = ?, updated_at = datetime('now')
       WHERE id = ?
     `);
     stmt.run(
         client.organizationId || null,
+        client.currencyId || null,
         client.name.trim(),
         client.email?.trim() || "",
         client.phone?.trim() || "",
@@ -216,6 +240,58 @@ function deleteClient(app, clientId) {
     stmt.run(clientId);
 }
 
+// ── Currencies ──────────────────────────────────────────────────────────────
+
+function listCurrencies(app) {
+    const { db } = getOrCreateDb(app);
+    return db.prepare(`
+        SELECT id, code, name, symbol, is_main as isMain, created_at as createdAt
+        FROM currencies ORDER BY code COLLATE NOCASE ASC
+    `).all();
+}
+
+function createCurrency(app, currency) {
+    if (!currency.code?.trim() || !currency.name?.trim()) {
+        throw new Error("Currency code and name are required.");
+    }
+    const { db } = getOrCreateDb(app);
+    db.prepare(`INSERT INTO currencies (code, name, symbol) VALUES (?, ?, ?)`).run(
+        currency.code.trim().toUpperCase(),
+        currency.name.trim(),
+        currency.symbol?.trim() || "",
+    );
+}
+
+function updateCurrency(app, currency) {
+    if (!currency.id) throw new Error("Currency id is required.");
+    if (!currency.code?.trim() || !currency.name?.trim()) {
+        throw new Error("Currency code and name are required.");
+    }
+    const { db } = getOrCreateDb(app);
+    db.prepare(`
+        UPDATE currencies SET code = ?, name = ?, symbol = ? WHERE id = ?
+    `).run(
+        currency.code.trim().toUpperCase(),
+        currency.name.trim(),
+        currency.symbol?.trim() || "",
+        currency.id,
+    );
+}
+
+function deleteCurrency(app, currencyId) {
+    const { db } = getOrCreateDb(app);
+    db.prepare("DELETE FROM currencies WHERE id = ?").run(currencyId);
+}
+
+function setMainCurrency(app, currencyId) {
+    const { db } = getOrCreateDb(app);
+    const setMain = db.transaction(() => {
+        db.prepare("UPDATE currencies SET is_main = 0").run();
+        db.prepare("UPDATE currencies SET is_main = 1 WHERE id = ?").run(currencyId);
+    });
+    setMain();
+}
+
 module.exports = {
     getDbInfo,
     listAccounts,
@@ -228,4 +304,9 @@ module.exports = {
     createClient,
     updateClient,
     deleteClient,
+    listCurrencies,
+    createCurrency,
+    updateCurrency,
+    deleteCurrency,
+    setMainCurrency,
 };

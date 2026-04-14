@@ -13,4 +13,9 @@ contextBridge.exposeInMainWorld("accountingApi", {
     createClient: (client) => ipcRenderer.invoke("clients:create", client),
     updateClient: (client) => ipcRenderer.invoke("clients:update", client),
     deleteClient: (clientId) => ipcRenderer.invoke("clients:delete", clientId),
+    listCurrencies: () => ipcRenderer.invoke("currencies:list"),
+    createCurrency: (currency) => ipcRenderer.invoke("currencies:create", currency),
+    updateCurrency: (currency) => ipcRenderer.invoke("currencies:update", currency),
+    deleteCurrency: (currencyId) => ipcRenderer.invoke("currencies:delete", currencyId),
+    setMainCurrency: (currencyId) => ipcRenderer.invoke("currencies:set-main", currencyId),
 });

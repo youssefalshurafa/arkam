@@ -62,6 +62,23 @@ function registerIpcHandlers() {
         db.deleteClient(app, clientId);
         return { ok: true };
     });
+    ipcMain.handle("currencies:list", () => db.listCurrencies(app));
+    ipcMain.handle("currencies:create", (_event, payload) => {
+        db.createCurrency(app, payload);
+        return { ok: true };
+    });
+    ipcMain.handle("currencies:update", (_event, payload) => {
+        db.updateCurrency(app, payload);
+        return { ok: true };
+    });
+    ipcMain.handle("currencies:delete", (_event, currencyId) => {
+        db.deleteCurrency(app, currencyId);
+        return { ok: true };
+    });
+    ipcMain.handle("currencies:set-main", (_event, currencyId) => {
+        db.setMainCurrency(app, currencyId);
+        return { ok: true };
+    });
 }
 
 app.whenReady().then(() => {

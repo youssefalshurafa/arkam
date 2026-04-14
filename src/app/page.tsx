@@ -39,6 +39,9 @@ type Client = {
  id: number;
  organizationId: number | null;
  organizationName: string | null;
+ currencyId: number | null;
+ currencyCode: string | null;
+ currencySymbol: string | null;
  name: string;
  email: string;
  phone: string;
@@ -50,15 +53,32 @@ type Client = {
 type ClientForm = {
  id?: number;
  organizationId: number | null;
+ currencyId: number | null;
  name: string;
  email: string;
  phone: string;
  address: string;
 };
 
-type Section = 'overview' | 'organizations' | 'clients' | 'accounts';
+type Currency = {
+ id: number;
+ code: string;
+ name: string;
+ symbol: string;
+ isMain: number;
+ createdAt: string;
+};
 
-const allowedSections: Section[] = ['overview', 'organizations', 'clients', 'accounts'];
+type CurrencyForm = {
+ id?: number;
+ code: string;
+ name: string;
+ symbol: string;
+};
+
+type Section = 'overview' | 'organizations' | 'clients' | 'currencies' | 'accounts';
+
+const allowedSections: Section[] = ['overview', 'organizations', 'clients', 'currencies', 'accounts'];
 
 function getSectionFromHash(hash: string): Section {
  const normalized = hash.replace('#', '');
@@ -75,10 +95,17 @@ const emptyOrganizationForm = (): OrganizationForm => ({
 
 const emptyClientForm = (): ClientForm => ({
  organizationId: null,
+ currencyId: null,
  name: '',
  email: '',
  phone: '',
  address: '',
+});
+
+const emptyCurrencyForm = (): CurrencyForm => ({
+ code: '',
+ name: '',
+ symbol: '',
 });
 
 export default function Home() {
@@ -89,10 +116,12 @@ export default function Home() {
  const [accounts, setAccounts] = useState<Account[]>([]);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
+ const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [code, setCode] = useState('');
  const [name, setName] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
+ const [currencyForm, setCurrencyForm] = useState<CurrencyForm>(emptyCurrencyForm);
  const [error, setError] = useState('');
 
  async function loadData() {
@@ -102,17 +131,19 @@ export default function Home() {
   }
 
   try {
-   const [db, accountRows, organizationRows, clientRows] = await Promise.all([
+   const [db, accountRows, organizationRows, clientRows, currencyRows] = await Promise.all([
     window.accountingApi.getDbInfo(),
     window.accountingApi.listAccounts(),
     window.accountingApi.listOrganizations(),
     window.accountingApi.listClients(),
+    window.accountingApi.listCurrencies(),
    ]);
 
    setDbInfo(db);
    setAccounts(accountRows);
    setOrganizations(organizationRows);
    setClients(clientRows);
+   setCurrencies(currencyRows);
    setError('');
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
@@ -208,6 +239,11 @@ export default function Home() {
    return;
   }
 
+  if (!clientForm.currencyId) {
+   setError(t('client_currency_required'));
+   return;
+  }
+
   try {
    if (clientForm.id) {
     await window.accountingApi.updateClient(clientForm);
@@ -270,15 +306,78 @@ export default function Home() {
   }
  }
 
+ async function onCurrencySubmit(event: FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  if (!window.accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  if (!currencyForm.code.trim() || !currencyForm.name.trim()) {
+   setError(t('currency_required'));
+   return;
+  }
+
+  try {
+   if (currencyForm.id) {
+    await window.accountingApi.updateCurrency(currencyForm);
+   } else {
+    await window.accountingApi.createCurrency(currencyForm);
+   }
+
+   setCurrencyForm(emptyCurrencyForm());
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ }
+
+ async function onDeleteCurrency(id: number) {
+  if (!window.accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  if (!window.confirm(t('currency_delete_confirm'))) {
+   return;
+  }
+
+  try {
+   await window.accountingApi.deleteCurrency(id);
+   if (currencyForm.id === id) {
+    setCurrencyForm(emptyCurrencyForm());
+   }
+   if (clientForm.currencyId === id) {
+    setClientForm((current) => ({ ...current, currencyId: null }));
+   }
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ async function onSetMainCurrency(id: number) {
+  if (!window.accountingApi) return;
+  try {
+   await window.accountingApi.setMainCurrency(id);
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ }
+
  const navItems: Array<{ key: Section; label: string }> = [
   { key: 'overview', label: t('nav_overview') },
   { key: 'organizations', label: t('nav_organizations') },
   { key: 'clients', label: t('nav_clients') },
+  { key: 'currencies', label: t('nav_currencies') },
   { key: 'accounts', label: t('nav_accounts') },
  ];
 
  const overviewCards = [
-  { label: t('overview_accounts'), value: accounts.length },
+  { label: t('overview_currencies'), value: currencies.length },
   { label: t('overview_organizations'), value: organizations.length },
   { label: t('overview_clients'), value: clients.length },
  ];
@@ -314,7 +413,7 @@ export default function Home() {
     </div>
 
     <nav className="relative z-20 rounded-2xl bg-white p-2 shadow-sm">
-     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+     <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-5">
       {navItems.map((item) => (
        <button
         key={item.key}
@@ -541,6 +640,32 @@ export default function Home() {
         required
        />
 
+       <label className="mt-4 block text-sm font-medium">
+        {t('client_currency')} <span className="text-red-500">*</span>
+       </label>
+       <select
+        value={clientForm.currencyId ?? ''}
+        onChange={(event) =>
+         setClientForm((current) => ({
+          ...current,
+          currencyId: event.target.value ? Number(event.target.value) : null,
+         }))
+        }
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        required
+       >
+        <option value="">{t('client_currency_placeholder')}</option>
+        {currencies.map((currency) => (
+         <option
+          key={currency.id}
+          value={currency.id}
+         >
+          {currency.code} – {currency.name}
+          {currency.symbol ? ` (${currency.symbol})` : ''}
+         </option>
+        ))}
+       </select>
+
        <label className="mt-4 block text-sm font-medium">{t('client_organization')}</label>
        <select
         value={clientForm.organizationId ?? ''}
@@ -602,6 +727,7 @@ export default function Home() {
          <thead className="bg-slate-100 text-slate-700">
           <tr>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_currency')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_organization')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_email')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_phone')}</th>
@@ -615,6 +741,16 @@ export default function Home() {
             className="border-t border-slate-200 align-top"
            >
             <td className="px-4 py-3 font-medium text-slate-900">{client.name}</td>
+            <td className="px-4 py-3 text-slate-600">
+             {client.currencyCode ? (
+              <span className="inline-flex items-center gap-1">
+               <span className="font-semibold text-slate-800">{client.currencyCode}</span>
+               {client.currencySymbol ? <span className="text-slate-500">({client.currencySymbol})</span> : null}
+              </span>
+             ) : (
+              '-'
+             )}
+            </td>
             <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
             <td className="px-4 py-3 text-slate-600">{client.email || '-'}</td>
             <td className="px-4 py-3 text-slate-600">{client.phone || '-'}</td>
@@ -626,6 +762,7 @@ export default function Home() {
                 setClientForm({
                  id: client.id,
                  organizationId: client.organizationId,
+                 currencyId: client.currencyId,
                  name: client.name,
                  email: client.email,
                  phone: client.phone,
@@ -651,9 +788,149 @@ export default function Home() {
            <tr>
             <td
              className="px-4 py-6 text-slate-500"
-             colSpan={5}
+             colSpan={6}
             >
              {t('no_clients')}
+            </td>
+           </tr>
+          ) : null}
+         </tbody>
+        </table>
+       </div>
+      </div>
+     </section>
+    ) : null}
+
+    {section === 'currencies' ? (
+     <section className={`grid gap-6 ${isRTL ? 'xl:grid-cols-[1fr_380px]' : 'xl:grid-cols-[380px_1fr]'}`}>
+      <form
+       onSubmit={onCurrencySubmit}
+       className="rounded-2xl bg-white p-6 shadow-sm"
+      >
+       <div className="flex items-center justify-between gap-3">
+        <div>
+         <h2 className="text-xl font-semibold">{currencyForm.id ? t('update_currency') : t('new_currency')}</h2>
+         <p className="mt-1 text-sm text-slate-600">{t('currencies_description')}</p>
+        </div>
+        {currencyForm.id ? (
+         <button
+          type="button"
+          onClick={() => setCurrencyForm(emptyCurrencyForm())}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+         >
+          {t('cancel')}
+         </button>
+        ) : null}
+       </div>
+
+       <label className="mt-5 block text-sm font-medium">{t('currency_code')}</label>
+       <input
+        value={currencyForm.code}
+        onChange={(event) => setCurrencyForm((current) => ({ ...current, code: event.target.value.toUpperCase() }))}
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        placeholder={t('currency_code_placeholder')}
+        maxLength={10}
+        required
+       />
+
+       <label className="mt-4 block text-sm font-medium">{t('currency_name')}</label>
+       <input
+        value={currencyForm.name}
+        onChange={(event) => setCurrencyForm((current) => ({ ...current, name: event.target.value }))}
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        placeholder={t('currency_name_placeholder')}
+        required
+       />
+
+       <label className="mt-4 block text-sm font-medium">{t('currency_symbol')}</label>
+       <input
+        value={currencyForm.symbol}
+        onChange={(event) => setCurrencyForm((current) => ({ ...current, symbol: event.target.value }))}
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        placeholder={t('currency_symbol_placeholder')}
+       />
+
+       <button
+        type="submit"
+        className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+       >
+        {currencyForm.id ? t('update_currency') : t('save_currency')}
+       </button>
+      </form>
+
+      <div className="rounded-2xl bg-white p-6 shadow-sm">
+       <h2 className="text-xl font-semibold">{t('currencies_title')}</h2>
+       <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full text-sm">
+         <thead className="bg-slate-100 text-slate-700">
+          <tr>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('currency_code')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('currency_name')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('currency_symbol')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('main_currency')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
+          </tr>
+         </thead>
+         <tbody>
+          {currencies.map((currency) => (
+           <tr
+            key={currency.id}
+            className="border-t border-slate-200 align-top"
+           >
+            <td className="px-4 py-3 font-mono font-semibold text-slate-900">{currency.code}</td>
+            <td className="px-4 py-3 text-slate-700">{currency.name}</td>
+            <td className="px-4 py-3 text-slate-600">{currency.symbol || '-'}</td>
+            <td className="px-4 py-3">
+             {currency.isMain === 1 ? (
+              <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
+             ) : (
+              <span className="text-slate-400">—</span>
+             )}
+            </td>
+            <td className="px-4 py-3">
+             <div className="flex flex-wrap gap-2">
+              <button
+               type="button"
+               onClick={() =>
+                setCurrencyForm({
+                 id: currency.id,
+                 code: currency.code,
+                 name: currency.name,
+                 symbol: currency.symbol,
+                })
+               }
+               className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+               {t('edit')}
+              </button>
+              <button
+               type="button"
+               onClick={() => onDeleteCurrency(currency.id)}
+               disabled={currency.isMain === 1}
+               className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+               {t('delete')}
+              </button>
+              {currency.isMain !== 1 ? (
+               <button
+                type="button"
+                onClick={() => onSetMainCurrency(currency.id)}
+                className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+               >
+                {t('set_as_main')}
+               </button>
+              ) : null}
+             </div>
+            </td>
+           </tr>
+          ))}
+          {currencies.length === 0 ? (
+           <tr>
+            <td
+             className="px-4 py-6 text-slate-500"
+             colSpan={5}
+            >
+             {t('no_currencies')}
             </td>
            </tr>
           ) : null}
