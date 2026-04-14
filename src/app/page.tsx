@@ -87,16 +87,19 @@ type Transaction = {
  id: number;
  accountFromId: number;
  clientFromName: string;
- currencyFromCode: string;
- currencyFromSymbol: string;
+ accountFromCurrencyCode: string;
  accountToId: number;
  clientToName: string;
- currencyToCode: string;
- currencyToSymbol: string;
+ accountToCurrencyCode: string;
+ currencyId: number;
+ currencyCode: string;
+ currencySymbol: string;
+ amount: number;
  type: string;
- amountFrom: number;
- amountTo: number;
- exchangeRate: number;
+ exchangeRateFrom: number;
+ commissionFrom: number;
+ exchangeRateTo: number;
+ commissionTo: number;
  description: string;
  createdAt: string;
 };
@@ -104,16 +107,43 @@ type Transaction = {
 type TransactionForm = {
  accountFromId: number | null;
  accountToId: number | null;
+ currencyId: number | null;
+ amount: string;
  type: string;
- amountFrom: string;
- amountTo: string;
- exchangeRate: string;
+ exchangeRateFrom: string;
+ commissionFrom: string;
+ exchangeRateTo: string;
+ commissionTo: string;
  description: string;
 };
 
-type Section = 'overview' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'accounts';
+type ClientLedgerEntry = {
+ transactionId: number;
+ createdAt: string;
+ counterpartyName: string;
+ direction: 'incoming' | 'outgoing';
+ type: string;
+ amount: number;
+ currencyCode: string;
+ exchangeRate: number;
+ commission: number;
+ netChange: number;
+ runningBalance: number;
+ description: string;
+};
 
-const allowedSections: Section[] = ['overview', 'organizations', 'clients', 'currencies', 'transactions', 'accounts'];
+type ClientAccountLedger = {
+ accountId: number;
+ currencyCode: string;
+ currencySymbol: string;
+ currentBalance: number;
+ transactionCount: number;
+ entries: ClientLedgerEntry[];
+};
+
+type Section = 'overview' | 'organizations' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'accounts';
+
+const allowedSections: Section[] = ['overview', 'organizations', 'clients', 'client-ledger', 'currencies', 'transactions', 'accounts'];
 
 function getSectionFromHash(hash: string): Section {
  const normalized = hash.replace('#', '');
@@ -145,10 +175,13 @@ const emptyCurrencyForm = (): CurrencyForm => ({
 const emptyTransactionForm = (): TransactionForm => ({
  accountFromId: null,
  accountToId: null,
+ currencyId: null,
+ amount: '',
  type: 'exchange',
- amountFrom: '',
- amountTo: '',
- exchangeRate: '',
+ exchangeRateFrom: '1',
+ commissionFrom: '0',
+ exchangeRateTo: '1',
+ commissionTo: '0',
  description: '',
 });
 
@@ -164,6 +197,7 @@ export default function Home() {
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>([]);
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
+ const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [code, setCode] = useState('');
  const [name, setName] = useState('');
@@ -197,6 +231,8 @@ export default function Home() {
    setCurrencies(currencyRows);
    setTransactions(transactionRows);
    setClientAccounts(clientAccountRows);
+  setSelectedClientForAccounts((current) => (current ? clientRows.find((client) => client.id === current.id) ?? null : null));
+  setSelectedClientForLedger((current) => (current ? clientRows.find((client) => client.id === current.id) ?? null : null));
    setError('');
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
@@ -347,6 +383,13 @@ export default function Home() {
    if (clientForm.id === id) {
     setClientForm(emptyClientForm());
    }
+    if (selectedClientForAccounts?.id === id) {
+     setSelectedClientForAccounts(null);
+    }
+    if (selectedClientForLedger?.id === id) {
+     setSelectedClientForLedger(null);
+     navigateToSection('clients');
+    }
    setError('');
    await loadData();
   } catch (e) {
@@ -420,24 +463,24 @@ export default function Home() {
    return;
   }
 
-  const amountFrom = parseFloat(transactionForm.amountFrom);
-  const exchangeRate = parseFloat(transactionForm.exchangeRate);
+  const amount = parseFloat(transactionForm.amount);
 
-  if (!transactionForm.accountFromId || !transactionForm.accountToId || !amountFrom || !exchangeRate) {
+  if (!transactionForm.accountFromId || !transactionForm.accountToId || !transactionForm.currencyId || !amount) {
    setError(t('transaction_required'));
    return;
   }
-
-  const amountTo = parseFloat(transactionForm.amountTo) || amountFrom * exchangeRate;
 
   try {
    await window.accountingApi.createTransaction({
     accountFromId: transactionForm.accountFromId,
     accountToId: transactionForm.accountToId,
+    currencyId: transactionForm.currencyId,
+    amount,
     type: transactionForm.type,
-    amountFrom,
-    amountTo,
-    exchangeRate,
+    exchangeRateFrom: parseFloat(transactionForm.exchangeRateFrom) || 1,
+    commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
+    exchangeRateTo: parseFloat(transactionForm.exchangeRateTo) || 1,
+    commissionTo: parseFloat(transactionForm.commissionTo) || 0,
     description: transactionForm.description,
    });
 
@@ -507,6 +550,77 @@ export default function Home() {
   { label: t('overview_clients'), value: clients.length },
   { label: t('overview_transactions'), value: transactions.length },
  ];
+
+ const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
+
+ const selectedClientLedgers: ClientAccountLedger[] = selectedClientForLedger
+  ? clientAccounts
+    .filter((account) => account.clientId === selectedClientForLedger.id)
+    .map((account) => {
+     const entries = transactions
+      .flatMap((transaction) => {
+       if (transaction.accountFromId === account.id) {
+        const counterparty = clientAccountMap.get(transaction.accountToId);
+        return [{
+         transactionId: transaction.id,
+         createdAt: transaction.createdAt,
+         counterpartyName: counterparty?.clientName || '-',
+         direction: 'outgoing' as const,
+         type: transaction.type,
+         amount: transaction.amount,
+         currencyCode: transaction.currencyCode,
+         exchangeRate: transaction.exchangeRateFrom,
+         commission: transaction.commissionFrom,
+         netChange: -((transaction.amount * transaction.exchangeRateFrom) + transaction.commissionFrom),
+         runningBalance: 0,
+         description: transaction.description,
+        }];
+       }
+
+       if (transaction.accountToId === account.id) {
+        const counterparty = clientAccountMap.get(transaction.accountFromId);
+        return [{
+         transactionId: transaction.id,
+         createdAt: transaction.createdAt,
+         counterpartyName: counterparty?.clientName || '-',
+         direction: 'incoming' as const,
+         type: transaction.type,
+         amount: transaction.amount,
+         currencyCode: transaction.currencyCode,
+         exchangeRate: transaction.exchangeRateTo,
+         commission: transaction.commissionTo,
+         netChange: (transaction.amount * transaction.exchangeRateTo) - transaction.commissionTo,
+         runningBalance: 0,
+         description: transaction.description,
+        }];
+       }
+
+       return [];
+      })
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+
+     let runningBalance = 0;
+     const entriesWithBalance = entries.map((entry) => {
+      runningBalance += entry.netChange;
+      return {
+       ...entry,
+       runningBalance,
+      };
+     });
+
+     return {
+      accountId: account.id,
+      currencyCode: account.currencyCode,
+      currencySymbol: account.currencySymbol,
+      currentBalance: runningBalance,
+      transactionCount: entriesWithBalance.length,
+      entries: entriesWithBalance,
+     };
+    })
+    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode))
+  : [];
+
+ const selectedClientTransactionCount = selectedClientLedgers.reduce((sum, ledger) => sum + ledger.transactionCount, 0);
 
  return (
   <div className={`min-h-screen bg-slate-100 text-slate-900 ${isRTL ? 'rtl' : 'ltr'}`}>
@@ -858,6 +972,16 @@ export default function Home() {
              </td>
              <td className="px-4 py-3">
               <div className="flex flex-wrap gap-2">
+                 <button
+                  type="button"
+                  onClick={() => {
+                   setSelectedClientForLedger(client);
+                   navigateToSection('client-ledger');
+                  }}
+                  className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                 >
+                  {t('client_page_open')}
+                 </button>
                <button
                 type="button"
                 onClick={() =>
@@ -969,6 +1093,129 @@ export default function Home() {
       </div>
      </section>
     ) : null}
+
+      {section === 'client-ledger' ? (
+       <section className="flex flex-col gap-6">
+        <div className="rounded-2xl bg-white p-6 shadow-sm">
+         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-700">{t('client_page_title')}</p>
+         <h2 className="mt-2 text-2xl font-semibold text-slate-900">{selectedClientForLedger?.name ?? t('clients_title')}</h2>
+         <p className="mt-2 text-sm text-slate-600">
+          {selectedClientForLedger ? t('client_page_description') : t('client_page_no_client')}
+         </p>
+        </div>
+
+        <button
+         type="button"
+         onClick={() => navigateToSection('clients')}
+         className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+         {t('client_page_back')}
+        </button>
+         </div>
+
+         {selectedClientForLedger ? (
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm text-slate-500">{t('client_organization')}</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{selectedClientForLedger.organizationName || t('unassigned')}</p>
+         </div>
+         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm text-slate-500">{t('client_accounts')}</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{selectedClientLedgers.length}</p>
+         </div>
+         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm text-slate-500">{t('client_page_transaction_count')}</p>
+          <p className="mt-2 text-lg font-semibold text-slate-900">{selectedClientTransactionCount}</p>
+         </div>
+        </div>
+         ) : null}
+        </div>
+
+        {!selectedClientForLedger ? (
+         <div className="rounded-2xl bg-white p-6 shadow-sm text-sm text-slate-600">{t('client_page_no_client')}</div>
+        ) : selectedClientLedgers.length === 0 ? (
+         <div className="rounded-2xl bg-white p-6 shadow-sm text-sm text-slate-600">{t('no_client_accounts')}</div>
+        ) : (
+         selectedClientLedgers.map((ledger) => (
+        <div key={ledger.accountId} className="rounded-2xl bg-white p-6 shadow-sm">
+         <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+           <h3 className="text-xl font-semibold text-slate-900">
+          {ledger.currencyCode}
+          {ledger.currencySymbol ? ` (${ledger.currencySymbol})` : ''}
+           </h3>
+           <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
+          <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+           {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+          </p>
+           </div>
+           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_transaction_count')}</p>
+          <p className="mt-2 text-xl font-bold text-slate-900">{ledger.transactionCount}</p>
+           </div>
+          </div>
+         </div>
+
+         {ledger.entries.length === 0 ? (
+          <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
+         ) : (
+          <div className="mt-5 overflow-x-auto rounded-lg border border-slate-200">
+           <table className="w-full text-sm">
+          <thead className="bg-slate-100 text-slate-700">
+           <tr>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('created')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('counterparty')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('direction')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('net_change')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('running_balance')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
+           </tr>
+          </thead>
+          <tbody>
+           {ledger.entries.map((entry) => (
+            <tr key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`} className="border-t border-slate-200 align-top">
+             <td className="px-4 py-3 text-slate-500">{new Date(entry.createdAt).toLocaleDateString(language)}</td>
+             <td className="px-4 py-3 font-medium text-slate-900">{entry.counterpartyName}</td>
+             <td className="px-4 py-3">
+            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+             {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
+            </span>
+             </td>
+             <td className="px-4 py-3 text-slate-600">{t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
+             <td className="px-4 py-3 text-slate-700">
+            {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })} {entry.currencyCode}
+             </td>
+             <td className="px-4 py-3 text-slate-600">{entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })}</td>
+             <td className="px-4 py-3 text-slate-600">{entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
+             <td className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencyCode}
+             </td>
+             <td className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+            {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencyCode}
+             </td>
+             <td className="px-4 py-3 text-slate-500">{entry.description || '-'}</td>
+            </tr>
+           ))}
+          </tbody>
+           </table>
+          </div>
+         )}
+        </div>
+         ))
+        )}
+       </section>
+      ) : null}
 
     {section === 'currencies' ? (
      <section className={`grid gap-6 ${isRTL ? 'xl:grid-cols-[1fr_380px]' : 'xl:grid-cols-[380px_1fr]'}`}>
@@ -1182,59 +1429,98 @@ export default function Home() {
        </select>
 
        <label className="mt-4 block text-sm font-medium">
-        {t('transaction_amount_from')} <span className="text-red-500">*</span>
+        {t('transaction_amount')} <span className="text-red-500">*</span>
        </label>
-       <input
-        type="number"
-        step="any"
-        min="0"
-        value={transactionForm.amountFrom}
-        onChange={(event) => {
-         const val = event.target.value;
-         const rate = parseFloat(transactionForm.exchangeRate);
-         setTransactionForm((current) => ({
-          ...current,
-          amountFrom: val,
-          amountTo: val && rate ? (parseFloat(val) * rate).toFixed(2) : current.amountTo,
-         }));
-        }}
-        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-        placeholder="0.00"
-        required
-       />
+       <div className="mt-2 flex gap-2">
+        <input
+         type="number"
+         step="any"
+         min="0"
+         value={transactionForm.amount}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, amount: event.target.value }))}
+         className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+         placeholder="0.00"
+         required
+        />
+        <select
+         value={transactionForm.currencyId ?? ''}
+         onChange={(event) =>
+          setTransactionForm((current) => ({
+           ...current,
+           currencyId: event.target.value ? Number(event.target.value) : null,
+          }))
+         }
+         className="w-28 rounded-lg border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         required
+        >
+         <option value="">{t('transaction_currency_placeholder')}</option>
+         {currencies.map((cur) => (
+          <option key={cur.id} value={cur.id}>
+           {cur.code}
+          </option>
+         ))}
+        </select>
+       </div>
 
-       <label className="mt-4 block text-sm font-medium">
-        {t('transaction_exchange_rate')} <span className="text-red-500">*</span>
-       </label>
-       <input
-        type="number"
-        step="any"
-        min="0"
-        value={transactionForm.exchangeRate}
-        onChange={(event) => {
-         const val = event.target.value;
-         const amount = parseFloat(transactionForm.amountFrom);
-         setTransactionForm((current) => ({
-          ...current,
-          exchangeRate: val,
-          amountTo: amount && val ? (amount * parseFloat(val)).toFixed(2) : current.amountTo,
-         }));
-        }}
-        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-        placeholder="1.00"
-        required
-       />
+       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+         <div>
+          <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_from')}</label>
+          <input
+           type="number"
+           step="any"
+           min="0"
+           value={transactionForm.exchangeRateFrom}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: event.target.value }))}
+           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           placeholder="1"
+          />
+         </div>
+         <div>
+          <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')}</label>
+          <input
+           type="number"
+           step="any"
+           min="0"
+           value={transactionForm.commissionFrom}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: event.target.value }))}
+           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           placeholder="0"
+          />
+         </div>
+        </div>
+       </div>
 
-       <label className="mt-4 block text-sm font-medium">{t('transaction_amount_to')}</label>
-       <input
-        type="number"
-        step="any"
-        min="0"
-        value={transactionForm.amountTo}
-        onChange={(event) => setTransactionForm((current) => ({ ...current, amountTo: event.target.value }))}
-        className="mt-2 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 outline-none ring-blue-300 focus:ring"
-        placeholder="0.00"
-       />
+       <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+         <div>
+          <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_to')}</label>
+          <input
+           type="number"
+           step="any"
+           min="0"
+           value={transactionForm.exchangeRateTo}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: event.target.value }))}
+           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           placeholder="1"
+          />
+         </div>
+         <div>
+          <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')}</label>
+          <input
+           type="number"
+           step="any"
+           min="0"
+           value={transactionForm.commissionTo}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: event.target.value }))}
+           className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           placeholder="0"
+          />
+         </div>
+        </div>
+       </div>
 
        <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
        <textarea
@@ -1261,9 +1547,9 @@ export default function Home() {
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount_from')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount_to')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_commission_from')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_commission_to')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('created')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
           </tr>
@@ -1275,19 +1561,20 @@ export default function Home() {
             className="border-t border-slate-200 align-top"
            >
             <td className="px-4 py-3 font-medium text-slate-900">
-             {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.currencyFromCode}</span>
+             <div>{txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencyCode}</span></div>
+             {txn.exchangeRateFrom !== 1 ? <div className="text-xs text-slate-500">{t('transaction_exchange_rate')}: {txn.exchangeRateFrom}</div> : null}
             </td>
             <td className="px-4 py-3 font-medium text-slate-900">
-             {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.currencyToCode}</span>
+             <div>{txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencyCode}</span></div>
+             {txn.exchangeRateTo !== 1 ? <div className="text-xs text-slate-500">{t('transaction_exchange_rate')}: {txn.exchangeRateTo}</div> : null}
             </td>
             <td className="px-4 py-3 text-slate-600 capitalize">{t(txn.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
             <td className="px-4 py-3 text-slate-700">
-             <span className="font-semibold">{txn.amountFrom.toLocaleString()}</span> <span className="text-slate-500">{txn.currencyFromCode}</span>
+             <span className="font-semibold">{txn.amount.toLocaleString()}</span>{' '}
+             <span className="text-slate-500">{txn.currencyCode}</span>
             </td>
-            <td className="px-4 py-3 font-mono text-slate-600">{txn.exchangeRate}</td>
-            <td className="px-4 py-3 text-slate-700">
-             <span className="font-semibold">{txn.amountTo.toLocaleString()}</span> <span className="text-slate-500">{txn.currencyToCode}</span>
-            </td>
+            <td className="px-4 py-3 font-mono text-slate-600">{txn.commissionFrom || '-'}</td>
+            <td className="px-4 py-3 font-mono text-slate-600">{txn.commissionTo || '-'}</td>
             <td className="px-4 py-3 text-slate-500">{new Date(txn.createdAt).toLocaleString(language)}</td>
             <td className="px-4 py-3">
              <button

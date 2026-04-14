@@ -84,16 +84,19 @@ type Transaction = {
  id: number;
  accountFromId: number;
  clientFromName: string;
- currencyFromCode: string;
- currencyFromSymbol: string;
+ accountFromCurrencyCode: string;
  accountToId: number;
  clientToName: string;
- currencyToCode: string;
- currencyToSymbol: string;
+ accountToCurrencyCode: string;
+ currencyId: number;
+ currencyCode: string;
+ currencySymbol: string;
+ amount: number;
  type: string;
- amountFrom: number;
- amountTo: number;
- exchangeRate: number;
+ exchangeRateFrom: number;
+ commissionFrom: number;
+ exchangeRateTo: number;
+ commissionTo: number;
  description: string;
  createdAt: string;
 };
@@ -101,10 +104,13 @@ type Transaction = {
 type TransactionInput = {
  accountFromId: number;
  accountToId: number;
+ currencyId: number;
+ amount: number;
  type: string;
- amountFrom: number;
- amountTo: number;
- exchangeRate: number;
+ exchangeRateFrom: number;
+ commissionFrom: number;
+ exchangeRateTo: number;
+ commissionTo: number;
  description: string;
 };
 

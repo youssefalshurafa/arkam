@@ -84,14 +84,18 @@ function getOrCreateDb(app) {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             account_from_id INTEGER NOT NULL,
             account_to_id INTEGER NOT NULL,
+            currency_id INTEGER NOT NULL,
+            amount REAL NOT NULL,
             type TEXT NOT NULL DEFAULT 'exchange',
-            amount_from REAL NOT NULL,
-            amount_to REAL NOT NULL,
-            exchange_rate REAL NOT NULL,
+            exchange_rate_from REAL NOT NULL DEFAULT 1,
+            commission_from REAL NOT NULL DEFAULT 0,
+            exchange_rate_to REAL NOT NULL DEFAULT 1,
+            commission_to REAL NOT NULL DEFAULT 0,
             description TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (account_from_id) REFERENCES client_accounts(id) ON DELETE CASCADE,
-            FOREIGN KEY (account_to_id) REFERENCES client_accounts(id) ON DELETE CASCADE
+            FOREIGN KEY (account_to_id) REFERENCES client_accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY (currency_id) REFERENCES currencies(id) ON DELETE CASCADE
         );
   `);
 
@@ -117,21 +121,25 @@ function getOrCreateDb(app) {
     // Migrate old transactions schema → account_from_id / account_to_id
     try {
         const cols = dbInstance.pragma("table_info(transactions)").map((c) => c.name);
-        if (!cols.includes("account_from_id")) {
+        if (!cols.includes("account_from_id") || !cols.includes("currency_id") || cols.includes("currency_from_id")) {
             dbInstance.exec("DROP TABLE IF EXISTS transactions");
             dbInstance.exec(`
                 CREATE TABLE transactions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     account_from_id INTEGER NOT NULL,
                     account_to_id INTEGER NOT NULL,
+                    currency_id INTEGER NOT NULL,
+                    amount REAL NOT NULL,
                     type TEXT NOT NULL DEFAULT 'exchange',
-                    amount_from REAL NOT NULL,
-                    amount_to REAL NOT NULL,
-                    exchange_rate REAL NOT NULL,
+                    exchange_rate_from REAL NOT NULL DEFAULT 1,
+                    commission_from REAL NOT NULL DEFAULT 0,
+                    exchange_rate_to REAL NOT NULL DEFAULT 1,
+                    commission_to REAL NOT NULL DEFAULT 0,
                     description TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     FOREIGN KEY (account_from_id) REFERENCES client_accounts(id) ON DELETE CASCADE,
-                    FOREIGN KEY (account_to_id) REFERENCES client_accounts(id) ON DELETE CASCADE
+                    FOREIGN KEY (account_to_id) REFERENCES client_accounts(id) ON DELETE CASCADE,
+                    FOREIGN KEY (currency_id) REFERENCES currencies(id) ON DELETE CASCADE
                 )
             `);
         }
@@ -407,45 +415,52 @@ function listTransactions(app) {
             t.id,
             t.account_from_id AS accountFromId,
             c_from.name AS clientFromName,
-            cur_from.code AS currencyFromCode,
-            cur_from.symbol AS currencyFromSymbol,
+            acur_from.code AS accountFromCurrencyCode,
             t.account_to_id AS accountToId,
             c_to.name AS clientToName,
-            cur_to.code AS currencyToCode,
-            cur_to.symbol AS currencyToSymbol,
+            acur_to.code AS accountToCurrencyCode,
+            t.currency_id AS currencyId,
+            cur.code AS currencyCode,
+            cur.symbol AS currencySymbol,
+            t.amount,
             t.type,
-            t.amount_from AS amountFrom,
-            t.amount_to AS amountTo,
-            t.exchange_rate AS exchangeRate,
+            t.exchange_rate_from AS exchangeRateFrom,
+            t.commission_from AS commissionFrom,
+            t.exchange_rate_to AS exchangeRateTo,
+            t.commission_to AS commissionTo,
             t.description,
             t.created_at AS createdAt
         FROM transactions t
         JOIN client_accounts ca_from ON ca_from.id = t.account_from_id
         JOIN clients c_from ON c_from.id = ca_from.client_id
-        JOIN currencies cur_from ON cur_from.id = ca_from.currency_id
+        JOIN currencies acur_from ON acur_from.id = ca_from.currency_id
         JOIN client_accounts ca_to ON ca_to.id = t.account_to_id
         JOIN clients c_to ON c_to.id = ca_to.client_id
-        JOIN currencies cur_to ON cur_to.id = ca_to.currency_id
+        JOIN currencies acur_to ON acur_to.id = ca_to.currency_id
+        JOIN currencies cur ON cur.id = t.currency_id
         ORDER BY t.created_at DESC
     `).all();
 }
 
 function createTransaction(app, txn) {
     if (!txn.accountFromId || !txn.accountToId) throw new Error("Both accounts are required.");
-    if (!txn.amountFrom || txn.amountFrom <= 0) throw new Error("Amount must be greater than zero.");
-    if (!txn.exchangeRate || txn.exchangeRate <= 0) throw new Error("Exchange rate must be greater than zero.");
+    if (!txn.currencyId) throw new Error("Amount currency is required.");
+    if (!txn.amount || txn.amount <= 0) throw new Error("Amount must be greater than zero.");
 
     const { db } = getOrCreateDb(app);
     db.prepare(`
-        INSERT INTO transactions (account_from_id, account_to_id, type, amount_from, amount_to, exchange_rate, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         txn.accountFromId,
         txn.accountToId,
+        txn.currencyId,
+        txn.amount,
         txn.type || "exchange",
-        txn.amountFrom,
-        txn.amountTo,
-        txn.exchangeRate,
+        txn.exchangeRateFrom || 1,
+        txn.commissionFrom || 0,
+        txn.exchangeRateTo || 1,
+        txn.commissionTo || 0,
         txn.description?.trim() || "",
     );
 }
