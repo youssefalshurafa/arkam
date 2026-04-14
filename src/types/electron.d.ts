@@ -77,9 +77,11 @@ type Transaction = {
  accountFromId: number;
  clientFromName: string;
  accountFromCurrencyCode: string;
+ accountFromCurrencySymbol: string;
  accountToId: number;
  clientToName: string;
  accountToCurrencyCode: string;
+ accountToCurrencySymbol: string;
  currencyId: number;
  currencyCode: string;
  currencySymbol: string;

@@ -81,9 +81,11 @@ type Transaction = {
  accountFromId: number;
  clientFromName: string;
  accountFromCurrencyCode: string;
+ accountFromCurrencySymbol: string;
  accountToId: number;
  clientToName: string;
  accountToCurrencyCode: string;
+ accountToCurrencySymbol: string;
  currencyId: number;
  currencyCode: string;
  currencySymbol: string;
@@ -118,6 +120,7 @@ type ClientLedgerEntry = {
  type: string;
  amount: number;
  currencyCode: string;
+ currencySymbol: string;
  exchangeRate: number;
  commission: number;
  netChange: number;
@@ -735,6 +738,7 @@ export default function Home() {
            type: transaction.type,
            amount: transaction.amount,
            currencyCode: transaction.currencyCode,
+           currencySymbol: transaction.currencySymbol,
            exchangeRate: transaction.exchangeRateFrom,
            commission: transaction.commissionFrom,
            netChange: transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
@@ -755,6 +759,7 @@ export default function Home() {
            type: transaction.type,
            amount: transaction.amount,
            currencyCode: transaction.currencyCode,
+           currencySymbol: transaction.currencySymbol,
            exchangeRate: transaction.exchangeRateTo,
            commission: transaction.commissionTo,
            netChange: -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
@@ -1262,8 +1267,7 @@ export default function Home() {
           key={account.id}
           className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3"
          >
-          <span className="font-mono font-semibold text-slate-800">{account.currencyCode}</span>
-          {account.currencySymbol ? <span className="text-slate-500">{account.currencySymbol}</span> : null}
+          <span className="font-mono font-semibold text-slate-800">{account.currencySymbol || account.currencyCode}</span>
           <button
            type="button"
            onClick={() => onDeleteClientAccount(account.id)}
@@ -1594,8 +1598,7 @@ export default function Home() {
          key={account.id}
          className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3"
         >
-         <span className="font-mono font-semibold text-slate-800">{account.currencyCode}</span>
-         {account.currencySymbol ? <span className="text-slate-500">{account.currencySymbol}</span> : null}
+         <span className="font-mono font-semibold text-slate-800">{account.currencySymbol || account.currencyCode}</span>
         </div>
        ))}
       {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
@@ -2003,10 +2006,7 @@ export default function Home() {
          >
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
            <div>
-            <h3 className="text-xl font-semibold text-slate-900">
-             {ledger.currencyCode}
-             {ledger.currencySymbol ? ` (${ledger.currencySymbol})` : ''}
-            </h3>
+            <h3 className="text-xl font-semibold text-slate-900">{ledger.currencySymbol || ledger.currencyCode}</h3>
             <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
            </div>
 
@@ -2060,15 +2060,15 @@ export default function Home() {
                 </td>
                 <td className="px-4 py-3 text-slate-600">{t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
                 <td className="px-4 py-3 text-slate-700">
-                 {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })} {entry.currencyCode}
+                 {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })} {entry.currencySymbol || entry.currencyCode}
                 </td>
                 <td className="px-4 py-3 text-slate-600">{entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })}</td>
                 <td className="px-4 py-3 text-slate-600">{entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}%</td>
                 <td className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                 {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencyCode}
+                 {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
                 </td>
                 <td className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
-                 {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencyCode}
+                 {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{entry.description || '-'}</td>
                </tr>
@@ -2293,7 +2293,7 @@ export default function Home() {
             >
              <td className="px-4 py-3 font-medium text-slate-900">
               <div>
-               {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencyCode}</span>
+               {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
               </div>
               {txn.exchangeRateFrom !== 1 ? (
                <div className="text-xs text-slate-500">
@@ -2303,7 +2303,7 @@ export default function Home() {
              </td>
              <td className="px-4 py-3 font-medium text-slate-900">
               <div>
-               {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencyCode}</span>
+               {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
               </div>
               {txn.exchangeRateTo !== 1 ? (
                <div className="text-xs text-slate-500">
@@ -2313,7 +2313,7 @@ export default function Home() {
              </td>
              <td className="px-4 py-3 text-slate-600 capitalize">{t(txn.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
              <td className="px-4 py-3 text-slate-700">
-              <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencyCode}</span>
+              <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
              </td>
              <td className="px-4 py-3 font-mono text-slate-600">{txn.commissionFrom ? `${txn.commissionFrom}%` : '-'}</td>
              <td className="px-4 py-3 font-mono text-slate-600">{txn.commissionTo ? `${txn.commissionTo}%` : '-'}</td>
