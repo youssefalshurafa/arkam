@@ -78,8 +78,10 @@ type CurrencyForm = {
 
 type Transaction = {
  id: number;
- clientId: number;
- clientName: string;
+ clientFromId: number;
+ clientFromName: string;
+ clientToId: number;
+ clientToName: string;
  type: string;
  currencyFromId: number;
  currencyFromCode: string;
@@ -95,10 +97,9 @@ type Transaction = {
 };
 
 type TransactionForm = {
- clientId: number | null;
+ clientFromId: number | null;
+ clientToId: number | null;
  type: string;
- currencyFromId: number | null;
- currencyToId: number | null;
  amountFrom: string;
  amountTo: string;
  exchangeRate: string;
@@ -138,10 +139,9 @@ const emptyCurrencyForm = (): CurrencyForm => ({
 });
 
 const emptyTransactionForm = (): TransactionForm => ({
- clientId: null,
+ clientFromId: null,
+ clientToId: null,
  type: 'exchange',
- currencyFromId: null,
- currencyToId: null,
  amountFrom: '',
  amountTo: '',
  exchangeRate: '',
@@ -422,8 +422,16 @@ export default function Home() {
   const amountFrom = parseFloat(transactionForm.amountFrom);
   const exchangeRate = parseFloat(transactionForm.exchangeRate);
 
-  if (!transactionForm.clientId || !transactionForm.currencyFromId || !transactionForm.currencyToId || !amountFrom || !exchangeRate) {
+  const clientFrom = clients.find((c) => c.id === transactionForm.clientFromId);
+  const clientTo = clients.find((c) => c.id === transactionForm.clientToId);
+
+  if (!transactionForm.clientFromId || !transactionForm.clientToId || !amountFrom || !exchangeRate) {
    setError(t('transaction_required'));
+   return;
+  }
+
+  if (!clientFrom?.currencyId || !clientTo?.currencyId) {
+   setError(t('transaction_client_no_currency'));
    return;
   }
 
@@ -431,10 +439,11 @@ export default function Home() {
 
   try {
    await window.accountingApi.createTransaction({
-    clientId: transactionForm.clientId,
+    clientFromId: transactionForm.clientFromId,
+    clientToId: transactionForm.clientToId,
     type: transactionForm.type,
-    currencyFromId: transactionForm.currencyFromId,
-    currencyToId: transactionForm.currencyToId,
+    currencyFromId: clientFrom.currencyId,
+    currencyToId: clientTo.currencyId,
     amountFrom,
     amountTo,
     exchangeRate,
@@ -1055,14 +1064,14 @@ export default function Home() {
        </div>
 
        <label className="mt-5 block text-sm font-medium">
-        {t('transaction_client')} <span className="text-red-500">*</span>
+        {t('transaction_client_from')} <span className="text-red-500">*</span>
        </label>
        <select
-        value={transactionForm.clientId ?? ''}
+        value={transactionForm.clientFromId ?? ''}
         onChange={(event) =>
          setTransactionForm((current) => ({
           ...current,
-          clientId: event.target.value ? Number(event.target.value) : null,
+          clientFromId: event.target.value ? Number(event.target.value) : null,
          }))
         }
         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
@@ -1071,7 +1080,29 @@ export default function Home() {
         <option value="">{t('transaction_client_placeholder')}</option>
         {clients.map((client) => (
          <option key={client.id} value={client.id}>
-          {client.name}
+          {client.name}{client.currencyCode ? ` — ${client.currencyCode}` : ''}
+         </option>
+        ))}
+       </select>
+
+       <label className="mt-4 block text-sm font-medium">
+        {t('transaction_client_to')} <span className="text-red-500">*</span>
+       </label>
+       <select
+        value={transactionForm.clientToId ?? ''}
+        onChange={(event) =>
+         setTransactionForm((current) => ({
+          ...current,
+          clientToId: event.target.value ? Number(event.target.value) : null,
+         }))
+        }
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        required
+       >
+        <option value="">{t('transaction_client_placeholder')}</option>
+        {clients.map((client) => (
+         <option key={client.id} value={client.id}>
+          {client.name}{client.currencyCode ? ` — ${client.currencyCode}` : ''}
          </option>
         ))}
        </select>
@@ -1084,52 +1115,6 @@ export default function Home() {
        >
         <option value="exchange">{t('transaction_type_exchange')}</option>
         <option value="transfer">{t('transaction_type_transfer')}</option>
-       </select>
-
-       <label className="mt-4 block text-sm font-medium">
-        {t('transaction_currency_from')} <span className="text-red-500">*</span>
-       </label>
-       <select
-        value={transactionForm.currencyFromId ?? ''}
-        onChange={(event) =>
-         setTransactionForm((current) => ({
-          ...current,
-          currencyFromId: event.target.value ? Number(event.target.value) : null,
-         }))
-        }
-        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-        required
-       >
-        <option value="">{t('transaction_currency_placeholder')}</option>
-        {currencies.map((currency) => (
-         <option key={currency.id} value={currency.id}>
-          {currency.code} – {currency.name}
-          {currency.symbol ? ` (${currency.symbol})` : ''}
-         </option>
-        ))}
-       </select>
-
-       <label className="mt-4 block text-sm font-medium">
-        {t('transaction_currency_to')} <span className="text-red-500">*</span>
-       </label>
-       <select
-        value={transactionForm.currencyToId ?? ''}
-        onChange={(event) =>
-         setTransactionForm((current) => ({
-          ...current,
-          currencyToId: event.target.value ? Number(event.target.value) : null,
-         }))
-        }
-        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-        required
-       >
-        <option value="">{t('transaction_currency_placeholder')}</option>
-        {currencies.map((currency) => (
-         <option key={currency.id} value={currency.id}>
-          {currency.code} – {currency.name}
-          {currency.symbol ? ` (${currency.symbol})` : ''}
-         </option>
-        ))}
        </select>
 
        <label className="mt-4 block text-sm font-medium">
@@ -1209,7 +1194,8 @@ export default function Home() {
         <table className="w-full text-sm">
          <thead className="bg-slate-100 text-slate-700">
           <tr>
-           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_client')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_client_from')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_client_to')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount_from')}</th>
            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th>
@@ -1221,7 +1207,8 @@ export default function Home() {
          <tbody>
           {transactions.map((txn) => (
            <tr key={txn.id} className="border-t border-slate-200 align-top">
-            <td className="px-4 py-3 font-medium text-slate-900">{txn.clientName}</td>
+            <td className="px-4 py-3 font-medium text-slate-900">{txn.clientFromName}</td>
+            <td className="px-4 py-3 font-medium text-slate-900">{txn.clientToName}</td>
             <td className="px-4 py-3 text-slate-600 capitalize">{t(txn.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
             <td className="px-4 py-3 text-slate-700">
              <span className="font-semibold">{txn.amountFrom.toLocaleString()}</span>{' '}
@@ -1246,7 +1233,7 @@ export default function Home() {
           ))}
           {transactions.length === 0 ? (
            <tr>
-            <td className="px-4 py-6 text-slate-500" colSpan={7}>
+            <td className="px-4 py-6 text-slate-500" colSpan={8}>
              {t('no_transactions')}
             </td>
            </tr>

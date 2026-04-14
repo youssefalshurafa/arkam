@@ -70,8 +70,10 @@ type ClientInput = {
 
 type Transaction = {
  id: number;
- clientId: number;
- clientName: string;
+ clientFromId: number;
+ clientFromName: string;
+ clientToId: number;
+ clientToName: string;
  type: string;
  currencyFromId: number;
  currencyFromCode: string;
@@ -87,7 +89,8 @@ type Transaction = {
 };
 
 type TransactionInput = {
- clientId: number;
+ clientFromId: number;
+ clientToId: number;
  type: string;
  currencyFromId: number;
  currencyToId: number;

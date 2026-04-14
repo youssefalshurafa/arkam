@@ -104,6 +104,8 @@
  "new_transaction": "New Transaction",
  "create_transaction": "Create Transaction",
  "transaction_client": "Client",
+ "transaction_client_from": "From client",
+ "transaction_client_to": "To client",
  "transaction_client_placeholder": "Select a client",
  "transaction_type": "Type",
  "transaction_type_exchange": "Exchange",
@@ -118,7 +120,8 @@
  "transaction_description_placeholder": "Optional notes about this transaction",
  "save_transaction": "Save Transaction",
  "no_transactions": "No transactions yet. Create your first transaction from the form.",
- "transaction_required": "Client, currencies, amount, and exchange rate are required.",
+ "transaction_required": "Both clients, amount, and exchange rate are required.",
+ "transaction_client_no_currency": "One or both selected clients have no currency assigned.",
  "transaction_delete_confirm": "Delete this transaction?",
  "overview_transactions": "Transactions"
 }

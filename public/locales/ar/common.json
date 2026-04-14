@@ -104,6 +104,8 @@
  "new_transaction": "معاملة جديدة",
  "create_transaction": "إنشاء معاملة",
  "transaction_client": "العميل",
+ "transaction_client_from": "من عميل",
+ "transaction_client_to": "إلى عميل",
  "transaction_client_placeholder": "اختر عميلاً",
  "transaction_type": "النوع",
  "transaction_type_exchange": "صرف",
@@ -118,7 +120,8 @@
  "transaction_description_placeholder": "ملاحظات اختيارية حول هذه المعاملة",
  "save_transaction": "حفظ المعاملة",
  "no_transactions": "لا توجد معاملات حتى الآن. أنشئ معاملتك الأولى من النموذج.",
- "transaction_required": "العميل والعملات والمبلغ وسعر الصرف مطلوبة.",
+ "transaction_required": "العميلان والمبلغ وسعر الصرف مطلوبة.",
+ "transaction_client_no_currency": "أحد العميلين المحددين أو كلاهما ليس لديه عملة معينة.",
  "transaction_delete_confirm": "هل تريد حذف هذه المعاملة؟",
  "overview_transactions": "المعاملات"
 }

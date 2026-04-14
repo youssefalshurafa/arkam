@@ -104,6 +104,8 @@
  "new_transaction": "Nouvelle transaction",
  "create_transaction": "Créer une transaction",
  "transaction_client": "Client",
+ "transaction_client_from": "Du client",
+ "transaction_client_to": "Au client",
  "transaction_client_placeholder": "Sélectionner un client",
  "transaction_type": "Type",
  "transaction_type_exchange": "Change",
@@ -118,7 +120,8 @@
  "transaction_description_placeholder": "Notes optionnelles sur cette transaction",
  "save_transaction": "Enregistrer la transaction",
  "no_transactions": "Aucune transaction pour le moment. Créez votre première transaction depuis le formulaire.",
- "transaction_required": "Le client, les devises, le montant et le taux de change sont requis.",
+ "transaction_required": "Les deux clients, le montant et le taux de change sont requis.",
+ "transaction_client_no_currency": "Un ou les deux clients sélectionnés n'ont pas de devise assignée.",
  "transaction_delete_confirm": "Supprimer cette transaction ?",
  "overview_transactions": "Transactions"
 }

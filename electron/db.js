@@ -72,7 +72,8 @@ function getOrCreateDb(app) {
 
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client_id INTEGER NOT NULL,
+            client_from_id INTEGER NOT NULL,
+            client_to_id INTEGER NOT NULL,
             type TEXT NOT NULL DEFAULT 'exchange',
             currency_from_id INTEGER NOT NULL,
             currency_to_id INTEGER NOT NULL,
@@ -81,7 +82,8 @@ function getOrCreateDb(app) {
             exchange_rate REAL NOT NULL,
             description TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            FOREIGN KEY (client_from_id) REFERENCES clients(id) ON DELETE CASCADE,
+            FOREIGN KEY (client_to_id) REFERENCES clients(id) ON DELETE CASCADE,
             FOREIGN KEY (currency_from_id) REFERENCES currencies(id),
             FOREIGN KEY (currency_to_id) REFERENCES currencies(id)
         );
@@ -92,6 +94,35 @@ function getOrCreateDb(app) {
         dbInstance.exec("ALTER TABLE clients ADD COLUMN currency_id INTEGER REFERENCES currencies(id) ON DELETE SET NULL");
     } catch (_e) {
         // Column already exists – ignore
+    }
+
+    // Migrate transactions table: old schema had client_id, new one has client_from_id + client_to_id
+    try {
+        const cols = dbInstance.pragma("table_info(transactions)").map((c) => c.name);
+        if (cols.includes("client_id") && !cols.includes("client_from_id")) {
+            dbInstance.exec("DROP TABLE transactions");
+            dbInstance.exec(`
+                CREATE TABLE transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_from_id INTEGER NOT NULL,
+                    client_to_id INTEGER NOT NULL,
+                    type TEXT NOT NULL DEFAULT 'exchange',
+                    currency_from_id INTEGER NOT NULL,
+                    currency_to_id INTEGER NOT NULL,
+                    amount_from REAL NOT NULL,
+                    amount_to REAL NOT NULL,
+                    exchange_rate REAL NOT NULL,
+                    description TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    FOREIGN KEY (client_from_id) REFERENCES clients(id) ON DELETE CASCADE,
+                    FOREIGN KEY (client_to_id) REFERENCES clients(id) ON DELETE CASCADE,
+                    FOREIGN KEY (currency_from_id) REFERENCES currencies(id),
+                    FOREIGN KEY (currency_to_id) REFERENCES currencies(id)
+                )
+            `);
+        }
+    } catch (_e) {
+        // Table doesn't exist yet or already migrated – ignore
     }
 
     return { db: dbInstance, dbPath: dbFilePath };
@@ -315,8 +346,10 @@ function listTransactions(app) {
     return db.prepare(`
         SELECT
             t.id,
-            t.client_id AS clientId,
-            c.name AS clientName,
+            t.client_from_id AS clientFromId,
+            cfrom.name AS clientFromName,
+            t.client_to_id AS clientToId,
+            cto.name AS clientToName,
             t.type,
             t.currency_from_id AS currencyFromId,
             cf.code AS currencyFromCode,
@@ -330,7 +363,8 @@ function listTransactions(app) {
             t.description,
             t.created_at AS createdAt
         FROM transactions t
-        JOIN clients c ON c.id = t.client_id
+        JOIN clients cfrom ON cfrom.id = t.client_from_id
+        JOIN clients cto ON cto.id = t.client_to_id
         JOIN currencies cf ON cf.id = t.currency_from_id
         JOIN currencies ct ON ct.id = t.currency_to_id
         ORDER BY t.created_at DESC
@@ -338,17 +372,18 @@ function listTransactions(app) {
 }
 
 function createTransaction(app, txn) {
-    if (!txn.clientId) throw new Error("Client is required.");
+    if (!txn.clientFromId || !txn.clientToId) throw new Error("Both clients are required.");
     if (!txn.currencyFromId || !txn.currencyToId) throw new Error("Both currencies are required.");
     if (!txn.amountFrom || txn.amountFrom <= 0) throw new Error("Amount must be greater than zero.");
     if (!txn.exchangeRate || txn.exchangeRate <= 0) throw new Error("Exchange rate must be greater than zero.");
 
     const { db } = getOrCreateDb(app);
     db.prepare(`
-        INSERT INTO transactions (client_id, type, currency_from_id, currency_to_id, amount_from, amount_to, exchange_rate, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO transactions (client_from_id, client_to_id, type, currency_from_id, currency_to_id, amount_from, amount_to, exchange_rate, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-        txn.clientId,
+        txn.clientFromId,
+        txn.clientToId,
         txn.type || "exchange",
         txn.currencyFromId,
         txn.currencyToId,
