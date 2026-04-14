@@ -171,6 +171,8 @@
  "no_client_accounts": "Aucun compte pour le moment. Ouvrez le premier compte ci-dessous.",
  "transaction_account_from": "De",
  "transaction_account_to": "Vers",
+ "transactions_show_new": "Nouvelle transaction",
+ "transactions_hide_new": "Masquer la nouvelle transaction",
  "transactions_edit_mode": "Mode modification",
  "transactions_done_editing": "Terminer la modification",
  "transaction_account_placeholder": "Sélectionner un compte",

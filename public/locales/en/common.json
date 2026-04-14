@@ -171,6 +171,8 @@
  "no_client_accounts": "No accounts yet. Open the first account below.",
  "transaction_account_from": "From",
  "transaction_account_to": "To",
+ "transactions_show_new": "New Transaction",
+ "transactions_hide_new": "Hide New Transaction",
  "transactions_edit_mode": "Edit Mode",
  "transactions_done_editing": "Done Editing",
  "transaction_account_placeholder": "Select an account",

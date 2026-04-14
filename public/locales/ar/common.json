@@ -172,6 +172,8 @@
  "no_client_accounts": "لا توجد حسابات حتى الآن. افتح أول حساب أدناه.",
  "transaction_account_from": "من",
  "transaction_account_to": "إلى",
+ "transactions_show_new": "معاملة جديدة",
+ "transactions_hide_new": "إخفاء المعاملة الجديدة",
  "transactions_edit_mode": "وضع التعديل",
  "transactions_done_editing": "إنهاء التعديل",
  "transaction_account_placeholder": "اختر حساباً",

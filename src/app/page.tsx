@@ -387,6 +387,7 @@ export default function Home() {
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
+ const [isNewTransactionSectionOpen, setIsNewTransactionSectionOpen] = useState(false);
  const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
@@ -942,6 +943,7 @@ export default function Home() {
    });
 
    setTransactionForm(emptyTransactionForm());
+   setIsNewTransactionSectionOpen(false);
    setError('');
    await loadData();
   } catch (e) {
@@ -2899,187 +2901,203 @@ export default function Home() {
 
      {section === 'transactions' ? (
       <section className="flex flex-col gap-6">
-       <form
-        onSubmit={onTransactionSubmit}
-        className={panelClassName}
-       >
-        <div>
-         <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
-         <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
-        </div>
-
-        <label className="mt-5 block text-sm font-medium">
-         {t('transaction_account_from')} <span className="text-red-500">*</span>
-        </label>
-        <select
-         value={transactionForm.accountFromId ?? ''}
-         onChange={(event) =>
-          setTransactionForm((current) => ({
-           ...current,
-           accountFromId: event.target.value ? Number(event.target.value) : null,
-          }))
-         }
-         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-         required
-        >
-         <option value="">{t('transaction_account_placeholder')}</option>
-         {clientAccounts.map((account) => (
-          <option
-           key={account.id}
-           value={account.id}
-          >
-           {account.clientName} — {account.currencyCode}
-          </option>
-         ))}
-        </select>
-
-        <label className="mt-4 block text-sm font-medium">
-         {t('transaction_account_to')} <span className="text-red-500">*</span>
-        </label>
-        <select
-         value={transactionForm.accountToId ?? ''}
-         onChange={(event) =>
-          setTransactionForm((current) => ({
-           ...current,
-           accountToId: event.target.value ? Number(event.target.value) : null,
-          }))
-         }
-         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-         required
-        >
-         <option value="">{t('transaction_account_placeholder')}</option>
-         {clientAccounts.map((account) => (
-          <option
-           key={account.id}
-           value={account.id}
-          >
-           {account.clientName} — {account.currencyCode}
-          </option>
-         ))}
-        </select>
-
-        <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
-        <select
-         value={transactionForm.type}
-         onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
-         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-        >
-         <option value="exchange">{t('transaction_type_exchange')}</option>
-         <option value="transfer">{t('transaction_type_transfer')}</option>
-        </select>
-
-        <label className="mt-4 block text-sm font-medium">
-         {t('transaction_amount')} <span className="text-red-500">*</span>
-        </label>
-        <div className="mt-2 flex gap-2">
-         <input
-          type="text"
-          inputMode="decimal"
-          dir="ltr"
-          value={transactionForm.amount}
-          onChange={(event) => setTransactionForm((current) => ({ ...current, amount: normalizeDecimalInput(event.target.value) }))}
-          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-          placeholder="0.00"
-          required
-         />
-         <select
-          value={transactionForm.currencyId ?? ''}
-          onChange={(event) =>
-           setTransactionForm((current) => ({
-            ...current,
-            currencyId: event.target.value ? Number(event.target.value) : null,
-           }))
-          }
-          className="w-28 rounded-lg border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-          required
+       <div className={panelClassName}>
+        <div className="flex items-start justify-between gap-4">
+         <div>
+          <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
+          <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
+         </div>
+         <button
+          type="button"
+          onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
+          aria-expanded={isNewTransactionSectionOpen}
+          className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
+           isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+          }`}
          >
-          <option value="">{t('transaction_currency_placeholder')}</option>
-          {enabledCurrencies.map((cur) => (
-           <option
-            key={cur.id}
-            value={cur.id}
+          {isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
+         </button>
+        </div>
+
+        {isNewTransactionSectionOpen ? (
+         <form
+          onSubmit={onTransactionSubmit}
+          className="mt-5"
+         >
+          <label className="block text-sm font-medium">
+           {t('transaction_account_from')} <span className="text-red-500">*</span>
+          </label>
+          <select
+           value={transactionForm.accountFromId ?? ''}
+           onChange={(event) =>
+            setTransactionForm((current) => ({
+             ...current,
+             accountFromId: event.target.value ? Number(event.target.value) : null,
+            }))
+           }
+           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+           required
+          >
+           <option value="">{t('transaction_account_placeholder')}</option>
+           {clientAccounts.map((account) => (
+            <option
+             key={account.id}
+             value={account.id}
+            >
+             {account.clientName} — {account.currencyCode}
+            </option>
+           ))}
+          </select>
+
+          <label className="mt-4 block text-sm font-medium">
+           {t('transaction_account_to')} <span className="text-red-500">*</span>
+          </label>
+          <select
+           value={transactionForm.accountToId ?? ''}
+           onChange={(event) =>
+            setTransactionForm((current) => ({
+             ...current,
+             accountToId: event.target.value ? Number(event.target.value) : null,
+            }))
+           }
+           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+           required
+          >
+           <option value="">{t('transaction_account_placeholder')}</option>
+           {clientAccounts.map((account) => (
+            <option
+             key={account.id}
+             value={account.id}
+            >
+             {account.clientName} — {account.currencyCode}
+            </option>
+           ))}
+          </select>
+
+          <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
+          <select
+           value={transactionForm.type}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
+           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+          >
+           <option value="exchange">{t('transaction_type_exchange')}</option>
+           <option value="transfer">{t('transaction_type_transfer')}</option>
+          </select>
+
+          <label className="mt-4 block text-sm font-medium">
+           {t('transaction_amount')} <span className="text-red-500">*</span>
+          </label>
+          <div className="mt-2 flex gap-2">
+           <input
+            type="text"
+            inputMode="decimal"
+            dir="ltr"
+            value={transactionForm.amount}
+            onChange={(event) => setTransactionForm((current) => ({ ...current, amount: normalizeDecimalInput(event.target.value) }))}
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+            placeholder="0.00"
+            required
+           />
+           <select
+            value={transactionForm.currencyId ?? ''}
+            onChange={(event) =>
+             setTransactionForm((current) => ({
+              ...current,
+              currencyId: event.target.value ? Number(event.target.value) : null,
+             }))
+            }
+            className="w-28 rounded-lg border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            required
            >
-            {cur.code}
-           </option>
-          ))}
-         </select>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-         <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
-         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <div>
-           <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_from')}</label>
-           <input
-            type="text"
-            inputMode="decimal"
-            dir="ltr"
-            value={transactionForm.exchangeRateFrom}
-            onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            placeholder="1"
-           />
+            <option value="">{t('transaction_currency_placeholder')}</option>
+            {enabledCurrencies.map((cur) => (
+             <option
+              key={cur.id}
+              value={cur.id}
+             >
+              {cur.code}
+             </option>
+            ))}
+           </select>
           </div>
-          <div>
-           <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
-           <input
-            type="text"
-            inputMode="decimal"
-            dir="ltr"
-            value={transactionForm.commissionFrom}
-            onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            placeholder="0"
-           />
-          </div>
-         </div>
-        </div>
 
-        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-         <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
-         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          <div>
-           <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_to')}</label>
-           <input
-            type="text"
-            inputMode="decimal"
-            dir="ltr"
-            value={transactionForm.exchangeRateTo}
-            onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            placeholder="1"
-           />
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+           <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
+           <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div>
+             <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_from')}</label>
+             <input
+              type="text"
+              inputMode="decimal"
+              dir="ltr"
+              value={transactionForm.exchangeRateFrom}
+              onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              placeholder="1"
+             />
+            </div>
+            <div>
+             <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
+             <input
+              type="text"
+              inputMode="decimal"
+              dir="ltr"
+              value={transactionForm.commissionFrom}
+              onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              placeholder="0"
+             />
+            </div>
+           </div>
           </div>
-          <div>
-           <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
-           <input
-            type="text"
-            inputMode="decimal"
-            dir="ltr"
-            value={transactionForm.commissionTo}
-            onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            placeholder="0"
-           />
+
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+           <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
+           <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div>
+             <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_to')}</label>
+             <input
+              type="text"
+              inputMode="decimal"
+              dir="ltr"
+              value={transactionForm.exchangeRateTo}
+              onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              placeholder="1"
+             />
+            </div>
+            <div>
+             <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
+             <input
+              type="text"
+              inputMode="decimal"
+              dir="ltr"
+              value={transactionForm.commissionTo}
+              onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              placeholder="0"
+             />
+            </div>
+           </div>
           </div>
-         </div>
-        </div>
 
-        <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
-        <textarea
-         value={transactionForm.description}
-         onChange={(event) => setTransactionForm((current) => ({ ...current, description: event.target.value }))}
-         className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-         placeholder={t('transaction_description_placeholder')}
-        />
+          <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
+          <textarea
+           value={transactionForm.description}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, description: event.target.value }))}
+           className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+           placeholder={t('transaction_description_placeholder')}
+          />
 
-        <button
-         type="submit"
-         className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
-        >
-         {t('save_transaction')}
-        </button>
-       </form>
+          <button
+           type="submit"
+           className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+          >
+           {t('save_transaction')}
+          </button>
+         </form>
+        ) : null}
+       </div>
 
        <div className={panelClassName}>
         <div className="flex items-start justify-between gap-4">
