@@ -120,6 +120,10 @@ function registerIpcHandlers() {
         db.createTransaction(app, payload);
         return { ok: true };
     });
+    ipcMain.handle("transactions:update", (_event, payload) => {
+        db.updateTransaction(app, payload);
+        return { ok: true };
+    });
     ipcMain.handle("transactions:delete", (_event, transactionId) => {
         db.deleteTransaction(app, transactionId);
         return { ok: true };

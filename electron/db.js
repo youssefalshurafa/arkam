@@ -534,6 +534,43 @@ function createTransaction(app, txn) {
     );
 }
 
+function updateTransaction(app, txn) {
+    if (!txn.id) throw new Error("Transaction id is required.");
+    if (!txn.accountFromId || !txn.accountToId) throw new Error("Both accounts are required.");
+    if (!txn.currencyId) throw new Error("Amount currency is required.");
+    if (!txn.amount || txn.amount <= 0) throw new Error("Amount must be greater than zero.");
+
+    const { db } = getOrCreateDb(app);
+    db.prepare(`
+        UPDATE transactions
+        SET account_from_id = ?,
+            account_to_id = ?,
+            currency_id = ?,
+            amount = ?,
+            type = ?,
+            exchange_rate_from = ?,
+            commission_from = ?,
+            exchange_rate_to = ?,
+            commission_to = ?,
+            description = ?,
+            created_at = ?
+        WHERE id = ?
+    `).run(
+        txn.accountFromId,
+        txn.accountToId,
+        txn.currencyId,
+        txn.amount,
+        txn.type || "exchange",
+        txn.exchangeRateFrom || 1,
+        txn.commissionFrom || 0,
+        txn.exchangeRateTo || 1,
+        txn.commissionTo || 0,
+        txn.description?.trim() || "",
+        txn.createdAt,
+        txn.id,
+    );
+}
+
 function deleteTransaction(app, transactionId) {
     const { db } = getOrCreateDb(app);
     db.prepare("DELETE FROM transactions WHERE id = ?").run(transactionId);
@@ -563,5 +600,6 @@ module.exports = {
     setMainCurrency,
     listTransactions,
     createTransaction,
+    updateTransaction,
     deleteTransaction,
 };

@@ -108,6 +108,11 @@ type TransactionInput = {
  description: string;
 };
 
+type TransactionUpdateInput = TransactionInput & {
+ id: number;
+ createdAt: string;
+};
+
 type DbInfo = {
  dbPath: string;
  dbDirectory: string;
@@ -140,6 +145,7 @@ declare global {
    setMainCurrency: (currencyId: number) => Promise<{ ok: true }>;
    listTransactions: () => Promise<Transaction[]>;
    createTransaction: (transaction: TransactionInput) => Promise<{ ok: true }>;
+   updateTransaction: (transaction: TransactionUpdateInput) => Promise<{ ok: true }>;
    deleteTransaction: (transactionId: number) => Promise<{ ok: true }>;
   };
  }

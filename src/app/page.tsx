@@ -112,6 +112,34 @@ type TransactionForm = {
  description: string;
 };
 
+type TransactionUpdateInput = {
+ id: number;
+ accountFromId: number;
+ accountToId: number;
+ currencyId: number;
+ amount: number;
+ type: string;
+ exchangeRateFrom: number;
+ commissionFrom: number;
+ exchangeRateTo: number;
+ commissionTo: number;
+ description: string;
+ createdAt: string;
+};
+
+type LedgerTransactionDraft = {
+ transactionId: number;
+ ledgerAccountId: number;
+ createdDate: string;
+ direction: 'incoming' | 'outgoing';
+ counterpartyAccountId: number | null;
+ type: string;
+ amount: string;
+ exchangeRate: string;
+ commission: string;
+ description: string;
+};
+
 type ClientLedgerEntry = {
  transactionId: number;
  createdAt: string;
@@ -320,6 +348,7 @@ export default function Home() {
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [clientLedgerTab, setClientLedgerTab] = useState<'entries' | 'settings'>('entries');
+ const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(defaultLedgerColumnOrder);
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({
@@ -334,6 +363,7 @@ export default function Home() {
   runningBalance: true,
   description: true,
  });
+ const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [code, setCode] = useState('');
@@ -413,6 +443,8 @@ export default function Home() {
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients') {
   setClientLedgerBackSection(origin);
   setClientLedgerTab('entries');
+  setIsClientLedgerEditMode(false);
+  setLedgerTransactionDrafts({});
   setSelectedClientForLedger(client);
   navigateToSection('client-ledger');
  }
@@ -451,6 +483,140 @@ export default function Home() {
   });
 
   setDraggedLedgerColumn(null);
+ }
+
+ function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: number): LedgerTransactionDraft {
+  const isOutgoing = transaction.accountFromId === ledgerAccountId;
+  return {
+   transactionId: transaction.id,
+   ledgerAccountId,
+   createdDate: transaction.createdAt.slice(0, 10),
+   direction: isOutgoing ? 'outgoing' : 'incoming',
+   counterpartyAccountId: isOutgoing ? transaction.accountToId : transaction.accountFromId,
+   type: transaction.type,
+   amount: String(transaction.amount),
+   exchangeRate: String(isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo),
+   commission: String(isOutgoing ? transaction.commissionFrom : transaction.commissionTo),
+   description: transaction.description,
+  };
+ }
+
+ function getLedgerTransactionDraftKey(transactionId: number, ledgerAccountId: number) {
+  return `${transactionId}:${ledgerAccountId}`;
+ }
+
+ function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: number, nextValues: Partial<LedgerTransactionDraft>) {
+  setLedgerTransactionDrafts((current) => {
+   const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
+   const existingDraft = current[draftKey];
+   if (!existingDraft) {
+    return current;
+   }
+
+   return {
+    ...current,
+    [draftKey]: {
+     ...existingDraft,
+     ...nextValues,
+    },
+   };
+  });
+ }
+
+ function beginClientLedgerEditMode() {
+  const nextDrafts: Record<string, LedgerTransactionDraft> = {};
+
+  selectedClientLedgers.forEach((ledger) => {
+   ledger.entries.forEach((entry) => {
+    const transaction = transactions.find((currentTransaction) => currentTransaction.id === entry.transactionId);
+    const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+    if (!transaction || nextDrafts[draftKey]) {
+     return;
+    }
+
+    nextDrafts[draftKey] = buildLedgerTransactionDraft(transaction, ledger.accountId);
+   });
+  });
+
+  setLedgerTransactionDrafts(nextDrafts);
+  setIsClientLedgerEditMode(true);
+ }
+
+ function cancelClientLedgerEditMode() {
+  setLedgerTransactionDrafts({});
+  setIsClientLedgerEditMode(false);
+ }
+
+ function getClientLedgerDraft(transactionId: number, ledgerAccountId: number) {
+  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
+  const existingDraft = ledgerTransactionDrafts[draftKey];
+  if (existingDraft) {
+   return existingDraft;
+  }
+
+  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+  return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
+ }
+
+ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number) {
+  if (!window.accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const draft = ledgerTransactionDrafts[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
+  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+
+  if (!draft || !transaction) {
+   return;
+  }
+
+  const amount = parseFloat(draft.amount);
+  const exchangeRate = parseFloat(draft.exchangeRate) || 1;
+  const commission = parseFloat(draft.commission) || 0;
+
+  if (!draft.counterpartyAccountId || !amount) {
+   setError(t('transaction_required'));
+   return;
+  }
+
+  const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
+  const createdAt = `${draft.createdDate} ${currentTime}`;
+  const payload: TransactionUpdateInput = {
+   id: transaction.id,
+   accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
+   accountToId: draft.direction === 'outgoing' ? draft.counterpartyAccountId : draft.ledgerAccountId,
+   currencyId: transaction.currencyId,
+   amount,
+   type: draft.type,
+   exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
+   commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
+   exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
+   commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
+   description: draft.description,
+   createdAt,
+  };
+
+  try {
+   await window.accountingApi.updateTransaction(payload);
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ }
+
+ function onCancelLedgerTransaction(transactionId: number, ledgerAccountId: number) {
+  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+  if (!transaction) {
+   return;
+  }
+
+  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
+  setLedgerTransactionDrafts((current) => ({
+   ...current,
+   [draftKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId),
+  }));
  }
 
  async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2089,6 +2255,17 @@ export default function Home() {
          >
           {t('client_ledger_tab_settings')}
          </button>
+         {selectedClientForLedger && clientLedgerTab === 'entries' ? (
+          <button
+           type="button"
+           onClick={() => (isClientLedgerEditMode ? cancelClientLedgerEditMode() : beginClientLedgerEditMode())}
+           className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
+            isClientLedgerEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+           }`}
+          >
+           {isClientLedgerEditMode ? t('client_ledger_done_editing') : t('client_ledger_edit_mode')}
+          </button>
+         ) : null}
         </div>
 
         {selectedClientForLedger ? (
@@ -2274,6 +2451,7 @@ export default function Home() {
                   );
                 }
                })}
+               {isClientLedgerEditMode ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th> : null}
               </tr>
              </thead>
              <tbody>
@@ -2282,108 +2460,229 @@ export default function Home() {
                 key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}
                 className="border-t border-slate-200 align-top"
                >
-                {orderedLedgerColumnOptions.map((column) => {
-                 if (!ledgerColumnVisibility[column.key]) {
-                  return null;
-                 }
+                {(() => {
+                 const draft = isClientLedgerEditMode ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
 
-                 switch (column.key) {
-                  case 'created':
-                   return (
-                    <td
-                     key={column.key}
-                     className="px-4 py-3 text-slate-500"
-                    >
-                     {new Date(entry.createdAt).toLocaleDateString(language)}
-                    </td>
-                   );
-                  case 'counterparty':
-                   return (
-                    <td
-                     key={column.key}
-                     className="px-4 py-3 font-medium text-slate-900"
-                    >
-                     {entry.counterpartyName}
-                    </td>
-                   );
-                  case 'direction':
-                   return (
-                    <td
-                     key={column.key}
-                     className="px-4 py-3"
-                    >
-                     <span
-                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                 return orderedLedgerColumnOptions.map((column) => {
+                  if (!ledgerColumnVisibility[column.key]) {
+                   return null;
+                  }
+
+                  switch (column.key) {
+                   case 'created':
+                    return (
+                     <td
+                      key={column.key}
+                      className="px-4 py-3 text-slate-500"
                      >
-                      {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
-                     </span>
-                    </td>
-                   );
-                  case 'type':
-                   return (
-                    <td
-                     key={column.key}
-                     className="px-4 py-3 text-slate-600"
-                    >
-                     {t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}
-                    </td>
-                   );
-                  case 'amount':
-                   return (
-                    <td
-                     key={column.key}
-                     className="px-4 py-3 text-slate-700"
-                    >
-                     {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })} {entry.currencySymbol || entry.currencyCode}
-                    </td>
-                   );
-                  case 'exchangeRate':
-                   return (
-                    <td
-                     key={column.key}
-                     className="px-4 py-3 text-slate-600"
-                    >
-                     {entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })}
-                    </td>
-                   );
-                  case 'commission':
-                   return (
-                    <td
-                     key={column.key}
-                     className="px-4 py-3 text-slate-600"
-                    >
-                     {entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}%
-                    </td>
-                   );
-                  case 'netChange':
-                   return (
-                    <td
-                     key={column.key}
-                     className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                    >
-                     {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
-                    </td>
-                   );
-                  case 'runningBalance':
-                   return (
-                    <td
-                     key={column.key}
-                     className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-slate-900' : 'text-red-600'}`}
-                    >
-                     {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
-                    </td>
-                   );
-                  case 'description':
-                   return (
-                    <td
-                     key={column.key}
-                     className="px-4 py-3 text-slate-500"
-                    >
-                     {entry.description || '-'}
-                    </td>
-                   );
-                 }
-                })}
+                      {isClientLedgerEditMode && draft ? (
+                       <input
+                        type="date"
+                        value={draft.createdDate}
+                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       />
+                      ) : (
+                       new Date(entry.createdAt).toLocaleDateString(language)
+                      )}
+                     </td>
+                    );
+                   case 'counterparty':
+                    return (
+                     <td
+                      key={column.key}
+                      className="px-4 py-3 font-medium text-slate-900"
+                     >
+                      {isClientLedgerEditMode && draft ? (
+                       <select
+                        value={draft.counterpartyAccountId ?? ''}
+                        onChange={(event) =>
+                         updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       >
+                        <option value="">{t('transaction_account_placeholder')}</option>
+                        {clientAccounts
+                         .filter((account) => account.id !== ledger.accountId)
+                         .map((account) => (
+                          <option
+                           key={account.id}
+                           value={account.id}
+                          >
+                           {account.clientName} - {account.currencySymbol || account.currencyCode}
+                          </option>
+                         ))}
+                       </select>
+                      ) : (
+                       entry.counterpartyName
+                      )}
+                     </td>
+                    );
+                   case 'direction':
+                    return (
+                     <td
+                      key={column.key}
+                      className="px-4 py-3"
+                     >
+                      {isClientLedgerEditMode && draft ? (
+                       <select
+                        value={draft.direction}
+                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       >
+                        <option value="incoming">{t('incoming')}</option>
+                        <option value="outgoing">{t('outgoing')}</option>
+                       </select>
+                      ) : (
+                       <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                       >
+                        {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
+                       </span>
+                      )}
+                     </td>
+                    );
+                   case 'type':
+                    return (
+                     <td
+                      key={column.key}
+                      className="px-4 py-3 text-slate-600"
+                     >
+                      {isClientLedgerEditMode && draft ? (
+                       <select
+                        value={draft.type}
+                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       >
+                        <option value="exchange">{t('transaction_type_exchange')}</option>
+                        <option value="transfer">{t('transaction_type_transfer')}</option>
+                       </select>
+                      ) : (
+                       t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
+                      )}
+                     </td>
+                    );
+                   case 'amount':
+                    return (
+                     <td
+                      key={column.key}
+                      className="px-4 py-3 text-slate-700"
+                     >
+                      {isClientLedgerEditMode && draft ? (
+                       <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        value={draft.amount}
+                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       />
+                      ) : (
+                       <>
+                        {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })} {entry.currencySymbol || entry.currencyCode}
+                       </>
+                      )}
+                     </td>
+                    );
+                   case 'exchangeRate':
+                    return (
+                     <td
+                      key={column.key}
+                      className="px-4 py-3 text-slate-600"
+                     >
+                      {isClientLedgerEditMode && draft ? (
+                       <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        value={draft.exchangeRate}
+                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       />
+                      ) : (
+                       entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })
+                      )}
+                     </td>
+                    );
+                   case 'commission':
+                    return (
+                     <td
+                      key={column.key}
+                      className="px-4 py-3 text-slate-600"
+                     >
+                      {isClientLedgerEditMode && draft ? (
+                       <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        value={draft.commission}
+                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       />
+                      ) : (
+                       <>{entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}%</>
+                      )}
+                     </td>
+                    );
+                   case 'netChange':
+                    return (
+                     <td
+                      key={column.key}
+                      className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                     >
+                      {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+                     </td>
+                    );
+                   case 'runningBalance':
+                    return (
+                     <td
+                      key={column.key}
+                      className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                     >
+                      {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+                     </td>
+                    );
+                   case 'description':
+                    return (
+                     <td
+                      key={column.key}
+                      className="px-4 py-3 text-slate-500"
+                     >
+                      {isClientLedgerEditMode && draft ? (
+                       <input
+                        type="text"
+                        value={draft.description}
+                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       />
+                      ) : (
+                       entry.description || '-'
+                      )}
+                     </td>
+                    );
+                  }
+                 });
+                })()}
+                {isClientLedgerEditMode ? (
+                 <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                   <button
+                    type="button"
+                    onClick={() => void onSaveLedgerTransaction(entry.transactionId, ledger.accountId)}
+                    className="cursor-pointer rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                   >
+                    {t('save_changes')}
+                   </button>
+                   <button
+                    type="button"
+                    onClick={() => onCancelLedgerTransaction(entry.transactionId, ledger.accountId)}
+                    className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                   >
+                    {t('cancel')}
+                   </button>
+                  </div>
+                 </td>
+                ) : null}
                </tr>
               ))}
              </tbody>
