@@ -68,6 +68,35 @@ type ClientInput = {
  address: string;
 };
 
+type Transaction = {
+ id: number;
+ clientId: number;
+ clientName: string;
+ type: string;
+ currencyFromId: number;
+ currencyFromCode: string;
+ currencyFromSymbol: string;
+ currencyToId: number;
+ currencyToCode: string;
+ currencyToSymbol: string;
+ amountFrom: number;
+ amountTo: number;
+ exchangeRate: number;
+ description: string;
+ createdAt: string;
+};
+
+type TransactionInput = {
+ clientId: number;
+ type: string;
+ currencyFromId: number;
+ currencyToId: number;
+ amountFrom: number;
+ amountTo: number;
+ exchangeRate: number;
+ description: string;
+};
+
 declare global {
  interface Window {
   accountingApi?: {
@@ -87,6 +116,9 @@ declare global {
    updateCurrency: (currency: CurrencyInput) => Promise<{ ok: true }>;
    deleteCurrency: (currencyId: number) => Promise<{ ok: true }>;
    setMainCurrency: (currencyId: number) => Promise<{ ok: true }>;
+   listTransactions: () => Promise<Transaction[]>;
+   createTransaction: (transaction: TransactionInput) => Promise<{ ok: true }>;
+   deleteTransaction: (transactionId: number) => Promise<{ ok: true }>;
   };
  }
 }

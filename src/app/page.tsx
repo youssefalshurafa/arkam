@@ -76,9 +76,38 @@ type CurrencyForm = {
  symbol: string;
 };
 
-type Section = 'overview' | 'organizations' | 'clients' | 'currencies' | 'accounts';
+type Transaction = {
+ id: number;
+ clientId: number;
+ clientName: string;
+ type: string;
+ currencyFromId: number;
+ currencyFromCode: string;
+ currencyFromSymbol: string;
+ currencyToId: number;
+ currencyToCode: string;
+ currencyToSymbol: string;
+ amountFrom: number;
+ amountTo: number;
+ exchangeRate: number;
+ description: string;
+ createdAt: string;
+};
 
-const allowedSections: Section[] = ['overview', 'organizations', 'clients', 'currencies', 'accounts'];
+type TransactionForm = {
+ clientId: number | null;
+ type: string;
+ currencyFromId: number | null;
+ currencyToId: number | null;
+ amountFrom: string;
+ amountTo: string;
+ exchangeRate: string;
+ description: string;
+};
+
+type Section = 'overview' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'accounts';
+
+const allowedSections: Section[] = ['overview', 'organizations', 'clients', 'currencies', 'transactions', 'accounts'];
 
 function getSectionFromHash(hash: string): Section {
  const normalized = hash.replace('#', '');
@@ -108,6 +137,17 @@ const emptyCurrencyForm = (): CurrencyForm => ({
  symbol: '',
 });
 
+const emptyTransactionForm = (): TransactionForm => ({
+ clientId: null,
+ type: 'exchange',
+ currencyFromId: null,
+ currencyToId: null,
+ amountFrom: '',
+ amountTo: '',
+ exchangeRate: '',
+ description: '',
+});
+
 export default function Home() {
  const { language, setLanguage, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -117,11 +157,13 @@ export default function Home() {
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
+ const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [code, setCode] = useState('');
  const [name, setName] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
  const [currencyForm, setCurrencyForm] = useState<CurrencyForm>(emptyCurrencyForm);
+ const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
  const [error, setError] = useState('');
 
  async function loadData() {
@@ -131,12 +173,13 @@ export default function Home() {
   }
 
   try {
-   const [db, accountRows, organizationRows, clientRows, currencyRows] = await Promise.all([
+   const [db, accountRows, organizationRows, clientRows, currencyRows, transactionRows] = await Promise.all([
     window.accountingApi.getDbInfo(),
     window.accountingApi.listAccounts(),
     window.accountingApi.listOrganizations(),
     window.accountingApi.listClients(),
     window.accountingApi.listCurrencies(),
+    window.accountingApi.listTransactions(),
    ]);
 
    setDbInfo(db);
@@ -144,6 +187,7 @@ export default function Home() {
    setOrganizations(organizationRows);
    setClients(clientRows);
    setCurrencies(currencyRows);
+   setTransactions(transactionRows);
    setError('');
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
@@ -368,11 +412,68 @@ export default function Home() {
   }
  }
 
+ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  if (!window.accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const amountFrom = parseFloat(transactionForm.amountFrom);
+  const exchangeRate = parseFloat(transactionForm.exchangeRate);
+
+  if (!transactionForm.clientId || !transactionForm.currencyFromId || !transactionForm.currencyToId || !amountFrom || !exchangeRate) {
+   setError(t('transaction_required'));
+   return;
+  }
+
+  const amountTo = parseFloat(transactionForm.amountTo) || amountFrom * exchangeRate;
+
+  try {
+   await window.accountingApi.createTransaction({
+    clientId: transactionForm.clientId,
+    type: transactionForm.type,
+    currencyFromId: transactionForm.currencyFromId,
+    currencyToId: transactionForm.currencyToId,
+    amountFrom,
+    amountTo,
+    exchangeRate,
+    description: transactionForm.description,
+   });
+
+   setTransactionForm(emptyTransactionForm());
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onDeleteTransaction(id: number) {
+  if (!window.accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  if (!window.confirm(t('transaction_delete_confirm'))) {
+   return;
+  }
+
+  try {
+   await window.accountingApi.deleteTransaction(id);
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
  const navItems: Array<{ key: Section; label: string }> = [
   { key: 'overview', label: t('nav_overview') },
   { key: 'organizations', label: t('nav_organizations') },
   { key: 'clients', label: t('nav_clients') },
   { key: 'currencies', label: t('nav_currencies') },
+  { key: 'transactions', label: t('nav_transactions') },
   { key: 'accounts', label: t('nav_accounts') },
  ];
 
@@ -380,6 +481,7 @@ export default function Home() {
   { label: t('overview_currencies'), value: currencies.length },
   { label: t('overview_organizations'), value: organizations.length },
   { label: t('overview_clients'), value: clients.length },
+  { label: t('overview_transactions'), value: transactions.length },
  ];
 
  return (
@@ -413,7 +515,7 @@ export default function Home() {
     </div>
 
     <nav className="relative z-20 rounded-2xl bg-white p-2 shadow-sm">
-     <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-5">
+     <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
       {navItems.map((item) => (
        <button
         key={item.key}
@@ -931,6 +1033,221 @@ export default function Home() {
              colSpan={5}
             >
              {t('no_currencies')}
+            </td>
+           </tr>
+          ) : null}
+         </tbody>
+        </table>
+       </div>
+      </div>
+     </section>
+    ) : null}
+
+    {section === 'transactions' ? (
+     <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
+      <form
+       onSubmit={onTransactionSubmit}
+       className="rounded-2xl bg-white p-6 shadow-sm"
+      >
+       <div>
+        <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
+        <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
+       </div>
+
+       <label className="mt-5 block text-sm font-medium">
+        {t('transaction_client')} <span className="text-red-500">*</span>
+       </label>
+       <select
+        value={transactionForm.clientId ?? ''}
+        onChange={(event) =>
+         setTransactionForm((current) => ({
+          ...current,
+          clientId: event.target.value ? Number(event.target.value) : null,
+         }))
+        }
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        required
+       >
+        <option value="">{t('transaction_client_placeholder')}</option>
+        {clients.map((client) => (
+         <option key={client.id} value={client.id}>
+          {client.name}
+         </option>
+        ))}
+       </select>
+
+       <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
+       <select
+        value={transactionForm.type}
+        onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+       >
+        <option value="exchange">{t('transaction_type_exchange')}</option>
+        <option value="transfer">{t('transaction_type_transfer')}</option>
+       </select>
+
+       <label className="mt-4 block text-sm font-medium">
+        {t('transaction_currency_from')} <span className="text-red-500">*</span>
+       </label>
+       <select
+        value={transactionForm.currencyFromId ?? ''}
+        onChange={(event) =>
+         setTransactionForm((current) => ({
+          ...current,
+          currencyFromId: event.target.value ? Number(event.target.value) : null,
+         }))
+        }
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        required
+       >
+        <option value="">{t('transaction_currency_placeholder')}</option>
+        {currencies.map((currency) => (
+         <option key={currency.id} value={currency.id}>
+          {currency.code} – {currency.name}
+          {currency.symbol ? ` (${currency.symbol})` : ''}
+         </option>
+        ))}
+       </select>
+
+       <label className="mt-4 block text-sm font-medium">
+        {t('transaction_currency_to')} <span className="text-red-500">*</span>
+       </label>
+       <select
+        value={transactionForm.currencyToId ?? ''}
+        onChange={(event) =>
+         setTransactionForm((current) => ({
+          ...current,
+          currencyToId: event.target.value ? Number(event.target.value) : null,
+         }))
+        }
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        required
+       >
+        <option value="">{t('transaction_currency_placeholder')}</option>
+        {currencies.map((currency) => (
+         <option key={currency.id} value={currency.id}>
+          {currency.code} – {currency.name}
+          {currency.symbol ? ` (${currency.symbol})` : ''}
+         </option>
+        ))}
+       </select>
+
+       <label className="mt-4 block text-sm font-medium">
+        {t('transaction_amount_from')} <span className="text-red-500">*</span>
+       </label>
+       <input
+        type="number"
+        step="any"
+        min="0"
+        value={transactionForm.amountFrom}
+        onChange={(event) => {
+         const val = event.target.value;
+         const rate = parseFloat(transactionForm.exchangeRate);
+         setTransactionForm((current) => ({
+          ...current,
+          amountFrom: val,
+          amountTo: val && rate ? (parseFloat(val) * rate).toFixed(2) : current.amountTo,
+         }));
+        }}
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        placeholder="0.00"
+        required
+       />
+
+       <label className="mt-4 block text-sm font-medium">
+        {t('transaction_exchange_rate')} <span className="text-red-500">*</span>
+       </label>
+       <input
+        type="number"
+        step="any"
+        min="0"
+        value={transactionForm.exchangeRate}
+        onChange={(event) => {
+         const val = event.target.value;
+         const amount = parseFloat(transactionForm.amountFrom);
+         setTransactionForm((current) => ({
+          ...current,
+          exchangeRate: val,
+          amountTo: amount && val ? (amount * parseFloat(val)).toFixed(2) : current.amountTo,
+         }));
+        }}
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        placeholder="1.00"
+        required
+       />
+
+       <label className="mt-4 block text-sm font-medium">{t('transaction_amount_to')}</label>
+       <input
+        type="number"
+        step="any"
+        min="0"
+        value={transactionForm.amountTo}
+        onChange={(event) => setTransactionForm((current) => ({ ...current, amountTo: event.target.value }))}
+        className="mt-2 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        placeholder="0.00"
+       />
+
+       <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
+       <textarea
+        value={transactionForm.description}
+        onChange={(event) => setTransactionForm((current) => ({ ...current, description: event.target.value }))}
+        className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+        placeholder={t('transaction_description_placeholder')}
+       />
+
+       <button
+        type="submit"
+        className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+       >
+        {t('save_transaction')}
+       </button>
+      </form>
+
+      <div className="rounded-2xl bg-white p-6 shadow-sm">
+       <h2 className="text-xl font-semibold">{t('transactions_title')}</h2>
+       <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full text-sm">
+         <thead className="bg-slate-100 text-slate-700">
+          <tr>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_client')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount_from')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount_to')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('created')}</th>
+           <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
+          </tr>
+         </thead>
+         <tbody>
+          {transactions.map((txn) => (
+           <tr key={txn.id} className="border-t border-slate-200 align-top">
+            <td className="px-4 py-3 font-medium text-slate-900">{txn.clientName}</td>
+            <td className="px-4 py-3 text-slate-600 capitalize">{t(txn.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')}</td>
+            <td className="px-4 py-3 text-slate-700">
+             <span className="font-semibold">{txn.amountFrom.toLocaleString()}</span>{' '}
+             <span className="text-slate-500">{txn.currencyFromCode}</span>
+            </td>
+            <td className="px-4 py-3 font-mono text-slate-600">{txn.exchangeRate}</td>
+            <td className="px-4 py-3 text-slate-700">
+             <span className="font-semibold">{txn.amountTo.toLocaleString()}</span>{' '}
+             <span className="text-slate-500">{txn.currencyToCode}</span>
+            </td>
+            <td className="px-4 py-3 text-slate-500">{new Date(txn.createdAt).toLocaleString(language)}</td>
+            <td className="px-4 py-3">
+             <button
+              type="button"
+              onClick={() => onDeleteTransaction(txn.id)}
+              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+             >
+              {t('delete')}
+             </button>
+            </td>
+           </tr>
+          ))}
+          {transactions.length === 0 ? (
+           <tr>
+            <td className="px-4 py-6 text-slate-500" colSpan={7}>
+             {t('no_transactions')}
             </td>
            </tr>
           ) : null}

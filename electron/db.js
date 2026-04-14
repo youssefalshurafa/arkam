@@ -69,6 +69,22 @@ function getOrCreateDb(app) {
             FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL,
             FOREIGN KEY (currency_id) REFERENCES currencies(id) ON DELETE SET NULL
         );
+
+        CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER NOT NULL,
+            type TEXT NOT NULL DEFAULT 'exchange',
+            currency_from_id INTEGER NOT NULL,
+            currency_to_id INTEGER NOT NULL,
+            amount_from REAL NOT NULL,
+            amount_to REAL NOT NULL,
+            exchange_rate REAL NOT NULL,
+            description TEXT DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
+            FOREIGN KEY (currency_from_id) REFERENCES currencies(id),
+            FOREIGN KEY (currency_to_id) REFERENCES currencies(id)
+        );
   `);
 
     // Migrate existing clients table to add currency_id if it doesn't exist
@@ -292,6 +308,62 @@ function setMainCurrency(app, currencyId) {
     setMain();
 }
 
+// ── Transactions ────────────────────────────────────────────────────────────
+
+function listTransactions(app) {
+    const { db } = getOrCreateDb(app);
+    return db.prepare(`
+        SELECT
+            t.id,
+            t.client_id AS clientId,
+            c.name AS clientName,
+            t.type,
+            t.currency_from_id AS currencyFromId,
+            cf.code AS currencyFromCode,
+            cf.symbol AS currencyFromSymbol,
+            t.currency_to_id AS currencyToId,
+            ct.code AS currencyToCode,
+            ct.symbol AS currencyToSymbol,
+            t.amount_from AS amountFrom,
+            t.amount_to AS amountTo,
+            t.exchange_rate AS exchangeRate,
+            t.description,
+            t.created_at AS createdAt
+        FROM transactions t
+        JOIN clients c ON c.id = t.client_id
+        JOIN currencies cf ON cf.id = t.currency_from_id
+        JOIN currencies ct ON ct.id = t.currency_to_id
+        ORDER BY t.created_at DESC
+    `).all();
+}
+
+function createTransaction(app, txn) {
+    if (!txn.clientId) throw new Error("Client is required.");
+    if (!txn.currencyFromId || !txn.currencyToId) throw new Error("Both currencies are required.");
+    if (!txn.amountFrom || txn.amountFrom <= 0) throw new Error("Amount must be greater than zero.");
+    if (!txn.exchangeRate || txn.exchangeRate <= 0) throw new Error("Exchange rate must be greater than zero.");
+
+    const { db } = getOrCreateDb(app);
+    db.prepare(`
+        INSERT INTO transactions (client_id, type, currency_from_id, currency_to_id, amount_from, amount_to, exchange_rate, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        txn.clientId,
+        txn.type || "exchange",
+        txn.currencyFromId,
+        txn.currencyToId,
+        txn.amountFrom,
+        txn.amountTo,
+        txn.exchangeRate,
+        txn.description?.trim() || "",
+    );
+}
+
+function deleteTransaction(app, transactionId) {
+    const { db } = getOrCreateDb(app);
+    db.prepare("DELETE FROM transactions WHERE id = ?").run(transactionId);
+}
+
 module.exports = {
     getDbInfo,
     listAccounts,
@@ -309,4 +381,7 @@ module.exports = {
     updateCurrency,
     deleteCurrency,
     setMainCurrency,
+    listTransactions,
+    createTransaction,
+    deleteTransaction,
 };

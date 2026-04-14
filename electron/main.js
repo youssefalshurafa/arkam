@@ -79,6 +79,15 @@ function registerIpcHandlers() {
         db.setMainCurrency(app, currencyId);
         return { ok: true };
     });
+    ipcMain.handle("transactions:list", () => db.listTransactions(app));
+    ipcMain.handle("transactions:create", (_event, payload) => {
+        db.createTransaction(app, payload);
+        return { ok: true };
+    });
+    ipcMain.handle("transactions:delete", (_event, transactionId) => {
+        db.deleteTransaction(app, transactionId);
+        return { ok: true };
+    });
 }
 
 app.whenReady().then(() => {
