@@ -111,6 +111,14 @@ function registerIpcHandlers() {
         db.deleteCurrency(app, currencyId);
         return { ok: true };
     });
+    ipcMain.handle("currencies:enable", (_event, currencyId) => {
+        db.enableCurrency(app, currencyId);
+        return { ok: true };
+    });
+    ipcMain.handle("currencies:disable", (_event, currencyId) => {
+        db.disableCurrency(app, currencyId);
+        return { ok: true };
+    });
     ipcMain.handle("currencies:set-main", (_event, currencyId) => {
         db.setMainCurrency(app, currencyId);
         return { ok: true };

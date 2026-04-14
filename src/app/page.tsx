@@ -65,15 +65,9 @@ type Currency = {
  code: string;
  name: string;
  symbol: string;
+ isEnabled: number;
  isMain: number;
  createdAt: string;
-};
-
-type CurrencyForm = {
- id?: number;
- code: string;
- name: string;
- symbol: string;
 };
 
 type Transaction = {
@@ -345,12 +339,6 @@ const emptyClientForm = (): ClientForm => ({
  address: '',
 });
 
-const emptyCurrencyForm = (): CurrencyForm => ({
- code: '',
- name: '',
- symbol: '',
-});
-
 const emptyTransactionForm = (): TransactionForm => ({
  accountFromId: null,
  accountToId: null,
@@ -401,11 +389,11 @@ export default function Home() {
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
+ const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [code, setCode] = useState('');
  const [name, setName] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
- const [currencyForm, setCurrencyForm] = useState<CurrencyForm>(emptyCurrencyForm);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
  const [error, setError] = useState('');
 
@@ -791,26 +779,25 @@ export default function Home() {
   }
  }
 
- async function onCurrencySubmit(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
+ async function onSetMainCurrency(id: number) {
+  if (!window.accountingApi) return;
+  try {
+   await window.accountingApi.setMainCurrency(id);
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ }
+
+ async function onEnableCurrency(id: number) {
   if (!window.accountingApi) {
    setError(t('error_bridge'));
    return;
   }
 
-  if (!currencyForm.code.trim() || !currencyForm.name.trim()) {
-   setError(t('currency_required'));
-   return;
-  }
-
   try {
-   if (currencyForm.id) {
-    await window.accountingApi.updateCurrency(currencyForm);
-   } else {
-    await window.accountingApi.createCurrency(currencyForm);
-   }
-
-   setCurrencyForm(emptyCurrencyForm());
+   await window.accountingApi.enableCurrency(id);
+   setSelectedCatalogCurrencyId(null);
    setError('');
    await loadData();
   } catch (e) {
@@ -818,32 +805,19 @@ export default function Home() {
   }
  }
 
- async function onDeleteCurrency(id: number) {
+ async function onDisableCurrency(id: number) {
   if (!window.accountingApi) {
    setError(t('error_bridge'));
    return;
   }
 
-  if (!window.confirm(t('currency_delete_confirm'))) {
+  if (!window.confirm(t('currency_disable_confirm'))) {
    return;
   }
 
   try {
-   await window.accountingApi.deleteCurrency(id);
-   if (currencyForm.id === id) {
-    setCurrencyForm(emptyCurrencyForm());
-   }
+   await window.accountingApi.disableCurrency(id);
    setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
-
- async function onSetMainCurrency(id: number) {
-  if (!window.accountingApi) return;
-  try {
-   await window.accountingApi.setMainCurrency(id);
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -983,15 +957,34 @@ export default function Home() {
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
  ];
 
+ const getLocalizedCurrencyName = (currencyCode: string, fallbackName: string) => {
+  try {
+   if (typeof Intl.DisplayNames === 'function') {
+    return new Intl.DisplayNames([language], { type: 'currency' }).of(currencyCode) || fallbackName || currencyCode;
+   }
+  } catch {
+   // ignore and fall back to the stored name
+  }
+
+  return fallbackName || currencyCode;
+ };
+
+ const localizedCurrencies = currencies.map((currency) => ({
+  ...currency,
+  name: getLocalizedCurrencyName(currency.code, currency.name),
+ }));
+ const enabledCurrencies = localizedCurrencies.filter((currency) => currency.isEnabled === 1);
+ const availableCurrencies = localizedCurrencies.filter((currency) => currency.isEnabled !== 1);
+ const currencyMap = new Map(localizedCurrencies.map((currency) => [currency.id, currency]));
+ const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
+ const selectedOrganizationClients = selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : [];
+
  const overviewCards = [
-  { label: t('overview_currencies'), value: currencies.length },
+  { label: t('overview_currencies'), value: enabledCurrencies.length },
   { label: t('overview_organizations'), value: organizations.length },
   { label: t('overview_clients'), value: clients.length },
   { label: t('overview_transactions'), value: transactions.length },
  ];
- const currencyMap = new Map(currencies.map((currency) => [currency.id, currency]));
- const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
- const selectedOrganizationClients = selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : [];
 
  const selectedClientLedgers: ClientAccountLedger[] = selectedClientForLedger
   ? clientAccounts
@@ -1160,7 +1153,7 @@ export default function Home() {
   overview: {
    title: t('nav_overview'),
    description: t('overview_description'),
-   accent: `${currencies.length} ${t('overview_currencies')}`,
+   accent: `${enabledCurrencies.length} ${t('overview_currencies')}`,
   },
   settings: {
    title: t('settings_title'),
@@ -1190,7 +1183,7 @@ export default function Home() {
   currencies: {
    title: t('currencies_title'),
    description: t('currencies_description'),
-   accent: `${currencies.length} ${t('nav_currencies')}`,
+   accent: `${enabledCurrencies.length} ${t('nav_currencies')}`,
   },
   transactions: {
    title: t('transactions_title'),
@@ -1209,7 +1202,7 @@ export default function Home() {
  const shellMetrics = [
   { label: t('overview_clients'), value: clients.length },
   { label: t('overview_transactions'), value: transactions.length },
-  { label: t('overview_currencies'), value: currencies.length },
+  { label: t('overview_currencies'), value: enabledCurrencies.length },
  ];
 
  const sidebarItems: Array<{ id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void }> =
@@ -1584,7 +1577,7 @@ export default function Home() {
         className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
        >
         <option value="">{t('client_account_currency_placeholder')}</option>
-        {currencies
+        {enabledCurrencies
          .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
          .map((cur) => (
           <option
@@ -1611,64 +1604,50 @@ export default function Home() {
  );
 
  const currenciesSection = (
-  <section className={`grid gap-6 ${isRTL ? 'xl:grid-cols-[1fr_380px]' : 'xl:grid-cols-[380px_1fr]'}`}>
-   <form
-    onSubmit={onCurrencySubmit}
-    className={panelClassName}
-   >
-    <div className="flex items-center justify-between gap-3">
+  <section className="flex flex-col gap-6">
+   <div className={panelClassName}>
+    <div className="flex items-start justify-between gap-4">
      <div>
-      <h2 className="text-xl font-semibold">{currencyForm.id ? t('update_currency') : t('new_currency')}</h2>
+      <h2 className="text-xl font-semibold">{t('currencies_title')}</h2>
       <p className="mt-1 text-sm text-slate-600">{t('currencies_description')}</p>
      </div>
-     {currencyForm.id ? (
-      <button
-       type="button"
-       onClick={() => setCurrencyForm(emptyCurrencyForm())}
-       className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      >
-       {t('cancel')}
-      </button>
-     ) : null}
+     <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">{t('currencies_seeded_hint')}</div>
     </div>
 
-    <label className="mt-5 block text-sm font-medium">{t('currency_code')}</label>
-    <input
-     value={currencyForm.code}
-     onChange={(event) => setCurrencyForm((current) => ({ ...current, code: event.target.value.toUpperCase() }))}
-     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('currency_code_placeholder')}
-     maxLength={10}
-     required
-    />
+    <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">{t('currencies_seeded_description')}</div>
 
-    <label className="mt-4 block text-sm font-medium">{t('currency_name')}</label>
-    <input
-     value={currencyForm.name}
-     onChange={(event) => setCurrencyForm((current) => ({ ...current, name: event.target.value }))}
-     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('currency_name_placeholder')}
-     required
-    />
+    <div className="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4">
+     <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+      <div className="flex-1">
+       <label className="block text-sm font-medium text-slate-700">{t('currency_catalog_title')}</label>
+       <select
+        value={selectedCatalogCurrencyId ?? ''}
+        onChange={(event) => setSelectedCatalogCurrencyId(event.target.value ? Number(event.target.value) : null)}
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+       >
+        <option value="">{t('currency_catalog_placeholder')}</option>
+        {availableCurrencies.map((currency) => (
+         <option
+          key={currency.id}
+          value={currency.id}
+         >
+          {currency.code} - {currency.name}
+         </option>
+        ))}
+       </select>
+      </div>
+      <button
+       type="button"
+       onClick={() => (selectedCatalogCurrencyId ? void onEnableCurrency(selectedCatalogCurrencyId) : undefined)}
+       disabled={!selectedCatalogCurrencyId}
+       className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+       {t('currency_add_to_used')}
+      </button>
+     </div>
+     {availableCurrencies.length === 0 ? <p className="mt-3 text-sm text-slate-500">{t('currency_catalog_empty')}</p> : null}
+    </div>
 
-    <label className="mt-4 block text-sm font-medium">{t('currency_symbol')}</label>
-    <input
-     value={currencyForm.symbol}
-     onChange={(event) => setCurrencyForm((current) => ({ ...current, symbol: event.target.value }))}
-     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('currency_symbol_placeholder')}
-    />
-
-    <button
-     type="submit"
-     className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
-    >
-     {currencyForm.id ? t('update_currency') : t('save_currency')}
-    </button>
-   </form>
-
-   <div className={panelClassName}>
-    <h2 className="text-xl font-semibold">{t('currencies_title')}</h2>
     <div className={tableWrapClassName}>
      <table className="w-full text-sm">
       <thead className="bg-slate-100 text-slate-700">
@@ -1681,7 +1660,7 @@ export default function Home() {
        </tr>
       </thead>
       <tbody>
-       {currencies.map((currency) => (
+       {enabledCurrencies.map((currency) => (
         <tr
          key={currency.id}
          className="border-t border-slate-200 align-top"
@@ -1700,25 +1679,10 @@ export default function Home() {
           <div className="flex flex-wrap gap-2">
            <button
             type="button"
-            onClick={() =>
-             setCurrencyForm({
-              id: currency.id,
-              code: currency.code,
-              name: currency.name,
-              symbol: currency.symbol,
-             })
-            }
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            onClick={() => onDisableCurrency(currency.id)}
+            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
            >
-            {t('edit')}
-           </button>
-           <button
-            type="button"
-            onClick={() => onDeleteCurrency(currency.id)}
-            disabled={currency.isMain === 1}
-            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-           >
-            {t('delete')}
+            {t('currency_remove_from_used')}
            </button>
            {currency.isMain !== 1 ? (
             <button
@@ -1733,13 +1697,13 @@ export default function Home() {
          </td>
         </tr>
        ))}
-       {currencies.length === 0 ? (
+       {enabledCurrencies.length === 0 ? (
         <tr>
          <td
           className="px-4 py-6 text-slate-500"
           colSpan={5}
          >
-          {t('no_currencies')}
+          {t('no_used_currencies')}
          </td>
         </tr>
        ) : null}
@@ -1934,7 +1898,7 @@ export default function Home() {
       </tr>
      </thead>
      <tbody>
-      {currencies.map((currency) => (
+      {enabledCurrencies.map((currency) => (
        <tr
         key={currency.id}
         className="border-t border-slate-200 align-top"
@@ -1951,13 +1915,13 @@ export default function Home() {
         </td>
        </tr>
       ))}
-      {currencies.length === 0 ? (
+      {enabledCurrencies.length === 0 ? (
        <tr>
         <td
          className="px-4 py-6 text-slate-500"
          colSpan={4}
         >
-         {t('no_currencies')}
+         {t('no_used_currencies')}
         </td>
        </tr>
       ) : null}
@@ -2888,7 +2852,7 @@ export default function Home() {
           required
          >
           <option value="">{t('transaction_currency_placeholder')}</option>
-          {currencies.map((cur) => (
+          {enabledCurrencies.map((cur) => (
            <option
             key={cur.id}
             value={cur.id}

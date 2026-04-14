@@ -49,6 +49,95 @@ function getConfiguredDataDirectory(app) {
     return getBaseDataDirectory(app);
 }
 
+function getSupportedCurrencyCodes() {
+    if (typeof Intl.supportedValuesOf === "function") {
+        return Intl.supportedValuesOf("currency");
+    }
+
+    return ["USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY", "AED", "SAR", "MAD"];
+}
+
+function getCurrencyDisplayName(code) {
+    try {
+        if (typeof Intl.DisplayNames === "function") {
+            return new Intl.DisplayNames(["en"], { type: "currency" }).of(code) || code;
+        }
+    } catch {
+        // ignore
+    }
+
+    return code;
+}
+
+function getCurrencySymbol(code) {
+    try {
+        const narrowSymbol = new Intl.NumberFormat("en", {
+            style: "currency",
+            currency: code,
+            currencyDisplay: "narrowSymbol",
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
+        }).formatToParts(0).find((part) => part.type === "currency")?.value;
+
+        if (narrowSymbol) {
+            return narrowSymbol;
+        }
+
+        const symbol = new Intl.NumberFormat("en", {
+            style: "currency",
+            currency: code,
+            currencyDisplay: "symbol",
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
+        }).formatToParts(0).find((part) => part.type === "currency")?.value;
+
+        return symbol || code;
+    } catch {
+        return code;
+    }
+}
+
+function seedCurrencies(db) {
+    const upsertCurrency = db.prepare(`
+        INSERT INTO currencies (code, name, symbol)
+        VALUES (?, ?, ?)
+        ON CONFLICT(code) DO UPDATE SET
+            name = excluded.name,
+            symbol = excluded.symbol
+    `);
+    const enableReferencedCurrencies = db.prepare(`
+        UPDATE currencies
+        SET is_enabled = 1
+        WHERE is_main = 1
+           OR id IN (SELECT currency_id FROM client_accounts)
+           OR id IN (SELECT currency_id FROM transactions)
+           OR id IN (SELECT currency_id FROM clients WHERE currency_id IS NOT NULL)
+    `);
+    const clearDisabledMainCurrencies = db.prepare("UPDATE currencies SET is_main = 0 WHERE is_enabled = 0");
+    const countEnabledCurrencies = db.prepare("SELECT COUNT(*) AS count FROM currencies WHERE is_enabled = 1");
+    const countEnabledMainCurrencies = db.prepare("SELECT COUNT(*) AS count FROM currencies WHERE is_enabled = 1 AND is_main = 1");
+    const setMainByCode = db.prepare("UPDATE currencies SET is_main = 1 WHERE is_enabled = 1 AND code = ?");
+    const setMainFirstEnabled = db.prepare("UPDATE currencies SET is_main = 1 WHERE id = (SELECT id FROM currencies WHERE is_enabled = 1 ORDER BY code COLLATE NOCASE ASC LIMIT 1)");
+
+    const syncCurrencies = db.transaction(() => {
+        for (const code of getSupportedCurrencyCodes()) {
+            upsertCurrency.run(code, getCurrencyDisplayName(code), getCurrencySymbol(code));
+        }
+
+        enableReferencedCurrencies.run();
+        clearDisabledMainCurrencies.run();
+
+        if (countEnabledCurrencies.get().count > 0 && !countEnabledMainCurrencies.get().count) {
+            const { changes } = setMainByCode.run("USD");
+            if (!changes) {
+                setMainFirstEnabled.run();
+            }
+        }
+    });
+
+    syncCurrencies();
+}
+
 function initializeDb(db) {
     db.pragma("foreign_keys = ON");
     db.pragma("journal_mode = WAL");
@@ -72,6 +161,7 @@ function initializeDb(db) {
             code TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
             symbol TEXT NOT NULL DEFAULT '',
+            is_enabled INTEGER NOT NULL DEFAULT 0,
             is_main INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -163,6 +253,14 @@ function initializeDb(db) {
     } catch {
         // ignore
     }
+
+    try {
+        db.exec("ALTER TABLE currencies ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 0");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    seedCurrencies(db);
 }
 
 function closeDb() {
@@ -426,9 +524,55 @@ function deleteClientAccount(app, accountId) {
 function listCurrencies(app) {
     const { db } = getOrCreateDb(app);
     return db.prepare(`
-        SELECT id, code, name, symbol, is_main as isMain, created_at as createdAt
+        SELECT id, code, name, symbol, is_enabled as isEnabled, is_main as isMain, created_at as createdAt
         FROM currencies ORDER BY code COLLATE NOCASE ASC
     `).all();
+}
+
+function enableCurrency(app, currencyId) {
+    const { db } = getOrCreateDb(app);
+    const countEnabledMainCurrencies = db.prepare("SELECT COUNT(*) AS count FROM currencies WHERE is_enabled = 1 AND is_main = 1");
+
+    const enable = db.transaction(() => {
+        db.prepare("UPDATE currencies SET is_enabled = 1 WHERE id = ?").run(currencyId);
+
+        if (!countEnabledMainCurrencies.get().count) {
+            db.prepare("UPDATE currencies SET is_main = 1 WHERE id = ?").run(currencyId);
+        }
+    });
+
+    enable();
+}
+
+function disableCurrency(app, currencyId) {
+    const { db } = getOrCreateDb(app);
+    const currencyUsage = db.prepare(`
+        SELECT
+            EXISTS(SELECT 1 FROM client_accounts WHERE currency_id = ?) AS hasClientAccounts,
+            EXISTS(SELECT 1 FROM transactions WHERE currency_id = ?) AS hasTransactions,
+            EXISTS(SELECT 1 FROM clients WHERE currency_id = ?) AS hasClients
+    `).get(currencyId, currencyId, currencyId);
+
+    if (currencyUsage.hasClientAccounts || currencyUsage.hasTransactions || currencyUsage.hasClients) {
+        throw new Error("This currency is currently in use and cannot be removed from the used currencies list.");
+    }
+
+    const countEnabledMainCurrencies = db.prepare("SELECT COUNT(*) AS count FROM currencies WHERE is_enabled = 1 AND is_main = 1");
+    const setMainByCode = db.prepare("UPDATE currencies SET is_main = 1 WHERE is_enabled = 1 AND code = ?");
+    const setMainFirstEnabled = db.prepare("UPDATE currencies SET is_main = 1 WHERE id = (SELECT id FROM currencies WHERE is_enabled = 1 ORDER BY code COLLATE NOCASE ASC LIMIT 1)");
+
+    const disable = db.transaction(() => {
+        db.prepare("UPDATE currencies SET is_enabled = 0, is_main = 0 WHERE id = ?").run(currencyId);
+
+        if (!countEnabledMainCurrencies.get().count) {
+            const { changes } = setMainByCode.run("USD");
+            if (!changes) {
+                setMainFirstEnabled.run();
+            }
+        }
+    });
+
+    disable();
 }
 
 function createCurrency(app, currency) {
@@ -466,6 +610,14 @@ function deleteCurrency(app, currencyId) {
 
 function setMainCurrency(app, currencyId) {
     const { db } = getOrCreateDb(app);
+    const currency = db.prepare("SELECT id, is_enabled as isEnabled FROM currencies WHERE id = ?").get(currencyId);
+    if (!currency) {
+        throw new Error("Currency not found.");
+    }
+    if (!currency.isEnabled) {
+        throw new Error("Select this currency in the used currencies list before making it the main currency.");
+    }
+
     const setMain = db.transaction(() => {
         db.prepare("UPDATE currencies SET is_main = 0").run();
         db.prepare("UPDATE currencies SET is_main = 1 WHERE id = ?").run(currencyId);
@@ -597,6 +749,8 @@ module.exports = {
     createCurrency,
     updateCurrency,
     deleteCurrency,
+    enableCurrency,
+    disableCurrency,
     setMainCurrency,
     listTransactions,
     createTransaction,

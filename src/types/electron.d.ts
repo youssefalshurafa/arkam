@@ -24,6 +24,7 @@ type Currency = {
  code: string;
  name: string;
  symbol: string;
+ isEnabled: number;
  isMain: number;
  createdAt: string;
 };
@@ -142,6 +143,8 @@ declare global {
    createCurrency: (currency: CurrencyInput) => Promise<{ ok: true }>;
    updateCurrency: (currency: CurrencyInput) => Promise<{ ok: true }>;
    deleteCurrency: (currencyId: number) => Promise<{ ok: true }>;
+   enableCurrency: (currencyId: number) => Promise<{ ok: true }>;
+   disableCurrency: (currencyId: number) => Promise<{ ok: true }>;
    setMainCurrency: (currencyId: number) => Promise<{ ok: true }>;
    listTransactions: () => Promise<Transaction[]>;
    createTransaction: (transaction: TransactionInput) => Promise<{ ok: true }>;
