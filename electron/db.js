@@ -105,14 +105,6 @@ function seedCurrencies(db) {
             name = excluded.name,
             symbol = excluded.symbol
     `);
-    const enableReferencedCurrencies = db.prepare(`
-        UPDATE currencies
-        SET is_enabled = 1
-        WHERE is_main = 1
-           OR id IN (SELECT currency_id FROM client_accounts)
-           OR id IN (SELECT currency_id FROM transactions)
-           OR id IN (SELECT currency_id FROM clients WHERE currency_id IS NOT NULL)
-    `);
     const clearDisabledMainCurrencies = db.prepare("UPDATE currencies SET is_main = 0 WHERE is_enabled = 0");
     const countEnabledCurrencies = db.prepare("SELECT COUNT(*) AS count FROM currencies WHERE is_enabled = 1");
     const countEnabledMainCurrencies = db.prepare("SELECT COUNT(*) AS count FROM currencies WHERE is_enabled = 1 AND is_main = 1");
@@ -124,7 +116,6 @@ function seedCurrencies(db) {
             upsertCurrency.run(code, getCurrencyDisplayName(code), getCurrencySymbol(code));
         }
 
-        enableReferencedCurrencies.run();
         clearDisabledMainCurrencies.run();
 
         if (countEnabledCurrencies.get().count > 0 && !countEnabledMainCurrencies.get().count) {
@@ -546,17 +537,6 @@ function enableCurrency(app, currencyId) {
 
 function disableCurrency(app, currencyId) {
     const { db } = getOrCreateDb(app);
-    const currencyUsage = db.prepare(`
-        SELECT
-            EXISTS(SELECT 1 FROM client_accounts WHERE currency_id = ?) AS hasClientAccounts,
-            EXISTS(SELECT 1 FROM transactions WHERE currency_id = ?) AS hasTransactions,
-            EXISTS(SELECT 1 FROM clients WHERE currency_id = ?) AS hasClients
-    `).get(currencyId, currencyId, currencyId);
-
-    if (currencyUsage.hasClientAccounts || currencyUsage.hasTransactions || currencyUsage.hasClients) {
-        throw new Error("This currency is currently in use and cannot be removed from the used currencies list.");
-    }
-
     const countEnabledMainCurrencies = db.prepare("SELECT COUNT(*) AS count FROM currencies WHERE is_enabled = 1 AND is_main = 1");
     const setMainByCode = db.prepare("UPDATE currencies SET is_main = 1 WHERE is_enabled = 1 AND code = ?");
     const setMainFirstEnabled = db.prepare("UPDATE currencies SET is_main = 1 WHERE id = (SELECT id FROM currencies WHERE is_enabled = 1 ORDER BY code COLLATE NOCASE ASC LIMIT 1)");

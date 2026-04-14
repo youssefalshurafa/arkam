@@ -901,7 +901,21 @@ export default function Home() {
    return;
   }
 
-  if (!window.confirm(t('currency_disable_confirm'))) {
+  const isUsedInClientAccounts = clientAccounts.some((account) => account.currencyId === id);
+  const isUsedInTransactions = transactions.some((transaction) => {
+   if (transaction.currencyId === id) {
+    return true;
+   }
+
+   const fromAccount = clientAccounts.find((account) => account.id === transaction.accountFromId);
+   const toAccount = clientAccounts.find((account) => account.id === transaction.accountToId);
+
+   return fromAccount?.currencyId === id || toAccount?.currencyId === id;
+  });
+
+  const confirmMessage = isUsedInClientAccounts || isUsedInTransactions ? t('currency_disable_confirm_used') : t('currency_disable_confirm');
+
+  if (!window.confirm(confirmMessage)) {
    return;
   }
 
@@ -1126,7 +1140,7 @@ export default function Home() {
      .filter((account) => account.clientId === selectedClientForLedger.id)
      .map((account) => {
       const entries = transactions
-       .flatMap((transaction) => {
+       .flatMap<ClientLedgerEntry>((transaction) => {
         if (transaction.accountFromId === account.id) {
          const counterparty = clientAccountMap.get(transaction.accountToId);
          return [

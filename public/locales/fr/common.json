@@ -107,6 +107,7 @@
  "currency_catalog_empty": "Toutes les devises intégrées ont déjà été ajoutées à la liste utilisée.",
  "no_used_currencies": "Aucune devise utilisée n'a encore été sélectionnée.",
  "currency_disable_confirm": "Retirer cette devise de la liste des devises utilisées ?",
+ "currency_disable_confirm_used": "Cette devise est déjà utilisée dans des comptes clients ou des transactions. La retirer de la liste des devises utilisées la masquera pour les nouvelles sélections, sans supprimer les enregistrements existants. Continuer ?",
  "new_currency": "Nouvelle devise",
  "update_currency": "Mettre à jour la devise",
  "save_currency": "Enregistrer la devise",

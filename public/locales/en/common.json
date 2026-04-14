@@ -107,6 +107,7 @@
  "currency_catalog_empty": "All seeded currencies have already been added to the used list.",
  "no_used_currencies": "No used currencies selected yet.",
  "currency_disable_confirm": "Remove this currency from the used currencies list?",
+ "currency_disable_confirm_used": "This currency is already used in client accounts or transactions. Removing it from the used currencies list will hide it from new selections but will not delete existing records. Continue?",
  "new_currency": "New Currency",
  "update_currency": "Update Currency",
  "save_currency": "Save Currency",
