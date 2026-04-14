@@ -347,7 +347,6 @@ export default function Home() {
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
- const [clientLedgerTab, setClientLedgerTab] = useState<'entries' | 'settings'>('entries');
  const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(defaultLedgerColumnOrder);
@@ -442,7 +441,6 @@ export default function Home() {
 
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients') {
   setClientLedgerBackSection(origin);
-  setClientLedgerTab('entries');
   setIsClientLedgerEditMode(false);
   setLedgerTransactionDrafts({});
   setSelectedClientForLedger(client);
@@ -456,7 +454,7 @@ export default function Home() {
   }));
  }
 
- function onLedgerColumnDragStart(event: DragEvent<HTMLButtonElement>, column: LedgerColumnKey) {
+ function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', column);
   setDraggedLedgerColumn(column);
@@ -2235,27 +2233,7 @@ export default function Home() {
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
-         <button
-          type="button"
-          onClick={() => setClientLedgerTab('entries')}
-          aria-pressed={clientLedgerTab === 'entries'}
-          className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-           clientLedgerTab === 'entries' ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-          }`}
-         >
-          {t('client_ledger_tab_entries')}
-         </button>
-         <button
-          type="button"
-          onClick={() => setClientLedgerTab('settings')}
-          aria-pressed={clientLedgerTab === 'settings'}
-          className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-           clientLedgerTab === 'settings' ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-          }`}
-         >
-          {t('client_ledger_tab_settings')}
-         </button>
-         {selectedClientForLedger && clientLedgerTab === 'entries' ? (
+         {selectedClientForLedger ? (
           <button
            type="button"
            onClick={() => (isClientLedgerEditMode ? cancelClientLedgerEditMode() : beginClientLedgerEditMode())}
@@ -2290,36 +2268,6 @@ export default function Home() {
         <div className={`${panelClassName} text-sm text-slate-600`}>{t('client_page_no_client')}</div>
        ) : selectedClientLedgers.length === 0 ? (
         <div className={`${panelClassName} text-sm text-slate-600`}>{t('no_client_accounts')}</div>
-       ) : clientLedgerTab === 'settings' ? (
-        <div className={panelClassName}>
-         <h3 className="text-xl font-semibold text-slate-900">{t('client_ledger_tab_settings')}</h3>
-         <p className="mt-2 text-sm text-slate-600">{t('client_ledger_settings_description')}</p>
-         <div className="mt-5 flex flex-wrap gap-2">
-          {orderedLedgerColumnOptions.map((column) => {
-           const isVisible = ledgerColumnVisibility[column.key];
-
-           return (
-            <button
-             key={column.key}
-             type="button"
-             draggable
-             onClick={() => toggleLedgerColumn(column.key)}
-             onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-             onDragOver={(event) => event.preventDefault()}
-             onDrop={() => onLedgerColumnDrop(column.key)}
-             onDragEnd={() => setDraggedLedgerColumn(null)}
-             aria-pressed={isVisible}
-             className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-              isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-             }`}
-            >
-             <span className={`mr-2 inline-block text-[10px] ${draggedLedgerColumn === column.key ? 'opacity-60' : 'opacity-80'}`}>::</span>
-             {column.label}
-            </button>
-           );
-          })}
-         </div>
-        </div>
        ) : (
         selectedClientLedgers.map((ledger) => (
          <div
@@ -2350,6 +2298,30 @@ export default function Home() {
            <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
           ) : (
            <div className={tableWrapClassName}>
+            {isClientLedgerEditMode ? (
+             <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</span>
+               {orderedLedgerColumnOptions.map((column) => {
+                const isVisible = ledgerColumnVisibility[column.key];
+
+                return (
+                 <button
+                  key={column.key}
+                  type="button"
+                  onClick={() => toggleLedgerColumn(column.key)}
+                  aria-pressed={isVisible}
+                  className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                   isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                 >
+                  {column.label}
+                 </button>
+                );
+               })}
+              </div>
+             </div>
+            ) : null}
             <table className="w-full text-sm">
              <thead className="bg-slate-100 text-slate-700">
               <tr>
@@ -2358,95 +2330,154 @@ export default function Home() {
                  return null;
                 }
 
+                const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} ${isClientLedgerEditMode ? 'cursor-move select-none' : ''}`;
+
+                const headerContent = (
+                 <span className="inline-flex items-center gap-2">
+                  {isClientLedgerEditMode ? <span className={`text-[10px] ${draggedLedgerColumn === column.key ? 'opacity-60' : 'opacity-80'}`}>::</span> : null}
+                  <span>{column.label}</span>
+                 </span>
+                );
+
                 switch (column.key) {
                  case 'created':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('created')}
+                    {headerContent}
                    </th>
                   );
                  case 'counterparty':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('counterparty')}
+                    {headerContent}
                    </th>
                   );
                  case 'direction':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('direction')}
+                    {headerContent}
                    </th>
                   );
                  case 'type':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('transaction_type')}
+                    {headerContent}
                    </th>
                   );
                  case 'amount':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('transaction_amount')}
+                    {headerContent}
                    </th>
                   );
                  case 'exchangeRate':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('transaction_exchange_rate')}
+                    {headerContent}
                    </th>
                   );
                  case 'commission':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('commission')}
+                    {headerContent}
                    </th>
                   );
                  case 'netChange':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('net_change')}
+                    {headerContent}
                    </th>
                   );
                  case 'runningBalance':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('running_balance')}
+                    {headerContent}
                    </th>
                   );
                  case 'description':
                   return (
                    <th
                     key={column.key}
-                    className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}
+                    draggable={isClientLedgerEditMode}
+                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                    className={headerClassName}
                    >
-                    {t('transaction_description')}
+                    {headerContent}
                    </th>
                   );
                 }
