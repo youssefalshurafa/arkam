@@ -14,7 +14,7 @@
  "chart_of_accounts": "Plan Comptable",
  "code": "Code",
  "name": "Nom",
- "created": "Créé",
+ "created": "Date",
  "no_accounts": "Pas encore de comptes. Ajoutez votre premier compte à partir du formulaire.",
  "error_bridge": "Le pont Electron n'est pas disponible. Exécutez ceci en mode Bureau.",
  "error_failed_load": "Échec du chargement de la base de données locale.",

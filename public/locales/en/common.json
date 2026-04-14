@@ -14,7 +14,7 @@
  "chart_of_accounts": "Chart of Accounts",
  "code": "Code",
  "name": "Name",
- "created": "Created",
+ "created": "Date",
  "no_accounts": "No accounts yet. Add your first account from the form.",
  "error_bridge": "Electron bridge is not available. Run this in desktop mode.",
  "error_failed_load": "Failed to load local database.",
