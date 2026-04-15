@@ -57,11 +57,6 @@ function registerIpcHandlers() {
             throw err;
         }
     });
-    ipcMain.handle("accounts:list", () => db.listAccounts(app));
-    ipcMain.handle("accounts:add", (_event, payload) => {
-        db.addAccount(app, payload.code, payload.name);
-        return { ok: true };
-    });
     ipcMain.handle("organizations:list", () => db.listOrganizations(app));
     ipcMain.handle("organizations:create", (_event, payload) => {
         db.createOrganization(app, payload);

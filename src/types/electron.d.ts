@@ -1,12 +1,5 @@
 export {};
 
-type Account = {
- id: number;
- code: string;
- name: string;
- createdAt: string;
-};
-
 type Organization = {
  id: number;
  name: string;
@@ -125,8 +118,6 @@ declare global {
    getDbInfo: () => Promise<DbInfo>;
    chooseDbDirectory: () => Promise<string | null>;
    setDbDirectory: (nextDirectory: string) => Promise<DbInfo>;
-   listAccounts: () => Promise<Account[]>;
-   addAccount: (code: string, name: string) => Promise<{ ok: true }>;
    listOrganizations: () => Promise<Organization[]>;
    createOrganization: (organization: OrganizationInput) => Promise<{ ok: true }>;
    updateOrganization: (organization: OrganizationInput) => Promise<{ ok: true }>;

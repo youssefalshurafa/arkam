@@ -4,13 +4,6 @@ import { DragEvent, FormEvent, useCallback, useEffect, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 
-type Account = {
- id: number;
- code: string;
- name: string;
- createdAt: string;
-};
-
 type DbInfo = {
  dbPath: string;
  dbDirectory: string;
@@ -194,9 +187,9 @@ const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
 
 type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies';
 
-type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'accounts';
+type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions';
 
-const allowedSections: Section[] = ['overview', 'settings', 'organizations', 'organization-clients', 'clients', 'client-ledger', 'currencies', 'transactions', 'accounts'];
+const allowedSections: Section[] = ['overview', 'settings', 'organizations', 'organization-clients', 'clients', 'client-ledger', 'currencies', 'transactions'];
 
 function getSectionFromHash(hash: string): Section {
  const normalized = hash.replace('#', '');
@@ -247,7 +240,7 @@ function getCommissionAmount(baseAmount: number, commissionPercent: number) {
  return baseAmount * (commissionPercent / 100);
 }
 
-type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'accounts' | 'settings' | 'database';
+type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database';
 
 function renderIcon(icon: IconName, className = 'h-5 w-5') {
  const commonProps = {
@@ -305,14 +298,6 @@ function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="m13 3 5 4-5 4" />
      <path d="M17 17H6" />
      <path d="m11 13-5 4 5 4" />
-    </svg>
-   );
-  case 'accounts':
-   return (
-    <svg {...commonProps}>
-     <path d="M4 6h16" />
-     <path d="M4 12h16" />
-     <path d="M4 18h10" />
     </svg>
    );
   case 'settings':
@@ -376,7 +361,6 @@ export default function Home() {
  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
  const [pendingDbDirectory, setPendingDbDirectory] = useState<string | null>(null);
  const [isChangingDbDirectory, setIsChangingDbDirectory] = useState(false);
- const [accounts, setAccounts] = useState<Account[]>([]);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -409,8 +393,6 @@ export default function Home() {
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
- const [code, setCode] = useState('');
- const [name, setName] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
@@ -423,9 +405,8 @@ export default function Home() {
   }
 
   try {
-   const [db, accountRows, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows] = await Promise.all([
+   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows] = await Promise.all([
     window.accountingApi.getDbInfo(),
-    window.accountingApi.listAccounts(),
     window.accountingApi.listOrganizations(),
     window.accountingApi.listClients(),
     window.accountingApi.listCurrencies(),
@@ -434,7 +415,6 @@ export default function Home() {
    ]);
 
    setDbInfo(db);
-   setAccounts(accountRows);
    setOrganizations(organizationRows);
    setClients(clientRows);
    setCurrencies(currencyRows);
@@ -734,28 +714,6 @@ export default function Home() {
    ...current,
    [draftKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId),
   }));
- }
-
- async function onSubmit(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  if (!window.accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  if (!code.trim() || !name.trim()) {
-   setError(t('error_required'));
-   return;
-  }
-
-  try {
-   await window.accountingApi.addAccount(code.trim(), name.trim());
-   setCode('');
-   setName('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
  }
 
  async function onOrganizationSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1097,7 +1055,6 @@ export default function Home() {
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
   { key: 'transactions', label: t('nav_transactions'), icon: 'transactions' },
-  { key: 'accounts', label: t('nav_accounts'), icon: 'accounts' },
  ];
 
  const settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }> = [
@@ -1349,11 +1306,6 @@ export default function Home() {
    title: t('transactions_title'),
    description: t('transactions_description'),
    accent: `${transactions.length} ${t('nav_transactions')}`,
-  },
-  accounts: {
-   title: t('chart_of_accounts'),
-   description: t('example'),
-   accent: `${accounts.length} ${t('nav_accounts')}`,
   },
  };
 
@@ -3156,22 +3108,24 @@ export default function Home() {
         <div className={tableWrapClassName}>
          <table className="w-full text-sm">
           <colgroup>
-           <col className="w-[23%]" />
-           <col className="w-[23%]" />
-           <col className="w-[16%]" />
            <col className="w-[10%]" />
-           <col className="w-[10%]" />
-           <col className="w-[10%]" />
-           {isTransactionsEditMode ? <col className="w-[8%]" /> : null}
+           <col className="w-[18%]" />
+           <col className="w-[18%]" />
+           <col className="w-[18%]" />
+           <col className="w-[14%]" />
+           <col className="w-[9%]" />
+           <col className="w-[9%]" />
+           {isTransactionsEditMode ? <col className="w-[4%]" /> : null}
           </colgroup>
           <thead className="bg-slate-100 text-slate-700">
            <tr>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('created')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_commission_from')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_commission_to')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('created')}</th>
             {isTransactionsEditMode ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th> : null}
            </tr>
           </thead>
@@ -3186,6 +3140,31 @@ export default function Home() {
 
               return (
                <>
+                <td className="px-4 py-3 text-slate-500">
+                 {isTransactionsEditMode && draft ? (
+                  <input
+                   type="date"
+                   value={draft.createdDate}
+                   onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
+                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  />
+                 ) : (
+                  new Date(txn.createdAt).toLocaleString(language)
+                 )}
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                 {isTransactionsEditMode && draft ? (
+                  <input
+                   type="text"
+                   value={draft.description}
+                   onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
+                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                   placeholder={t('transaction_description_placeholder')}
+                  />
+                 ) : (
+                  txn.description || <span className="text-slate-400">—</span>
+                 )}
+                </td>
                 <td className="px-4 py-3 font-medium text-slate-900">
                  {isTransactionsEditMode && draft ? (
                   <div className="space-y-2">
@@ -3363,18 +3342,6 @@ export default function Home() {
                   '-'
                  )}
                 </td>
-                <td className="px-4 py-3 text-slate-500">
-                 {isTransactionsEditMode && draft ? (
-                  <input
-                   type="date"
-                   value={draft.createdDate}
-                   onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
-                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  />
-                 ) : (
-                  new Date(txn.createdAt).toLocaleString(language)
-                 )}
-                </td>
                </>
               );
              })()}
@@ -3411,83 +3378,9 @@ export default function Home() {
             <tr>
              <td
               className="px-4 py-6 text-slate-500"
-              colSpan={isTransactionsEditMode ? 7 : 6}
+              colSpan={isTransactionsEditMode ? 8 : 7}
              >
               {t('no_transactions')}
-             </td>
-            </tr>
-           ) : null}
-          </tbody>
-         </table>
-        </div>
-       </div>
-      </section>
-     ) : null}
-
-     {section === 'accounts' ? (
-      <section className={`grid gap-6 ${isRTL ? 'lg:grid-cols-[1fr_360px]' : 'lg:grid-cols-[360px_1fr]'}`}>
-       <form
-        onSubmit={onSubmit}
-        className={panelClassName}
-       >
-        <h2 className="text-xl font-semibold">{t('add_chart_account')}</h2>
-        <p className="mt-1 text-sm text-slate-600">{t('example')}</p>
-
-        <label className="mt-5 block text-sm font-medium">{t('account_code')}</label>
-        <input
-         value={code}
-         onChange={(event) => setCode(event.target.value)}
-         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-         placeholder={t('account_code_placeholder')}
-         required
-        />
-
-        <label className="mt-4 block text-sm font-medium">{t('account_name')}</label>
-        <input
-         value={name}
-         onChange={(event) => setName(event.target.value)}
-         className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-         placeholder={t('account_name_placeholder')}
-         required
-        />
-
-        <button
-         type="submit"
-         className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
-        >
-         {t('save_account')}
-        </button>
-       </form>
-
-       <div className={panelClassName}>
-        <h2 className="text-xl font-semibold">{t('chart_of_accounts')}</h2>
-        <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200 bg-white">
-         <table className="w-full text-sm">
-          <thead className="bg-slate-100 text-slate-700">
-           <tr>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('code')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('created')}</th>
-           </tr>
-          </thead>
-          <tbody>
-           {accounts.map((account) => (
-            <tr
-             key={account.id}
-             className="border-t border-slate-200"
-            >
-             <td className="px-4 py-3 font-mono">{account.code}</td>
-             <td className="px-4 py-3">{account.name}</td>
-             <td className="px-4 py-3 text-slate-500">{new Date(account.createdAt).toLocaleString(language)}</td>
-            </tr>
-           ))}
-           {accounts.length === 0 ? (
-            <tr>
-             <td
-              className="px-4 py-6 text-slate-500 text-center"
-              colSpan={3}
-             >
-              {t('no_accounts')}
              </td>
             </tr>
            ) : null}

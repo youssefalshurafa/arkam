@@ -331,24 +331,6 @@ function setDbDirectory(app, nextDirectory) {
     return getDbInfo(app);
 }
 
-function listAccounts(app) {
-    const { db } = getOrCreateDb(app);
-    const stmt = db.prepare(
-        "SELECT id, code, name, created_at as createdAt FROM chart_accounts ORDER BY code ASC",
-    );
-    return stmt.all();
-}
-
-function addAccount(app, code, name) {
-    if (!code || !name) {
-        throw new Error("Both account code and account name are required.");
-    }
-
-    const { db } = getOrCreateDb(app);
-    const stmt = db.prepare("INSERT INTO chart_accounts (code, name) VALUES (?, ?)");
-    stmt.run(code, name);
-}
-
 function listOrganizations(app) {
     const { db } = getOrCreateDb(app);
     const stmt = db.prepare(`
@@ -711,8 +693,6 @@ function deleteTransaction(app, transactionId) {
 module.exports = {
     getDbInfo,
     setDbDirectory,
-    listAccounts,
-    addAccount,
     listOrganizations,
     createOrganization,
     updateOrganization,
