@@ -4,6 +4,8 @@
  "app_description": "Manage your money exchange and transfer operations with local SQLite storage.",
  "database_file": "Database file:",
  "loading": "Loading...",
+ "date": "Date",
+ "created": "Date",
  "error_bridge": "Electron bridge is not available. Run this in desktop mode.",
  "error_failed_load": "Failed to load local database.",
  "error_failed_save": "Failed to save account.",
