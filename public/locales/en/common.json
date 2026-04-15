@@ -173,6 +173,7 @@
  "incoming": "Incoming",
  "outgoing": "Outgoing",
  "commission": "Commission",
+ "add_commission": "Add commission",
  "net_change": "Net change",
  "running_balance": "Running balance",
  "overview_transactions": "Transactions"

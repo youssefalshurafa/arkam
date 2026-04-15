@@ -173,6 +173,7 @@
  "incoming": "داخل",
  "outgoing": "خارج",
  "commission": "العمولة",
+ "add_commission": "إضافة عمولة",
  "net_change": "صافي الحركة",
  "running_balance": "الرصيد التراكمي",
  "overview_transactions": "المعاملات"

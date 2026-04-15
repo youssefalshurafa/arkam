@@ -371,6 +371,7 @@ export default function Home() {
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
+ const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [isNewTransactionSectionOpen, setIsNewTransactionSectionOpen] = useState(false);
  const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
@@ -597,11 +598,13 @@ export default function Home() {
   });
 
   setTransactionTableDrafts(nextDrafts);
+  setCommissionExpandedTxns(new Set());
   setIsTransactionsEditMode(true);
  }
 
  function cancelTransactionsEditMode() {
   setTransactionTableDrafts({});
+  setCommissionExpandedTxns(new Set());
   setIsTransactionsEditMode(false);
  }
 
@@ -922,6 +925,46 @@ export default function Home() {
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onSaveAllTransactionDrafts() {
+  if (!window.accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  try {
+   for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
+    const draft = transactionTableDrafts[transactionId];
+    const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+    if (!draft || !transaction) continue;
+    const amount = parseFloat(draft.amount);
+    if (!draft.accountFromId || !draft.accountToId || !draft.currencyId || !amount) {
+     setError(t('transaction_required'));
+     return;
+    }
+    const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
+    await window.accountingApi.updateTransaction({
+     id: transaction.id,
+     accountFromId: draft.accountFromId,
+     accountToId: draft.accountToId,
+     currencyId: draft.currencyId,
+     amount,
+     type: draft.type,
+     exchangeRateFrom: parseFloat(draft.exchangeRateFrom) || 1,
+     commissionFrom: parseFloat(draft.commissionFrom) || 0,
+     exchangeRateTo: parseFloat(draft.exchangeRateTo) || 1,
+     commissionTo: parseFloat(draft.commissionTo) || 0,
+     description: draft.description,
+     createdAt: `${draft.createdDate} ${currentTime}`,
+    });
+   }
+   setError('');
+   cancelTransactionsEditMode();
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
  }
 
@@ -3095,15 +3138,35 @@ export default function Home() {
        <div className={panelClassName}>
         <div className="flex items-start justify-between gap-4">
          <h2 className="text-xl font-semibold">{t('transactions_title')}</h2>
-         <button
-          type="button"
-          onClick={() => (isTransactionsEditMode ? cancelTransactionsEditMode() : beginTransactionsEditMode())}
-          className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-           isTransactionsEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-          }`}
-         >
-          {isTransactionsEditMode ? t('transactions_done_editing') : t('transactions_edit_mode')}
-         </button>
+         <div className="flex flex-wrap gap-2">
+          {isTransactionsEditMode ? (
+           <>
+            <button
+             type="button"
+             onClick={() => void onSaveAllTransactionDrafts()}
+             className="cursor-pointer rounded-full border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+            >
+             {t('save_changes')}
+            </button>
+            <button
+             type="button"
+             onClick={cancelTransactionsEditMode}
+             className="cursor-pointer rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+             {t('cancel')}
+            </button>
+           </>
+          ) : null}
+          <button
+           type="button"
+           onClick={() => (isTransactionsEditMode ? cancelTransactionsEditMode() : beginTransactionsEditMode())}
+           className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
+            isTransactionsEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+           }`}
+          >
+           {isTransactionsEditMode ? t('transactions_done_editing') : t('transactions_edit_mode')}
+          </button>
+         </div>
         </div>
         <div className={tableWrapClassName}>
          <table className="w-full text-sm">
@@ -3112,10 +3175,8 @@ export default function Home() {
            <col className="w-[18%]" />
            <col className="w-[18%]" />
            <col className="w-[18%]" />
-           <col className="w-[14%]" />
-           <col className="w-[9%]" />
-           <col className="w-[9%]" />
-           {isTransactionsEditMode ? <col className="w-[4%]" /> : null}
+           <col className="w-[16%]" />
+           <col className="w-[20%]" />
           </colgroup>
           <thead className="bg-slate-100 text-slate-700">
            <tr>
@@ -3124,9 +3185,7 @@ export default function Home() {
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_commission_from')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_commission_to')}</th>
-            {isTransactionsEditMode ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th> : null}
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
            </tr>
           </thead>
           <tbody>
@@ -3171,7 +3230,7 @@ export default function Home() {
                    <select
                     value={draft.accountFromId ?? ''}
                     onChange={(event) => updateTransactionTableDraft(txn.id, { accountFromId: event.target.value ? Number(event.target.value) : null })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                    className="min-w-40 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                    >
                     <option value="">{t('transaction_account_placeholder')}</option>
                     {clientAccounts.map((account) => (
@@ -3227,7 +3286,7 @@ export default function Home() {
                    <select
                     value={draft.accountToId ?? ''}
                     onChange={(event) => updateTransactionTableDraft(txn.id, { accountToId: event.target.value ? Number(event.target.value) : null })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                    className="min-w-40 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                    >
                     <option value="">{t('transaction_account_placeholder')}</option>
                     {clientAccounts.map((account) => (
@@ -3310,75 +3369,102 @@ export default function Home() {
                   </>
                  )}
                 </td>
-                <td className="px-4 py-3 font-mono text-slate-600">
-                 {isTransactionsEditMode && draft ? (
-                  <input
-                   type="text"
-                   inputMode="decimal"
-                   dir="ltr"
-                   value={draft.commissionFrom}
-                   onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
-                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  />
-                 ) : txn.commissionFrom ? (
-                  `${txn.commissionFrom}%`
-                 ) : (
-                  '-'
-                 )}
-                </td>
-                <td className="px-4 py-3 font-mono text-slate-600">
-                 {isTransactionsEditMode && draft ? (
-                  <input
-                   type="text"
-                   inputMode="decimal"
-                   dir="ltr"
-                   value={draft.commissionTo}
-                   onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
-                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  />
-                 ) : txn.commissionTo ? (
-                  `${txn.commissionTo}%`
-                 ) : (
-                  '-'
-                 )}
+                <td className="px-4 py-3 text-slate-600">
+                 {isTransactionsEditMode && draft
+                  ? (() => {
+                     const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
+                     const expanded = commissionExpandedTxns.has(txn.id);
+                     if (bothZero && !expanded) {
+                      return (
+                       <button
+                        type="button"
+                        onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                        className="text-sm text-blue-600 hover:underline"
+                       >
+                        + {t('add_commission')}
+                       </button>
+                      );
+                     }
+                     return (
+                      <div className="space-y-2">
+                       <div className="flex items-center gap-2">
+                        <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.commissionFrom}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
+                         className="min-w-0 w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                         placeholder="0"
+                        />
+                        <span className="text-xs text-slate-400">%</span>
+                       </div>
+                       <div className="flex items-center gap-2">
+                        <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.commissionTo}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
+                         className="min-w-0 w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                         placeholder="0"
+                        />
+                        <span className="text-xs text-slate-400">%</span>
+                       </div>
+                       <div className="flex items-center gap-2">
+                        <button
+                         type="button"
+                         onClick={() => onDeleteTransaction(txn.id)}
+                         className="shrink-0 rounded-lg border border-red-200 p-1.5 text-red-600 hover:bg-red-50"
+                         title={t('delete')}
+                        >
+                         <svg
+                          className="h-4 w-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={1.8}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                         >
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M9 6V4h6v2" />
+                         </svg>
+                        </button>
+                       </div>
+                      </div>
+                     );
+                    })()
+                  : (() => {
+                     const parts: string[] = [];
+                     if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom}%`);
+                     if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo}%`);
+                     return parts.length > 0 ? (
+                      <div className="space-y-0.5 text-xs">
+                       {parts.map((p, i) => (
+                        <div key={i}>{p}</div>
+                       ))}
+                      </div>
+                     ) : (
+                      <span className="text-slate-400">—</span>
+                     );
+                    })()}
                 </td>
                </>
               );
              })()}
-             {isTransactionsEditMode ? (
-              <td className="px-4 py-3">
-               <div className="flex flex-wrap gap-2">
-                <button
-                 type="button"
-                 onClick={() => void onSaveTransactionTableRow(txn.id)}
-                 className="rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                >
-                 {t('save_changes')}
-                </button>
-                <button
-                 type="button"
-                 onClick={() => onCancelTransactionTableRow(txn.id)}
-                 className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                 {t('cancel')}
-                </button>
-                <button
-                 type="button"
-                 onClick={() => onDeleteTransaction(txn.id)}
-                 className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-                >
-                 {t('delete')}
-                </button>
-               </div>
-              </td>
-             ) : null}
             </tr>
            ))}
            {transactions.length === 0 ? (
             <tr>
              <td
               className="px-4 py-6 text-slate-500"
-              colSpan={isTransactionsEditMode ? 8 : 7}
+              colSpan={6}
              >
               {t('no_transactions')}
              </td>
