@@ -181,5 +181,17 @@
  "add_expenses": "إضافة مصاريف",
  "net_change": "صافي الحركة",
  "running_balance": "الرصيد التراكمي",
- "overview_transactions": "المعاملات"
+ "overview_transactions": "المعاملات",
+ "client": "العميل",
+ "currency": "العملة",
+ "amount": "المبلغ",
+ "exchange_rate": "سعر الصرف",
+ "client_ledger_statement": "كشف حساب",
+ "export_generated_on": "تاريخ الإصدار",
+ "export_period": "الفترة",
+ "export_pre_balance": "رصيد أول المدة",
+ "export_pdf": "تصدير PDF",
+ "export_pdf_title": "تصدير كشف الحساب",
+ "export_date_from": "من تاريخ",
+ "export_date_to": "إلى تاريخ"
 }

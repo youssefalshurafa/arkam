@@ -180,5 +180,17 @@
  "add_expenses": "Ajouter des dépenses",
  "net_change": "Variation nette",
  "running_balance": "Solde cumulé",
- "overview_transactions": "Transactions"
+ "overview_transactions": "Transactions",
+ "client": "Client",
+ "currency": "Devise",
+ "amount": "Montant",
+ "exchange_rate": "Taux de change",
+ "client_ledger_statement": "Relevé de compte",
+ "export_generated_on": "Généré le",
+ "export_period": "Période",
+ "export_pre_balance": "Solde d'ouverture",
+ "export_pdf": "Exporter PDF",
+ "export_pdf_title": "Exporter le relevé de compte",
+ "export_date_from": "Du",
+ "export_date_to": "Au"
 }

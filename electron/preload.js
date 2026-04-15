@@ -29,4 +29,5 @@ contextBridge.exposeInMainWorld("accountingApi", {
     createTransaction: (transaction) => ipcRenderer.invoke("transactions:create", transaction),
     updateTransaction: (transaction) => ipcRenderer.invoke("transactions:update", transaction),
     deleteTransaction: (transactionId) => ipcRenderer.invoke("transactions:delete", transactionId),
+    exportLedgerPdf: (payload) => ipcRenderer.invoke("ledger:export-pdf", payload),
 });

@@ -146,6 +146,7 @@ declare global {
    createTransaction: (transaction: TransactionInput) => Promise<{ ok: true }>;
    updateTransaction: (transaction: TransactionUpdateInput) => Promise<{ ok: true }>;
    deleteTransaction: (transactionId: number) => Promise<{ ok: true }>;
+   exportLedgerPdf: (payload: { html: string; defaultFileName: string }) => Promise<{ ok: boolean; filePath?: string }>;
   };
  }
 }

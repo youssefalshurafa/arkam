@@ -181,5 +181,17 @@
  "add_expenses": "Add expenses",
  "net_change": "Net change",
  "running_balance": "Running balance",
- "overview_transactions": "Transactions"
+ "overview_transactions": "Transactions",
+ "client": "Client",
+ "currency": "Currency",
+ "amount": "Amount",
+ "exchange_rate": "Exchange Rate",
+ "client_ledger_statement": "Account Statement",
+ "export_generated_on": "Generated on",
+ "export_period": "Period",
+ "export_pre_balance": "Opening Balance",
+ "export_pdf": "Export PDF",
+ "export_pdf_title": "Export Ledger as PDF",
+ "export_date_from": "From Date",
+ "export_date_to": "To Date"
 }

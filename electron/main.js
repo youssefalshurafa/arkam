@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const path = require("node:path");
+const fs = require("node:fs");
 const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const db = require("./db");
 
@@ -134,6 +135,24 @@ function registerIpcHandlers() {
     ipcMain.handle("transactions:delete", (_event, transactionId) => {
         db.deleteTransaction(app, transactionId);
         return { ok: true };
+    });
+    ipcMain.handle("ledger:export-pdf", async (_event, { html, defaultFileName }) => {
+        const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+            defaultPath: path.join(app.getPath("documents"), defaultFileName),
+            filters: [{ name: "PDF Files", extensions: ["pdf"] }],
+        });
+        if (canceled || !filePath) return { ok: false };
+
+        const tmpPath = path.join(app.getPath("temp"), "arkam_ledger_export.html");
+        fs.writeFileSync(tmpPath, html, "utf-8");
+
+        const pdfWin = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+        await pdfWin.loadFile(tmpPath);
+        const pdfData = await pdfWin.webContents.printToPDF({ pageSize: "A4", printBackground: true });
+        pdfWin.destroy();
+        fs.unlinkSync(tmpPath);
+        fs.writeFileSync(filePath, pdfData);
+        return { ok: true, filePath };
     });
 }
 

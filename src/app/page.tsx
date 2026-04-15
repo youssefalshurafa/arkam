@@ -404,6 +404,7 @@ export default function Home() {
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
+ const [pdfExportModal, setPdfExportModal] = useState<{ accountId: number; fromDate: string; toDate: string } | null>(null);
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
@@ -1138,6 +1139,127 @@ export default function Home() {
   try {
    await window.accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance: parseFloat(value) || 0 });
    await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ function generateLedgerHtml(ledger: ClientAccountLedger, fromDate: string, toDate: string): string {
+  const filteredEntries = ledger.entries.filter((e) => {
+   const d = e.createdAt.slice(0, 10);
+   return d >= fromDate && d <= toDate;
+  });
+
+  const preBalance = ledger.startingBalance + ledger.entries.filter((e) => e.createdAt.slice(0, 10) < fromDate).reduce((sum, e) => sum + e.netChange, 0);
+
+  let runningBal = preBalance;
+  const rows = filteredEntries
+   .map((e) => {
+    runningBal += e.netChange;
+    const isPositive = e.netChange >= 0;
+    return `<tr>
+    <td>${e.createdAt.slice(0, 10)}</td>
+    <td>${e.counterpartyName}</td>
+    <td>${t(e.direction === 'outgoing' ? 'outgoing' : 'incoming')}</td>
+    <td class="num">${e.amount.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
+    <td class="num">${e.exchangeRate.toFixed(2)}</td>
+    <td class="num">${e.commission.toFixed(2)}</td>
+    <td class="num ${isPositive ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
+    <td class="num ${runningBal >= 0 ? 'pos' : 'neg'}">${runningBal.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
+   </tr>`;
+   })
+   .join('');
+
+  const dir = isRTL ? 'rtl' : 'ltr';
+  const clientName = selectedClientForLedger?.name ?? '';
+  const exportDate = new Date().toLocaleDateString(language);
+
+  return `<!DOCTYPE html>
+<html lang="${language}" dir="${dir}">
+<head>
+<meta charset="UTF-8">
+<style>
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #1e293b; padding: 32px; }
+ .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left h1 { font-size: 20px; font-weight: bold; }
+ .header-left p { font-size: 11px; color: #64748b; margin-top: 2px; }
+ .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: 11px; color: #64748b; }
+ .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+ .meta-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; background: #f8fafc; }
+ .meta-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
+ .meta-card .value { font-size: 14px; font-weight: bold; margin-top: 4px; }
+ .pos { color: #059669; }
+ .neg { color: #dc2626; }
+ table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+ thead tr { background: #f1f5f9; }
+ th { padding: 8px 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; text-align: ${isRTL ? 'right' : 'left'}; border-bottom: 1px solid #cbd5e1; }
+ td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; }
+ td.num { text-align: ${isRTL ? 'left' : 'right'}; font-variant-numeric: tabular-nums; }
+ th.num { text-align: ${isRTL ? 'left' : 'right'}; }
+ tr.pre-row td { background: #eff6ff; font-weight: 600; }
+ tr:last-child td { border-bottom: none; }
+ .footer { margin-top: 24px; font-size: 10px; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header">
+ <div class="header-left">
+  <h1>Arkam Exchange</h1>
+  <p>${t('client_ledger_statement')}</p>
+ </div>
+ <div class="header-right">
+  <div>${t('export_generated_on')}: ${exportDate}</div>
+ </div>
+</div>
+<div class="meta">
+ <div class="meta-card">
+  <div class="label">${t('client')}</div>
+  <div class="value">${clientName}</div>
+ </div>
+ <div class="meta-card">
+  <div class="label">${t('currency')}</div>
+  <div class="value">${ledger.currencyName} (${ledger.currencyCode})</div>
+ </div>
+ <div class="meta-card">
+  <div class="label">${t('export_period')}</div>
+  <div class="value" style="font-size:12px">${fromDate} → ${toDate}</div>
+ </div>
+</div>
+<table>
+ <thead>
+  <tr>
+   <th>${t('date')}</th>
+   <th>${t('counterparty')}</th>
+   <th>${t('direction')}</th>
+   <th class="num">${t('amount')}</th>
+   <th class="num">${t('exchange_rate')}</th>
+   <th class="num">${t('commission')}</th>
+   <th class="num">${t('net_change')}</th>
+   <th class="num">${t('running_balance')}</th>
+  </tr>
+ </thead>
+ <tbody>
+  <tr class="pre-row">
+   <td colspan="7">${t('export_pre_balance')}</td>
+   <td class="num ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
+  </tr>
+  ${rows}
+ </tbody>
+</table>
+<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>
+</body>
+</html>`;
+ }
+
+ async function onExportLedgerPdf(ledger: ClientAccountLedger, fromDate: string, toDate: string) {
+  if (!window.accountingApi) return;
+  try {
+   const html = generateLedgerHtml(ledger, fromDate, toDate);
+   const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^a-z0-9]/gi, '_');
+   const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
+   const result = await window.accountingApi.exportLedgerPdf({ html, defaultFileName });
+   if (result.ok) setPdfExportModal(null);
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
@@ -2561,6 +2683,24 @@ export default function Home() {
            >
             {isClientLedgerEditMode ? t('client_ledger_done_editing') : t('client_ledger_edit_mode')}
            </button>
+           {!isClientLedgerEditMode ? (
+            <button
+             type="button"
+             onClick={() => {
+              const targetLedger =
+               selectedClientLedgers.length === 1
+                ? selectedClientLedgers[0]
+                : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+              if (!targetLedger) return;
+              const today = new Date().toISOString().slice(0, 10);
+              const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
+              setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today });
+             }}
+             className="cursor-pointer rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+             {t('export_pdf')}
+            </button>
+           ) : null}
           </>
          ) : null}
         </div>
@@ -3652,6 +3792,84 @@ export default function Home() {
      ) : null}
     </div>
    </main>
+
+   {pdfExportModal
+    ? (() => {
+       const ledger = selectedClientLedgers.find((l) => l.accountId === pdfExportModal.accountId);
+       if (!ledger) return null;
+       return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+         <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+          <h3 className="text-lg font-semibold text-slate-900">{t('export_pdf_title')}</h3>
+          <p className="mt-1 text-sm text-slate-500">
+           {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
+          </p>
+
+          <div className="mt-5 flex flex-col gap-4">
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_date_from')}</label>
+            <input
+             type="date"
+             value={pdfExportModal.fromDate}
+             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value } : prev))}
+             className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_date_to')}</label>
+            <input
+             type="date"
+             value={pdfExportModal.toDate}
+             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value } : prev))}
+             className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+
+           {(() => {
+            const preBalance = ledger.startingBalance + ledger.entries.filter((e) => e.createdAt.slice(0, 10) < pdfExportModal.fromDate).reduce((sum, e) => sum + e.netChange, 0);
+            const count = ledger.entries.filter((e) => {
+             const d = e.createdAt.slice(0, 10);
+             return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
+            }).length;
+            return (
+             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+              <div className="flex justify-between">
+               <span className="text-slate-500">{t('export_pre_balance')}</span>
+               <span className={`font-semibold ${preBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {preBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+               </span>
+              </div>
+              <div className="mt-1 flex justify-between">
+               <span className="text-slate-500">{t('client_page_transaction_count')}</span>
+               <span className="font-semibold text-slate-900">{count}</span>
+              </div>
+             </div>
+            );
+           })()}
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+           <button
+            type="button"
+            onClick={() => setPdfExportModal(null)}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+           >
+            {t('cancel')}
+           </button>
+           <button
+            type="button"
+            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate)}
+            disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
+            className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+           >
+            {t('export_pdf')}
+           </button>
+          </div>
+         </div>
+        </div>
+       );
+      })()
+    : null}
   </div>
  );
 }
