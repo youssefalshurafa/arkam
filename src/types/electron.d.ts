@@ -58,12 +58,14 @@ type ClientAccount = {
  currencyId: number;
  currencyCode: string;
  currencySymbol: string;
+ startingBalance: number;
  createdAt: string;
 };
 
 type ClientAccountInput = {
  clientId: number;
  currencyId: number;
+ startingBalance?: number;
 };
 
 type Transaction = {
@@ -131,6 +133,7 @@ declare global {
    listAllClientAccounts: () => Promise<ClientAccount[]>;
    listClientAccounts: (clientId: number) => Promise<ClientAccount[]>;
    createClientAccount: (account: ClientAccountInput) => Promise<{ ok: true }>;
+   updateClientAccountStartingBalance: (payload: { accountId: number; startingBalance: number }) => Promise<{ ok: true }>;
    deleteClientAccount: (accountId: number) => Promise<{ ok: true }>;
    listCurrencies: () => Promise<Currency[]>;
    createCurrency: (currency: CurrencyInput) => Promise<{ ok: true }>;

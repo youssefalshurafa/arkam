@@ -158,6 +158,7 @@
  "save_changes": "Save Changes",
  "client_account_open": "Open Account",
  "client_account_currency_placeholder": "Select a currency",
+ "starting_balance": "Starting Balance",
  "client_account_delete_confirm": "Close this account? Existing transactions referencing it will also be deleted.",
  "no_client_accounts": "No accounts yet. Open the first account below.",
  "transaction_account_from": "From",

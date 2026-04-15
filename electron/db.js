@@ -175,6 +175,7 @@ function initializeDb(db) {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             client_id INTEGER NOT NULL,
             currency_id INTEGER NOT NULL,
+            starting_balance REAL NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(client_id, currency_id),
             FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
@@ -255,6 +256,12 @@ function initializeDb(db) {
 
     try {
         db.exec("ALTER TABLE transactions ADD COLUMN charges REAL NOT NULL DEFAULT 0");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    try {
+        db.exec("ALTER TABLE client_accounts ADD COLUMN starting_balance REAL NOT NULL DEFAULT 0");
     } catch {
         // Column already exists – ignore
     }
@@ -462,6 +469,7 @@ function listAllClientAccounts(app) {
             ca.currency_id AS currencyId,
             cur.code AS currencyCode,
             cur.symbol AS currencySymbol,
+            ca.starting_balance AS startingBalance,
             ca.created_at AS createdAt
         FROM client_accounts ca
         JOIN clients c ON c.id = ca.client_id
@@ -480,6 +488,7 @@ function listClientAccounts(app, clientId) {
             ca.currency_id AS currencyId,
             cur.code AS currencyCode,
             cur.symbol AS currencySymbol,
+            ca.starting_balance AS startingBalance,
             ca.created_at AS createdAt
         FROM client_accounts ca
         JOIN clients c ON c.id = ca.client_id
@@ -489,10 +498,16 @@ function listClientAccounts(app, clientId) {
     `).all(clientId);
 }
 
-function createClientAccount(app, { clientId, currencyId }) {
+function createClientAccount(app, { clientId, currencyId, startingBalance }) {
     if (!clientId || !currencyId) throw new Error("Client and currency are required.");
     const { db } = getOrCreateDb(app);
-    db.prepare("INSERT OR IGNORE INTO client_accounts (client_id, currency_id) VALUES (?, ?)").run(clientId, currencyId);
+    db.prepare("INSERT OR IGNORE INTO client_accounts (client_id, currency_id, starting_balance) VALUES (?, ?, ?)").run(clientId, currencyId, startingBalance ?? 0);
+}
+
+function updateClientAccountStartingBalance(app, { accountId, startingBalance }) {
+    if (!accountId) throw new Error("Account id is required.");
+    const { db } = getOrCreateDb(app);
+    db.prepare("UPDATE client_accounts SET starting_balance = ? WHERE id = ?").run(startingBalance ?? 0, accountId);
 }
 
 function deleteClientAccount(app, accountId) {
@@ -716,6 +731,7 @@ module.exports = {
     listAllClientAccounts,
     listClientAccounts,
     createClientAccount,
+    updateClientAccountStartingBalance,
     deleteClientAccount,
     listCurrencies,
     createCurrency,

@@ -158,6 +158,7 @@
  "save_changes": "حفظ التغييرات",
  "client_account_open": "فتح حساب",
  "client_account_currency_placeholder": "اختر عملة",
+ "starting_balance": "الرصيد الافتتاحي",
  "client_account_delete_confirm": "إغلاق هذا الحساب؟ سيتم حذف المعاملات المرتبطة به أيضاً.",
  "no_client_accounts": "لا توجد حسابات حتى الآن. افتح أول حساب أدناه.",
  "transaction_account_from": "من",

@@ -89,6 +89,10 @@ function registerIpcHandlers() {
         db.createClientAccount(app, payload);
         return { ok: true };
     });
+    ipcMain.handle("client-accounts:update-starting-balance", (_event, payload) => {
+        db.updateClientAccountStartingBalance(app, payload);
+        return { ok: true };
+    });
     ipcMain.handle("client-accounts:delete", (_event, accountId) => {
         db.deleteClientAccount(app, accountId);
         return { ok: true };

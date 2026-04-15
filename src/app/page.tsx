@@ -50,6 +50,7 @@ type ClientAccount = {
  currencyId: number;
  currencyCode: string;
  currencySymbol: string;
+ startingBalance: number;
  createdAt: string;
 };
 
@@ -167,6 +168,7 @@ type ClientAccountLedger = {
  currencyName: string;
  currencyCode: string;
  currencySymbol: string;
+ startingBalance: number;
  currentBalance: number;
  transactionCount: number;
  entries: ClientLedgerEntry[];
@@ -375,6 +377,7 @@ export default function Home() {
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
+ const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
@@ -400,6 +403,7 @@ export default function Home() {
  const [transactionTableDrafts, setTransactionTableDrafts] = useState<Record<number, TransactionTableDraft>>({});
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
+ const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
@@ -594,12 +598,14 @@ export default function Home() {
 
   setLedgerTransactionDrafts(nextDrafts);
   setLedgerCommissionExpandedEntries(new Set());
+  setLedgerStartingBalanceDrafts({});
   setIsClientLedgerEditMode(true);
  }
 
  function cancelClientLedgerEditMode() {
   setLedgerTransactionDrafts({});
   setLedgerCommissionExpandedEntries(new Set());
+  setLedgerStartingBalanceDrafts({});
   setIsClientLedgerEditMode(false);
  }
 
@@ -741,6 +747,10 @@ export default function Home() {
   }
 
   try {
+   for (const [accountId, value] of Object.entries(ledgerStartingBalanceDrafts)) {
+    await window.accountingApi.updateClientAccountStartingBalance({ accountId: Number(accountId), startingBalance: parseFloat(value) || 0 });
+   }
+
    for (const draftKey of Object.keys(ledgerTransactionDrafts)) {
     const draft = ledgerTransactionDrafts[draftKey];
     const transaction = transactions.find((currentTransaction) => currentTransaction.id === draft.transactionId);
@@ -1101,8 +1111,9 @@ export default function Home() {
  async function onAddClientAccount(clientId: number) {
   if (!window.accountingApi || !newAccountCurrencyId) return;
   try {
-   await window.accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId });
+   await window.accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId, startingBalance: parseFloat(newAccountStartingBalance) || 0 });
    setNewAccountCurrencyId(null);
+   setNewAccountStartingBalance('0');
    await loadData();
    // Re-sync selectedClientForAccounts with updated client data
    setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
@@ -1119,6 +1130,16 @@ export default function Home() {
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ async function onUpdateAccountStartingBalance(accountId: number, value: string) {
+  if (!window.accountingApi) return;
+  try {
+   await window.accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance: parseFloat(value) || 0 });
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
  }
 
@@ -1265,7 +1286,7 @@ export default function Home() {
        })
        .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
 
-      let runningBalance = 0;
+      let runningBalance = account.startingBalance ?? 0;
       const entriesWithBalance = entries.map((entry) => {
        runningBalance += entry.netChange;
        return {
@@ -1279,6 +1300,7 @@ export default function Home() {
        currencyName: currencyMap.get(account.currencyId)?.name || account.currencyCode,
        currencyCode: account.currencyCode,
        currencySymbol: account.currencySymbol,
+       startingBalance: account.startingBalance ?? 0,
        currentBalance: runningBalance,
        transactionCount: entriesWithBalance.length,
        entries: entriesWithBalance,
@@ -1792,29 +1814,38 @@ export default function Home() {
        {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
       </div>
 
-      <div className="mt-4 flex gap-2">
-       <select
-        value={newAccountCurrencyId ?? ''}
-        onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-       >
-        <option value="">{t('client_account_currency_placeholder')}</option>
-        {enabledCurrencies
-         .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
-         .map((cur) => (
-          <option
-           key={cur.id}
-           value={cur.id}
-          >
-           {cur.code} – {cur.name}
-          </option>
-         ))}
-       </select>
+      <div className="mt-4 flex flex-col gap-2">
+       <div className="flex gap-2">
+        <select
+         value={newAccountCurrencyId ?? ''}
+         onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+         className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        >
+         <option value="">{t('client_account_currency_placeholder')}</option>
+         {enabledCurrencies
+          .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
+          .map((cur) => (
+           <option
+            key={cur.id}
+            value={cur.id}
+           >
+            {cur.code} – {cur.name}
+           </option>
+          ))}
+        </select>
+        <input
+         type="number"
+         value={newAccountStartingBalance}
+         onChange={(event) => setNewAccountStartingBalance(event.target.value)}
+         placeholder={t('starting_balance')}
+         className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        />
+       </div>
        <button
         type="button"
         onClick={() => onAddClientAccount(selectedClientForAccounts.id)}
         disabled={!newAccountCurrencyId}
-        className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+        className="self-start rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
        >
         {t('client_account_open')}
        </button>
@@ -2553,7 +2584,24 @@ export default function Home() {
              <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
+             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('starting_balance')}</p>
+              {isClientLedgerEditMode ? (
+               <div className="mt-2">
+                <input
+                 type="number"
+                 value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
+                 onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
+                 className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                />
+               </div>
+              ) : (
+               <p className={`mt-2 text-xl font-bold ${ledger.startingBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {ledger.startingBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+               </p>
+              )}
+             </div>
              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
               <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>

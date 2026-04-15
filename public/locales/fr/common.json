@@ -157,6 +157,7 @@
  "save_changes": "Enregistrer les modifications",
  "client_account_open": "Ouvrir un compte",
  "client_account_currency_placeholder": "Sélectionner une devise",
+ "starting_balance": "Solde initial",
  "client_account_delete_confirm": "Fermer ce compte ? Les transactions associées seront également supprimées.",
  "no_client_accounts": "Aucun compte pour le moment. Ouvrez le premier compte ci-dessous.",
  "transaction_account_from": "De",
