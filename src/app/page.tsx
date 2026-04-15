@@ -1176,7 +1176,14 @@ export default function Home() {
    },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
   ];
-  const visibleCols = allCols.filter((col) => col.key === 'runningBalance' || ledgerColumnVisibility[col.key]);
+  const visibleCols = ledgerColumnOrder
+   .map((key) => allCols.find((col) => col.key === key))
+   .filter((col): col is ColDef => Boolean(col) && (col.key === 'runningBalance' || ledgerColumnVisibility[col.key]));
+  // Ensure runningBalance is always present (append if somehow missing from order)
+  if (!visibleCols.some((col) => col.key === 'runningBalance')) {
+   const rbCol = allCols.find((col) => col.key === 'runningBalance');
+   if (rbCol) visibleCols.push(rbCol);
+  }
   const colCount = visibleCols.length;
 
   let runningBal = preBalance;
