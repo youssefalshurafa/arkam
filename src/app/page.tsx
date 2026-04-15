@@ -1152,23 +1152,43 @@ export default function Home() {
 
   const preBalance = ledger.startingBalance + ledger.entries.filter((e) => e.createdAt.slice(0, 10) < fromDate).reduce((sum, e) => sum + e.netChange, 0);
 
+  // Build column definitions respecting user visibility; running_balance is always included
+  type ColDef = { key: LedgerColumnKey; header: string; isNum?: boolean; cell: (e: ClientLedgerEntry, runBal: number) => string };
+  const allCols: ColDef[] = [
+   { key: 'created', header: t('date'), cell: (e) => e.createdAt.slice(0, 10) },
+   { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
+   { key: 'direction', header: t('direction'), cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming') },
+   { key: 'type', header: t('transaction_type'), cell: (e) => t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange') },
+   { key: 'amount', header: t('amount'), isNum: true, cell: (e) => e.amount.toLocaleString(language, { maximumFractionDigits: 2 }) },
+   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => e.exchangeRate.toFixed(2) },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => e.commission.toFixed(2) },
+   {
+    key: 'netChange',
+    header: t('net_change'),
+    isNum: true,
+    cell: (e) => `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}</span>`,
+   },
+   {
+    key: 'runningBalance',
+    header: t('running_balance'),
+    isNum: true,
+    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: 2 })}</span>`,
+   },
+   { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
+  ];
+  const visibleCols = allCols.filter((col) => col.key === 'runningBalance' || ledgerColumnVisibility[col.key]);
+  const colCount = visibleCols.length;
+
   let runningBal = preBalance;
   const rows = filteredEntries
    .map((e) => {
     runningBal += e.netChange;
-    const isPositive = e.netChange >= 0;
-    return `<tr>
-    <td>${e.createdAt.slice(0, 10)}</td>
-    <td>${e.counterpartyName}</td>
-    <td>${t(e.direction === 'outgoing' ? 'outgoing' : 'incoming')}</td>
-    <td class="num">${e.amount.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
-    <td class="num">${e.exchangeRate.toFixed(2)}</td>
-    <td class="num">${e.commission.toFixed(2)}</td>
-    <td class="num ${isPositive ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
-    <td class="num ${runningBal >= 0 ? 'pos' : 'neg'}">${runningBal.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
-   </tr>`;
+    const cells = visibleCols.map((col) => `<td${col.isNum ? ' class="num"' : ''}>${col.cell(e, runningBal)}</td>`).join('');
+    return `<tr>${cells}</tr>`;
    })
    .join('');
+
+  const headerCells = visibleCols.map((col) => `<th${col.isNum ? ' class="num"' : ''}>${col.header}</th>`).join('');
 
   const dir = isRTL ? 'rtl' : 'ltr';
   const clientName = selectedClientForLedger?.name ?? '';
@@ -1228,20 +1248,11 @@ export default function Home() {
 </div>
 <table>
  <thead>
-  <tr>
-   <th>${t('date')}</th>
-   <th>${t('counterparty')}</th>
-   <th>${t('direction')}</th>
-   <th class="num">${t('amount')}</th>
-   <th class="num">${t('exchange_rate')}</th>
-   <th class="num">${t('commission')}</th>
-   <th class="num">${t('net_change')}</th>
-   <th class="num">${t('running_balance')}</th>
-  </tr>
+  <tr>${headerCells}</tr>
  </thead>
  <tbody>
   <tr class="pre-row">
-   <td colspan="7">${t('export_pre_balance')}</td>
+   <td colspan="${colCount - 1}">${t('export_pre_balance')}</td>
    <td class="num ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
   </tr>
   ${rows}
