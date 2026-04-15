@@ -82,6 +82,7 @@ type Transaction = {
  commissionFrom: number;
  exchangeRateTo: number;
  commissionTo: number;
+ charges: number;
  description: string;
  createdAt: string;
 };
@@ -96,6 +97,7 @@ type TransactionForm = {
  commissionFrom: string;
  exchangeRateTo: string;
  commissionTo: string;
+ charges: string;
  description: string;
 };
 
@@ -110,6 +112,7 @@ type TransactionUpdateInput = {
  commissionFrom: number;
  exchangeRateTo: number;
  commissionTo: number;
+ charges: number;
  description: string;
  createdAt: string;
 };
@@ -125,6 +128,7 @@ type TransactionTableDraft = {
  commissionFrom: string;
  exchangeRateTo: string;
  commissionTo: string;
+ charges: string;
  description: string;
  createdDate: string;
 };
@@ -349,6 +353,7 @@ const emptyTransactionForm = (): TransactionForm => ({
  commissionFrom: '0',
  exchangeRateTo: '1',
  commissionTo: '0',
+ charges: '0',
  description: '',
 });
 
@@ -370,6 +375,7 @@ export default function Home() {
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
+ const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [isNewTransactionSectionOpen, setIsNewTransactionSectionOpen] = useState(false);
@@ -472,6 +478,8 @@ export default function Home() {
   setIsClientLedgerEditMode(false);
   setLedgerTransactionDrafts({});
   setSelectedClientForLedger(client);
+  const firstAccount = clientAccounts.find((account) => account.clientId === client.id);
+  setSelectedLedgerAccountId(firstAccount?.id ?? null);
   navigateToSection('client-ledger');
  }
 
@@ -539,6 +547,7 @@ export default function Home() {
    commissionFrom: String(transaction.commissionFrom),
    exchangeRateTo: String(transaction.exchangeRateTo),
    commissionTo: String(transaction.commissionTo),
+   charges: String(transaction.charges),
    description: transaction.description,
    createdDate: transaction.createdAt.slice(0, 10),
   };
@@ -916,6 +925,7 @@ export default function Home() {
     commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
     exchangeRateTo: parseFloat(transactionForm.exchangeRateTo) || 1,
     commissionTo: parseFloat(transactionForm.commissionTo) || 0,
+    charges: parseFloat(transactionForm.charges) || 0,
     description: transactionForm.description,
    });
 
@@ -956,6 +966,7 @@ export default function Home() {
      commissionFrom: parseFloat(draft.commissionFrom) || 0,
      exchangeRateTo: parseFloat(draft.exchangeRateTo) || 1,
      commissionTo: parseFloat(draft.commissionTo) || 0,
+     charges: parseFloat(draft.charges) || 0,
      description: draft.description,
      createdAt: `${draft.createdDate} ${currentTime}`,
     });
@@ -2248,24 +2259,26 @@ export default function Home() {
       </div>
      </div>
 
-     <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-      <div className={panelClassName}>
-       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">{activeSectionMeta.title}</p>
-       <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">{activeSectionMeta.title}</h2>
-       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{activeSectionMeta.description}</p>
-      </div>
-      <div className={`${panelClassName} grid gap-3 sm:grid-cols-3`}>
-       {shellMetrics.map((metric) => (
-        <div
-         key={metric.label}
-         className={mutedPanelClassName}
-        >
-         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{metric.label}</p>
-         <p className="mt-3 text-2xl font-semibold text-slate-950">{metric.value}</p>
-        </div>
-       ))}
-      </div>
-     </section>
+     {section !== 'client-ledger' ? (
+      <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+       <div className={panelClassName}>
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">{activeSectionMeta.title}</p>
+        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">{activeSectionMeta.title}</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{activeSectionMeta.description}</p>
+       </div>
+       <div className={`${panelClassName} grid gap-3 sm:grid-cols-3`}>
+        {shellMetrics.map((metric) => (
+         <div
+          key={metric.label}
+          className={mutedPanelClassName}
+         >
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{metric.label}</p>
+          <p className="mt-3 text-2xl font-semibold text-slate-950">{metric.value}</p>
+         </div>
+        ))}
+       </div>
+      </section>
+     ) : null}
 
      {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
@@ -2417,7 +2430,21 @@ export default function Home() {
          </button>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+         {selectedClientForLedger && selectedClientLedgers.length > 1
+          ? selectedClientLedgers.map((ledger) => (
+             <button
+              key={ledger.accountId}
+              type="button"
+              onClick={() => setSelectedLedgerAccountId(ledger.accountId)}
+              className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
+               selectedLedgerAccountId === ledger.accountId ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+             >
+              {ledger.currencyName}
+             </button>
+            ))
+          : null}
          {selectedClientForLedger ? (
           <button
            type="button"
@@ -2430,23 +2457,6 @@ export default function Home() {
           </button>
          ) : null}
         </div>
-
-        {selectedClientForLedger ? (
-         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className={mutedPanelClassName}>
-           <p className="text-sm text-slate-500">{t('client_organization')}</p>
-           <p className="mt-2 text-lg font-semibold text-slate-900">{selectedClientForLedger.organizationName || t('unassigned')}</p>
-          </div>
-          <div className={mutedPanelClassName}>
-           <p className="text-sm text-slate-500">{t('client_accounts')}</p>
-           <p className="mt-2 text-lg font-semibold text-slate-900">{selectedClientLedgers.length}</p>
-          </div>
-          <div className={mutedPanelClassName}>
-           <p className="text-sm text-slate-500">{t('client_page_transaction_count')}</p>
-           <p className="mt-2 text-lg font-semibold text-slate-900">{selectedClientTransactionCount}</p>
-          </div>
-         </div>
-        ) : null}
        </div>
 
        {!selectedClientForLedger ? (
@@ -2454,481 +2464,483 @@ export default function Home() {
        ) : selectedClientLedgers.length === 0 ? (
         <div className={`${panelClassName} text-sm text-slate-600`}>{t('no_client_accounts')}</div>
        ) : (
-        selectedClientLedgers.map((ledger) => (
-         <div
-          key={ledger.accountId}
-          className={panelClassName}
-         >
-          <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
-           <div>
-            <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
-            <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
-           </div>
-
-           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
-             <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-              {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
-             </p>
+        selectedClientLedgers
+         .filter((ledger) => selectedClientLedgers.length === 1 || ledger.accountId === selectedLedgerAccountId)
+         .map((ledger) => (
+          <div
+           key={ledger.accountId}
+           className={panelClassName}
+          >
+           <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+             <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
+             <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_transaction_count')}</p>
-             <p className="mt-2 text-xl font-bold text-slate-900">{ledger.transactionCount}</p>
-            </div>
-           </div>
-          </div>
 
-          {ledger.entries.length === 0 ? (
-           <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
-          ) : (
-           <div className={tableWrapClassName}>
-            {isClientLedgerEditMode ? (
-             <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</span>
-               {orderedLedgerColumnOptions.map((column) => {
-                const isVisible = ledgerColumnVisibility[column.key];
-
-                return (
-                 <button
-                  key={column.key}
-                  type="button"
-                  onClick={() => toggleLedgerColumn(column.key)}
-                  aria-pressed={isVisible}
-                  className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                   isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                 >
-                  {column.label}
-                 </button>
-                );
-               })}
-               <button
-                type="button"
-                onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
-                aria-pressed={showLedgerCurrencySymbol}
-                className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                 showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-               >
-                {t('currency_symbol')}
-               </button>
-              </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
+              <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+               {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+              </p>
              </div>
-            ) : null}
-            <table className="w-full text-sm">
-             <thead className="bg-slate-100 text-slate-700">
-              <tr>
-               {orderedLedgerColumnOptions.map((column) => {
-                if (!ledgerColumnVisibility[column.key]) {
-                 return null;
-                }
-
-                const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} ${isClientLedgerEditMode ? 'cursor-move select-none' : ''}`;
-
-                const headerContent = (
-                 <span className="inline-flex items-center gap-2">
-                  {isClientLedgerEditMode ? <span className={`text-[10px] ${draggedLedgerColumn === column.key ? 'opacity-60' : 'opacity-80'}`}>::</span> : null}
-                  <span>{column.label}</span>
-                 </span>
-                );
-
-                switch (column.key) {
-                 case 'created':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'counterparty':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'direction':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'type':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'amount':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'exchangeRate':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'commission':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'netChange':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'runningBalance':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                 case 'description':
-                  return (
-                   <th
-                    key={column.key}
-                    draggable={isClientLedgerEditMode}
-                    onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                    onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                    onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                    onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                    className={headerClassName}
-                   >
-                    {headerContent}
-                   </th>
-                  );
-                }
-               })}
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
-              </tr>
-             </thead>
-             <tbody>
-              {ledger.entries.map((entry) => (
-               <tr
-                key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}
-                className="border-t border-slate-200 align-top"
-               >
-                {(() => {
-                 const draft = isClientLedgerEditMode ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
-
-                 return orderedLedgerColumnOptions.map((column) => {
-                  if (!ledgerColumnVisibility[column.key]) {
-                   return null;
-                  }
-
-                  switch (column.key) {
-                   case 'created':
-                    return (
-                     <td
-                      key={column.key}
-                      className="px-4 py-3 text-slate-500"
-                     >
-                      {isClientLedgerEditMode && draft ? (
-                       <input
-                        type="date"
-                        value={draft.createdDate}
-                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                       />
-                      ) : (
-                       new Date(entry.createdAt).toLocaleDateString(language)
-                      )}
-                     </td>
-                    );
-                   case 'counterparty':
-                    return (
-                     <td
-                      key={column.key}
-                      className="px-4 py-3 font-medium text-slate-900"
-                     >
-                      {isClientLedgerEditMode && draft ? (
-                       <select
-                        value={draft.counterpartyAccountId ?? ''}
-                        onChange={(event) =>
-                         updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
-                        }
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                       >
-                        <option value="">{t('transaction_account_placeholder')}</option>
-                        {clientAccounts
-                         .filter((account) => account.id !== ledger.accountId)
-                         .map((account) => (
-                          <option
-                           key={account.id}
-                           value={account.id}
-                          >
-                           {account.clientName} - {account.currencySymbol || account.currencyCode}
-                          </option>
-                         ))}
-                       </select>
-                      ) : (
-                       entry.counterpartyName
-                      )}
-                     </td>
-                    );
-                   case 'direction':
-                    return (
-                     <td
-                      key={column.key}
-                      className="px-4 py-3"
-                     >
-                      {isClientLedgerEditMode && draft ? (
-                       <select
-                        value={draft.direction}
-                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                       >
-                        <option value="incoming">{t('incoming')}</option>
-                        <option value="outgoing">{t('outgoing')}</option>
-                       </select>
-                      ) : (
-                       <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
-                       >
-                        {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
-                       </span>
-                      )}
-                     </td>
-                    );
-                   case 'type':
-                    return (
-                     <td
-                      key={column.key}
-                      className="px-4 py-3 text-slate-600"
-                     >
-                      {isClientLedgerEditMode && draft ? (
-                       <select
-                        value={draft.type}
-                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                       >
-                        <option value="exchange">{t('transaction_type_exchange')}</option>
-                        <option value="transfer">{t('transaction_type_transfer')}</option>
-                       </select>
-                      ) : (
-                       t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
-                      )}
-                     </td>
-                    );
-                   case 'amount':
-                    return (
-                     <td
-                      key={column.key}
-                      className="px-4 py-3 text-slate-700"
-                     >
-                      {isClientLedgerEditMode && draft ? (
-                       <input
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={draft.amount}
-                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                       />
-                      ) : (
-                       <>
-                        {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })}
-                        {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
-                       </>
-                      )}
-                     </td>
-                    );
-                   case 'exchangeRate':
-                    return (
-                     <td
-                      key={column.key}
-                      className="px-4 py-3 text-slate-600"
-                     >
-                      {isClientLedgerEditMode && draft ? (
-                       <input
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={draft.exchangeRate}
-                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                       />
-                      ) : (
-                       entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })
-                      )}
-                     </td>
-                    );
-                   case 'commission':
-                    return (
-                     <td
-                      key={column.key}
-                      className="px-4 py-3 text-slate-600"
-                     >
-                      {isClientLedgerEditMode && draft ? (
-                       <input
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={draft.commission}
-                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                       />
-                      ) : (
-                       <>{entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}%</>
-                      )}
-                     </td>
-                    );
-                   case 'netChange':
-                    return (
-                     <td
-                      key={column.key}
-                      className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                     >
-                      {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}
-                      {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                     </td>
-                    );
-                   case 'runningBalance':
-                    return (
-                     <td
-                      key={column.key}
-                      className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                     >
-                      {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
-                      {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                     </td>
-                    );
-                   case 'description':
-                    return (
-                     <td
-                      key={column.key}
-                      className="px-4 py-3 text-slate-500"
-                     >
-                      {isClientLedgerEditMode && draft ? (
-                       <input
-                        type="text"
-                        value={draft.description}
-                        onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                       />
-                      ) : (
-                       entry.description || '-'
-                      )}
-                     </td>
-                    );
-                  }
-                 });
-                })()}
-                <td className="px-4 py-3">
-                 <div className="flex flex-wrap gap-2">
-                  {isClientLedgerEditMode ? (
-                   <>
-                    <button
-                     type="button"
-                     onClick={() => void onSaveLedgerTransaction(entry.transactionId, ledger.accountId)}
-                     className="cursor-pointer rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                    >
-                     {t('save_changes')}
-                    </button>
-                    <button
-                     type="button"
-                     onClick={() => onCancelLedgerTransaction(entry.transactionId, ledger.accountId)}
-                     className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                     {t('cancel')}
-                    </button>
-                   </>
-                  ) : null}
-                  <button
-                   type="button"
-                   onClick={() => onDeleteTransaction(entry.transactionId)}
-                   className="cursor-pointer rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-                  >
-                   {t('delete')}
-                  </button>
-                 </div>
-                </td>
-               </tr>
-              ))}
-             </tbody>
-            </table>
+             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_transaction_count')}</p>
+              <p className="mt-2 text-xl font-bold text-slate-900">{ledger.transactionCount}</p>
+             </div>
+            </div>
            </div>
-          )}
-         </div>
-        ))
+
+           {ledger.entries.length === 0 ? (
+            <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
+           ) : (
+            <div className={tableWrapClassName}>
+             {isClientLedgerEditMode ? (
+              <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+               <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</span>
+                {orderedLedgerColumnOptions.map((column) => {
+                 const isVisible = ledgerColumnVisibility[column.key];
+
+                 return (
+                  <button
+                   key={column.key}
+                   type="button"
+                   onClick={() => toggleLedgerColumn(column.key)}
+                   aria-pressed={isVisible}
+                   className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                   }`}
+                  >
+                   {column.label}
+                  </button>
+                 );
+                })}
+                <button
+                 type="button"
+                 onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
+                 aria-pressed={showLedgerCurrencySymbol}
+                 className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                 }`}
+                >
+                 {t('currency_symbol')}
+                </button>
+               </div>
+              </div>
+             ) : null}
+             <table className="w-full text-sm">
+              <thead className="bg-slate-100 text-slate-700">
+               <tr>
+                {orderedLedgerColumnOptions.map((column) => {
+                 if (!ledgerColumnVisibility[column.key]) {
+                  return null;
+                 }
+
+                 const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} ${isClientLedgerEditMode ? 'cursor-move select-none' : ''}`;
+
+                 const headerContent = (
+                  <span className="inline-flex items-center gap-2">
+                   {isClientLedgerEditMode ? <span className={`text-[10px] ${draggedLedgerColumn === column.key ? 'opacity-60' : 'opacity-80'}`}>::</span> : null}
+                   <span>{column.label}</span>
+                  </span>
+                 );
+
+                 switch (column.key) {
+                  case 'created':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'counterparty':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'direction':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'type':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'amount':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'exchangeRate':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'commission':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'netChange':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'runningBalance':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                  case 'description':
+                   return (
+                    <th
+                     key={column.key}
+                     draggable={isClientLedgerEditMode}
+                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                     className={headerClassName}
+                    >
+                     {headerContent}
+                    </th>
+                   );
+                 }
+                })}
+                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
+               </tr>
+              </thead>
+              <tbody>
+               {ledger.entries.map((entry) => (
+                <tr
+                 key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}
+                 className="border-t border-slate-200 align-top"
+                >
+                 {(() => {
+                  const draft = isClientLedgerEditMode ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+
+                  return orderedLedgerColumnOptions.map((column) => {
+                   if (!ledgerColumnVisibility[column.key]) {
+                    return null;
+                   }
+
+                   switch (column.key) {
+                    case 'created':
+                     return (
+                      <td
+                       key={column.key}
+                       className="px-4 py-3 text-slate-500"
+                      >
+                       {isClientLedgerEditMode && draft ? (
+                        <input
+                         type="date"
+                         value={draft.createdDate}
+                         onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
+                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        />
+                       ) : (
+                        new Date(entry.createdAt).toLocaleDateString(language)
+                       )}
+                      </td>
+                     );
+                    case 'counterparty':
+                     return (
+                      <td
+                       key={column.key}
+                       className="px-4 py-3 font-medium text-slate-900"
+                      >
+                       {isClientLedgerEditMode && draft ? (
+                        <select
+                         value={draft.counterpartyAccountId ?? ''}
+                         onChange={(event) =>
+                          updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
+                         }
+                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        >
+                         <option value="">{t('transaction_account_placeholder')}</option>
+                         {clientAccounts
+                          .filter((account) => account.id !== ledger.accountId)
+                          .map((account) => (
+                           <option
+                            key={account.id}
+                            value={account.id}
+                           >
+                            {account.clientName} - {account.currencySymbol || account.currencyCode}
+                           </option>
+                          ))}
+                        </select>
+                       ) : (
+                        entry.counterpartyName
+                       )}
+                      </td>
+                     );
+                    case 'direction':
+                     return (
+                      <td
+                       key={column.key}
+                       className="px-4 py-3"
+                      >
+                       {isClientLedgerEditMode && draft ? (
+                        <select
+                         value={draft.direction}
+                         onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
+                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        >
+                         <option value="incoming">{t('incoming')}</option>
+                         <option value="outgoing">{t('outgoing')}</option>
+                        </select>
+                       ) : (
+                        <span
+                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                        >
+                         {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
+                        </span>
+                       )}
+                      </td>
+                     );
+                    case 'type':
+                     return (
+                      <td
+                       key={column.key}
+                       className="px-4 py-3 text-slate-600"
+                      >
+                       {isClientLedgerEditMode && draft ? (
+                        <select
+                         value={draft.type}
+                         onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
+                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        >
+                         <option value="exchange">{t('transaction_type_exchange')}</option>
+                         <option value="transfer">{t('transaction_type_transfer')}</option>
+                        </select>
+                       ) : (
+                        t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
+                       )}
+                      </td>
+                     );
+                    case 'amount':
+                     return (
+                      <td
+                       key={column.key}
+                       className="px-4 py-3 text-slate-700"
+                      >
+                       {isClientLedgerEditMode && draft ? (
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.amount}
+                         onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
+                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        />
+                       ) : (
+                        <>
+                         {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })}
+                         {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
+                        </>
+                       )}
+                      </td>
+                     );
+                    case 'exchangeRate':
+                     return (
+                      <td
+                       key={column.key}
+                       className="px-4 py-3 text-slate-600"
+                      >
+                       {isClientLedgerEditMode && draft ? (
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.exchangeRate}
+                         onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })}
+                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        />
+                       ) : (
+                        entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })
+                       )}
+                      </td>
+                     );
+                    case 'commission':
+                     return (
+                      <td
+                       key={column.key}
+                       className="px-4 py-3 text-slate-600"
+                      >
+                       {isClientLedgerEditMode && draft ? (
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.commission}
+                         onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
+                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        />
+                       ) : (
+                        <>{entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}%</>
+                       )}
+                      </td>
+                     );
+                    case 'netChange':
+                     return (
+                      <td
+                       key={column.key}
+                       className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                      >
+                       {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}
+                       {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                      </td>
+                     );
+                    case 'runningBalance':
+                     return (
+                      <td
+                       key={column.key}
+                       className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                      >
+                       {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                       {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                      </td>
+                     );
+                    case 'description':
+                     return (
+                      <td
+                       key={column.key}
+                       className="px-4 py-3 text-slate-500"
+                      >
+                       {isClientLedgerEditMode && draft ? (
+                        <input
+                         type="text"
+                         value={draft.description}
+                         onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
+                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        />
+                       ) : (
+                        entry.description || '-'
+                       )}
+                      </td>
+                     );
+                   }
+                  });
+                 })()}
+                 <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                   {isClientLedgerEditMode ? (
+                    <>
+                     <button
+                      type="button"
+                      onClick={() => void onSaveLedgerTransaction(entry.transactionId, ledger.accountId)}
+                      className="cursor-pointer rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                     >
+                      {t('save_changes')}
+                     </button>
+                     <button
+                      type="button"
+                      onClick={() => onCancelLedgerTransaction(entry.transactionId, ledger.accountId)}
+                      className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                     >
+                      {t('cancel')}
+                     </button>
+                    </>
+                   ) : null}
+                   <button
+                    type="button"
+                    onClick={() => onDeleteTransaction(entry.transactionId)}
+                    className="cursor-pointer rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                   >
+                    {t('delete')}
+                   </button>
+                  </div>
+                 </td>
+                </tr>
+               ))}
+              </tbody>
+             </table>
+            </div>
+           )}
+          </div>
+         ))
        )}
       </section>
      ) : null}
@@ -3117,6 +3129,17 @@ export default function Home() {
            </div>
           </div>
 
+          <label className="mt-4 block text-sm font-medium">{t('charges')}</label>
+          <input
+           type="text"
+           inputMode="decimal"
+           dir="ltr"
+           value={transactionForm.charges}
+           onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
+           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+           placeholder="0"
+          />
+
           <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
           <textarea
            value={transactionForm.description}
@@ -3172,11 +3195,12 @@ export default function Home() {
          <table className="w-full text-sm">
           <colgroup>
            <col className="w-[10%]" />
-           <col className="w-[18%]" />
-           <col className="w-[18%]" />
-           <col className="w-[18%]" />
-           <col className="w-[16%]" />
-           <col className="w-[20%]" />
+           <col className="w-[15%]" />
+           <col className="w-[17%]" />
+           <col className="w-[17%]" />
+           <col className="w-[13%]" />
+           <col className="w-[13%]" />
+           <col className="w-[15%]" />
           </colgroup>
           <thead className="bg-slate-100 text-slate-700">
            <tr>
@@ -3185,6 +3209,7 @@ export default function Home() {
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
+            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
            </tr>
           </thead>
@@ -3369,6 +3394,23 @@ export default function Home() {
                   </>
                  )}
                 </td>
+                <td className="px-4 py-3 text-slate-700">
+                 {isTransactionsEditMode && draft ? (
+                  <input
+                   type="text"
+                   inputMode="decimal"
+                   dir="ltr"
+                   value={draft.charges}
+                   onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
+                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                   placeholder="0"
+                  />
+                 ) : txn.charges ? (
+                  <span>{txn.charges.toLocaleString()}</span>
+                 ) : (
+                  <span className="text-slate-400">—</span>
+                 )}
+                </td>
                 <td className="px-4 py-3 text-slate-600">
                  {isTransactionsEditMode && draft
                   ? (() => {
@@ -3464,7 +3506,7 @@ export default function Home() {
             <tr>
              <td
               className="px-4 py-6 text-slate-500"
-              colSpan={6}
+              colSpan={7}
              >
               {t('no_transactions')}
              </td>

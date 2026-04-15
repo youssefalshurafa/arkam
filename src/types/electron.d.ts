@@ -85,6 +85,7 @@ type Transaction = {
  commissionFrom: number;
  exchangeRateTo: number;
  commissionTo: number;
+ charges: number;
  description: string;
  createdAt: string;
 };
@@ -99,6 +100,7 @@ type TransactionInput = {
  commissionFrom: number;
  exchangeRateTo: number;
  commissionTo: number;
+ charges: number;
  description: string;
 };
 

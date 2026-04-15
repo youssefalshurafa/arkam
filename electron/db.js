@@ -192,6 +192,7 @@ function initializeDb(db) {
             commission_from REAL NOT NULL DEFAULT 0,
             exchange_rate_to REAL NOT NULL DEFAULT 1,
             commission_to REAL NOT NULL DEFAULT 0,
+            charges REAL NOT NULL DEFAULT 0,
             description TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (account_from_id) REFERENCES client_accounts(id) ON DELETE CASCADE,
@@ -233,6 +234,7 @@ function initializeDb(db) {
                     commission_from REAL NOT NULL DEFAULT 0,
                     exchange_rate_to REAL NOT NULL DEFAULT 1,
                     commission_to REAL NOT NULL DEFAULT 0,
+                    charges REAL NOT NULL DEFAULT 0,
                     description TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     FOREIGN KEY (account_from_id) REFERENCES client_accounts(id) ON DELETE CASCADE,
@@ -247,6 +249,12 @@ function initializeDb(db) {
 
     try {
         db.exec("ALTER TABLE currencies ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 0");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    try {
+        db.exec("ALTER TABLE transactions ADD COLUMN charges REAL NOT NULL DEFAULT 0");
     } catch {
         // Column already exists – ignore
     }
@@ -611,6 +619,7 @@ function listTransactions(app) {
             t.commission_from AS commissionFrom,
             t.exchange_rate_to AS exchangeRateTo,
             t.commission_to AS commissionTo,
+            t.charges,
             t.description,
             t.created_at AS createdAt
         FROM transactions t
@@ -632,8 +641,8 @@ function createTransaction(app, txn) {
 
     const { db } = getOrCreateDb(app);
     db.prepare(`
-        INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, charges, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         txn.accountFromId,
         txn.accountToId,
@@ -644,6 +653,7 @@ function createTransaction(app, txn) {
         txn.commissionFrom || 0,
         txn.exchangeRateTo || 1,
         txn.commissionTo || 0,
+        txn.charges || 0,
         txn.description?.trim() || "",
     );
 }
@@ -666,6 +676,7 @@ function updateTransaction(app, txn) {
             commission_from = ?,
             exchange_rate_to = ?,
             commission_to = ?,
+            charges = ?,
             description = ?,
             created_at = ?
         WHERE id = ?
@@ -679,6 +690,7 @@ function updateTransaction(app, txn) {
         txn.commissionFrom || 0,
         txn.exchangeRateTo || 1,
         txn.commissionTo || 0,
+        txn.charges || 0,
         txn.description?.trim() || "",
         txn.createdAt,
         txn.id,
