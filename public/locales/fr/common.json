@@ -175,7 +175,8 @@
  "outgoing": "Sortant",
  "commission": "Commission",
  "add_commission": "Ajouter une commission",
- "charges": "Frais",
+ "charges": "Dépenses",
+ "add_expenses": "Ajouter des dépenses",
  "net_change": "Variation nette",
  "running_balance": "Solde cumulé",
  "overview_transactions": "Transactions"

@@ -349,10 +349,10 @@ const emptyTransactionForm = (): TransactionForm => ({
  currencyId: null,
  amount: '',
  type: 'transfer',
- exchangeRateFrom: '1',
- commissionFrom: '0',
- exchangeRateTo: '1',
- commissionTo: '0',
+ exchangeRateFrom: '1.00',
+ commissionFrom: '0.00',
+ exchangeRateTo: '1.00',
+ commissionTo: '0.00',
  charges: '0',
  description: '',
 });
@@ -378,6 +378,8 @@ export default function Home() {
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
+ const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
+ const [ledgerCommissionExpandedEntries, setLedgerCommissionExpandedEntries] = useState<Set<string>>(new Set());
  const [isNewTransactionSectionOpen, setIsNewTransactionSectionOpen] = useState(false);
  const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
@@ -543,10 +545,10 @@ export default function Home() {
    currencyId: transaction.currencyId,
    type: transaction.type,
    amount: String(transaction.amount),
-   exchangeRateFrom: String(transaction.exchangeRateFrom),
-   commissionFrom: String(transaction.commissionFrom),
-   exchangeRateTo: String(transaction.exchangeRateTo),
-   commissionTo: String(transaction.commissionTo),
+   exchangeRateFrom: transaction.exchangeRateFrom.toFixed(2),
+   commissionFrom: transaction.commissionFrom.toFixed(2),
+   exchangeRateTo: transaction.exchangeRateTo.toFixed(2),
+   commissionTo: transaction.commissionTo.toFixed(2),
    charges: String(transaction.charges),
    description: transaction.description,
    createdDate: transaction.createdAt.slice(0, 10),
@@ -591,11 +593,13 @@ export default function Home() {
   });
 
   setLedgerTransactionDrafts(nextDrafts);
+  setLedgerCommissionExpandedEntries(new Set());
   setIsClientLedgerEditMode(true);
  }
 
  function cancelClientLedgerEditMode() {
   setLedgerTransactionDrafts({});
+  setLedgerCommissionExpandedEntries(new Set());
   setIsClientLedgerEditMode(false);
  }
 
@@ -608,12 +612,14 @@ export default function Home() {
 
   setTransactionTableDrafts(nextDrafts);
   setCommissionExpandedTxns(new Set());
+  setExpensesExpandedTxns(new Set());
   setIsTransactionsEditMode(true);
  }
 
  function cancelTransactionsEditMode() {
   setTransactionTableDrafts({});
   setCommissionExpandedTxns(new Set());
+  setExpensesExpandedTxns(new Set());
   setIsTransactionsEditMode(false);
  }
 
@@ -726,6 +732,56 @@ export default function Home() {
    ...current,
    [draftKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId),
   }));
+ }
+
+ async function onSaveAllLedgerTransactions() {
+  if (!window.accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  try {
+   for (const draftKey of Object.keys(ledgerTransactionDrafts)) {
+    const draft = ledgerTransactionDrafts[draftKey];
+    const transaction = transactions.find((currentTransaction) => currentTransaction.id === draft.transactionId);
+    if (!draft || !transaction) continue;
+
+    const amount = parseFloat(draft.amount);
+    const exchangeRate = parseFloat(draft.exchangeRate) || 1;
+    const commission = parseFloat(draft.commission) || 0;
+
+    if (!draft.counterpartyAccountId || !amount) {
+     setError(t('transaction_required'));
+     return;
+    }
+
+    const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
+    const createdAt = `${draft.createdDate} ${currentTime}`;
+    const payload: TransactionUpdateInput = {
+     id: transaction.id,
+     accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
+     accountToId: draft.direction === 'outgoing' ? draft.counterpartyAccountId : draft.ledgerAccountId,
+     currencyId: transaction.currencyId,
+     amount,
+     type: draft.type,
+     exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
+     commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
+     exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
+     commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
+     charges: transaction.charges,
+     description: draft.description,
+     createdAt,
+    };
+
+    await window.accountingApi.updateTransaction(payload);
+   }
+
+   setError('');
+   cancelClientLedgerEditMode();
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
  }
 
  async function onOrganizationSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2446,15 +2502,35 @@ export default function Home() {
             ))
           : null}
          {selectedClientForLedger ? (
-          <button
-           type="button"
-           onClick={() => (isClientLedgerEditMode ? cancelClientLedgerEditMode() : beginClientLedgerEditMode())}
-           className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-            isClientLedgerEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-           }`}
-          >
-           {isClientLedgerEditMode ? t('client_ledger_done_editing') : t('client_ledger_edit_mode')}
-          </button>
+          <>
+           {isClientLedgerEditMode ? (
+            <>
+             <button
+              type="button"
+              onClick={() => void onSaveAllLedgerTransactions()}
+              className="cursor-pointer rounded-full border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+             >
+              {t('save_changes')}
+             </button>
+             <button
+              type="button"
+              onClick={cancelClientLedgerEditMode}
+              className="cursor-pointer rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+             >
+              {t('cancel')}
+             </button>
+            </>
+           ) : null}
+           <button
+            type="button"
+            onClick={() => (isClientLedgerEditMode ? cancelClientLedgerEditMode() : beginClientLedgerEditMode())}
+            className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
+             isClientLedgerEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+            }`}
+           >
+            {isClientLedgerEditMode ? t('client_ledger_done_editing') : t('client_ledger_edit_mode')}
+           </button>
+          </>
          ) : null}
         </div>
        </div>
@@ -2689,7 +2765,6 @@ export default function Home() {
                    );
                  }
                 })}
-                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
                </tr>
               </thead>
               <tbody>
@@ -2839,7 +2914,7 @@ export default function Home() {
                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         />
                        ) : (
-                        entry.exchangeRate.toLocaleString(language, { maximumFractionDigits: 4 })
+                        entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
                        )}
                       </td>
                      );
@@ -2850,16 +2925,37 @@ export default function Home() {
                        className="px-4 py-3 text-slate-600"
                       >
                        {isClientLedgerEditMode && draft ? (
-                        <input
-                         type="text"
-                         inputMode="decimal"
-                         dir="ltr"
-                         value={draft.commission}
-                         onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
-                         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                        />
+                        (() => {
+                         const entryKey = `${entry.transactionId}:${ledger.accountId}`;
+                         const isZero = parseFloat(draft.commission) === 0;
+                         const expanded = ledgerCommissionExpandedEntries.has(entryKey);
+                         if (isZero && !expanded) {
+                          return (
+                           <button
+                            type="button"
+                            onClick={() => setLedgerCommissionExpandedEntries((prev) => new Set([...prev, entryKey]))}
+                            className="text-sm text-blue-600 hover:underline"
+                           >
+                            + {t('add_commission')}
+                           </button>
+                          );
+                         }
+                         return (
+                          <input
+                           type="text"
+                           inputMode="decimal"
+                           dir="ltr"
+                           value={draft.commission}
+                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
+                           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           placeholder="0"
+                          />
+                         );
+                        })()
+                       ) : entry.commission ? (
+                        <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</>
                        ) : (
-                        <>{entry.commission.toLocaleString(language, { maximumFractionDigits: 2 })}%</>
+                        <span className="text-slate-400">—</span>
                        )}
                       </td>
                      );
@@ -2904,35 +3000,6 @@ export default function Home() {
                    }
                   });
                  })()}
-                 <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-2">
-                   {isClientLedgerEditMode ? (
-                    <>
-                     <button
-                      type="button"
-                      onClick={() => void onSaveLedgerTransaction(entry.transactionId, ledger.accountId)}
-                      className="cursor-pointer rounded-lg border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                     >
-                      {t('save_changes')}
-                     </button>
-                     <button
-                      type="button"
-                      onClick={() => onCancelLedgerTransaction(entry.transactionId, ledger.accountId)}
-                      className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                     >
-                      {t('cancel')}
-                     </button>
-                    </>
-                   ) : null}
-                   <button
-                    type="button"
-                    onClick={() => onDeleteTransaction(entry.transactionId)}
-                    className="cursor-pointer rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-                   >
-                    {t('delete')}
-                   </button>
-                  </div>
-                 </td>
                 </tr>
                ))}
               </tbody>
@@ -3299,7 +3366,7 @@ export default function Home() {
                    })()}
                    {txn.exchangeRateFrom !== 1 ? (
                     <div className="text-xs text-slate-500">
-                     {t('transaction_exchange_rate')}: {txn.exchangeRateFrom}
+                     {t('transaction_exchange_rate')}: {txn.exchangeRateFrom.toFixed(2)}
                     </div>
                    ) : null}
                   </>
@@ -3355,7 +3422,7 @@ export default function Home() {
                    })()}
                    {txn.exchangeRateTo !== 1 ? (
                     <div className="text-xs text-slate-500">
-                     {t('transaction_exchange_rate')}: {txn.exchangeRateTo}
+                     {t('transaction_exchange_rate')}: {txn.exchangeRateTo.toFixed(2)}
                     </div>
                    ) : null}
                   </>
@@ -3396,15 +3463,32 @@ export default function Home() {
                 </td>
                 <td className="px-4 py-3 text-slate-700">
                  {isTransactionsEditMode && draft ? (
-                  <input
-                   type="text"
-                   inputMode="decimal"
-                   dir="ltr"
-                   value={draft.charges}
-                   onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
-                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                   placeholder="0"
-                  />
+                  (() => {
+                   const isZero = parseFloat(draft.charges) === 0;
+                   const expanded = expensesExpandedTxns.has(txn.id);
+                   if (isZero && !expanded) {
+                    return (
+                     <button
+                      type="button"
+                      onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                      className="text-sm text-blue-600 hover:underline"
+                     >
+                      + {t('add_expenses')}
+                     </button>
+                    );
+                   }
+                   return (
+                    <input
+                     type="text"
+                     inputMode="decimal"
+                     dir="ltr"
+                     value={draft.charges}
+                     onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
+                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                     placeholder="0"
+                    />
+                   );
+                  })()
                  ) : txn.charges ? (
                   <span>{txn.charges.toLocaleString()}</span>
                  ) : (
@@ -3484,8 +3568,8 @@ export default function Home() {
                     })()
                   : (() => {
                      const parts: string[] = [];
-                     if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom}%`);
-                     if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo}%`);
+                     if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
+                     if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
                      return parts.length > 0 ? (
                       <div className="space-y-0.5 text-xs">
                        {parts.map((p, i) => (
