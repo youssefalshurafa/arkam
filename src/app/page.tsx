@@ -470,6 +470,24 @@ export default function Home() {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
  }, [ledgerColumnOrder]);
 
+ useEffect(() => {
+  if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
+  const selectedCurrency = currencies.find((c) => c.id === transactionForm.currencyId);
+  const accountFrom = clientAccounts.find((a) => a.id === transactionForm.accountFromId);
+  if (selectedCurrency && accountFrom && selectedCurrency.code === accountFrom.currencyCode) {
+   setTransactionForm((current) => ({ ...current, exchangeRateFrom: '1.00' }));
+  }
+ }, [transactionForm.currencyId, transactionForm.accountFromId, currencies, clientAccounts]);
+
+ useEffect(() => {
+  if (!transactionForm.currencyId || !transactionForm.accountToId) return;
+  const selectedCurrency = currencies.find((c) => c.id === transactionForm.currencyId);
+  const accountTo = clientAccounts.find((a) => a.id === transactionForm.accountToId);
+  if (selectedCurrency && accountTo && selectedCurrency.code === accountTo.currencyCode) {
+   setTransactionForm((current) => ({ ...current, exchangeRateTo: '1.00' }));
+  }
+ }, [transactionForm.currencyId, transactionForm.accountToId, currencies, clientAccounts]);
+
  function navigateToSection(nextSection: Section) {
   setSection(nextSection);
   window.history.replaceState(null, '', `#${nextSection}`);
@@ -1366,6 +1384,12 @@ export default function Home() {
  const clientMap = new Map(clients.map((client) => [client.id, client]));
  const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
  const selectedOrganizationClients = selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : [];
+
+ const transactionSelectedCurrencyCode = transactionForm.currencyId ? currencyMap.get(transactionForm.currencyId)?.code : undefined;
+ const transactionAccountFromCurrencyCode = transactionForm.accountFromId ? clientAccountMap.get(transactionForm.accountFromId)?.currencyCode : undefined;
+ const transactionAccountToCurrencyCode = transactionForm.accountToId ? clientAccountMap.get(transactionForm.accountToId)?.currencyCode : undefined;
+ const showExchangeRateFrom = !(transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode && transactionSelectedCurrencyCode === transactionAccountFromCurrencyCode);
+ const showExchangeRateTo = !(transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode === transactionAccountToCurrencyCode);
 
  const overviewCards = [
   { label: t('overview_currencies'), value: enabledCurrencies.length },
@@ -3344,19 +3368,21 @@ export default function Home() {
 
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
            <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
-           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <div>
-             <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_from')}</label>
-             <input
-              type="text"
-              inputMode="decimal"
-              dir="ltr"
-              value={transactionForm.exchangeRateFrom}
-              onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              placeholder="1"
-             />
-            </div>
+           <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
+            {showExchangeRateFrom && (
+             <div>
+              <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_from')}</label>
+              <input
+               type="text"
+               inputMode="decimal"
+               dir="ltr"
+               value={transactionForm.exchangeRateFrom}
+               onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
+               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               placeholder="1"
+              />
+             </div>
+            )}
             <div>
              <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
              <input
@@ -3374,19 +3400,21 @@ export default function Home() {
 
           <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
            <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
-           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <div>
-             <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_to')}</label>
-             <input
-              type="text"
-              inputMode="decimal"
-              dir="ltr"
-              value={transactionForm.exchangeRateTo}
-              onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              placeholder="1"
-             />
-            </div>
+           <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
+            {showExchangeRateTo && (
+             <div>
+              <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_to')}</label>
+              <input
+               type="text"
+               inputMode="decimal"
+               dir="ltr"
+               value={transactionForm.exchangeRateTo}
+               onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               placeholder="1"
+              />
+             </div>
+            )}
             <div>
              <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
              <input
