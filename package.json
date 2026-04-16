@@ -5,9 +5,13 @@
  "private": true,
  "main": "electron/main.js",
  "scripts": {
+    "predev": "node scripts/clean-next-lock.mjs",
   "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
+    "predev:web": "node scripts/clean-next-lock.mjs",
   "dev:web": "next dev",
   "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
+  "rebuild:native": "electron-builder install-app-deps",
+  "postinstall": "electron-builder install-app-deps",
   "build": "next build",
   "build:desktop": "npm run build && electron-builder --win nsis",
   "start": "next start",

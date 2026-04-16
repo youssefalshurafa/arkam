@@ -1,0 +1,18 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "dev:host (flatpak+nvm)",
+			"type": "shell",
+			"command": "flatpak-spawn",
+			"args": [
+				"--host",
+				"bash",
+				"-lc",
+				"source ~/.nvm/nvm.sh && cd /home/youssef/arkam && npm run dev"
+			],
+			"isBackground": true,
+			"group": "build"
+		}
+	]
+}
