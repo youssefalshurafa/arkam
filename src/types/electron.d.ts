@@ -88,6 +88,12 @@ type Transaction = {
  exchangeRateTo: number;
  commissionTo: number;
  charges: number;
+ chargesCurrencyId: number | null;
+ chargesCurrencyCode: string | null;
+ chargesCurrencySymbol: string | null;
+ chargesPayer: string;
+ chargesExchangeRate: number;
+ chargesDescription: string;
  description: string;
  createdAt: string;
 };
@@ -103,6 +109,10 @@ type TransactionInput = {
  exchangeRateTo: number;
  commissionTo: number;
  charges: number;
+ chargesCurrencyId: number | null;
+ chargesPayer: string;
+ chargesExchangeRate: number;
+ chargesDescription: string;
  description: string;
 };
 

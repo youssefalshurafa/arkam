@@ -261,6 +261,30 @@ function initializeDb(db) {
     }
 
     try {
+        db.exec("ALTER TABLE transactions ADD COLUMN charges_currency_id INTEGER REFERENCES currencies(id) ON DELETE SET NULL");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    try {
+        db.exec("ALTER TABLE transactions ADD COLUMN charges_payer TEXT NOT NULL DEFAULT ''");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    try {
+        db.exec("ALTER TABLE transactions ADD COLUMN charges_exchange_rate REAL NOT NULL DEFAULT 1");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    try {
+        db.exec("ALTER TABLE transactions ADD COLUMN charges_description TEXT NOT NULL DEFAULT ''");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    try {
         db.exec("ALTER TABLE client_accounts ADD COLUMN starting_balance REAL NOT NULL DEFAULT 0");
     } catch {
         // Column already exists – ignore
@@ -635,6 +659,12 @@ function listTransactions(app) {
             t.exchange_rate_to AS exchangeRateTo,
             t.commission_to AS commissionTo,
             t.charges,
+            t.charges_currency_id AS chargesCurrencyId,
+            chcur.code AS chargesCurrencyCode,
+            chcur.symbol AS chargesCurrencySymbol,
+            t.charges_payer AS chargesPayer,
+            t.charges_exchange_rate AS chargesExchangeRate,
+            t.charges_description AS chargesDescription,
             t.description,
             t.created_at AS createdAt
         FROM transactions t
@@ -645,6 +675,7 @@ function listTransactions(app) {
         JOIN clients c_to ON c_to.id = ca_to.client_id
         JOIN currencies acur_to ON acur_to.id = ca_to.currency_id
         JOIN currencies cur ON cur.id = t.currency_id
+        LEFT JOIN currencies chcur ON chcur.id = t.charges_currency_id
         ORDER BY t.created_at DESC
     `).all();
 }
@@ -656,8 +687,8 @@ function createTransaction(app, txn) {
 
     const { db } = getOrCreateDb(app);
     db.prepare(`
-        INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, charges, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, charges, charges_currency_id, charges_payer, charges_exchange_rate, charges_description, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         txn.accountFromId,
         txn.accountToId,
@@ -669,6 +700,10 @@ function createTransaction(app, txn) {
         txn.exchangeRateTo || 1,
         txn.commissionTo || 0,
         txn.charges || 0,
+        txn.chargesCurrencyId || null,
+        txn.chargesPayer || "",
+        txn.chargesExchangeRate || 1,
+        txn.chargesDescription?.trim() || "",
         txn.description?.trim() || "",
     );
 }
@@ -692,6 +727,10 @@ function updateTransaction(app, txn) {
             exchange_rate_to = ?,
             commission_to = ?,
             charges = ?,
+            charges_currency_id = ?,
+            charges_payer = ?,
+            charges_exchange_rate = ?,
+            charges_description = ?,
             description = ?,
             created_at = ?
         WHERE id = ?
@@ -706,6 +745,10 @@ function updateTransaction(app, txn) {
         txn.exchangeRateTo || 1,
         txn.commissionTo || 0,
         txn.charges || 0,
+        txn.chargesCurrencyId || null,
+        txn.chargesPayer || "",
+        txn.chargesExchangeRate || 1,
+        txn.chargesDescription?.trim() || "",
         txn.description?.trim() || "",
         txn.createdAt,
         txn.id,
