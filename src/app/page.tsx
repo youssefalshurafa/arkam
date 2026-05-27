@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
@@ -630,6 +630,8 @@ export default function Home() {
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
+ const [transactionsPage, setTransactionsPage] = useState(1);
+ const [transactionsPageSize, setTransactionsPageSize] = useState(100);
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
  const [ledgerCommissionExpandedEntries, setLedgerCommissionExpandedEntries] = useState<Set<string>>(new Set());
@@ -743,6 +745,16 @@ export default function Home() {
   const transactionIds = new Set(transactions.map((transaction) => transaction.id));
   setSelectedTransactionIds((current) => new Set([...current].filter((id) => transactionIds.has(id))));
  }, [transactions]);
+
+ const totalTransactionPages = Math.max(1, Math.ceil(transactions.length / transactionsPageSize));
+ const paginatedTransactions = useMemo(() => {
+  const start = (transactionsPage - 1) * transactionsPageSize;
+  return transactions.slice(start, start + transactionsPageSize);
+ }, [transactions, transactionsPage, transactionsPageSize]);
+
+ useEffect(() => {
+  setTransactionsPage((current) => Math.min(current, totalTransactionPages));
+ }, [totalTransactionPages]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
@@ -917,13 +929,7 @@ export default function Home() {
  }
 
  function beginTransactionsEditMode() {
-  const nextDrafts: Record<number, TransactionTableDraft> = {};
-
-  transactions.forEach((transaction) => {
-   nextDrafts[transaction.id] = buildTransactionTableDraft(transaction);
-  });
-
-  setTransactionTableDrafts(nextDrafts);
+  setTransactionTableDrafts({});
   setSelectedTransactionIds(new Set());
   setCommissionExpandedTxns(new Set());
   setExpensesExpandedTxns(new Set());
@@ -940,7 +946,13 @@ export default function Home() {
 
  function updateTransactionTableDraft(transactionId: number, nextValues: Partial<TransactionTableDraft>) {
   setTransactionTableDrafts((current) => {
-   const existingDraft = current[transactionId];
+   const existingDraft =
+    current[transactionId] ??
+    (() => {
+     const transaction = transactionMap.get(transactionId);
+     return transaction ? buildTransactionTableDraft(transaction) : null;
+    })();
+
    if (!existingDraft) {
     return current;
    }
@@ -961,7 +973,7 @@ export default function Home() {
    return existingDraft;
   }
 
-  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+  const transaction = transactionMap.get(transactionId);
   return transaction ? buildTransactionTableDraft(transaction) : null;
  }
 
@@ -1677,10 +1689,18 @@ export default function Home() {
   }
 
   setSelectedTransactionIds((current) => {
-   if (transactions.length > 0 && current.size === transactions.length) {
-    return new Set();
+   const visibleIds = paginatedTransactions.map((transaction) => transaction.id);
+   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => current.has(id));
+
+   if (allVisibleSelected) {
+    const next = new Set(current);
+    visibleIds.forEach((id) => next.delete(id));
+    return next;
    }
-   return new Set(transactions.map((transaction) => transaction.id));
+
+   const next = new Set(current);
+   visibleIds.forEach((id) => next.add(id));
+   return next;
   });
  }
 
@@ -2002,24 +2022,36 @@ export default function Home() {
   return fallbackName || currencyCode;
  };
 
- const localizedCurrencies = currencies.map((currency) => ({
-  ...currency,
-  name: getLocalizedCurrencyName(currency.code, currency.name),
- }));
- const enabledCurrencies = localizedCurrencies.filter((currency) => currency.isEnabled === 1);
- const availableCurrencies = localizedCurrencies.filter((currency) => currency.isEnabled !== 1);
+ const localizedCurrencies = useMemo(
+  () =>
+   currencies.map((currency) => ({
+    ...currency,
+    name: getLocalizedCurrencyName(currency.code, currency.name),
+   })),
+  [currencies, language],
+ );
+ const enabledCurrencies = useMemo(() => localizedCurrencies.filter((currency) => currency.isEnabled === 1), [localizedCurrencies]);
+ const availableCurrencies = useMemo(() => localizedCurrencies.filter((currency) => currency.isEnabled !== 1), [localizedCurrencies]);
  const normalizedCatalogCurrencyQuery = catalogCurrencyQuery.trim().toLocaleLowerCase();
- const filteredAvailableCurrencies = availableCurrencies.filter((currency) => {
-  if (!normalizedCatalogCurrencyQuery) {
-   return true;
-  }
+ const filteredAvailableCurrencies = useMemo(
+  () =>
+   availableCurrencies.filter((currency) => {
+    if (!normalizedCatalogCurrencyQuery) {
+     return true;
+    }
 
-  return currency.code.toLocaleLowerCase().includes(normalizedCatalogCurrencyQuery) || currency.name.toLocaleLowerCase().includes(normalizedCatalogCurrencyQuery);
- });
- const currencyMap = new Map(localizedCurrencies.map((currency) => [currency.id, currency]));
- const clientMap = new Map(clients.map((client) => [client.id, client]));
- const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
- const selectedOrganizationClients = selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : [];
+    return currency.code.toLocaleLowerCase().includes(normalizedCatalogCurrencyQuery) || currency.name.toLocaleLowerCase().includes(normalizedCatalogCurrencyQuery);
+   }),
+  [availableCurrencies, normalizedCatalogCurrencyQuery],
+ );
+ const currencyMap = useMemo(() => new Map(localizedCurrencies.map((currency) => [currency.id, currency])), [localizedCurrencies]);
+ const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+ const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
+ const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
+ const selectedOrganizationClients = useMemo(
+  () => (selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : []),
+  [clients, selectedOrganizationForClients],
+ );
 
  const transactionSelectedCurrencyCode = transactionForm.currencyId ? currencyMap.get(transactionForm.currencyId)?.code : undefined;
  const transactionAccountFromCurrencyCode = transactionForm.accountFromId ? clientAccountMap.get(transactionForm.accountFromId)?.currencyCode : undefined;
@@ -2039,92 +2071,97 @@ export default function Home() {
   { label: t('overview_transactions'), value: transactions.length },
  ];
 
- const selectedClientLedgers: ClientAccountLedger[] = selectedClientForLedger
-  ? clientAccounts
-     .filter((account) => account.clientId === selectedClientForLedger.id)
-     .map((account) => {
-      const entries = transactions
-       .flatMap<ClientLedgerEntry>((transaction) => {
-        if (transaction.accountFromId === account.id) {
-         const counterparty = clientAccountMap.get(transaction.accountToId);
-         return [
-          {
-           transactionId: transaction.id,
-           createdAt: transaction.createdAt,
-           counterpartyName: counterparty?.clientName || '-',
-           direction: 'outgoing' as const,
-           type: transaction.type,
-           amount: transaction.amount,
-           currencyCode: transaction.currencyCode,
-           currencySymbol: transaction.currencySymbol,
-           exchangeRate: transaction.exchangeRateFrom,
-           commission: transaction.commissionFrom,
-           netChange: transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
-           runningBalance: 0,
-           description: transaction.description,
-           charges: transaction.charges,
-           chargesCurrencyCode: transaction.chargesCurrencyCode,
-           chargesPayer: transaction.chargesPayer,
-           chargesExchangeRate: transaction.chargesExchangeRate,
-           chargesDescription: transaction.chargesDescription,
-           isChargesPayerThisAccount: transaction.chargesPayer === 'from',
-          },
-         ];
-        }
+ const selectedClientLedgers: ClientAccountLedger[] = useMemo(() => {
+  // Skip expensive ledger computations unless the ledger view/modal is active.
+  if (!selectedClientForLedger || (section !== 'client-ledger' && !pdfExportModal)) {
+   return [];
+  }
 
-        if (transaction.accountToId === account.id) {
-         const counterparty = clientAccountMap.get(transaction.accountFromId);
-         return [
-          {
-           transactionId: transaction.id,
-           createdAt: transaction.createdAt,
-           counterpartyName: counterparty?.clientName || '-',
-           direction: 'incoming' as const,
-           type: transaction.type,
-           amount: transaction.amount,
-           currencyCode: transaction.currencyCode,
-           currencySymbol: transaction.currencySymbol,
-           exchangeRate: transaction.exchangeRateTo,
-           commission: transaction.commissionTo,
-           netChange: -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
-           runningBalance: 0,
-           description: transaction.description,
-           charges: transaction.charges,
-           chargesCurrencyCode: transaction.chargesCurrencyCode,
-           chargesPayer: transaction.chargesPayer,
-           chargesExchangeRate: transaction.chargesExchangeRate,
-           chargesDescription: transaction.chargesDescription,
-           isChargesPayerThisAccount: transaction.chargesPayer === 'to',
-          },
-         ];
-        }
+  return clientAccounts
+   .filter((account) => account.clientId === selectedClientForLedger.id)
+   .map((account) => {
+    const entries = transactions
+     .flatMap<ClientLedgerEntry>((transaction) => {
+      if (transaction.accountFromId === account.id) {
+       const counterparty = clientAccountMap.get(transaction.accountToId);
+       return [
+        {
+         transactionId: transaction.id,
+         createdAt: transaction.createdAt,
+         counterpartyName: counterparty?.clientName || '-',
+         direction: 'outgoing' as const,
+         type: transaction.type,
+         amount: transaction.amount,
+         currencyCode: transaction.currencyCode,
+         currencySymbol: transaction.currencySymbol,
+         exchangeRate: transaction.exchangeRateFrom,
+         commission: transaction.commissionFrom,
+         netChange: transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
+         runningBalance: 0,
+         description: transaction.description,
+         charges: transaction.charges,
+         chargesCurrencyCode: transaction.chargesCurrencyCode,
+         chargesPayer: transaction.chargesPayer,
+         chargesExchangeRate: transaction.chargesExchangeRate,
+         chargesDescription: transaction.chargesDescription,
+         isChargesPayerThisAccount: transaction.chargesPayer === 'from',
+        },
+       ];
+      }
 
-        return [];
-       })
-       .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+      if (transaction.accountToId === account.id) {
+       const counterparty = clientAccountMap.get(transaction.accountFromId);
+       return [
+        {
+         transactionId: transaction.id,
+         createdAt: transaction.createdAt,
+         counterpartyName: counterparty?.clientName || '-',
+         direction: 'incoming' as const,
+         type: transaction.type,
+         amount: transaction.amount,
+         currencyCode: transaction.currencyCode,
+         currencySymbol: transaction.currencySymbol,
+         exchangeRate: transaction.exchangeRateTo,
+         commission: transaction.commissionTo,
+         netChange: -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
+         runningBalance: 0,
+         description: transaction.description,
+         charges: transaction.charges,
+         chargesCurrencyCode: transaction.chargesCurrencyCode,
+         chargesPayer: transaction.chargesPayer,
+         chargesExchangeRate: transaction.chargesExchangeRate,
+         chargesDescription: transaction.chargesDescription,
+         isChargesPayerThisAccount: transaction.chargesPayer === 'to',
+        },
+       ];
+      }
 
-      let runningBalance = account.startingBalance ?? 0;
-      const entriesWithBalance = entries.map((entry) => {
-       runningBalance += entry.netChange;
-       return {
-        ...entry,
-        runningBalance,
-       };
-      });
-
-      return {
-       accountId: account.id,
-       currencyName: currencyMap.get(account.currencyId)?.name || account.currencyCode,
-       currencyCode: account.currencyCode,
-       currencySymbol: account.currencySymbol,
-       startingBalance: account.startingBalance ?? 0,
-       currentBalance: runningBalance,
-       transactionCount: entriesWithBalance.length,
-       entries: entriesWithBalance,
-      };
+      return [];
      })
-     .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode))
-  : [];
+     .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+
+    let runningBalance = account.startingBalance ?? 0;
+    const entriesWithBalance = entries.map((entry) => {
+     runningBalance += entry.netChange;
+     return {
+      ...entry,
+      runningBalance,
+     };
+    });
+
+    return {
+     accountId: account.id,
+     currencyName: currencyMap.get(account.currencyId)?.name || account.currencyCode,
+     currencyCode: account.currencyCode,
+     currencySymbol: account.currencySymbol,
+     startingBalance: account.startingBalance ?? 0,
+     currentBalance: runningBalance,
+     transactionCount: entriesWithBalance.length,
+     entries: entriesWithBalance,
+    };
+   })
+   .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
+ }, [clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -2134,7 +2171,7 @@ export default function Home() {
   return ` ${currencySymbol || currencyCode}`;
  };
 
- const selectedClientTransactionCount = selectedClientLedgers.reduce((sum, ledger) => sum + ledger.transactionCount, 0);
+ const selectedClientTransactionCount = useMemo(() => selectedClientLedgers.reduce((sum, ledger) => sum + ledger.transactionCount, 0), [selectedClientLedgers]);
 
  const ledgerColumnOptions: Array<{ key: LedgerColumnKey; label: string }> = [
   { key: 'created', label: t('created') },
@@ -2210,7 +2247,6 @@ export default function Home() {
       ) : null}
      </div>
     </div>
-
     <p className="mt-4 text-sm text-slate-500">{t('settings_database_hint')}</p>
    </div>
   </section>
@@ -4460,7 +4496,7 @@ export default function Home() {
              <th className="px-4 py-3">
               <input
                type="checkbox"
-               checked={transactions.length > 0 && selectedTransactionIds.size === transactions.length}
+               checked={paginatedTransactions.length > 0 && paginatedTransactions.every((transaction) => selectedTransactionIds.has(transaction.id))}
                onChange={onToggleSelectAllTransactions}
                aria-label="Select all transactions"
                className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
@@ -4477,7 +4513,7 @@ export default function Home() {
            </tr>
           </thead>
           <tbody>
-           {transactions.map((txn) => (
+           {paginatedTransactions.map((txn) => (
             <tr
              key={txn.id}
              className="border-t border-slate-200 align-top"
