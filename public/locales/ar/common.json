@@ -198,5 +198,16 @@
  "export_pdf": "تصدير PDF",
  "export_pdf_title": "تصدير كشف الحساب",
  "export_date_from": "من تاريخ",
- "export_date_to": "إلى تاريخ"
+ "export_date_to": "إلى تاريخ",
+ "settings_danger_title": "منطقة خطرة",
+ "settings_danger_description": "استخدم هذه الإجراءات فقط عندما تريد حذف بيانات كبيرة بشكل مقصود.",
+ "danger_zone_warning_title": "إجراءات عالية الخطورة",
+ "danger_zone_warning_body": "هذه الإجراءات تحذف البيانات نهائياً ولا يمكن التراجع عنها.",
+ "danger_action_cannot_undo": "هذا الإجراء نهائي ولا يمكن التراجع عنه.",
+ "danger_delete_all_transactions": "حذف جميع المعاملات",
+ "danger_delete_all_transactions_hint": "يحذف كل سجلات المعاملات من النظام.",
+ "danger_delete_all_transactions_confirm": "هل تريد حذف جميع المعاملات الآن؟",
+ "danger_delete_all_clients": "حذف جميع العملاء",
+ "danger_delete_all_clients_hint": "يحذف جميع العملاء والحسابات المرتبطة بهم من النظام.",
+ "danger_delete_all_clients_confirm": "هل تريد حذف جميع العملاء الآن؟"
 }

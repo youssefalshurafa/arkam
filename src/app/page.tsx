@@ -218,7 +218,7 @@ type ImportMappingState = {
 
 type PendingImportData = {
  fileName: string;
- rows: string[][];
+ rows: unknown[][];
  columnOptions: Array<{ index: number; label: string }>;
 };
 
@@ -239,7 +239,7 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
 
 const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
 
-type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies';
+type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger';
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions';
 
@@ -301,9 +301,42 @@ function parseImportedDate(value: unknown) {
   return null;
  }
 
- const normalized = normalizeDecimalInput(raw);
+ const normalized = raw
+  .replace(/[\u0660-\u0669]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+  .replace(/[\u06F0-\u06F9]/g, (digit) => String(digit.charCodeAt(0) - 0x06f0))
+  .replace(/\u066C/g, '')
+  .trim();
 
- if (/^\d+(?:\.\d+)?$/.test(normalized)) {
+ const yyyymmdd = normalized.match(/^(\d{4})(\d{2})(\d{2})$/);
+ if (yyyymmdd) {
+  return toSqlDateTimeFromParts(Number.parseInt(yyyymmdd[1], 10), Number.parseInt(yyyymmdd[2], 10), Number.parseInt(yyyymmdd[3], 10));
+ }
+
+ const dayMonthYear = normalized.match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/);
+ if (dayMonthYear) {
+  const first = Number.parseInt(dayMonthYear[1], 10);
+  const second = Number.parseInt(dayMonthYear[2], 10);
+  const maybeYear = dayMonthYear[3] ? Number.parseInt(dayMonthYear[3], 10) : new Date().getFullYear();
+  const year = maybeYear < 100 ? 2000 + maybeYear : maybeYear;
+
+  // Prefer day/month, but if impossible (e.g. 07/28/2024), treat as month/day.
+  const dayFirst = toSqlDateTimeFromParts(year, second, first);
+  if (dayFirst) {
+   return dayFirst;
+  }
+
+  const monthFirst = toSqlDateTimeFromParts(year, first, second);
+  if (monthFirst) {
+   return monthFirst;
+  }
+ }
+
+ const yearMonthDay = normalized.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+ if (yearMonthDay) {
+  return toSqlDateTimeFromParts(Number.parseInt(yearMonthDay[1], 10), Number.parseInt(yearMonthDay[2], 10), Number.parseInt(yearMonthDay[3], 10));
+ }
+
+ if (/^-?\d+(?:\.\d+)?$/.test(normalized)) {
   const serial = Number.parseFloat(normalized);
   if (Number.isFinite(serial) && serial >= 1 && serial <= 100000) {
    const wholeDays = Math.floor(serial);
@@ -313,20 +346,6 @@ function parseImportedDate(value: unknown) {
     return toSqlDateTimeFromParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
    }
   }
- }
-
- const dayMonthYear = normalized.match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/);
- if (dayMonthYear) {
-  const day = Number.parseInt(dayMonthYear[1], 10);
-  const month = Number.parseInt(dayMonthYear[2], 10);
-  const maybeYear = dayMonthYear[3] ? Number.parseInt(dayMonthYear[3], 10) : new Date().getFullYear();
-  const year = maybeYear < 100 ? 2000 + maybeYear : maybeYear;
-  return toSqlDateTimeFromParts(year, month, day);
- }
-
- const yearMonthDay = normalized.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
- if (yearMonthDay) {
-  return toSqlDateTimeFromParts(Number.parseInt(yearMonthDay[1], 10), Number.parseInt(yearMonthDay[2], 10), Number.parseInt(yearMonthDay[3], 10));
  }
 
  const parsedMillis = Date.parse(raw);
@@ -350,7 +369,7 @@ function getExcelLikeColumnName(index: number) {
  return result;
 }
 
-function buildImportColumnOptions(rows: string[][]) {
+function buildImportColumnOptions(rows: unknown[][]) {
  const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0);
 
  return Array.from({ length: maxColumns }, (_, index) => {
@@ -408,7 +427,7 @@ function normalizeClientNameForCurrencySuffix(name: string, currency: Currency) 
  return normalized || compactName;
 }
 
-function parseTransactionRowsFromMappedSheet(rows: string[][], mapping: ImportMappingState, currency: Currency) {
+function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportMappingState, currency: Currency) {
  if (mapping.fromColumn == null || mapping.toColumn == null || mapping.amountColumn == null) {
   throw new Error('Please choose columns for From, To, and Amount.');
  }
@@ -1236,6 +1255,69 @@ export default function Home() {
   }
  }
 
+ async function onDeleteAllTransactions() {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  if (!transactions.length) {
+   setError(t('no_transactions'));
+   return;
+  }
+
+  const firstConfirm = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('danger_delete_all_transactions_confirm')}`);
+  if (!firstConfirm) {
+   return;
+  }
+
+  try {
+   await accountingApi.deleteAllTransactions();
+   setSelectedTransactionIds(new Set());
+   setTransactionTableDrafts({});
+   setCommissionExpandedTxns(new Set());
+   setExpensesExpandedTxns(new Set());
+   setTransactionsPage(1);
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ async function onDeleteAllClients() {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  if (!clients.length) {
+   setError(t('no_clients'));
+   return;
+  }
+
+  const firstConfirm = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('danger_delete_all_clients_confirm')}`);
+  if (!firstConfirm) {
+   return;
+  }
+
+  try {
+   await accountingApi.deleteAllClients();
+   setClientForm(emptyClientForm());
+   setSelectedClientForAccounts(null);
+   setSelectedClientForLedger(null);
+   setSelectedLedgerAccountId(null);
+   setSelectedTransactionIds(new Set());
+   setTransactionTableDrafts({});
+   setCommissionExpandedTxns(new Set());
+   setExpensesExpandedTxns(new Set());
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
  async function onSetMainCurrency(id: number) {
   if (!accountingApi) return;
   try {
@@ -1356,7 +1438,7 @@ export default function Home() {
   try {
    const xlsxModule = await import('xlsx');
    const fileBuffer = await file.arrayBuffer();
-   const workbook = xlsxModule.read(fileBuffer, { type: 'array' });
+   const workbook = xlsxModule.read(fileBuffer, { type: 'array', cellDates: true });
    const firstSheetName = workbook.SheetNames[0];
 
    if (!firstSheetName) {
@@ -1366,11 +1448,11 @@ export default function Home() {
    const sheet = workbook.Sheets[firstSheetName];
    const rawRows = xlsxModule.utils.sheet_to_json(sheet, {
     header: 1,
-    raw: false,
+    raw: true,
     defval: '',
    }) as unknown[][];
 
-   const rows = rawRows.map((row) => row.map((cell) => toImportString(cell)));
+   const rows = rawRows;
    const columnOptions = buildImportColumnOptions(rows);
    if (!columnOptions.length) {
     throw new Error('The selected sheet has no columns.');
@@ -1389,7 +1471,7 @@ export default function Home() {
     for (let rowIndex = 0; rowIndex < Math.min(rows.length, 10); rowIndex += 1) {
      const row = rows[rowIndex];
      for (let cellIndex = 0; cellIndex < row.length; cellIndex += 1) {
-      const cell = normalizeImportHeader(row[cellIndex]);
+      const cell = normalizeImportHeader(toImportString(row[cellIndex]));
       if (normalizedAliasSet.has(cell)) {
        return cellIndex;
       }
@@ -2008,6 +2090,7 @@ export default function Home() {
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
+  { key: 'danger', label: t('settings_danger_title'), icon: 'settings' },
  ];
 
  const getLocalizedCurrencyName = (currencyCode: string, fallbackName: string) => {
@@ -2460,6 +2543,54 @@ export default function Home() {
       <option value="ar">{t('arabic')}</option>
       <option value="fr">{t('french')}</option>
      </select>
+    </div>
+   </div>
+  </section>
+ );
+
+ const dangerSection = (
+  <section className="flex flex-col gap-6">
+   <div className={`${panelClassName} border-red-300/80`}>
+    <h2 className="text-2xl font-semibold text-red-800">{t('settings_danger_title')}</h2>
+    <p className="mt-2 text-sm text-slate-700">{t('settings_danger_description')}</p>
+
+    <div className="mt-5 rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+     <p className="font-semibold">{t('danger_zone_warning_title')}</p>
+     <p className="mt-1">{t('danger_zone_warning_body')}</p>
+    </div>
+
+    <div className="mt-6 grid gap-4 md:grid-cols-2">
+     <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">{t('danger_delete_all_transactions')}</h3>
+      <p className="mt-1 text-sm text-slate-600">{t('danger_delete_all_transactions_hint')}</p>
+      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+       {t('overview_transactions')}: {transactions.length}
+      </p>
+      <button
+       type="button"
+       onClick={() => void onDeleteAllTransactions()}
+       disabled={!transactions.length}
+       className="mt-4 rounded-lg border border-red-300 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       {t('danger_delete_all_transactions')}
+      </button>
+     </div>
+
+     <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">{t('danger_delete_all_clients')}</h3>
+      <p className="mt-1 text-sm text-slate-600">{t('danger_delete_all_clients_hint')}</p>
+      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+       {t('overview_clients')}: {clients.length}
+      </p>
+      <button
+       type="button"
+       onClick={() => void onDeleteAllClients()}
+       disabled={!clients.length}
+       className="mt-4 rounded-lg border border-red-300 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       {t('danger_delete_all_clients')}
+      </button>
+     </div>
     </div>
    </div>
   </section>
@@ -3057,6 +3188,7 @@ export default function Home() {
   <section className="flex flex-col gap-6">
    {settingsTab === 'database' ? databaseSection : null}
    {settingsTab === 'language' ? languageSection : null}
+   {settingsTab === 'danger' ? dangerSection : null}
    {settingsTab === 'clients' ? clientsSection : null}
    {settingsTab === 'organizations' ? organizationsSection : null}
    {settingsTab === 'currencies' ? currenciesSection : null}
@@ -4478,6 +4610,47 @@ export default function Home() {
           ) : null}
          </div>
         </div>
+        {transactions.length > 0 ? (
+         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-slate-600">
+           Showing {(transactionsPage - 1) * transactionsPageSize + 1} - {Math.min(transactionsPage * transactionsPageSize, transactions.length)} of {transactions.length}
+          </div>
+          <div className="flex items-center gap-2">
+           <select
+            value={transactionsPageSize}
+            onChange={(event) => {
+             const nextSize = Number(event.target.value);
+             setTransactionsPageSize(nextSize);
+             setTransactionsPage(1);
+            }}
+            className="rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+           >
+            <option value={50}>50/page</option>
+            <option value={100}>100/page</option>
+            <option value={250}>250/page</option>
+           </select>
+           <button
+            type="button"
+            onClick={() => setTransactionsPage((current) => Math.max(1, current - 1))}
+            disabled={transactionsPage <= 1}
+            className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+           >
+            Prev
+           </button>
+           <span className="min-w-20 text-center text-sm font-semibold text-slate-700">
+            {transactionsPage} / {totalTransactionPages}
+           </span>
+           <button
+            type="button"
+            onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, current + 1))}
+            disabled={transactionsPage >= totalTransactionPages}
+            className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+           >
+            Next
+           </button>
+          </div>
+         </div>
+        ) : null}
         <div className={tableWrapClassName}>
          <table className="w-full text-sm">
           <colgroup>

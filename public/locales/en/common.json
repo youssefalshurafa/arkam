@@ -198,5 +198,16 @@
  "export_pdf": "Export PDF",
  "export_pdf_title": "Export Ledger as PDF",
  "export_date_from": "From Date",
- "export_date_to": "To Date"
+ "export_date_to": "To Date",
+ "settings_danger_title": "Danger Zone",
+ "settings_danger_description": "Use these actions only when you intentionally want to wipe major data sets.",
+ "danger_zone_warning_title": "High risk actions",
+ "danger_zone_warning_body": "These actions permanently delete data and cannot be undone.",
+ "danger_action_cannot_undo": "This action is permanent and cannot be undone.",
+ "danger_delete_all_transactions": "Delete All Transactions",
+ "danger_delete_all_transactions_hint": "Removes every transaction record from the system.",
+ "danger_delete_all_transactions_confirm": "Delete all transactions now?",
+ "danger_delete_all_clients": "Delete All Clients",
+ "danger_delete_all_clients_hint": "Removes every client and related accounts from the system.",
+ "danger_delete_all_clients_confirm": "Delete all clients now?"
 }

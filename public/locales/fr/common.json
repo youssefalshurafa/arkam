@@ -197,5 +197,16 @@
  "export_pdf": "Exporter PDF",
  "export_pdf_title": "Exporter le relevé de compte",
  "export_date_from": "Du",
- "export_date_to": "Au"
+ "export_date_to": "Au",
+ "settings_danger_title": "Zone dangereuse",
+ "settings_danger_description": "Utilisez ces actions uniquement si vous voulez supprimer de grands ensembles de donnees.",
+ "danger_zone_warning_title": "Actions a haut risque",
+ "danger_zone_warning_body": "Ces actions suppriment les donnees de maniere definitive et irreversible.",
+ "danger_action_cannot_undo": "Cette action est definitive et irreversible.",
+ "danger_delete_all_transactions": "Supprimer toutes les transactions",
+ "danger_delete_all_transactions_hint": "Supprime tous les enregistrements de transactions du systeme.",
+ "danger_delete_all_transactions_confirm": "Supprimer toutes les transactions maintenant ?",
+ "danger_delete_all_clients": "Supprimer tous les clients",
+ "danger_delete_all_clients_hint": "Supprime tous les clients et les comptes associes du systeme.",
+ "danger_delete_all_clients_confirm": "Supprimer tous les clients maintenant ?"
 }
