@@ -2275,6 +2275,48 @@ export default function Home() {
  const panelClassName = 'rounded-4xl border border-slate-200/70 bg-white/90 p-6 shadow-[0_24px_60px_-32px_rgba(15,23,42,0.35)] backdrop-blur';
  const mutedPanelClassName = 'rounded-3xl border border-slate-200/70 bg-slate-50/85 p-4';
  const tableWrapClassName = 'mt-4 overflow-x-auto rounded-3xl border border-slate-200/80 bg-white';
+ const transactionsPager =
+  transactions.length > 0 ? (
+   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="text-sm text-slate-600">
+     Showing {(transactionsPage - 1) * transactionsPageSize + 1} - {Math.min(transactionsPage * transactionsPageSize, transactions.length)} of {transactions.length}
+    </div>
+    <div className="flex items-center gap-2">
+     <select
+      value={transactionsPageSize}
+      onChange={(event) => {
+       const nextSize = Number(event.target.value);
+       setTransactionsPageSize(nextSize);
+       setTransactionsPage(1);
+      }}
+      className="rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+     >
+      <option value={50}>50/page</option>
+      <option value={100}>100/page</option>
+      <option value={250}>250/page</option>
+     </select>
+     <button
+      type="button"
+      onClick={() => setTransactionsPage((current) => Math.max(1, current - 1))}
+      disabled={transactionsPage <= 1}
+      className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+     >
+      Prev
+     </button>
+     <span className="min-w-20 text-center text-sm font-semibold text-slate-700">
+      {transactionsPage} / {totalTransactionPages}
+     </span>
+     <button
+      type="button"
+      onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, current + 1))}
+      disabled={transactionsPage >= totalTransactionPages}
+      className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+     >
+      Next
+     </button>
+    </div>
+   </div>
+  ) : null;
  const databaseSection = (
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
@@ -4610,47 +4652,7 @@ export default function Home() {
           ) : null}
          </div>
         </div>
-        {transactions.length > 0 ? (
-         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-slate-600">
-           Showing {(transactionsPage - 1) * transactionsPageSize + 1} - {Math.min(transactionsPage * transactionsPageSize, transactions.length)} of {transactions.length}
-          </div>
-          <div className="flex items-center gap-2">
-           <select
-            value={transactionsPageSize}
-            onChange={(event) => {
-             const nextSize = Number(event.target.value);
-             setTransactionsPageSize(nextSize);
-             setTransactionsPage(1);
-            }}
-            className="rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-           >
-            <option value={50}>50/page</option>
-            <option value={100}>100/page</option>
-            <option value={250}>250/page</option>
-           </select>
-           <button
-            type="button"
-            onClick={() => setTransactionsPage((current) => Math.max(1, current - 1))}
-            disabled={transactionsPage <= 1}
-            className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-           >
-            Prev
-           </button>
-           <span className="min-w-20 text-center text-sm font-semibold text-slate-700">
-            {transactionsPage} / {totalTransactionPages}
-           </span>
-           <button
-            type="button"
-            onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, current + 1))}
-            disabled={transactionsPage >= totalTransactionPages}
-            className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-           >
-            Next
-           </button>
-          </div>
-         </div>
-        ) : null}
+        {transactionsPager}
         <div className={tableWrapClassName}>
          <table className="w-full text-sm">
           <colgroup>
@@ -5106,6 +5108,7 @@ export default function Home() {
           </tbody>
          </table>
         </div>
+        {transactionsPager}
        </div>
       </section>
      ) : null}
