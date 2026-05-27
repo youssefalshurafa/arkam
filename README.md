@@ -1,9 +1,8 @@
-# Arkam Accounting Desktop App
+# Arkam Accounting Web App
 
 This starter project uses:
 
 - Next.js + Tailwind CSS for UI
-- Electron for desktop runtime and `.exe` packaging
 - SQLite (`better-sqlite3`) for local on-drive storage
 
 ## 1. Install dependencies
@@ -12,47 +11,31 @@ This starter project uses:
 npm install
 ```
 
-## 2. Run in desktop development mode
+## 2. Run in development mode
 
 ```bash
 npm run dev
 ```
 
-This starts:
+This starts the Next.js dev server on `http://localhost:3000`.
 
-- Next.js dev server on `http://localhost:3000`
-- Electron window that loads the Next app
-
-## 3. Build production web assets
+## 3. Build production assets
 
 ```bash
 npm run build
 ```
 
-This generates static files in `out/`.
-
-## 4. Build Windows installer (`.exe`)
-
-```bash
-npm run build:desktop
-```
-
-Output is generated in `release/`.
-
 ## Local database location
 
-The app creates SQLite at first run:
-
-- Default install mode: `%APPDATA%`/app-specific user data folder under `data/accounting.sqlite`
-- Portable mode: if `PORTABLE_EXECUTABLE_DIR` exists, database is created near the executable under `data/accounting.sqlite`
+The app creates SQLite at first run in `database/data/accounting.sqlite`.
 
 ## Current starter scope
 
 Implemented now:
 
-- Electron secure preload bridge
+- Next.js API bridge for data operations
 - Local SQLite initialization and schema creation
-- Basic chart of accounts insert/list UI
+- Basic accounting management UI
 
 Suggested next modules:
 

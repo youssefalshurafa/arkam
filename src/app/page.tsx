@@ -3,6 +3,7 @@
 import { DragEvent, Fragment, FormEvent, useCallback, useEffect, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { accountingApi } from '@/lib/accountingApi';
 
 type DbInfo = {
  dbPath: string;
@@ -442,20 +443,20 @@ export default function Home() {
  const [error, setError] = useState('');
 
  const loadData = useCallback(async () => {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
 
   try {
-   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows] = await Promise.all([
-    window.accountingApi.getDbInfo(),
-    window.accountingApi.listOrganizations(),
-    window.accountingApi.listClients(),
-    window.accountingApi.listCurrencies(),
-    window.accountingApi.listTransactions(),
-    window.accountingApi.listAllClientAccounts(),
-   ]);
+   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows] = (await Promise.all([
+    accountingApi.getDbInfo(),
+    accountingApi.listOrganizations(),
+    accountingApi.listClients(),
+    accountingApi.listCurrencies(),
+    accountingApi.listTransactions(),
+    accountingApi.listAllClientAccounts(),
+   ])) as [DbInfo, Organization[], Client[], Currency[], Transaction[], ClientAccount[]];
 
    setDbInfo(db);
    setOrganizations(organizationRows);
@@ -742,7 +743,7 @@ export default function Home() {
  }
 
  async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number) {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -786,7 +787,7 @@ export default function Home() {
   };
 
   try {
-   await window.accountingApi.updateTransaction(payload);
+   await accountingApi.updateTransaction(payload);
    setError('');
    await loadData();
   } catch (e) {
@@ -808,14 +809,14 @@ export default function Home() {
  }
 
  async function onSaveAllLedgerTransactions() {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
 
   try {
    for (const [accountId, value] of Object.entries(ledgerStartingBalanceDrafts)) {
-    await window.accountingApi.updateClientAccountStartingBalance({ accountId: Number(accountId), startingBalance: parseFloat(value) || 0 });
+    await accountingApi.updateClientAccountStartingBalance({ accountId: Number(accountId), startingBalance: parseFloat(value) || 0 });
    }
 
    for (const draftKey of Object.keys(ledgerTransactionDrafts)) {
@@ -854,7 +855,7 @@ export default function Home() {
      createdAt,
     };
 
-    await window.accountingApi.updateTransaction(payload);
+    await accountingApi.updateTransaction(payload);
    }
 
    setError('');
@@ -867,7 +868,7 @@ export default function Home() {
 
  async function onOrganizationSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -879,9 +880,9 @@ export default function Home() {
 
   try {
    if (organizationForm.id) {
-    await window.accountingApi.updateOrganization(organizationForm);
+    await accountingApi.updateOrganization(organizationForm);
    } else {
-    await window.accountingApi.createOrganization(organizationForm);
+    await accountingApi.createOrganization(organizationForm);
    }
 
    setOrganizationForm(emptyOrganizationForm());
@@ -894,7 +895,7 @@ export default function Home() {
 
  async function onClientSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -906,9 +907,9 @@ export default function Home() {
 
   try {
    if (clientForm.id) {
-    await window.accountingApi.updateClient(clientForm);
+    await accountingApi.updateClient(clientForm);
    } else {
-    await window.accountingApi.createClient(clientForm);
+    await accountingApi.createClient(clientForm);
    }
 
    setClientForm(emptyClientForm());
@@ -920,7 +921,7 @@ export default function Home() {
  }
 
  async function onDeleteOrganization(id: number) {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -930,7 +931,7 @@ export default function Home() {
   }
 
   try {
-   await window.accountingApi.deleteOrganization(id);
+   await accountingApi.deleteOrganization(id);
    if (organizationForm.id === id) {
     setOrganizationForm(emptyOrganizationForm());
    }
@@ -949,7 +950,7 @@ export default function Home() {
  }
 
  async function onDeleteClient(id: number) {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -959,7 +960,7 @@ export default function Home() {
   }
 
   try {
-   await window.accountingApi.deleteClient(id);
+   await accountingApi.deleteClient(id);
    if (clientForm.id === id) {
     setClientForm(emptyClientForm());
    }
@@ -978,9 +979,9 @@ export default function Home() {
  }
 
  async function onSetMainCurrency(id: number) {
-  if (!window.accountingApi) return;
+  if (!accountingApi) return;
   try {
-   await window.accountingApi.setMainCurrency(id);
+   await accountingApi.setMainCurrency(id);
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -988,13 +989,13 @@ export default function Home() {
  }
 
  async function onEnableCurrency(id: number) {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
 
   try {
-   await window.accountingApi.enableCurrency(id);
+   await accountingApi.enableCurrency(id);
    setSelectedCatalogCurrencyId(null);
    setCatalogCurrencyQuery('');
    setError('');
@@ -1005,7 +1006,7 @@ export default function Home() {
  }
 
  async function onDisableCurrency(id: number) {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -1029,7 +1030,7 @@ export default function Home() {
   }
 
   try {
-   await window.accountingApi.disableCurrency(id);
+   await accountingApi.disableCurrency(id);
    setError('');
    await loadData();
   } catch (e) {
@@ -1039,7 +1040,7 @@ export default function Home() {
 
  async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -1052,7 +1053,7 @@ export default function Home() {
   }
 
   try {
-   await window.accountingApi.createTransaction({
+   await accountingApi.createTransaction({
     accountFromId: transactionForm.accountFromId,
     accountToId: transactionForm.accountToId,
     currencyId: transactionForm.currencyId,
@@ -1081,7 +1082,7 @@ export default function Home() {
  }
 
  async function onSaveAllTransactionDrafts() {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -1097,7 +1098,7 @@ export default function Home() {
      return;
     }
     const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
-    await window.accountingApi.updateTransaction({
+    await accountingApi.updateTransaction({
      id: transaction.id,
      accountFromId: draft.accountFromId,
      accountToId: draft.accountToId,
@@ -1126,7 +1127,7 @@ export default function Home() {
  }
 
  async function onDeleteTransaction(id: number) {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -1136,7 +1137,7 @@ export default function Home() {
   }
 
   try {
-   await window.accountingApi.deleteTransaction(id);
+   await accountingApi.deleteTransaction(id);
    setError('');
    await loadData();
   } catch (e) {
@@ -1145,7 +1146,7 @@ export default function Home() {
  }
 
  async function onSaveTransactionTableRow(transactionId: number) {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
@@ -1167,7 +1168,7 @@ export default function Home() {
   const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
 
   try {
-   await window.accountingApi.updateTransaction({
+   await accountingApi.updateTransaction({
     id: transaction.id,
     accountFromId: draft.accountFromId,
     accountToId: draft.accountToId,
@@ -1194,9 +1195,9 @@ export default function Home() {
  }
 
  async function onAddClientAccount(clientId: number) {
-  if (!window.accountingApi || !newAccountCurrencyId) return;
+  if (!accountingApi || !newAccountCurrencyId) return;
   try {
-   await window.accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId, startingBalance: parseFloat(newAccountStartingBalance) || 0 });
+   await accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId, startingBalance: parseFloat(newAccountStartingBalance) || 0 });
    setNewAccountCurrencyId(null);
    setNewAccountStartingBalance('0');
    await loadData();
@@ -1208,10 +1209,10 @@ export default function Home() {
  }
 
  async function onDeleteClientAccount(accountId: number) {
-  if (!window.accountingApi) return;
+  if (!accountingApi) return;
   if (!window.confirm(t('client_account_delete_confirm'))) return;
   try {
-   await window.accountingApi.deleteClientAccount(accountId);
+   await accountingApi.deleteClientAccount(accountId);
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
@@ -1219,9 +1220,9 @@ export default function Home() {
  }
 
  async function onUpdateAccountStartingBalance(accountId: number, value: string) {
-  if (!window.accountingApi) return;
+  if (!accountingApi) return;
   try {
-   await window.accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance: parseFloat(value) || 0 });
+   await accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance: parseFloat(value) || 0 });
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -1262,7 +1263,8 @@ export default function Home() {
   ];
   const visibleCols = ledgerColumnOrder
    .map((key) => allCols.find((col) => col.key === key))
-   .filter((col): col is ColDef => Boolean(col) && (col.key === 'runningBalance' || ledgerColumnVisibility[col.key]));
+   .filter((col): col is ColDef => Boolean(col))
+   .filter((col) => col.key === 'runningBalance' || ledgerColumnVisibility[col.key]);
   // Ensure runningBalance is always present (append if somehow missing from order)
   if (!visibleCols.some((col) => col.key === 'runningBalance')) {
    const rbCol = allCols.find((col) => col.key === 'runningBalance');
@@ -1355,12 +1357,12 @@ export default function Home() {
  }
 
  async function onExportLedgerPdf(ledger: ClientAccountLedger, fromDate: string, toDate: string) {
-  if (!window.accountingApi) return;
+  if (!accountingApi) return;
   try {
    const html = generateLedgerHtml(ledger, fromDate, toDate);
    const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^a-z0-9]/gi, '_');
    const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
-   const result = await window.accountingApi.exportLedgerPdf({ html, defaultFileName });
+   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
    if (result.ok) setPdfExportModal(null);
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -1368,13 +1370,13 @@ export default function Home() {
  }
 
  async function onChooseDbDirectory() {
-  if (!window.accountingApi) {
+  if (!accountingApi) {
    setError(t('error_bridge'));
    return;
   }
 
   try {
-   const nextDirectory = await window.accountingApi.chooseDbDirectory();
+   const nextDirectory = await accountingApi.chooseDbDirectory();
    if (nextDirectory && nextDirectory !== dbInfo?.dbDirectory) {
     setPendingDbDirectory(nextDirectory);
    }
@@ -1385,13 +1387,13 @@ export default function Home() {
  }
 
  async function onSaveDbDirectory() {
-  if (!window.accountingApi || !pendingDbDirectory) {
+  if (!accountingApi || !pendingDbDirectory) {
    return;
   }
 
   try {
    setIsChangingDbDirectory(true);
-   await window.accountingApi.setDbDirectory(pendingDbDirectory);
+   await accountingApi.setDbDirectory(pendingDbDirectory);
    setPendingDbDirectory(null);
    await loadData();
    setError('');
@@ -2461,7 +2463,7 @@ export default function Home() {
   <div
    className={`min-h-screen bg-[radial-gradient(circle_at_top,rgba(30,64,175,0.14),transparent_42%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] text-slate-900 ${isRTL ? 'rtl' : 'ltr'}`}
   >
-   <main className="mx-auto flex max-w-screen-2xl gap-4 px-4 py-6 sm:px-6 xl:px-8">
+   <main className="flex w-full gap-4 px-4 py-6 sm:px-6 xl:px-8">
     <aside
      className={`sticky top-6 hidden h-[calc(100vh-3rem)] flex-col rounded-4xl border border-slate-800 bg-slate-950 p-4 text-white shadow-[0_28px_80px_-40px_rgba(15,23,42,0.85)] lg:flex ${
       isSidebarCollapsed ? 'w-24' : 'w-72'
