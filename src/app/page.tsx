@@ -1,6 +1,6 @@
 'use client';
 
-import { DragEvent, Fragment, FormEvent, useCallback, useEffect, useState } from 'react';
+import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
@@ -199,6 +199,29 @@ type ClientAccountLedger = {
  entries: ClientLedgerEntry[];
 };
 
+type ImportedTransactionRow = {
+ fromName: string;
+ toName: string;
+ amount: number;
+ createdAt: string | null;
+ description: string;
+};
+
+type ImportMappingState = {
+ dateColumn: number | null;
+ fromColumn: number | null;
+ toColumn: number | null;
+ amountColumn: number | null;
+ descriptionColumn: number | null;
+ currencyId: number | null;
+};
+
+type PendingImportData = {
+ fileName: string;
+ rows: string[][];
+ columnOptions: Array<{ index: number; label: string }>;
+};
+
 type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
 
 const defaultLedgerColumnOrder: LedgerColumnKey[] = [
@@ -234,6 +257,203 @@ function normalizeDecimalInput(value: string) {
   .replace(/\u066B/g, '.')
   .replace(/[\u066C,\s]/g, '')
   .replace(/[^0-9.\-]/g, '');
+}
+
+function normalizeImportHeader(value: string) {
+ return value
+  .trim()
+  .toLowerCase()
+  .replace(/[\u064B-\u065F]/g, '')
+  .replace(/[\s_\-]/g, '');
+}
+
+function toImportString(value: unknown) {
+ return typeof value === 'string' ? value.trim() : value == null ? '' : String(value).trim();
+}
+
+function toImportAmount(value: unknown) {
+ const normalized = normalizeDecimalInput(toImportString(value));
+ const parsed = Number.parseFloat(normalized);
+ return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function pad2(value: number) {
+ return String(value).padStart(2, '0');
+}
+
+function toSqlDateTimeFromParts(year: number, month: number, day: number) {
+ if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+  return null;
+ }
+ if (month < 1 || month > 12 || day < 1 || day > 31) {
+  return null;
+ }
+ return `${year}-${pad2(month)}-${pad2(day)} 00:00:00`;
+}
+
+function parseImportedDate(value: unknown) {
+ if (value instanceof Date && !Number.isNaN(value.getTime())) {
+  return toSqlDateTimeFromParts(value.getFullYear(), value.getMonth() + 1, value.getDate());
+ }
+
+ const raw = toImportString(value);
+ if (!raw) {
+  return null;
+ }
+
+ const normalized = normalizeDecimalInput(raw);
+
+ if (/^\d+(?:\.\d+)?$/.test(normalized)) {
+  const serial = Number.parseFloat(normalized);
+  if (Number.isFinite(serial) && serial >= 1 && serial <= 100000) {
+   const wholeDays = Math.floor(serial);
+   const excelEpochUtc = Date.UTC(1899, 11, 30);
+   const date = new Date(excelEpochUtc + wholeDays * 24 * 60 * 60 * 1000);
+   if (!Number.isNaN(date.getTime())) {
+    return toSqlDateTimeFromParts(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+   }
+  }
+ }
+
+ const dayMonthYear = normalized.match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/);
+ if (dayMonthYear) {
+  const day = Number.parseInt(dayMonthYear[1], 10);
+  const month = Number.parseInt(dayMonthYear[2], 10);
+  const maybeYear = dayMonthYear[3] ? Number.parseInt(dayMonthYear[3], 10) : new Date().getFullYear();
+  const year = maybeYear < 100 ? 2000 + maybeYear : maybeYear;
+  return toSqlDateTimeFromParts(year, month, day);
+ }
+
+ const yearMonthDay = normalized.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+ if (yearMonthDay) {
+  return toSqlDateTimeFromParts(Number.parseInt(yearMonthDay[1], 10), Number.parseInt(yearMonthDay[2], 10), Number.parseInt(yearMonthDay[3], 10));
+ }
+
+ const parsedMillis = Date.parse(raw);
+ if (!Number.isNaN(parsedMillis)) {
+  const parsedDate = new Date(parsedMillis);
+  return toSqlDateTimeFromParts(parsedDate.getFullYear(), parsedDate.getMonth() + 1, parsedDate.getDate());
+ }
+
+ return null;
+}
+
+function getExcelLikeColumnName(index: number) {
+ let value = index;
+ let result = '';
+
+ do {
+  result = String.fromCharCode(65 + (value % 26)) + result;
+  value = Math.floor(value / 26) - 1;
+ } while (value >= 0);
+
+ return result;
+}
+
+function buildImportColumnOptions(rows: string[][]) {
+ const maxColumns = rows.reduce((max, row) => Math.max(max, row.length), 0);
+
+ return Array.from({ length: maxColumns }, (_, index) => {
+  const sample = rows
+   .slice(0, 8)
+   .map((row) => toImportString(row[index]))
+   .find((value) => value.length > 0);
+
+  return {
+   index,
+   label: `${getExcelLikeColumnName(index)} - ${sample || `Column ${index + 1}`}`,
+  };
+ });
+}
+
+function escapeRegex(value: string) {
+ return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeClientNameForCurrencySuffix(name: string, currency: Currency) {
+ const compactName = name.trim().replace(/\s+/g, ' ');
+ if (!compactName) {
+  return compactName;
+ }
+
+ const currencyAliasesByCode: Record<string, string[]> = {
+  EUR: ['euro', 'euros', 'يورو'],
+  USD: ['dollar', 'dollars', 'usd', 'دولار'],
+  TRY: ['turk', 'turkish', 'lira', 'try', 'ليرة', 'تركي'],
+  GBP: ['pound', 'sterling', 'gbp', 'جنيه'],
+  AED: ['aed', 'dirham', 'درهم'],
+  SAR: ['sar', 'riyal', 'ريال'],
+ };
+
+ const aliases = [currency.code, currency.name, currency.symbol, ...(currencyAliasesByCode[currency.code] || [])]
+  .map((alias) => toImportString(alias).toLowerCase())
+  .filter((alias, index, list) => alias.length > 0 && list.indexOf(alias) === index)
+  .sort((left, right) => right.length - left.length);
+
+ let normalized = compactName;
+
+ for (const alias of aliases) {
+  const aliasPattern = new RegExp(`(?:\\s|[-_/()])${escapeRegex(alias)}$`, 'i');
+  const exactAliasPattern = new RegExp(`^${escapeRegex(alias)}$`, 'i');
+
+  if (exactAliasPattern.test(normalized)) {
+   continue;
+  }
+
+  if (aliasPattern.test(normalized)) {
+   normalized = normalized.replace(aliasPattern, '').trim().replace(/\s+/g, ' ');
+  }
+ }
+
+ return normalized || compactName;
+}
+
+function parseTransactionRowsFromMappedSheet(rows: string[][], mapping: ImportMappingState, currency: Currency) {
+ if (mapping.fromColumn == null || mapping.toColumn == null || mapping.amountColumn == null) {
+  throw new Error('Please choose columns for From, To, and Amount.');
+ }
+
+ const parsedRows: ImportedTransactionRow[] = [];
+
+ for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+  const row = rows[rowIndex];
+  const fromRaw = toImportString(row[mapping.fromColumn]);
+  const toRaw = toImportString(row[mapping.toColumn]);
+  const amountRaw = toImportString(row[mapping.amountColumn]);
+  const amount = toImportAmount(amountRaw);
+  const description = mapping.descriptionColumn == null ? '' : toImportString(row[mapping.descriptionColumn]);
+  const createdAt = mapping.dateColumn == null ? null : parseImportedDate(row[mapping.dateColumn]);
+
+  const isCompletelyEmpty = !fromRaw && !toRaw && !amountRaw;
+  if (isCompletelyEmpty) {
+   continue;
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+   continue;
+  }
+
+  const fromName = normalizeClientNameForCurrencySuffix(fromRaw, currency);
+  const toName = normalizeClientNameForCurrencySuffix(toRaw, currency);
+
+  if (!fromName || !toName) {
+   continue;
+  }
+
+  parsedRows.push({
+   fromName,
+   toName,
+   amount,
+   createdAt,
+   description,
+  });
+ }
+
+ if (!parsedRows.length) {
+  throw new Error('No valid transaction rows were found for the selected columns.');
+ }
+
+ return parsedRows;
 }
 
 function getStoredLedgerColumnOrder() {
@@ -409,6 +629,7 @@ export default function Home() {
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
+ const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
  const [ledgerCommissionExpandedEntries, setLedgerCommissionExpandedEntries] = useState<Set<string>>(new Set());
@@ -441,6 +662,18 @@ export default function Home() {
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
  const [error, setError] = useState('');
+ const [importSummary, setImportSummary] = useState('');
+ const [isImportingTransactions, setIsImportingTransactions] = useState(false);
+ const [pendingImportData, setPendingImportData] = useState<PendingImportData | null>(null);
+ const [importMapping, setImportMapping] = useState<ImportMappingState>({
+  dateColumn: null,
+  fromColumn: null,
+  toColumn: null,
+  amountColumn: null,
+  descriptionColumn: null,
+  currencyId: null,
+ });
+ const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
 
  const loadData = useCallback(async () => {
   if (!accountingApi) {
@@ -458,10 +691,16 @@ export default function Home() {
     accountingApi.listAllClientAccounts(),
    ])) as [DbInfo, Organization[], Client[], Currency[], Transaction[], ClientAccount[]];
 
+   let nextCurrencies = currencyRows;
+   if (!nextCurrencies.length) {
+    await accountingApi.reseedCurrencies();
+    nextCurrencies = (await accountingApi.listCurrencies()) as Currency[];
+   }
+
    setDbInfo(db);
    setOrganizations(organizationRows);
    setClients(clientRows);
-   setCurrencies(currencyRows);
+   setCurrencies(nextCurrencies);
    setTransactions(transactionRows);
    setClientAccounts(clientAccountRows);
    setSelectedOrganizationForClients((current) => (current ? (organizationRows.find((organization) => organization.id === current.id) ?? null) : null));
@@ -499,6 +738,11 @@ export default function Home() {
  useEffect(() => {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
  }, [ledgerColumnOrder]);
+
+ useEffect(() => {
+  const transactionIds = new Set(transactions.map((transaction) => transaction.id));
+  setSelectedTransactionIds((current) => new Set([...current].filter((id) => transactionIds.has(id))));
+ }, [transactions]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
@@ -680,6 +924,7 @@ export default function Home() {
   });
 
   setTransactionTableDrafts(nextDrafts);
+  setSelectedTransactionIds(new Set());
   setCommissionExpandedTxns(new Set());
   setExpensesExpandedTxns(new Set());
   setIsTransactionsEditMode(true);
@@ -687,6 +932,7 @@ export default function Home() {
 
  function cancelTransactionsEditMode() {
   setTransactionTableDrafts({});
+  setSelectedTransactionIds(new Set());
   setCommissionExpandedTxns(new Set());
   setExpensesExpandedTxns(new Set());
   setIsTransactionsEditMode(false);
@@ -1081,6 +1327,265 @@ export default function Home() {
   }
  }
 
+ async function onImportTransactionsFile(event: ChangeEvent<HTMLInputElement>) {
+  const file = event.target.files?.[0];
+  if (!file) {
+   return;
+  }
+
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  setError('');
+  setImportSummary('');
+
+  try {
+   const xlsxModule = await import('xlsx');
+   const fileBuffer = await file.arrayBuffer();
+   const workbook = xlsxModule.read(fileBuffer, { type: 'array' });
+   const firstSheetName = workbook.SheetNames[0];
+
+   if (!firstSheetName) {
+    throw new Error('The selected file has no sheets.');
+   }
+
+   const sheet = workbook.Sheets[firstSheetName];
+   const rawRows = xlsxModule.utils.sheet_to_json(sheet, {
+    header: 1,
+    raw: false,
+    defval: '',
+   }) as unknown[][];
+
+   const rows = rawRows.map((row) => row.map((cell) => toImportString(cell)));
+   const columnOptions = buildImportColumnOptions(rows);
+   if (!columnOptions.length) {
+    throw new Error('The selected sheet has no columns.');
+   }
+
+   const headerAliases = {
+    from: ['عليه', 'from', 'accountfrom', 'sender', 'debtor'],
+    to: ['له', 'to', 'accountto', 'receiver', 'creditor'],
+    amount: ['القيمة', 'المبلغ', 'amount', 'value'],
+    date: ['التاريخ', 'date', 'createdat'],
+    description: ['الوصف', 'البيان', 'ملاحظة', 'description', 'note', 'details'],
+   };
+
+   const detectColumnByAliases = (aliases: string[]) => {
+    const normalizedAliasSet = new Set(aliases.map((alias) => normalizeImportHeader(alias)));
+    for (let rowIndex = 0; rowIndex < Math.min(rows.length, 10); rowIndex += 1) {
+     const row = rows[rowIndex];
+     for (let cellIndex = 0; cellIndex < row.length; cellIndex += 1) {
+      const cell = normalizeImportHeader(row[cellIndex]);
+      if (normalizedAliasSet.has(cell)) {
+       return cellIndex;
+      }
+     }
+    }
+    return null;
+   };
+
+   const preferredCurrency = enabledCurrencies[0] ?? currencies[0] ?? null;
+
+   setPendingImportData({
+    fileName: file.name,
+    rows,
+    columnOptions,
+   });
+
+   setImportMapping({
+    dateColumn: detectColumnByAliases(headerAliases.date),
+    fromColumn: detectColumnByAliases(headerAliases.from),
+    toColumn: detectColumnByAliases(headerAliases.to),
+    amountColumn: detectColumnByAliases(headerAliases.amount),
+    descriptionColumn: detectColumnByAliases(headerAliases.description),
+    currencyId: preferredCurrency?.id ?? null,
+   });
+  } catch (e) {
+   setError(e instanceof Error ? e.message : 'Failed to read import file.');
+  } finally {
+   if (transactionsImportInputRef.current) {
+    transactionsImportInputRef.current.value = '';
+   }
+  }
+ }
+
+ async function onConfirmImportTransactions() {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  if (!pendingImportData) {
+   setError('No file is selected for import.');
+   return;
+  }
+
+  if (importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null) {
+   setError('Please answer the column mapping questions before importing.');
+   return;
+  }
+
+  if (!importMapping.currencyId) {
+   setError('Please choose a currency for this import.');
+   return;
+  }
+
+  const selectedCurrency = currencies.find((currency) => currency.id === importMapping.currencyId) ?? null;
+  if (!selectedCurrency) {
+   setError('Selected currency was not found. Please reselect it.');
+   return;
+  }
+
+  setIsImportingTransactions(true);
+  setError('');
+  setImportSummary('');
+
+  try {
+   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
+
+   const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+   let nextClients = [...clients];
+   let nextCurrencies = [...currencies];
+   let nextClientAccounts = [...clientAccounts];
+
+   const stats = {
+    createdClients: 0,
+    enabledCurrencies: 0,
+    createdAccounts: 0,
+    createdTransactions: 0,
+   };
+
+   const getClientByName = (name: string) => {
+    const needle = normalizeLookup(name);
+    return nextClients.find((client) => normalizeLookup(client.name) === needle) ?? null;
+   };
+
+   const getClientAccount = (clientId: number, currencyId: number) => {
+    return nextClientAccounts.find((account) => account.clientId === clientId && account.currencyId === currencyId) ?? null;
+   };
+
+   let importCurrency = nextCurrencies.find((currency) => currency.id === selectedCurrency.id) ?? selectedCurrency;
+
+   if (importCurrency.isEnabled !== 1) {
+    await accountingApi.enableCurrency(importCurrency.id);
+    nextCurrencies = nextCurrencies.map((currency) => (currency.id === importCurrency.id ? { ...currency, isEnabled: 1 } : currency));
+    importCurrency = { ...importCurrency, isEnabled: 1 };
+    stats.enabledCurrencies += 1;
+   }
+
+   for (const row of importedRows) {
+    let fromClient = getClientByName(row.fromName);
+    if (!fromClient) {
+     await accountingApi.createClient({
+      organizationId: organizations[0]?.id ?? null,
+      name: row.fromName,
+      email: '',
+      phone: '',
+      address: '',
+     });
+     nextClients = (await accountingApi.listClients()) as Client[];
+     fromClient = getClientByName(row.fromName);
+     stats.createdClients += 1;
+    }
+
+    let toClient = getClientByName(row.toName);
+    if (!toClient) {
+     await accountingApi.createClient({
+      organizationId: organizations[0]?.id ?? null,
+      name: row.toName,
+      email: '',
+      phone: '',
+      address: '',
+     });
+     nextClients = (await accountingApi.listClients()) as Client[];
+     toClient = getClientByName(row.toName);
+     stats.createdClients += 1;
+    }
+
+    if (!fromClient || !toClient) {
+     continue;
+    }
+
+    let fromAccount = getClientAccount(fromClient.id, importCurrency.id);
+    if (!fromAccount) {
+     await accountingApi.createClientAccount({ clientId: fromClient.id, currencyId: importCurrency.id, startingBalance: 0 });
+     nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
+     fromAccount = getClientAccount(fromClient.id, importCurrency.id);
+     stats.createdAccounts += 1;
+    }
+
+    let toAccount = getClientAccount(toClient.id, importCurrency.id);
+    if (!toAccount) {
+     await accountingApi.createClientAccount({ clientId: toClient.id, currencyId: importCurrency.id, startingBalance: 0 });
+     nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
+     toAccount = getClientAccount(toClient.id, importCurrency.id);
+     stats.createdAccounts += 1;
+    }
+
+    if (!fromAccount || !toAccount) {
+     continue;
+    }
+
+    await accountingApi.createTransaction({
+     accountFromId: fromAccount.id,
+     accountToId: toAccount.id,
+     currencyId: importCurrency.id,
+     amount: row.amount,
+     type: 'transfer',
+     exchangeRateFrom: 1,
+     commissionFrom: 0,
+     exchangeRateTo: 1,
+     commissionTo: 0,
+     charges: 0,
+     chargesCurrencyId: null,
+     chargesPayer: '',
+     chargesExchangeRate: 1,
+     chargesDescription: '',
+     description: row.description,
+     createdAt: row.createdAt ?? undefined,
+    });
+
+    stats.createdTransactions += 1;
+   }
+
+   if (!stats.createdTransactions) {
+    throw new Error('No transactions were imported. Check the mapping questions and selected currency.');
+   }
+
+   await loadData();
+   setImportSummary(
+    `Imported ${stats.createdTransactions} transactions from ${pendingImportData.fileName}. Created ${stats.createdClients} clients and ${stats.createdAccounts} accounts.`,
+   );
+   setPendingImportData(null);
+   setImportMapping({
+    dateColumn: null,
+    fromColumn: null,
+    toColumn: null,
+    amountColumn: null,
+    descriptionColumn: null,
+    currencyId: null,
+   });
+  } catch (e) {
+   setError(e instanceof Error ? e.message : 'Failed to import transactions.');
+  } finally {
+   setIsImportingTransactions(false);
+  }
+ }
+
+ function onCancelImportTransactions() {
+  setPendingImportData(null);
+  setImportMapping({
+   dateColumn: null,
+   fromColumn: null,
+   toColumn: null,
+   amountColumn: null,
+   descriptionColumn: null,
+   currencyId: null,
+  });
+ }
+
  async function onSaveAllTransactionDrafts() {
   if (!accountingApi) {
    setError(t('error_bridge'));
@@ -1138,6 +1643,69 @@ export default function Home() {
 
   try {
    await accountingApi.deleteTransaction(id);
+   setSelectedTransactionIds((current) => {
+    const next = new Set(current);
+    next.delete(id);
+    return next;
+   });
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ function onToggleTransactionSelection(transactionId: number) {
+  if (!isTransactionsEditMode) {
+   return;
+  }
+
+  setSelectedTransactionIds((current) => {
+   const next = new Set(current);
+   if (next.has(transactionId)) {
+    next.delete(transactionId);
+   } else {
+    next.add(transactionId);
+   }
+   return next;
+  });
+ }
+
+ function onToggleSelectAllTransactions() {
+  if (!isTransactionsEditMode) {
+   return;
+  }
+
+  setSelectedTransactionIds((current) => {
+   if (transactions.length > 0 && current.size === transactions.length) {
+    return new Set();
+   }
+   return new Set(transactions.map((transaction) => transaction.id));
+  });
+ }
+
+ async function onDeleteSelectedTransactions() {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const idsToDelete = [...selectedTransactionIds];
+  if (!idsToDelete.length) {
+   setError('No transactions selected.');
+   return;
+  }
+
+  const confirmed = window.confirm(`Delete ${idsToDelete.length} selected transactions?`);
+  if (!confirmed) {
+   return;
+  }
+
+  try {
+   for (const transactionId of idsToDelete) {
+    await accountingApi.deleteTransaction(transactionId);
+   }
+   setSelectedTransactionIds(new Set());
    setError('');
    await loadData();
   } catch (e) {
@@ -2617,6 +3185,7 @@ export default function Home() {
      ) : null}
 
      {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+     {importSummary ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{importSummary}</div> : null}
 
      {section === 'overview' ? (
       <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
@@ -3364,18 +3933,208 @@ export default function Home() {
          <div>
           <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
           <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
+          <p className="mt-2 text-xs text-slate-500">Import supported: XLSX, XLS, CSV (including Google Sheets exports).</p>
          </div>
-         <button
-          type="button"
-          onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
-          aria-expanded={isNewTransactionSectionOpen}
-          className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-           isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-          }`}
-         >
-          {isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
-         </button>
+         <div className="flex flex-wrap items-center justify-end gap-2">
+          <input
+           ref={transactionsImportInputRef}
+           type="file"
+           accept=".xlsx,.xls,.csv"
+           onChange={onImportTransactionsFile}
+           className="hidden"
+          />
+          <button
+           type="button"
+           onClick={() => transactionsImportInputRef.current?.click()}
+           disabled={isImportingTransactions}
+           className="cursor-pointer rounded-full border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+           {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
+          </button>
+          <button
+           type="button"
+           onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
+           aria-expanded={isNewTransactionSectionOpen}
+           className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
+            isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+           }`}
+          >
+           {isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
+          </button>
+         </div>
         </div>
+
+        {pendingImportData ? (
+         <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+          <p className="text-sm font-semibold text-blue-900">Import Setup: {pendingImportData.fileName}</p>
+          <p className="mt-1 text-xs text-blue-700">Answer these questions before importing.</p>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+           <label className="text-sm text-slate-700">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
+            <select
+             value={importMapping.dateColumn ?? ''}
+             onChange={(event) =>
+              setImportMapping((current) => ({
+               ...current,
+               dateColumn: event.target.value === '' ? null : Number(event.target.value),
+              }))
+             }
+             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             <option value="">No date column</option>
+             {pendingImportData.columnOptions.map((option) => (
+              <option
+               key={option.index}
+               value={option.index}
+              >
+               {option.label}
+              </option>
+             ))}
+            </select>
+           </label>
+
+           <label className="text-sm text-slate-700">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
+            <select
+             value={importMapping.fromColumn ?? ''}
+             onChange={(event) =>
+              setImportMapping((current) => ({
+               ...current,
+               fromColumn: event.target.value === '' ? null : Number(event.target.value),
+              }))
+             }
+             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             <option value="">Select from column</option>
+             {pendingImportData.columnOptions.map((option) => (
+              <option
+               key={option.index}
+               value={option.index}
+              >
+               {option.label}
+              </option>
+             ))}
+            </select>
+           </label>
+
+           <label className="text-sm text-slate-700">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
+            <select
+             value={importMapping.toColumn ?? ''}
+             onChange={(event) =>
+              setImportMapping((current) => ({
+               ...current,
+               toColumn: event.target.value === '' ? null : Number(event.target.value),
+              }))
+             }
+             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             <option value="">Select to column</option>
+             {pendingImportData.columnOptions.map((option) => (
+              <option
+               key={option.index}
+               value={option.index}
+              >
+               {option.label}
+              </option>
+             ))}
+            </select>
+           </label>
+
+           <label className="text-sm text-slate-700">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
+            <select
+             value={importMapping.amountColumn ?? ''}
+             onChange={(event) =>
+              setImportMapping((current) => ({
+               ...current,
+               amountColumn: event.target.value === '' ? null : Number(event.target.value),
+              }))
+             }
+             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             <option value="">Select amount column</option>
+             {pendingImportData.columnOptions.map((option) => (
+              <option
+               key={option.index}
+               value={option.index}
+              >
+               {option.label}
+              </option>
+             ))}
+            </select>
+           </label>
+
+           <label className="text-sm text-slate-700">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
+            <select
+             value={importMapping.descriptionColumn ?? ''}
+             onChange={(event) =>
+              setImportMapping((current) => ({
+               ...current,
+               descriptionColumn: event.target.value === '' ? null : Number(event.target.value),
+              }))
+             }
+             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             <option value="">No description column</option>
+             {pendingImportData.columnOptions.map((option) => (
+              <option
+               key={option.index}
+               value={option.index}
+              >
+               {option.label}
+              </option>
+             ))}
+            </select>
+           </label>
+
+           <label className="text-sm text-slate-700">
+            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
+            <select
+             value={importMapping.currencyId ?? ''}
+             onChange={(event) =>
+              setImportMapping((current) => ({
+               ...current,
+               currencyId: event.target.value === '' ? null : Number(event.target.value),
+              }))
+             }
+             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             <option value="">Select currency</option>
+             {currencies.map((currency) => (
+              <option
+               key={currency.id}
+               value={currency.id}
+              >
+               {currency.code} - {currency.name}
+              </option>
+             ))}
+            </select>
+           </label>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+           <button
+            type="button"
+            onClick={() => void onConfirmImportTransactions()}
+            disabled={isImportingTransactions}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+           >
+            {isImportingTransactions ? 'Importing...' : 'Import Now'}
+           </button>
+           <button
+            type="button"
+            onClick={onCancelImportTransactions}
+            disabled={isImportingTransactions}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+           >
+            Cancel Import
+           </button>
+          </div>
+         </div>
+        ) : null}
 
         {isNewTransactionSectionOpen ? (
          <form
@@ -3672,11 +4431,21 @@ export default function Home() {
           >
            {isTransactionsEditMode ? t('transactions_done_editing') : t('transactions_edit_mode')}
           </button>
+          {isTransactionsEditMode ? (
+           <button
+            type="button"
+            onClick={() => void onDeleteSelectedTransactions()}
+            className="cursor-pointer rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+           >
+            Delete Selected
+           </button>
+          ) : null}
          </div>
         </div>
         <div className={tableWrapClassName}>
          <table className="w-full text-sm">
           <colgroup>
+           {isTransactionsEditMode ? <col className="w-[5%]" /> : null}
            <col className="w-[10%]" />
            <col className="w-[15%]" />
            <col className="w-[17%]" />
@@ -3687,6 +4456,17 @@ export default function Home() {
           </colgroup>
           <thead className="bg-slate-100 text-slate-700">
            <tr>
+            {isTransactionsEditMode ? (
+             <th className="px-4 py-3">
+              <input
+               type="checkbox"
+               checked={transactions.length > 0 && selectedTransactionIds.size === transactions.length}
+               onChange={onToggleSelectAllTransactions}
+               aria-label="Select all transactions"
+               className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+              />
+             </th>
+            ) : null}
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
@@ -3707,6 +4487,17 @@ export default function Home() {
 
               return (
                <>
+                {isTransactionsEditMode ? (
+                 <td className="px-4 py-3 align-top">
+                  <input
+                   type="checkbox"
+                   checked={selectedTransactionIds.has(txn.id)}
+                   onChange={() => onToggleTransactionSelection(txn.id)}
+                   aria-label={`Select transaction ${txn.id}`}
+                   className="mt-1 h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                  />
+                 </td>
+                ) : null}
                 <td className="px-4 py-3 text-slate-500">
                  {isTransactionsEditMode && draft ? (
                   <input
@@ -3983,13 +4774,38 @@ export default function Home() {
                      const expanded = commissionExpandedTxns.has(txn.id);
                      if (bothZero && !expanded) {
                       return (
-                       <button
-                        type="button"
-                        onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                        className="text-sm text-blue-600 hover:underline"
-                       >
-                        + {t('add_commission')}
-                       </button>
+                       <div className="flex items-center gap-2">
+                        <button
+                         type="button"
+                         onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                         className="text-sm text-blue-600 hover:underline"
+                        >
+                         + {t('add_commission')}
+                        </button>
+                        <button
+                         type="button"
+                         onClick={() => onDeleteTransaction(txn.id)}
+                         className="inline-flex shrink-0 items-center gap-1 rounded-lg border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
+                         title={t('delete')}
+                        >
+                         <svg
+                          className="h-4 w-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={1.8}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                         >
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14H6L5 6" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M9 6V4h6v2" />
+                         </svg>
+                         <span className="text-xs font-semibold">{t('delete')}</span>
+                        </button>
+                       </div>
                       );
                      }
                      return (
@@ -4024,7 +4840,7 @@ export default function Home() {
                         <button
                          type="button"
                          onClick={() => onDeleteTransaction(txn.id)}
-                         className="shrink-0 rounded-lg border border-red-200 p-1.5 text-red-600 hover:bg-red-50"
+                         className="inline-flex shrink-0 items-center gap-1 rounded-lg border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
                          title={t('delete')}
                         >
                          <svg
@@ -4042,6 +4858,7 @@ export default function Home() {
                           <path d="M10 11v6M14 11v6" />
                           <path d="M9 6V4h6v2" />
                          </svg>
+                         <span className="text-xs font-semibold">{t('delete')}</span>
                         </button>
                        </div>
                       </div>
@@ -4071,7 +4888,7 @@ export default function Home() {
             <tr>
              <td
               className="px-4 py-6 text-slate-500"
-              colSpan={7}
+              colSpan={isTransactionsEditMode ? 8 : 7}
              >
               {t('no_transactions')}
              </td>

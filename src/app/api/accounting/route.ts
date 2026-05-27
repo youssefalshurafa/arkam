@@ -64,6 +64,9 @@ export async function POST(request: NextRequest) {
    case 'deleteClient':
     db.deleteClient(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'deleteAllClients':
+    db.deleteAllClients(appLike);
+    return NextResponse.json({ ok: true });
    case 'listAllClientAccounts':
     return NextResponse.json(db.listAllClientAccounts(appLike));
    case 'listClientAccounts':
@@ -88,6 +91,12 @@ export async function POST(request: NextRequest) {
    case 'deleteCurrency':
     db.deleteCurrency(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'deleteAllCurrencies':
+    db.deleteAllCurrencies(appLike);
+    return NextResponse.json({ ok: true });
+   case 'reseedCurrencies':
+    db.reseedCurrencies(appLike);
+    return NextResponse.json({ ok: true });
    case 'enableCurrency':
     db.enableCurrency(appLike, payload);
     return NextResponse.json({ ok: true });
@@ -107,6 +116,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
    case 'deleteTransaction':
     db.deleteTransaction(appLike, payload);
+    return NextResponse.json({ ok: true });
+   case 'deleteAllTransactions':
+    db.deleteAllTransactions(appLike);
     return NextResponse.json({ ok: true });
    default:
     return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });

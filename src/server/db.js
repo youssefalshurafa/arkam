@@ -481,6 +481,11 @@ function deleteClient(app, clientId) {
     stmt.run(clientId);
 }
 
+function deleteAllClients(app) {
+    const { db } = getOrCreateDb(app);
+    db.prepare("DELETE FROM clients").run();
+}
+
 // ── Client Accounts ─────────────────────────────────────────────────────────
 
 function listAllClientAccounts(app) {
@@ -617,6 +622,16 @@ function deleteCurrency(app, currencyId) {
     db.prepare("DELETE FROM currencies WHERE id = ?").run(currencyId);
 }
 
+function deleteAllCurrencies(app) {
+    const { db } = getOrCreateDb(app);
+    db.prepare("DELETE FROM currencies").run();
+}
+
+function reseedCurrencies(app) {
+    const { db } = getOrCreateDb(app);
+    seedCurrencies(db);
+}
+
 function setMainCurrency(app, currencyId) {
     const { db } = getOrCreateDb(app);
     const currency = db.prepare("SELECT id, is_enabled as isEnabled FROM currencies WHERE id = ?").get(currencyId);
@@ -686,6 +701,33 @@ function createTransaction(app, txn) {
     if (!txn.amount || txn.amount <= 0) throw new Error("Amount must be greater than zero.");
 
     const { db } = getOrCreateDb(app);
+    const hasCustomCreatedAt = typeof txn.createdAt === "string" && txn.createdAt.trim().length > 0;
+
+    if (hasCustomCreatedAt) {
+        db.prepare(`
+            INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, charges, charges_currency_id, charges_payer, charges_exchange_rate, charges_description, description, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            txn.accountFromId,
+            txn.accountToId,
+            txn.currencyId,
+            txn.amount,
+            txn.type || "exchange",
+            txn.exchangeRateFrom || 1,
+            txn.commissionFrom || 0,
+            txn.exchangeRateTo || 1,
+            txn.commissionTo || 0,
+            txn.charges || 0,
+            txn.chargesCurrencyId || null,
+            txn.chargesPayer || "",
+            txn.chargesExchangeRate || 1,
+            txn.chargesDescription?.trim() || "",
+            txn.description?.trim() || "",
+            txn.createdAt.trim(),
+        );
+        return;
+    }
+
     db.prepare(`
         INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, charges, charges_currency_id, charges_payer, charges_exchange_rate, charges_description, description)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -760,6 +802,11 @@ function deleteTransaction(app, transactionId) {
     db.prepare("DELETE FROM transactions WHERE id = ?").run(transactionId);
 }
 
+function deleteAllTransactions(app) {
+    const { db } = getOrCreateDb(app);
+    db.prepare("DELETE FROM transactions").run();
+}
+
 module.exports = {
     getDbInfo,
     setDbDirectory,
@@ -771,6 +818,7 @@ module.exports = {
     createClient,
     updateClient,
     deleteClient,
+    deleteAllClients,
     listAllClientAccounts,
     listClientAccounts,
     createClientAccount,
@@ -780,6 +828,8 @@ module.exports = {
     createCurrency,
     updateCurrency,
     deleteCurrency,
+    deleteAllCurrencies,
+    reseedCurrencies,
     enableCurrency,
     disableCurrency,
     setMainCurrency,
@@ -787,4 +837,5 @@ module.exports = {
     createTransaction,
     updateTransaction,
     deleteTransaction,
+    deleteAllTransactions,
 };
