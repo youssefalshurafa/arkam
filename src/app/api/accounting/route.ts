@@ -1,34 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/server/auth-options';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const db = require('@/server/db');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const authDb = require('@/server/auth-db');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const appLike = {
- getPath(name: string) {
-  const root = process.cwd();
+const readOnlyActions = new Set(['getDbInfo', 'listOrganizations', 'listClients', 'listAllClientAccounts', 'listClientAccounts', 'listCurrencies', 'listTransactions']);
 
-  if (name === 'userData') {
-   return path.join(root, 'database');
-  }
-
-  if (name === 'documents' || name === 'temp') {
-   return root;
-  }
-
-  return root;
- },
-};
+const writeActions = new Set([
+ 'setDbDirectory',
+ 'createOrganization',
+ 'updateOrganization',
+ 'deleteOrganization',
+ 'createClient',
+ 'updateClient',
+ 'deleteClient',
+ 'deleteAllClients',
+ 'createClientAccount',
+ 'updateClientAccountStartingBalance',
+ 'deleteClientAccount',
+ 'createCurrency',
+ 'updateCurrency',
+ 'deleteCurrency',
+ 'deleteAllCurrencies',
+ 'reseedCurrencies',
+ 'enableCurrency',
+ 'disableCurrency',
+ 'setMainCurrency',
+ 'createTransaction',
+ 'updateTransaction',
+ 'deleteTransaction',
+ 'deleteAllTransactions',
+]);
 
 type Body = {
  action?: string;
  payload?: unknown;
 };
 
+function getWorkspaceId(sessionWorkspaceId: string | null | undefined, headerWorkspaceId: string | null): string | null {
+ if (headerWorkspaceId?.trim()) {
+  return headerWorkspaceId.trim();
+ }
+
+ if (sessionWorkspaceId?.trim()) {
+  return sessionWorkspaceId.trim();
+ }
+
+ return null;
+}
+
+function createAppLike(workspaceId: string) {
+ return {
+  workspaceId,
+  getPath(name: string) {
+   const root = process.cwd();
+
+   if (name === 'userData') {
+    return path.join(root, 'database');
+   }
+
+   if (name === 'documents' || name === 'temp') {
+    return root;
+   }
+
+   return root;
+  },
+ };
+}
+
 export async function POST(request: NextRequest) {
  try {
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id;
+
+  if (!userId) {
+   return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
+  }
+
   const body = (await request.json()) as Body;
   const action = body.action;
   const payload = body.payload as never;
@@ -36,6 +90,26 @@ export async function POST(request: NextRequest) {
   if (!action) {
    return NextResponse.json({ error: 'Missing action.' }, { status: 400 });
   }
+
+  const workspaceId = getWorkspaceId(session.user.defaultWorkspaceId, request.headers.get('x-workspace-id'));
+  if (!workspaceId) {
+   return NextResponse.json({ error: 'No workspace selected.' }, { status: 400 });
+  }
+
+  const role = authDb.getWorkspaceRole(userId, workspaceId);
+  if (!role) {
+   return NextResponse.json({ error: 'Access denied for this workspace.' }, { status: 403 });
+  }
+
+  if (!readOnlyActions.has(action) && !writeActions.has(action)) {
+   return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });
+  }
+
+  if (writeActions.has(action) && role === 'viewer') {
+   return NextResponse.json({ error: 'Viewers cannot modify workspace data.' }, { status: 403 });
+  }
+
+  const appLike = createAppLike(workspaceId);
 
   switch (action) {
    case 'getDbInfo':

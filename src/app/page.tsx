@@ -1,7 +1,10 @@
 'use client';
 
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import LoginPage from '@/components/auth/LoginPage';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 
@@ -510,7 +513,7 @@ function getCommissionAmount(baseAmount: number, commissionPercent: number) {
  return baseAmount * (commissionPercent / 100);
 }
 
-type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database';
+type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth';
 
 function renderIcon(icon: IconName, className = 'h-5 w-5') {
  const commonProps = {
@@ -594,6 +597,19 @@ function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="M5 11v6c0 1.66 3.13 3 7 3s7-1.34 7-3v-6" />
     </svg>
    );
+  case 'auth':
+   return (
+    <svg {...commonProps}>
+     <circle
+      cx="12"
+      cy="8"
+      r="3"
+     />
+     <path d="M5 20v-1.2A5.8 5.8 0 0 1 10.8 13h2.4A5.8 5.8 0 0 1 19 18.8V20" />
+     <path d="M15.5 10.5 17 12l1.5-1.5" />
+     <path d="M17 12v-4" />
+    </svg>
+   );
  }
 }
 
@@ -627,7 +643,8 @@ const emptyTransactionForm = (): TransactionForm => ({
  description: '',
 });
 
-export default function Home() {
+function AuthenticatedHome() {
+ const router = useRouter();
  const { language, setLanguage, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  const [section, setSection] = useState<Section>('overview');
@@ -3315,6 +3332,19 @@ export default function Home() {
        </button>
       ) : null}
 
+      <button
+       type="button"
+       onClick={() => void signOut({ callbackUrl: '/login' })}
+       aria-label={t('sign_out')}
+       title={t('sign_out')}
+       className={`flex w-full items-center gap-3 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-3 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-400/15 ${
+        isSidebarCollapsed ? 'justify-center px-2' : ''
+       }`}
+      >
+       <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-300/15 text-cyan-100">{renderIcon('auth', 'h-5 w-5')}</span>
+       {isSidebarCollapsed ? null : <span>{t('sign_out')}</span>}
+      </button>
+
       {isSidebarCollapsed ? null : (
        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
         <label className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{t('language')}</label>
@@ -5194,4 +5224,18 @@ export default function Home() {
     : null}
   </div>
  );
+}
+
+export default function Home() {
+ const { status } = useSession();
+
+ if (status === 'loading') {
+  return null;
+ }
+
+ if (status !== 'authenticated') {
+  return <LoginPage />;
+ }
+
+ return <AuthenticatedHome />;
 }

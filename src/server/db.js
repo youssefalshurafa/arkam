@@ -3,8 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Database = require("better-sqlite3");
 
-let dbInstance;
-let dbFilePath;
+const dbRegistry = new Map();
 
 function getSettingsFilePath(app) {
     return path.join(app.getPath("userData"), "settings.json");
@@ -293,20 +292,50 @@ function initializeDb(db) {
     seedCurrencies(db);
 }
 
-function closeDb() {
-    if (!dbInstance) {
+function getWorkspaceKey(app) {
+    const rawWorkspaceId = typeof app?.workspaceId === "string" ? app.workspaceId.trim() : "";
+    if (!rawWorkspaceId) {
+        return "public";
+    }
+
+    return rawWorkspaceId.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function getWorkspaceDbPath(app) {
+    const baseDir = getConfiguredDataDirectory(app);
+    const workspaceKey = getWorkspaceKey(app);
+    const workspaceDir = path.join(baseDir, "workspaces", workspaceKey);
+    return path.join(workspaceDir, "accounting.sqlite");
+}
+
+function closeDb(workspaceKey) {
+    if (workspaceKey) {
+        const existing = dbRegistry.get(workspaceKey);
+        if (!existing) {
+            return;
+        }
+
+        try {
+            existing.db.pragma("wal_checkpoint(TRUNCATE)");
+        } catch {
+            // ignore
+        }
+
+        existing.db.close();
+        dbRegistry.delete(workspaceKey);
         return;
     }
 
-    try {
-        dbInstance.pragma("wal_checkpoint(TRUNCATE)");
-    } catch {
-        // ignore
-    }
+    for (const [key, existing] of dbRegistry.entries()) {
+        try {
+            existing.db.pragma("wal_checkpoint(TRUNCATE)");
+        } catch {
+            // ignore
+        }
 
-    dbInstance.close();
-    dbInstance = undefined;
-    dbFilePath = undefined;
+        existing.db.close();
+        dbRegistry.delete(key);
+    }
 }
 
 function copyDatabaseArtifacts(sourceDbPath, targetDbPath) {
@@ -321,18 +350,21 @@ function copyDatabaseArtifacts(sourceDbPath, targetDbPath) {
 }
 
 function getOrCreateDb(app) {
-    if (dbInstance) {
-        return { db: dbInstance, dbPath: dbFilePath };
+    const workspaceKey = getWorkspaceKey(app);
+    const existing = dbRegistry.get(workspaceKey);
+    if (existing) {
+        return { db: existing.db, dbPath: existing.dbPath };
     }
 
-    const baseDir = getConfiguredDataDirectory(app);
-    fs.mkdirSync(baseDir, { recursive: true });
+    const dbPath = getWorkspaceDbPath(app);
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
-    dbFilePath = path.join(baseDir, "accounting.sqlite");
-    dbInstance = new Database(dbFilePath);
-    initializeDb(dbInstance);
+    const db = new Database(dbPath);
+    initializeDb(db);
 
-    return { db: dbInstance, dbPath: dbFilePath };
+    dbRegistry.set(workspaceKey, { db, dbPath });
+
+    return { db, dbPath };
 }
 
 function getDbInfo(app) {
@@ -349,7 +381,8 @@ function setDbDirectory(app, nextDirectory) {
     }
 
     const resolvedDirectory = path.resolve(nextDirectory.trim());
-    const targetDbPath = path.join(resolvedDirectory, "accounting.sqlite");
+    const workspaceKey = getWorkspaceKey(app);
+    const targetDbPath = path.join(resolvedDirectory, "workspaces", workspaceKey, "accounting.sqlite");
     const { dbPath: currentDbPath } = getOrCreateDb(app);
 
     if (path.resolve(currentDbPath) === path.resolve(targetDbPath)) {
@@ -357,7 +390,7 @@ function setDbDirectory(app, nextDirectory) {
         return getDbInfo(app);
     }
 
-    fs.mkdirSync(resolvedDirectory, { recursive: true });
+    fs.mkdirSync(path.dirname(targetDbPath), { recursive: true });
 
     closeDb();
 

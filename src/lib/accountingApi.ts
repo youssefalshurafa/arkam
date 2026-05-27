@@ -1,13 +1,26 @@
+const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
+
 type ApiOptions = {
  action: string;
  payload?: unknown;
 };
 
+function getActiveWorkspaceId() {
+ if (typeof window === 'undefined') {
+  return null;
+ }
+
+ const stored = window.localStorage.getItem(activeWorkspaceStorageKey);
+ return stored?.trim() || null;
+}
+
 async function request<T>({ action, payload }: ApiOptions): Promise<T> {
+ const workspaceId = getActiveWorkspaceId();
  const response = await fetch('/api/accounting', {
   method: 'POST',
   headers: {
    'Content-Type': 'application/json',
+   ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
   },
   body: JSON.stringify({ action, payload }),
  });
@@ -40,6 +53,19 @@ function exportHtmlAsPdfFallback(html: string, title: string): Promise<{ ok: boo
 }
 
 export const accountingApi = {
+ setActiveWorkspaceId: (workspaceId: string | null) => {
+  if (typeof window === 'undefined') {
+   return;
+  }
+
+  if (workspaceId?.trim()) {
+   window.localStorage.setItem(activeWorkspaceStorageKey, workspaceId.trim());
+   return;
+  }
+
+  window.localStorage.removeItem(activeWorkspaceStorageKey);
+ },
+ getActiveWorkspaceId,
  getDbInfo: () => request<{ dbPath: string; dbDirectory: string }>({ action: 'getDbInfo' }),
  chooseDbDirectory: async () => null,
  setDbDirectory: (nextDirectory: string) => request<{ dbPath: string; dbDirectory: string }>({ action: 'setDbDirectory', payload: nextDirectory }),
@@ -71,5 +97,25 @@ export const accountingApi = {
  updateTransaction: (transaction: unknown) => request<{ ok: true }>({ action: 'updateTransaction', payload: transaction }),
  deleteTransaction: (transactionId: number) => request<{ ok: true }>({ action: 'deleteTransaction', payload: transactionId }),
  deleteAllTransactions: () => request<{ ok: true }>({ action: 'deleteAllTransactions' }),
+ listWorkspaces: () =>
+  fetch('/api/workspaces', { method: 'GET' }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to list workspaces.');
+   }
+   return data as { workspaces: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' | 'member' | 'viewer' }>; defaultWorkspaceId: string | null };
+  }),
+ addWorkspaceMember: ({ workspaceId, email, role }: { workspaceId: string; email: string; role: 'admin' | 'member' | 'viewer' }) =>
+  fetch(`/api/workspaces/${workspaceId}/members`, {
+   method: 'POST',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ email, role }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to add workspace member.');
+   }
+   return data as { ok: true; member: { userId: string; email: string; role: 'admin' | 'member' | 'viewer' } };
+  }),
  exportLedgerPdf: ({ html, defaultFileName }: { html: string; defaultFileName: string }) => exportHtmlAsPdfFallback(html, defaultFileName),
 };

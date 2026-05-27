@@ -25,9 +25,26 @@ This starts the Next.js dev server on `http://localhost:3000`.
 npm run build
 ```
 
+## Authentication and Workspaces
+
+- Signup page: `/signup`
+- Credentials signup (email/password) and Google sign-in are supported.
+- Set `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` in your environment.
+- Example environment variables are in `.env.example`.
+
 ## Local database location
 
-The app creates SQLite at first run in `database/data/accounting.sqlite`.
+- User/account metadata is stored in `database/auth/accounts.sqlite`.
+- Accounting data is workspace-isolated and stored per workspace in `database/data/workspaces/<workspaceId>/accounting.sqlite`.
+
+## Workspace roles
+
+Each workspace supports these roles:
+
+- `owner`: full access and member management
+- `admin`: full data access and member management
+- `member`: full data access
+- `viewer`: read-only access
 
 ## Current starter scope
 
