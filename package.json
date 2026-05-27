@@ -4,7 +4,13 @@
  "description": "Accounting web app with Next.js, Tailwind, and local SQLite",
  "private": true,
  "scripts": {
+  "predev": "node scripts/clean-next-lock.mjs",
   "dev": "next dev",
+  "predev:web": "node scripts/clean-next-lock.mjs",
+  "dev:web": "next dev",
+  "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
+  "rebuild:native": "electron-builder install-app-deps",
+  "postinstall": "electron-builder install-app-deps",
   "build": "next build",
   "start": "next start",
   "lint": "eslint"
