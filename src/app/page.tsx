@@ -711,6 +711,10 @@ function AuthenticatedHome() {
  const [openAccountOnCreate, setOpenAccountOnCreate] = useState(false);
  const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
+ const [txFromQuery, setTxFromQuery] = useState('');
+ const [txFromOpen, setTxFromOpen] = useState(false);
+ const [txToQuery, setTxToQuery] = useState('');
+ const [txToOpen, setTxToOpen] = useState(false);
  const [error, setError] = useState('');
  const [importSummary, setImportSummary] = useState('');
  const [isImportingTransactions, setIsImportingTransactions] = useState(false);
@@ -1469,6 +1473,10 @@ function AuthenticatedHome() {
    });
 
    setTransactionForm(emptyTransactionForm());
+   setTxFromQuery('');
+   setTxFromOpen(false);
+   setTxToQuery('');
+   setTxToOpen(false);
    setIsNewTransactionSectionOpen(false);
    setIsNewTransactionExpensesOpen(false);
    setError('');
@@ -4297,269 +4305,291 @@ function AuthenticatedHome() {
      {section === 'currencies' ? currenciesReadOnlySection : null}
 
      {section === 'transactions' ? (
-      <section className="flex flex-col gap-6">
-       <div className={panelClassName}>
-        <div className="flex items-start justify-between gap-4">
-         <div>
-          <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
-          <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
-          <p className="mt-2 text-xs text-slate-500">Import supported: XLSX, XLS, CSV (including Google Sheets exports).</p>
-         </div>
-         <div className="flex flex-wrap items-center justify-end gap-2">
-          <input
-           ref={transactionsImportInputRef}
-           type="file"
-           accept=".xlsx,.xls,.csv"
-           onChange={onImportTransactionsFile}
-           className="hidden"
-          />
-          <button
-           type="button"
-           onClick={() => transactionsImportInputRef.current?.click()}
-           disabled={isImportingTransactions}
-           className="cursor-pointer rounded-full border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-           {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
-          </button>
-          <button
-           type="button"
-           onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
-           aria-expanded={isNewTransactionSectionOpen}
-           className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-            isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-           }`}
-          >
-           {isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
-          </button>
-         </div>
-        </div>
+      <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
+       {isNewTransactionSectionOpen ? (
+        <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
+         <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
+         <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
 
-        {pendingImportData ? (
-         <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
-          <p className="text-sm font-semibold text-blue-900">Import Setup: {pendingImportData.fileName}</p>
-          <p className="mt-1 text-xs text-blue-700">Answer these questions before importing.</p>
+         {pendingImportData ? (
+          <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+           <p className="text-sm font-semibold text-blue-900">Import Setup: {pendingImportData.fileName}</p>
+           <p className="mt-1 text-xs text-blue-700">Answer these questions before importing.</p>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-           <label className="text-sm text-slate-700">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
-            <select
-             value={importMapping.dateColumn ?? ''}
-             onChange={(event) =>
-              setImportMapping((current) => ({
-               ...current,
-               dateColumn: event.target.value === '' ? null : Number(event.target.value),
-              }))
-             }
-             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="text-sm text-slate-700">
+             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
+             <select
+              value={importMapping.dateColumn ?? ''}
+              onChange={(event) =>
+               setImportMapping((current) => ({
+                ...current,
+                dateColumn: event.target.value === '' ? null : Number(event.target.value),
+               }))
+              }
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             >
+              <option value="">No date column</option>
+              {pendingImportData.columnOptions.map((option) => (
+               <option
+                key={option.index}
+                value={option.index}
+               >
+                {option.label}
+               </option>
+              ))}
+             </select>
+            </label>
+
+            <label className="text-sm text-slate-700">
+             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
+             <select
+              value={importMapping.fromColumn ?? ''}
+              onChange={(event) =>
+               setImportMapping((current) => ({
+                ...current,
+                fromColumn: event.target.value === '' ? null : Number(event.target.value),
+               }))
+              }
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             >
+              <option value="">Select from column</option>
+              {pendingImportData.columnOptions.map((option) => (
+               <option
+                key={option.index}
+                value={option.index}
+               >
+                {option.label}
+               </option>
+              ))}
+             </select>
+            </label>
+
+            <label className="text-sm text-slate-700">
+             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
+             <select
+              value={importMapping.toColumn ?? ''}
+              onChange={(event) =>
+               setImportMapping((current) => ({
+                ...current,
+                toColumn: event.target.value === '' ? null : Number(event.target.value),
+               }))
+              }
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             >
+              <option value="">Select to column</option>
+              {pendingImportData.columnOptions.map((option) => (
+               <option
+                key={option.index}
+                value={option.index}
+               >
+                {option.label}
+               </option>
+              ))}
+             </select>
+            </label>
+
+            <label className="text-sm text-slate-700">
+             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
+             <select
+              value={importMapping.amountColumn ?? ''}
+              onChange={(event) =>
+               setImportMapping((current) => ({
+                ...current,
+                amountColumn: event.target.value === '' ? null : Number(event.target.value),
+               }))
+              }
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             >
+              <option value="">Select amount column</option>
+              {pendingImportData.columnOptions.map((option) => (
+               <option
+                key={option.index}
+                value={option.index}
+               >
+                {option.label}
+               </option>
+              ))}
+             </select>
+            </label>
+
+            <label className="text-sm text-slate-700">
+             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
+             <select
+              value={importMapping.descriptionColumn ?? ''}
+              onChange={(event) =>
+               setImportMapping((current) => ({
+                ...current,
+                descriptionColumn: event.target.value === '' ? null : Number(event.target.value),
+               }))
+              }
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             >
+              <option value="">No description column</option>
+              {pendingImportData.columnOptions.map((option) => (
+               <option
+                key={option.index}
+                value={option.index}
+               >
+                {option.label}
+               </option>
+              ))}
+             </select>
+            </label>
+
+            <label className="text-sm text-slate-700">
+             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
+             <select
+              value={importMapping.currencyId ?? ''}
+              onChange={(event) =>
+               setImportMapping((current) => ({
+                ...current,
+                currencyId: event.target.value === '' ? null : Number(event.target.value),
+               }))
+              }
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             >
+              <option value="">Select currency</option>
+              {currencies.map((currency) => (
+               <option
+                key={currency.id}
+                value={currency.id}
+               >
+                {currency.code} - {currency.name}
+               </option>
+              ))}
+             </select>
+            </label>
+           </div>
+
+           <div className="mt-4 flex flex-wrap gap-2">
+            <button
+             type="button"
+             onClick={() => void onConfirmImportTransactions()}
+             disabled={isImportingTransactions}
+             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-             <option value="">No date column</option>
-             {pendingImportData.columnOptions.map((option) => (
-              <option
-               key={option.index}
-               value={option.index}
-              >
-               {option.label}
-              </option>
-             ))}
-            </select>
-           </label>
-
-           <label className="text-sm text-slate-700">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
-            <select
-             value={importMapping.fromColumn ?? ''}
-             onChange={(event) =>
-              setImportMapping((current) => ({
-               ...current,
-               fromColumn: event.target.value === '' ? null : Number(event.target.value),
-              }))
-             }
-             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             {isImportingTransactions ? 'Importing...' : 'Import Now'}
+            </button>
+            <button
+             type="button"
+             onClick={onCancelImportTransactions}
+             disabled={isImportingTransactions}
+             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-             <option value="">Select from column</option>
-             {pendingImportData.columnOptions.map((option) => (
-              <option
-               key={option.index}
-               value={option.index}
-              >
-               {option.label}
-              </option>
-             ))}
-            </select>
-           </label>
-
-           <label className="text-sm text-slate-700">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
-            <select
-             value={importMapping.toColumn ?? ''}
-             onChange={(event) =>
-              setImportMapping((current) => ({
-               ...current,
-               toColumn: event.target.value === '' ? null : Number(event.target.value),
-              }))
-             }
-             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            >
-             <option value="">Select to column</option>
-             {pendingImportData.columnOptions.map((option) => (
-              <option
-               key={option.index}
-               value={option.index}
-              >
-               {option.label}
-              </option>
-             ))}
-            </select>
-           </label>
-
-           <label className="text-sm text-slate-700">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
-            <select
-             value={importMapping.amountColumn ?? ''}
-             onChange={(event) =>
-              setImportMapping((current) => ({
-               ...current,
-               amountColumn: event.target.value === '' ? null : Number(event.target.value),
-              }))
-             }
-             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            >
-             <option value="">Select amount column</option>
-             {pendingImportData.columnOptions.map((option) => (
-              <option
-               key={option.index}
-               value={option.index}
-              >
-               {option.label}
-              </option>
-             ))}
-            </select>
-           </label>
-
-           <label className="text-sm text-slate-700">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
-            <select
-             value={importMapping.descriptionColumn ?? ''}
-             onChange={(event) =>
-              setImportMapping((current) => ({
-               ...current,
-               descriptionColumn: event.target.value === '' ? null : Number(event.target.value),
-              }))
-             }
-             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            >
-             <option value="">No description column</option>
-             {pendingImportData.columnOptions.map((option) => (
-              <option
-               key={option.index}
-               value={option.index}
-              >
-               {option.label}
-              </option>
-             ))}
-            </select>
-           </label>
-
-           <label className="text-sm text-slate-700">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
-            <select
-             value={importMapping.currencyId ?? ''}
-             onChange={(event) =>
-              setImportMapping((current) => ({
-               ...current,
-               currencyId: event.target.value === '' ? null : Number(event.target.value),
-              }))
-             }
-             className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            >
-             <option value="">Select currency</option>
-             {currencies.map((currency) => (
-              <option
-               key={currency.id}
-               value={currency.id}
-              >
-               {currency.code} - {currency.name}
-              </option>
-             ))}
-            </select>
-           </label>
+             Cancel Import
+            </button>
+           </div>
           </div>
+         ) : null}
 
-          <div className="mt-4 flex flex-wrap gap-2">
-           <button
-            type="button"
-            onClick={() => void onConfirmImportTransactions()}
-            disabled={isImportingTransactions}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-           >
-            {isImportingTransactions ? 'Importing...' : 'Import Now'}
-           </button>
-           <button
-            type="button"
-            onClick={onCancelImportTransactions}
-            disabled={isImportingTransactions}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-           >
-            Cancel Import
-           </button>
-          </div>
-         </div>
-        ) : null}
-
-        {isNewTransactionSectionOpen ? (
          <form
           onSubmit={onTransactionSubmit}
-          className="mt-5"
+          className="mt-5 max-w-md"
          >
           <label className="block text-sm font-medium">
            {t('transaction_account_from')} <span className="text-red-500">*</span>
           </label>
-          <select
-           value={transactionForm.accountFromId ?? ''}
-           onChange={(event) =>
-            setTransactionForm((current) => ({
-             ...current,
-             accountFromId: event.target.value ? Number(event.target.value) : null,
-            }))
-           }
-           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-           required
-          >
-           <option value="">{t('transaction_account_placeholder')}</option>
-           {clientAccounts.map((account) => (
-            <option
-             key={account.id}
-             value={account.id}
-            >
-             {account.clientName} — {account.currencyCode}
-            </option>
-           ))}
-          </select>
+          <div className="relative mt-2">
+           <input
+            type="text"
+            value={
+             txFromOpen
+              ? txFromQuery
+              : transactionForm.accountFromId
+                ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
+                  ' — ' +
+                  (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
+                : ''
+            }
+            onChange={(event) => {
+             setTxFromQuery(event.target.value);
+             setTxFromOpen(true);
+            }}
+            onFocus={() => {
+             setTxFromQuery('');
+             setTxFromOpen(true);
+            }}
+            onBlur={() => setTimeout(() => setTxFromOpen(false), 150)}
+            placeholder={t('transaction_account_placeholder')}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+            autoComplete="off"
+           />
+           {txFromOpen && (
+            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+             {clientAccounts
+              .filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase()))
+              .map((account) => (
+               <li
+                key={account.id}
+                onMouseDown={() => {
+                 setTransactionForm((current) => ({ ...current, accountFromId: account.id }));
+                 setTxFromQuery('');
+                 setTxFromOpen(false);
+                }}
+                className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+               >
+                {account.clientName} — {account.currencyCode}
+               </li>
+              ))}
+             {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
+              <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+             )}
+            </ul>
+           )}
+          </div>
 
           <label className="mt-4 block text-sm font-medium">
            {t('transaction_account_to')} <span className="text-red-500">*</span>
           </label>
-          <select
-           value={transactionForm.accountToId ?? ''}
-           onChange={(event) =>
-            setTransactionForm((current) => ({
-             ...current,
-             accountToId: event.target.value ? Number(event.target.value) : null,
-            }))
-           }
-           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-           required
-          >
-           <option value="">{t('transaction_account_placeholder')}</option>
-           {clientAccounts.map((account) => (
-            <option
-             key={account.id}
-             value={account.id}
-            >
-             {account.clientName} — {account.currencyCode}
-            </option>
-           ))}
-          </select>
+          <div className="relative mt-2">
+           <input
+            type="text"
+            value={
+             txToOpen
+              ? txToQuery
+              : transactionForm.accountToId
+                ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
+                  ' — ' +
+                  (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
+                : ''
+            }
+            onChange={(event) => {
+             setTxToQuery(event.target.value);
+             setTxToOpen(true);
+            }}
+            onFocus={() => {
+             setTxToQuery('');
+             setTxToOpen(true);
+            }}
+            onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
+            placeholder={t('transaction_account_placeholder')}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+            autoComplete="off"
+           />
+           {txToOpen && (
+            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+             {clientAccounts
+              .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
+              .map((account) => (
+               <li
+                key={account.id}
+                onMouseDown={() => {
+                 setTransactionForm((current) => ({ ...current, accountToId: account.id }));
+                 setTxToQuery('');
+                 setTxToOpen(false);
+                }}
+                className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+               >
+                {account.clientName} — {account.currencyCode}
+               </li>
+              ))}
+             {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
+              <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+             )}
+            </ul>
+           )}
+          </div>
 
           <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
           <select
@@ -4767,13 +4797,28 @@ function AuthenticatedHome() {
            {t('save_transaction')}
           </button>
          </form>
-        ) : null}
-       </div>
+        </div>
+       ) : null}
 
-       <div className={panelClassName}>
+       <div className={`${panelClassName} min-w-0 xl:flex-1`}>
         <div className="flex items-start justify-between gap-4">
          <h2 className="text-xl font-semibold">{t('transactions_title')}</h2>
-         <div className="flex flex-wrap gap-2">
+         <div className="flex flex-wrap items-center gap-2">
+          <input
+           ref={transactionsImportInputRef}
+           type="file"
+           accept=".xlsx,.xls,.csv"
+           onChange={onImportTransactionsFile}
+           className="hidden"
+          />
+          <button
+           type="button"
+           onClick={() => transactionsImportInputRef.current?.click()}
+           disabled={isImportingTransactions}
+           className="cursor-pointer rounded-full border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+           {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
+          </button>
           {isTransactionsEditMode ? (
            <>
             <button
@@ -4796,7 +4841,7 @@ function AuthenticatedHome() {
            type="button"
            onClick={() => (isTransactionsEditMode ? cancelTransactionsEditMode() : beginTransactionsEditMode())}
            className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-            isTransactionsEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+            isTransactionsEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
            }`}
           >
            {isTransactionsEditMode ? t('transactions_done_editing') : t('transactions_edit_mode')}
@@ -4810,6 +4855,39 @@ function AuthenticatedHome() {
             Delete Selected
            </button>
           ) : null}
+          <button
+           type="button"
+           onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
+           aria-expanded={isNewTransactionSectionOpen}
+           title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
+           className={`cursor-pointer rounded-2xl border p-2 transition ${
+            isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+           }`}
+          >
+           <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            className="h-4 w-4"
+            aria-hidden="true"
+           >
+            {isNewTransactionSectionOpen ? (
+             <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M6 18L18 6M6 6l12 12"
+             />
+            ) : (
+             <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 4v16M4 12h16"
+             />
+            )}
+           </svg>
+          </button>
          </div>
         </div>
         {transactionsPager}
