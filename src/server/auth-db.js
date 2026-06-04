@@ -50,8 +50,20 @@ function openAuthDb() {
    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+     id TEXT PRIMARY KEY,
+     user_id TEXT NOT NULL,
+     token_hash TEXT NOT NULL UNIQUE,
+     expires_at TEXT NOT NULL,
+     used_at TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
   CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
   CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
  `);
 
     return authDb;
@@ -326,6 +338,100 @@ function listWorkspaceMembers({ workspaceId, userId }) {
         .all(workspaceId);
 }
 
+function hashResetToken(token) {
+    return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+function requestPasswordReset(email) {
+    const db = openAuthDb();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+
+    if (!normalizedEmail) {
+        throw new Error('Email is required.');
+    }
+
+    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
+    if (!user?.id) {
+        return { ok: true, resetToken: null, expiresAt: null };
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+
+    const tx = db.transaction(() => {
+        db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? OR expires_at <= datetime(\'now\')').run(user.id);
+        db.prepare('INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)').run(
+            generateId(),
+            user.id,
+            tokenHash,
+            expiresAt,
+        );
+    });
+
+    tx();
+
+    return {
+        ok: true,
+        resetToken: rawToken,
+        expiresAt,
+    };
+}
+
+function validatePasswordResetToken(token) {
+    const db = openAuthDb();
+    const tokenHash = hashResetToken(token);
+
+    const record = db
+        .prepare(`
+   SELECT id
+   FROM password_reset_tokens
+   WHERE token_hash = ?
+    AND used_at IS NULL
+    AND expires_at > datetime('now')
+   LIMIT 1
+  `)
+        .get(tokenHash);
+
+    return Boolean(record?.id);
+}
+
+function resetPasswordWithToken({ token, password }) {
+    const db = openAuthDb();
+    const rawPassword = String(password || '');
+    if (rawPassword.length < 8) {
+        throw new Error('Password must be at least 8 characters.');
+    }
+
+    const tokenHash = hashResetToken(token);
+    const record = db
+        .prepare(`
+   SELECT id, user_id AS userId
+   FROM password_reset_tokens
+   WHERE token_hash = ?
+    AND used_at IS NULL
+    AND expires_at > datetime('now')
+   LIMIT 1
+  `)
+        .get(tokenHash);
+
+    if (!record?.id) {
+        throw new Error('Reset link is invalid or has expired.');
+    }
+
+    const passwordHash = bcrypt.hashSync(rawPassword, 10);
+
+    const tx = db.transaction(() => {
+        db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, record.userId);
+        db.prepare('UPDATE password_reset_tokens SET used_at = datetime(\'now\') WHERE id = ?').run(record.id);
+        db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? AND id != ?').run(record.userId, record.id);
+    });
+
+    tx();
+
+    return { ok: true };
+}
+
 module.exports = {
     openAuthDb,
     createCredentialsUser,
@@ -338,4 +444,7 @@ module.exports = {
     createWorkspace,
     addWorkspaceMemberByEmail,
     listWorkspaceMembers,
+    requestPasswordReset,
+    validatePasswordResetToken,
+    resetPasswordWithToken,
 };
