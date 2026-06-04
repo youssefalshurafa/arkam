@@ -474,13 +474,15 @@ function createClient(app, client) {
       INSERT INTO clients (organization_id, name, email, phone, address)
       VALUES (?, ?, ?, ?, ?)
     `);
-    stmt.run(
+    const result = stmt.run(
         client.organizationId || null,
         client.name.trim(),
         client.email?.trim() || "",
         client.phone?.trim() || "",
         client.address?.trim() || "",
     );
+
+    return result.lastInsertRowid;
 }
 
 function updateClient(app, client) {

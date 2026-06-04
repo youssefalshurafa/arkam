@@ -47,6 +47,11 @@ type ClientForm = {
  address: string;
 };
 
+type NewClientAccountDraft = {
+ currencyId: number | null;
+ startingBalance: string;
+};
+
 type ClientAccount = {
  id: number;
  clientId: number;
@@ -625,6 +630,11 @@ const emptyClientForm = (): ClientForm => ({
  address: '',
 });
 
+const createNewClientAccountDraft = (): NewClientAccountDraft => ({
+ currencyId: null,
+ startingBalance: '0',
+});
+
 const emptyTransactionForm = (): TransactionForm => ({
  accountFromId: null,
  accountToId: null,
@@ -698,6 +708,8 @@ function AuthenticatedHome() {
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
+ const [openAccountOnCreate, setOpenAccountOnCreate] = useState(false);
+ const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
  const [error, setError] = useState('');
  const [importSummary, setImportSummary] = useState('');
@@ -1199,14 +1211,42 @@ function AuthenticatedHome() {
    return;
   }
 
+  if (!clientForm.id && openAccountOnCreate) {
+   if (!newClientAccountDrafts.length || newClientAccountDrafts.some((draft) => !draft.currencyId)) {
+    setError(t('client_account_currency_placeholder'));
+    return;
+   }
+
+   const selectedCurrencyIds = newClientAccountDrafts.map((draft) => draft.currencyId).filter((currencyId): currencyId is number => Boolean(currencyId));
+   if (new Set(selectedCurrencyIds).size !== selectedCurrencyIds.length) {
+    setError('Choose a different currency for each account.');
+    return;
+   }
+  }
+
   try {
    if (clientForm.id) {
     await accountingApi.updateClient(clientForm);
    } else {
-    await accountingApi.createClient(clientForm);
+    const created = await accountingApi.createClient(clientForm);
+    if (openAccountOnCreate) {
+     for (const draft of newClientAccountDrafts) {
+      if (!draft.currencyId) {
+       continue;
+      }
+
+      await accountingApi.createClientAccount({
+       clientId: created.clientId,
+       currencyId: draft.currencyId,
+       startingBalance: parseFloat(draft.startingBalance) || 0,
+      });
+     }
+    }
    }
 
    setClientForm(emptyClientForm());
+   setOpenAccountOnCreate(false);
+   setNewClientAccountDrafts([createNewClientAccountDraft()]);
    setError('');
    await loadData();
   } catch (e) {
@@ -2669,7 +2709,11 @@ function AuthenticatedHome() {
      {clientForm.id ? (
       <button
        type="button"
-       onClick={() => setClientForm(emptyClientForm())}
+       onClick={() => {
+        setClientForm(emptyClientForm());
+        setOpenAccountOnCreate(false);
+        setNewClientAccountDrafts([createNewClientAccountDraft()]);
+       }}
        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
       >
        {t('cancel')}
@@ -2732,6 +2776,87 @@ function AuthenticatedHome() {
      placeholder={t('client_address_placeholder')}
     />
 
+    {!clientForm.id ? (
+     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+       <input
+        type="checkbox"
+        checked={openAccountOnCreate}
+        onChange={(event) => {
+         const checked = event.target.checked;
+         setOpenAccountOnCreate(checked);
+         if (!checked) {
+          setNewClientAccountDrafts([createNewClientAccountDraft()]);
+         }
+        }}
+        className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-400"
+       />
+       {t('client_account_open')}
+      </label>
+
+      {openAccountOnCreate ? (
+       <div className="mt-3 space-y-2">
+        {newClientAccountDrafts.map((draft, index) => (
+         <div
+          key={`new-client-account-${index}`}
+          className="rounded-lg border border-slate-200 bg-white p-2"
+         >
+          <div className="flex flex-col gap-2 sm:flex-row">
+           <select
+            value={draft.currencyId ?? ''}
+            onChange={(event) => {
+             const currencyId = event.target.value ? Number(event.target.value) : null;
+             setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, currencyId } : row)));
+            }}
+            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           >
+            <option value="">{t('client_account_currency_placeholder')}</option>
+            {enabledCurrencies
+             .filter((currency) => !newClientAccountDrafts.some((row, rowIndex) => rowIndex !== index && row.currencyId === currency.id))
+             .map((currency) => (
+              <option
+               key={currency.id}
+               value={currency.id}
+              >
+               {currency.code} - {currency.name}
+              </option>
+             ))}
+           </select>
+           <input
+            type="number"
+            value={draft.startingBalance}
+            onChange={(event) => {
+             const nextBalance = event.target.value;
+             setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
+            }}
+            placeholder={t('starting_balance')}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring sm:w-40"
+           />
+          </div>
+          {newClientAccountDrafts.length > 1 ? (
+           <button
+            type="button"
+            onClick={() => setNewClientAccountDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+            className="mt-2 inline-flex rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
+           >
+            Remove account
+           </button>
+          ) : null}
+         </div>
+        ))}
+
+        <button
+         type="button"
+         onClick={() => setNewClientAccountDrafts((current) => [...current, createNewClientAccountDraft()])}
+         className="inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+        >
+         Open another account
+        </button>
+       </div>
+      ) : null}
+     </div>
+    ) : null}
+
     <button
      type="submit"
      className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
@@ -2769,7 +2894,7 @@ function AuthenticatedHome() {
            <div className="mt-2 flex flex-wrap gap-2">
             <button
              type="button"
-             onClick={() =>
+             onClick={() => {
               setClientForm({
                id: client.id,
                organizationId: client.organizationId,
@@ -2777,8 +2902,10 @@ function AuthenticatedHome() {
                email: client.email,
                phone: client.phone,
                address: client.address,
-              })
-             }
+              });
+              setOpenAccountOnCreate(false);
+              setNewClientAccountDrafts([createNewClientAccountDraft()]);
+             }}
              className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
              {t('edit')}

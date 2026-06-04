@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 
+const rememberedEmailStorageKey = 'arkam.rememberedEmail';
+
 export default function LoginPage() {
  const router = useRouter();
  const { language } = useLanguage();
@@ -14,6 +16,7 @@ export default function LoginPage() {
 
  const [email, setEmail] = useState('');
  const [password, setPassword] = useState('');
+ const [rememberMe, setRememberMe] = useState(false);
  const [showPassword, setShowPassword] = useState(false);
  const [error, setError] = useState('');
  const [isSubmitting, setIsSubmitting] = useState(false);
@@ -24,6 +27,20 @@ export default function LoginPage() {
    router.replace('/');
   }
  }, [router, status]);
+
+ useEffect(() => {
+  if (typeof window === 'undefined') {
+   return;
+  }
+
+  const rememberedEmail = window.localStorage.getItem(rememberedEmailStorageKey);
+  if (!rememberedEmail) {
+   return;
+  }
+
+  setEmail(rememberedEmail);
+  setRememberMe(true);
+ }, []);
 
  useEffect(() => {
   let isMounted = true;
@@ -56,6 +73,14 @@ export default function LoginPage() {
   setIsSubmitting(true);
 
   try {
+   if (typeof window !== 'undefined') {
+    if (rememberMe) {
+     window.localStorage.setItem(rememberedEmailStorageKey, email.trim());
+    } else {
+     window.localStorage.removeItem(rememberedEmailStorageKey);
+    }
+   }
+
    const result = await signIn('credentials', {
     email,
     password,
@@ -227,6 +252,16 @@ export default function LoginPage() {
        </button>
       </div>
      </div>
+
+     <label className="inline-flex items-center gap-2 text-sm text-slate-300">
+      <input
+       type="checkbox"
+       checked={rememberMe}
+       onChange={(event) => setRememberMe(event.target.checked)}
+       className="h-4 w-4 rounded border-white/30 bg-slate-800 text-blue-600 focus:ring-2 focus:ring-blue-500"
+      />
+      Remember me
+     </label>
 
      <button
       type="button"

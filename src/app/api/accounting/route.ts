@@ -177,8 +177,7 @@ export async function POST(request: NextRequest) {
    case 'listClients':
     return NextResponse.json(db.listClients(appLike));
    case 'createClient':
-    db.createClient(appLike, payload);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, clientId: db.createClient(appLike, payload) });
    case 'updateClient':
     db.updateClient(appLike, payload);
     return NextResponse.json({ ok: true });
