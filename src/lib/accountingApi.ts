@@ -14,10 +14,11 @@ function getActiveWorkspaceId() {
  return stored?.trim() || null;
 }
 
-async function request<T>({ action, payload }: ApiOptions): Promise<T> {
+async function request<T>({ action, payload }: ApiOptions, hasRetried = false): Promise<T> {
  const workspaceId = getActiveWorkspaceId();
  const response = await fetch('/api/accounting', {
   method: 'POST',
+  credentials: 'include',
   headers: {
    'Content-Type': 'application/json',
    ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
@@ -26,6 +27,23 @@ async function request<T>({ action, payload }: ApiOptions): Promise<T> {
  });
 
  const data = await response.json();
+
+ if (response.status === 401 && !hasRetried) {
+  try {
+   const sessionResponse = await fetch('/api/auth/session', {
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+   });
+   const sessionPayload = (await sessionResponse.json()) as { user?: { id?: string } };
+
+   if (sessionPayload?.user?.id) {
+    return request<T>({ action, payload }, true);
+   }
+  } catch {
+   // Fall through to the default error handling below.
+  }
+ }
 
  if (!response.ok) {
   throw new Error(data?.error || 'Request failed.');
@@ -98,7 +116,7 @@ export const accountingApi = {
  deleteTransaction: (transactionId: number) => request<{ ok: true }>({ action: 'deleteTransaction', payload: transactionId }),
  deleteAllTransactions: () => request<{ ok: true }>({ action: 'deleteAllTransactions' }),
  listWorkspaces: () =>
-  fetch('/api/workspaces', { method: 'GET' }).then(async (response) => {
+  fetch('/api/workspaces', { method: 'GET', credentials: 'include' }).then(async (response) => {
    const data = await response.json();
    if (!response.ok) {
     throw new Error(data?.error || 'Failed to list workspaces.');
@@ -108,6 +126,7 @@ export const accountingApi = {
  addWorkspaceMember: ({ workspaceId, email, role }: { workspaceId: string; email: string; role: 'admin' | 'member' | 'viewer' }) =>
   fetch(`/api/workspaces/${workspaceId}/members`, {
    method: 'POST',
+   credentials: 'include',
    headers: { 'Content-Type': 'application/json' },
    body: JSON.stringify({ email, role }),
   }).then(async (response) => {

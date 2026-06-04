@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/server/auth-options';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const db = require('@/server/db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -43,6 +41,55 @@ type Body = {
  payload?: unknown;
 };
 
+type AuthContext = {
+ userId: string;
+ defaultWorkspaceId: string | null;
+};
+
+async function resolveAuthContext(request: NextRequest): Promise<AuthContext | null> {
+ const cookieHeader = request.cookies
+  .getAll()
+  .map((cookie) => `${cookie.name}=${cookie.value}`)
+  .join('; ');
+
+ if (!cookieHeader) {
+  return null;
+ }
+
+ try {
+  const sessionResponse = await fetch(new URL('/api/auth/session', request.nextUrl.origin), {
+   method: 'GET',
+   headers: {
+    cookie: cookieHeader,
+   },
+   cache: 'no-store',
+  });
+
+  if (!sessionResponse.ok) {
+   return null;
+  }
+
+  const sessionPayload = (await sessionResponse.json()) as {
+   user?: {
+    id?: string;
+    defaultWorkspaceId?: string | null;
+   };
+  };
+
+  const userId = sessionPayload?.user?.id;
+  if (!userId) {
+   return null;
+  }
+
+  return {
+   userId,
+   defaultWorkspaceId: sessionPayload.user?.defaultWorkspaceId || null,
+  };
+ } catch {
+  return null;
+ }
+}
+
 function getWorkspaceId(sessionWorkspaceId: string | null | undefined, headerWorkspaceId: string | null): string | null {
  if (headerWorkspaceId?.trim()) {
   return headerWorkspaceId.trim();
@@ -76,8 +123,8 @@ function createAppLike(workspaceId: string) {
 
 export async function POST(request: NextRequest) {
  try {
-  const session = await getServerSession(authOptions);
-  const userId = session?.user?.id;
+  const authContext = await resolveAuthContext(request);
+  const userId = authContext?.userId;
 
   if (!userId) {
    return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 });
@@ -91,7 +138,7 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Missing action.' }, { status: 400 });
   }
 
-  const workspaceId = getWorkspaceId(session.user.defaultWorkspaceId, request.headers.get('x-workspace-id'));
+  const workspaceId = getWorkspaceId(authContext.defaultWorkspaceId, request.headers.get('x-workspace-id'));
   if (!workspaceId) {
    return NextResponse.json({ error: 'No workspace selected.' }, { status: 400 });
   }
