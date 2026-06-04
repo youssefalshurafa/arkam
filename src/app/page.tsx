@@ -178,6 +178,7 @@ type ClientLedgerEntry = {
  transactionId: number;
  createdAt: string;
  counterpartyName: string;
+ counterpartyClientId: number | null;
  direction: 'incoming' | 'outgoing';
  type: string;
  amount: number;
@@ -2237,6 +2238,7 @@ function AuthenticatedHome() {
          transactionId: transaction.id,
          createdAt: transaction.createdAt,
          counterpartyName: counterparty?.clientName || '-',
+         counterpartyClientId: counterparty?.clientId ?? null,
          direction: 'outgoing' as const,
          type: transaction.type,
          amount: transaction.amount,
@@ -2264,6 +2266,7 @@ function AuthenticatedHome() {
          transactionId: transaction.id,
          createdAt: transaction.createdAt,
          counterpartyName: counterparty?.clientName || '-',
+         counterpartyClientId: counterparty?.clientId ?? null,
          direction: 'incoming' as const,
          type: transaction.type,
          amount: transaction.amount,
@@ -4086,6 +4089,17 @@ function AuthenticatedHome() {
                             </option>
                            ))}
                          </select>
+                        ) : entry.counterpartyClientId ? (
+                         <button
+                          type="button"
+                          onClick={() => {
+                           const client = clients.find((c) => c.id === entry.counterpartyClientId);
+                           if (client) openClientLedger(client, clientLedgerBackSection);
+                          }}
+                          className="font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
+                         >
+                          {entry.counterpartyName}
+                         </button>
                         ) : (
                          entry.counterpartyName
                         )}
