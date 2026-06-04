@@ -2777,7 +2777,7 @@ function AuthenticatedHome() {
     />
 
     {!clientForm.id ? (
-     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+     <div className="mt-4 rounded-3xl border border-slate-200/70 bg-slate-50/85 p-4">
       <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
        <input
         type="checkbox"
@@ -2799,7 +2799,7 @@ function AuthenticatedHome() {
         {newClientAccountDrafts.map((draft, index) => (
          <div
           key={`new-client-account-${index}`}
-          className="rounded-lg border border-slate-200 bg-white p-2"
+          className="rounded-2xl border border-slate-200/70 bg-white/90 p-3"
          >
           <div className="flex flex-col gap-2 sm:flex-row">
            <select
@@ -2837,7 +2837,7 @@ function AuthenticatedHome() {
            <button
             type="button"
             onClick={() => setNewClientAccountDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
-            className="mt-2 inline-flex rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-100"
+            className="mt-2 inline-flex rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
            >
             Remove account
            </button>
@@ -2848,7 +2848,7 @@ function AuthenticatedHome() {
         <button
          type="button"
          onClick={() => setNewClientAccountDrafts((current) => [...current, createNewClientAccountDraft()])}
-         className="inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+         className="inline-flex rounded-2xl border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
         >
          Open another account
         </button>
@@ -3461,7 +3461,10 @@ function AuthenticatedHome() {
 
       <button
        type="button"
-       onClick={() => void signOut({ callbackUrl: '/login' })}
+       onClick={() => {
+        accountingApi.setActiveWorkspaceId(null);
+        void signOut({ callbackUrl: '/login' });
+       }}
        aria-label={t('sign_out')}
        title={t('sign_out')}
        className={`flex w-full items-center gap-3 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-3 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-400/15 ${

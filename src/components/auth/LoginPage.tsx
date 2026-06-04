@@ -91,6 +91,12 @@ export default function LoginPage() {
     throw new Error(result?.error || 'Login failed.');
    }
 
+   // Clear any stale workspace ID from a previous session so the
+   // session's defaultWorkspaceId (scoped to the new user) is used.
+   if (typeof window !== 'undefined') {
+    window.localStorage.removeItem('arkam.activeWorkspaceId');
+   }
+
    router.replace('/');
    router.refresh();
   } catch (loginError) {
