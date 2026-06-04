@@ -253,23 +253,25 @@ export default function LoginPage() {
       </div>
      </div>
 
-     <label className="inline-flex items-center gap-2 text-sm text-slate-300">
-      <input
-       type="checkbox"
-       checked={rememberMe}
-       onChange={(event) => setRememberMe(event.target.checked)}
-       className="h-4 w-4 rounded border-white/30 bg-slate-800 text-blue-600 focus:ring-2 focus:ring-blue-500"
-      />
-      Remember me
-     </label>
+     <div className="flex flex-col items-start gap-2">
+      <label className="inline-flex items-center gap-2 text-sm text-slate-300">
+       <input
+        type="checkbox"
+        checked={rememberMe}
+        onChange={(event) => setRememberMe(event.target.checked)}
+        className="h-4 w-4 rounded border-white/30 bg-slate-800 text-blue-600 focus:ring-2 focus:ring-blue-500"
+       />
+       Remember me
+      </label>
 
-     <button
-      type="button"
-      onClick={() => router.push('/forgot-password')}
-      className="inline-flex text-sm font-medium text-cyan-300 underline decoration-cyan-500/50 underline-offset-4 transition hover:text-cyan-200"
-     >
-      Forgot password?
-     </button>
+      <button
+       type="button"
+       onClick={() => router.push('/forgot-password')}
+       className="inline-flex text-sm font-medium text-cyan-300 underline decoration-cyan-500/50 underline-offset-4 transition hover:text-cyan-200"
+      >
+       Forgot password?
+      </button>
+     </div>
 
      {error ? <p className="rounded-2xl border border-red-400/35 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
 
