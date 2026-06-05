@@ -7,6 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const rememberedEmailStorageKey = 'arkam.rememberedEmail';
+const rememberedPasswordStorageKey = 'arkam.rememberedPassword';
 
 export default function LoginPage() {
  const router = useRouter();
@@ -39,6 +40,10 @@ export default function LoginPage() {
   }
 
   setEmail(rememberedEmail);
+  const rememberedPassword = window.localStorage.getItem(rememberedPasswordStorageKey);
+  if (rememberedPassword) {
+   setPassword(rememberedPassword);
+  }
   setRememberMe(true);
  }, []);
 
@@ -76,8 +81,10 @@ export default function LoginPage() {
    if (typeof window !== 'undefined') {
     if (rememberMe) {
      window.localStorage.setItem(rememberedEmailStorageKey, email.trim());
+     window.localStorage.setItem(rememberedPasswordStorageKey, password);
     } else {
      window.localStorage.removeItem(rememberedEmailStorageKey);
+     window.localStorage.removeItem(rememberedPasswordStorageKey);
     }
    }
 

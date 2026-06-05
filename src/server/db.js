@@ -192,6 +192,8 @@ function initializeDb(db) {
             commission_from REAL NOT NULL DEFAULT 0,
             exchange_rate_to REAL NOT NULL DEFAULT 1,
             commission_to REAL NOT NULL DEFAULT 0,
+            exchange_rate_from_reversed INTEGER NOT NULL DEFAULT 0,
+            exchange_rate_to_reversed INTEGER NOT NULL DEFAULT 0,
             charges REAL NOT NULL DEFAULT 0,
             description TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -234,6 +236,8 @@ function initializeDb(db) {
                     commission_from REAL NOT NULL DEFAULT 0,
                     exchange_rate_to REAL NOT NULL DEFAULT 1,
                     commission_to REAL NOT NULL DEFAULT 0,
+                    exchange_rate_from_reversed INTEGER NOT NULL DEFAULT 0,
+                    exchange_rate_to_reversed INTEGER NOT NULL DEFAULT 0,
                     charges REAL NOT NULL DEFAULT 0,
                     description TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -279,6 +283,18 @@ function initializeDb(db) {
 
     try {
         db.exec("ALTER TABLE transactions ADD COLUMN charges_description TEXT NOT NULL DEFAULT ''");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    try {
+        db.exec("ALTER TABLE transactions ADD COLUMN exchange_rate_from_reversed INTEGER NOT NULL DEFAULT 0");
+    } catch {
+        // Column already exists – ignore
+    }
+
+    try {
+        db.exec("ALTER TABLE transactions ADD COLUMN exchange_rate_to_reversed INTEGER NOT NULL DEFAULT 0");
     } catch {
         // Column already exists – ignore
     }
@@ -708,6 +724,8 @@ function listTransactions(app) {
             t.commission_from AS commissionFrom,
             t.exchange_rate_to AS exchangeRateTo,
             t.commission_to AS commissionTo,
+            t.exchange_rate_from_reversed AS exchangeRateFromReversed,
+            t.exchange_rate_to_reversed AS exchangeRateToReversed,
             t.charges,
             t.charges_currency_id AS chargesCurrencyId,
             chcur.code AS chargesCurrencyCode,
@@ -740,8 +758,8 @@ function createTransaction(app, txn) {
 
     if (hasCustomCreatedAt) {
         db.prepare(`
-            INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, charges, charges_currency_id, charges_payer, charges_exchange_rate, charges_description, description, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, exchange_rate_from_reversed, exchange_rate_to_reversed, charges, charges_currency_id, charges_payer, charges_exchange_rate, charges_description, description, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             txn.accountFromId,
             txn.accountToId,
@@ -752,6 +770,8 @@ function createTransaction(app, txn) {
             txn.commissionFrom || 0,
             txn.exchangeRateTo || 1,
             txn.commissionTo || 0,
+            txn.exchangeRateFromReversed ? 1 : 0,
+            txn.exchangeRateToReversed ? 1 : 0,
             txn.charges || 0,
             txn.chargesCurrencyId || null,
             txn.chargesPayer || "",
@@ -764,8 +784,8 @@ function createTransaction(app, txn) {
     }
 
     db.prepare(`
-        INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, charges, charges_currency_id, charges_payer, charges_exchange_rate, charges_description, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO transactions (account_from_id, account_to_id, currency_id, amount, type, exchange_rate_from, commission_from, exchange_rate_to, commission_to, exchange_rate_from_reversed, exchange_rate_to_reversed, charges, charges_currency_id, charges_payer, charges_exchange_rate, charges_description, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
         txn.accountFromId,
         txn.accountToId,
@@ -776,6 +796,8 @@ function createTransaction(app, txn) {
         txn.commissionFrom || 0,
         txn.exchangeRateTo || 1,
         txn.commissionTo || 0,
+        txn.exchangeRateFromReversed ? 1 : 0,
+        txn.exchangeRateToReversed ? 1 : 0,
         txn.charges || 0,
         txn.chargesCurrencyId || null,
         txn.chargesPayer || "",
@@ -803,6 +825,8 @@ function updateTransaction(app, txn) {
             commission_from = ?,
             exchange_rate_to = ?,
             commission_to = ?,
+            exchange_rate_from_reversed = ?,
+            exchange_rate_to_reversed = ?,
             charges = ?,
             charges_currency_id = ?,
             charges_payer = ?,
@@ -821,6 +845,8 @@ function updateTransaction(app, txn) {
         txn.commissionFrom || 0,
         txn.exchangeRateTo || 1,
         txn.commissionTo || 0,
+        txn.exchangeRateFromReversed ? 1 : 0,
+        txn.exchangeRateToReversed ? 1 : 0,
         txn.charges || 0,
         txn.chargesCurrencyId || null,
         txn.chargesPayer || "",

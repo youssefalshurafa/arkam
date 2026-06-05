@@ -92,6 +92,8 @@ type Transaction = {
  commissionFrom: number;
  exchangeRateTo: number;
  commissionTo: number;
+ exchangeRateFromReversed: number;
+ exchangeRateToReversed: number;
  charges: number;
  chargesCurrencyId: number | null;
  chargesCurrencyCode: string | null;
@@ -132,6 +134,8 @@ type TransactionUpdateInput = {
  commissionFrom: number;
  exchangeRateTo: number;
  commissionTo: number;
+ exchangeRateFromReversed?: number;
+ exchangeRateToReversed?: number;
  charges: number;
  chargesCurrencyId: number | null;
  chargesPayer: string;
@@ -716,6 +720,11 @@ function AuthenticatedHome() {
  const [txFromOpen, setTxFromOpen] = useState(false);
  const [txToQuery, setTxToQuery] = useState('');
  const [txToOpen, setTxToOpen] = useState(false);
+ const [txFromRateReversed, setTxFromRateReversed] = useState(false);
+ const [txToRateReversed, setTxToRateReversed] = useState(false);
+ const [ledgerRateReversed, setLedgerRateReversed] = useState<Record<string, boolean>>({});
+ const [tableRateFromReversed, setTableRateFromReversed] = useState<Record<number, boolean>>({});
+ const [tableRateToReversed, setTableRateToReversed] = useState<Record<number, boolean>>({});
  const [error, setError] = useState('');
  const [importSummary, setImportSummary] = useState('');
  const [isImportingTransactions, setIsImportingTransactions] = useState(false);
@@ -893,8 +902,17 @@ function AuthenticatedHome() {
   setDraggedLedgerColumn(null);
  }
 
+ function formatRateValue(value: number): string {
+  if (!Number.isFinite(value)) {
+   return '1';
+  }
+  return parseFloat(value.toFixed(6)).toString();
+ }
+
  function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: number): LedgerTransactionDraft {
   const isOutgoing = transaction.accountFromId === ledgerAccountId;
+  const rate = isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
+  const reversed = isOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed;
   return {
    transactionId: transaction.id,
    ledgerAccountId,
@@ -903,13 +921,15 @@ function AuthenticatedHome() {
    counterpartyAccountId: isOutgoing ? transaction.accountToId : transaction.accountFromId,
    type: transaction.type,
    amount: String(transaction.amount),
-   exchangeRate: String(isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo),
+   exchangeRate: reversed ? formatRateValue(1 / rate) : String(rate),
    commission: String(isOutgoing ? transaction.commissionFrom : transaction.commissionTo),
    description: transaction.description,
   };
  }
 
  function buildTransactionTableDraft(transaction: Transaction): TransactionTableDraft {
+  const fromReversed = !!transaction.exchangeRateFromReversed;
+  const toReversed = !!transaction.exchangeRateToReversed;
   return {
    transactionId: transaction.id,
    accountFromId: transaction.accountFromId,
@@ -917,9 +937,9 @@ function AuthenticatedHome() {
    currencyId: transaction.currencyId,
    type: transaction.type,
    amount: String(transaction.amount),
-   exchangeRateFrom: transaction.exchangeRateFrom.toFixed(2),
+   exchangeRateFrom: fromReversed ? formatRateValue(1 / transaction.exchangeRateFrom) : transaction.exchangeRateFrom.toFixed(2),
    commissionFrom: transaction.commissionFrom.toFixed(2),
-   exchangeRateTo: transaction.exchangeRateTo.toFixed(2),
+   exchangeRateTo: toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : transaction.exchangeRateTo.toFixed(2),
    commissionTo: transaction.commissionTo.toFixed(2),
    charges: String(transaction.charges),
    chargesCurrencyId: transaction.chargesCurrencyId,
@@ -955,6 +975,7 @@ function AuthenticatedHome() {
 
  function beginClientLedgerEditMode() {
   const nextDrafts: Record<string, LedgerTransactionDraft> = {};
+  const nextReversed: Record<string, boolean> = {};
 
   selectedClientLedgers.forEach((ledger) => {
    ledger.entries.forEach((entry) => {
@@ -965,10 +986,16 @@ function AuthenticatedHome() {
     }
 
     nextDrafts[draftKey] = buildLedgerTransactionDraft(transaction, ledger.accountId);
+    const isOutgoing = transaction.accountFromId === ledger.accountId;
+    const reversed = isOutgoing ? transaction.exchangeRateFromReversed : transaction.exchangeRateToReversed;
+    if (reversed) {
+     nextReversed[draftKey] = true;
+    }
    });
   });
 
   setLedgerTransactionDrafts(nextDrafts);
+  setLedgerRateReversed(nextReversed);
   setLedgerCommissionExpandedEntries(new Set());
   setLedgerStartingBalanceDrafts({});
   setIsClientLedgerEditMode(true);
@@ -978,14 +1005,28 @@ function AuthenticatedHome() {
   setLedgerTransactionDrafts({});
   setLedgerCommissionExpandedEntries(new Set());
   setLedgerStartingBalanceDrafts({});
+  setLedgerRateReversed({});
   setIsClientLedgerEditMode(false);
  }
 
  function beginTransactionsEditMode() {
+  const fromReversed: Record<number, boolean> = {};
+  const toReversed: Record<number, boolean> = {};
+  transactions.forEach((transaction) => {
+   if (transaction.exchangeRateFromReversed) {
+    fromReversed[transaction.id] = true;
+   }
+   if (transaction.exchangeRateToReversed) {
+    toReversed[transaction.id] = true;
+   }
+  });
+
   setTransactionTableDrafts({});
   setSelectedTransactionIds(new Set());
   setCommissionExpandedTxns(new Set());
   setExpensesExpandedTxns(new Set());
+  setTableRateFromReversed(fromReversed);
+  setTableRateToReversed(toReversed);
   setIsTransactionsEditMode(true);
  }
 
@@ -994,6 +1035,8 @@ function AuthenticatedHome() {
   setSelectedTransactionIds(new Set());
   setCommissionExpandedTxns(new Set());
   setExpensesExpandedTxns(new Set());
+  setTableRateFromReversed({});
+  setTableRateToReversed({});
   setIsTransactionsEditMode(false);
  }
 
@@ -1067,7 +1110,8 @@ function AuthenticatedHome() {
   }
 
   const amount = parseFloat(draft.amount);
-  const exchangeRate = parseFloat(draft.exchangeRate) || 1;
+  const rawLedgerRate = parseFloat(draft.exchangeRate) || 1;
+  const exchangeRate = ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 / rawLedgerRate : rawLedgerRate;
   const commission = parseFloat(draft.commission) || 0;
 
   if (!draft.counterpartyAccountId || !amount) {
@@ -1088,6 +1132,10 @@ function AuthenticatedHome() {
    commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
    exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
    commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
+   exchangeRateFromReversed:
+    draft.direction === 'outgoing' ? (ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
+   exchangeRateToReversed:
+    draft.direction === 'incoming' ? (ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
    charges: transaction.charges,
    chargesCurrencyId: transaction.chargesCurrencyId,
    chargesPayer: transaction.chargesPayer,
@@ -1136,7 +1184,8 @@ function AuthenticatedHome() {
     if (!draft || !transaction) continue;
 
     const amount = parseFloat(draft.amount);
-    const exchangeRate = parseFloat(draft.exchangeRate) || 1;
+    const rawBulkRate = parseFloat(draft.exchangeRate) || 1;
+    const exchangeRate = ledgerRateReversed[draftKey] ? 1 / rawBulkRate : rawBulkRate;
     const commission = parseFloat(draft.commission) || 0;
 
     if (!draft.counterpartyAccountId || !amount) {
@@ -1157,6 +1206,8 @@ function AuthenticatedHome() {
      commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
      exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
      commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
+     exchangeRateFromReversed: draft.direction === 'outgoing' ? (ledgerRateReversed[draftKey] ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
+     exchangeRateToReversed: draft.direction === 'incoming' ? (ledgerRateReversed[draftKey] ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
      charges: transaction.charges,
      chargesCurrencyId: transaction.chargesCurrencyId,
      chargesPayer: transaction.chargesPayer,
@@ -1461,10 +1512,12 @@ function AuthenticatedHome() {
     currencyId: transactionForm.currencyId,
     amount,
     type: transactionForm.type,
-    exchangeRateFrom: parseFloat(transactionForm.exchangeRateFrom) || 1,
+    exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
     commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
-    exchangeRateTo: parseFloat(transactionForm.exchangeRateTo) || 1,
+    exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
     commissionTo: parseFloat(transactionForm.commissionTo) || 0,
+    exchangeRateFromReversed: txFromRateReversed ? 1 : 0,
+    exchangeRateToReversed: txToRateReversed ? 1 : 0,
     charges: parseFloat(transactionForm.charges) || 0,
     chargesCurrencyId: transactionForm.chargesCurrencyId || null,
     chargesPayer: transactionForm.chargesPayer,
@@ -1478,6 +1531,8 @@ function AuthenticatedHome() {
    setTxFromOpen(false);
    setTxToQuery('');
    setTxToOpen(false);
+   setTxFromRateReversed(false);
+   setTxToRateReversed(false);
    setIsNewTransactionSectionOpen(false);
    setIsNewTransactionExpensesOpen(false);
    setError('');
@@ -1770,10 +1825,12 @@ function AuthenticatedHome() {
      currencyId: draft.currencyId,
      amount,
      type: draft.type,
-     exchangeRateFrom: parseFloat(draft.exchangeRateFrom) || 1,
+     exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
      commissionFrom: parseFloat(draft.commissionFrom) || 0,
-     exchangeRateTo: parseFloat(draft.exchangeRateTo) || 1,
+     exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
      commissionTo: parseFloat(draft.commissionTo) || 0,
+     exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
+     exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
      charges: parseFloat(draft.charges) || 0,
      chargesCurrencyId: draft.chargesCurrencyId || null,
      chargesPayer: draft.chargesPayer,
@@ -1911,10 +1968,12 @@ function AuthenticatedHome() {
     currencyId: draft.currencyId,
     amount,
     type: draft.type,
-    exchangeRateFrom: parseFloat(draft.exchangeRateFrom) || 1,
+    exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
     commissionFrom: parseFloat(draft.commissionFrom) || 0,
-    exchangeRateTo: parseFloat(draft.exchangeRateTo) || 1,
+    exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
     commissionTo: parseFloat(draft.commissionTo) || 0,
+    exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
+    exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
     charges: parseFloat(draft.charges) || 0,
     chargesCurrencyId: draft.chargesCurrencyId || null,
     chargesPayer: draft.chargesPayer,
@@ -4178,18 +4237,59 @@ function AuthenticatedHome() {
                         key={column.key}
                         className="px-4 py-3 text-slate-600"
                        >
-                        {isClientLedgerEditMode && draft ? (
-                         <input
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={draft.exchangeRate}
-                          onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                         />
-                        ) : (
-                         entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
-                        )}
+                        {isClientLedgerEditMode && draft
+                         ? (() => {
+                            const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                            const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
+                            const txCurr = entry.currencyCode;
+                            const accCurr = ledger.currencyCode;
+                            return (
+                             <div>
+                              {txCurr && accCurr && txCurr !== accCurr && (
+                               <div className="mb-1 flex items-center justify-between">
+                                <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
+                                <button
+                                 type="button"
+                                 title="Reverse rate direction"
+                                 onClick={() => {
+                                  const val = parseFloat(draft.exchangeRate) || 1;
+                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                                  setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
+                                 }}
+                                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                >
+                                 <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.8"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  aria-hidden
+                                  className="h-3.5 w-3.5"
+                                 >
+                                  <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                  <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                 </svg>
+                                </button>
+                               </div>
+                              )}
+                              <input
+                               type="text"
+                               inputMode="decimal"
+                               dir="ltr"
+                               value={draft.exchangeRate}
+                               onChange={(event) =>
+                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
+                               }
+                               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                              />
+                             </div>
+                            );
+                           })()
+                         : entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                        </td>
                       );
                      case 'commission':
@@ -4657,7 +4757,43 @@ function AuthenticatedHome() {
            <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
             {showExchangeRateFrom && (
              <div>
-              <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_from')}</label>
+              <div className="flex items-center justify-between">
+               <label className="block text-xs font-medium text-slate-500">
+                {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode
+                 ? txFromRateReversed
+                   ? `1 ${transactionAccountFromCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
+                   : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountFromCurrencyCode}`
+                 : t('transaction_exchange_rate_from')}
+               </label>
+               {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountFromCurrencyCode && (
+                <button
+                 type="button"
+                 title="Reverse rate direction"
+                 onClick={() => {
+                  const val = parseFloat(transactionForm.exchangeRateFrom) || 1;
+                  setTransactionForm((c) => ({ ...c, exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
+                  setTxFromRateReversed((r) => !r);
+                 }}
+                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                >
+                 <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                  className="h-3.5 w-3.5"
+                 >
+                  <path d="M7 4 3 8l4 4M3 8h13.5" />
+                  <path d="M17 20l4-4-4-4m4 4H7.5" />
+                 </svg>
+                </button>
+               )}
+              </div>
               <input
                type="text"
                inputMode="decimal"
@@ -4689,7 +4825,43 @@ function AuthenticatedHome() {
            <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
             {showExchangeRateTo && (
              <div>
-              <label className="block text-xs font-medium text-slate-500">{t('transaction_exchange_rate_to')}</label>
+              <div className="flex items-center justify-between">
+               <label className="block text-xs font-medium text-slate-500">
+                {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
+                 ? txToRateReversed
+                   ? `1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
+                   : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`
+                 : t('transaction_exchange_rate_to')}
+               </label>
+               {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
+                <button
+                 type="button"
+                 title="Reverse rate direction"
+                 onClick={() => {
+                  const val = parseFloat(transactionForm.exchangeRateTo) || 1;
+                  setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
+                  setTxToRateReversed((r) => !r);
+                 }}
+                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                >
+                 <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                  className="h-3.5 w-3.5"
+                 >
+                  <path d="M7 4 3 8l4 4M3 8h13.5" />
+                  <path d="M17 20l4-4-4-4m4 4H7.5" />
+                 </svg>
+                </button>
+               )}
+              </div>
               <input
                type="text"
                inputMode="decimal"
@@ -5004,6 +5176,39 @@ function AuthenticatedHome() {
                      </option>
                     ))}
                    </select>
+                   {txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
+                    <div className="flex items-center justify-between">
+                     <span className="text-xs text-slate-400">
+                      {tableRateFromReversed[txn.id] ? `1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`}
+                     </span>
+                     <button
+                      type="button"
+                      title="Reverse rate direction"
+                      onClick={() => {
+                       const val = parseFloat(draft.exchangeRateFrom) || 1;
+                       updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                       setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                      }}
+                      className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="1.8"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                       className="h-3.5 w-3.5"
+                      >
+                       <path d="M7 4 3 8l4 4M3 8h13.5" />
+                       <path d="M17 20l4-4-4-4m4 4H7.5" />
+                      </svg>
+                     </button>
+                    </div>
+                   )}
                    <input
                     type="text"
                     inputMode="decimal"
@@ -5036,7 +5241,10 @@ function AuthenticatedHome() {
                    })()}
                    {txn.exchangeRateFrom !== 1 ? (
                     <div className="text-xs text-slate-500">
-                     {t('transaction_exchange_rate')}: {txn.exchangeRateFrom.toFixed(2)}
+                     {t('transaction_exchange_rate')}:{' '}
+                     {txn.exchangeRateFromReversed
+                      ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
+                      : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
                     </div>
                    ) : null}
                   </>
@@ -5060,6 +5268,39 @@ function AuthenticatedHome() {
                      </option>
                     ))}
                    </select>
+                   {txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
+                    <div className="flex items-center justify-between">
+                     <span className="text-xs text-slate-400">
+                      {tableRateToReversed[txn.id] ? `1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`}
+                     </span>
+                     <button
+                      type="button"
+                      title="Reverse rate direction"
+                      onClick={() => {
+                       const val = parseFloat(draft.exchangeRateTo) || 1;
+                       updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                       setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                      }}
+                      className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="1.8"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                       className="h-3.5 w-3.5"
+                      >
+                       <path d="M7 4 3 8l4 4M3 8h13.5" />
+                       <path d="M17 20l4-4-4-4m4 4H7.5" />
+                      </svg>
+                     </button>
+                    </div>
+                   )}
                    <input
                     type="text"
                     inputMode="decimal"
@@ -5092,7 +5333,10 @@ function AuthenticatedHome() {
                    })()}
                    {txn.exchangeRateTo !== 1 ? (
                     <div className="text-xs text-slate-500">
-                     {t('transaction_exchange_rate')}: {txn.exchangeRateTo.toFixed(2)}
+                     {t('transaction_exchange_rate')}:{' '}
+                     {txn.exchangeRateToReversed
+                      ? `1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`
+                      : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`}
                     </div>
                    ) : null}
                   </>
