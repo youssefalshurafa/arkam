@@ -189,6 +189,7 @@ type ClientLedgerEntry = {
  currencyCode: string;
  currencySymbol: string;
  exchangeRate: number;
+ exchangeRateReversed: boolean;
  commission: number;
  netChange: number;
  runningBalance: number;
@@ -723,6 +724,7 @@ function AuthenticatedHome() {
  const [txFromRateReversed, setTxFromRateReversed] = useState(false);
  const [txToRateReversed, setTxToRateReversed] = useState(false);
  const [ledgerRateReversed, setLedgerRateReversed] = useState<Record<string, boolean>>({});
+ const [ledgerDisplayRateReversed, setLedgerDisplayRateReversed] = useState<Record<string, boolean>>({});
  const [tableRateFromReversed, setTableRateFromReversed] = useState<Record<number, boolean>>({});
  const [tableRateToReversed, setTableRateToReversed] = useState<Record<number, boolean>>({});
  const [error, setError] = useState('');
@@ -2304,6 +2306,7 @@ function AuthenticatedHome() {
          currencyCode: transaction.currencyCode,
          currencySymbol: transaction.currencySymbol,
          exchangeRate: transaction.exchangeRateFrom,
+         exchangeRateReversed: !!transaction.exchangeRateFromReversed,
          commission: transaction.commissionFrom,
          netChange: transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
          runningBalance: 0,
@@ -2332,6 +2335,7 @@ function AuthenticatedHome() {
          currencyCode: transaction.currencyCode,
          currencySymbol: transaction.currencySymbol,
          exchangeRate: transaction.exchangeRateTo,
+         exchangeRateReversed: !!transaction.exchangeRateToReversed,
          commission: transaction.commissionTo,
          netChange: -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
          runningBalance: 0,
@@ -4289,7 +4293,45 @@ function AuthenticatedHome() {
                              </div>
                             );
                            })()
-                         : entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                         : (() => {
+                            const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                            const txCurr = entry.currencyCode;
+                            const accCurr = ledger.currencyCode;
+                            const defaultReversed = entry.exchangeRateReversed;
+                            const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
+                            if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
+                             return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                            }
+                            const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                            const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                            return (
+                             <div className="flex items-center gap-1">
+                              <span title={rateLabel}>{rateNumber}</span>
+                              <button
+                               type="button"
+                               title="Reverse rate direction"
+                               onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
+                               className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                              >
+                               <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden
+                                className="h-3.5 w-3.5"
+                               >
+                                <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                <path d="M17 20l4-4-4-4m4 4H7.5" />
+                               </svg>
+                              </button>
+                             </div>
+                            );
+                           })()}
                        </td>
                       );
                      case 'commission':
