@@ -15,10 +15,10 @@ export async function GET() {
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
  }
 
- const workspaces = authDb.listUserWorkspaces(userId);
+ const workspaces = await authDb.listUserWorkspaces(userId);
  return NextResponse.json({
   workspaces,
-  defaultWorkspaceId: session?.user?.defaultWorkspaceId || authDb.getDefaultWorkspaceIdByUserId(userId),
+  defaultWorkspaceId: session?.user?.defaultWorkspaceId || (await authDb.getDefaultWorkspaceIdByUserId(userId)),
  });
 }
 
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
  try {
   const body = (await request.json()) as CreateWorkspaceBody;
-  const workspace = authDb.createWorkspace(userId, body.name);
+  const workspace = await authDb.createWorkspace(userId, body.name);
   return NextResponse.json({ ok: true, workspace });
  } catch (error) {
   const message = error instanceof Error ? error.message : 'Failed to create workspace.';

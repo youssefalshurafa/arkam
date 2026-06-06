@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest, context: Context) {
  const { workspaceId } = await context.params;
 
  try {
-  const members = authDb.listWorkspaceMembers({ workspaceId, userId });
+  const members = await authDb.listWorkspaceMembers({ workspaceId, userId });
   return NextResponse.json({ members });
  } catch (error) {
   const message = error instanceof Error ? error.message : 'Failed to list workspace members.';
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest, context: Context) {
 
  try {
   const body = (await request.json()) as AddMemberBody;
-  const added = authDb.addWorkspaceMemberByEmail({
+  const added = await authDb.addWorkspaceMemberByEmail({
    workspaceId,
    email: body.email,
    role: body.role,

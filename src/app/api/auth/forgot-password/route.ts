@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
   }
 
-  const result = authDb.requestPasswordReset(email);
+  const result = await authDb.requestPasswordReset(email);
   const resetUrl = result.resetToken ? `${request.nextUrl.origin}/reset-password/${result.resetToken}` : null;
 
   return NextResponse.json({

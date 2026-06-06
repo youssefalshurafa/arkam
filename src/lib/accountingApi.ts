@@ -84,9 +84,16 @@ export const accountingApi = {
   window.localStorage.removeItem(activeWorkspaceStorageKey);
  },
  getActiveWorkspaceId,
- getDbInfo: () => request<{ dbPath: string; dbDirectory: string }>({ action: 'getDbInfo' }),
+ getDbInfo: () =>
+  request<{ provider: string; host: string; port: string; database: string; schema: string; dbPath: string; dbDirectory: string; supportsDirectoryChange: boolean }>({
+   action: 'getDbInfo',
+  }),
  chooseDbDirectory: async () => null,
- setDbDirectory: (nextDirectory: string) => request<{ dbPath: string; dbDirectory: string }>({ action: 'setDbDirectory', payload: nextDirectory }),
+ setDbDirectory: (nextDirectory: string) =>
+  request<{ provider: string; host: string; port: string; database: string; schema: string; dbPath: string; dbDirectory: string; supportsDirectoryChange: boolean }>({
+   action: 'setDbDirectory',
+   payload: nextDirectory,
+  }),
  listOrganizations: () => request<unknown[]>({ action: 'listOrganizations' }),
  createOrganization: (organization: unknown) => request<{ ok: true }>({ action: 'createOrganization', payload: organization }),
  updateOrganization: (organization: unknown) => request<{ ok: true }>({ action: 'updateOrganization', payload: organization }),

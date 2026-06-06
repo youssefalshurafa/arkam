@@ -3,7 +3,7 @@
 This starter project uses:
 
 - Next.js + Tailwind CSS for UI
-- SQLite (`better-sqlite3`) for local on-drive storage
+- PostgreSQL (`pg`) for persistent storage
 
 ## 1. Install dependencies
 
@@ -11,7 +11,19 @@ This starter project uses:
 npm install
 ```
 
-## 2. Run in development mode
+## 2. Configure environment
+
+Create `.env.local` from `.env.example` and set at least:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/arkam
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=replace-with-a-long-random-secret
+```
+
+Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` only if you want Google sign-in.
+
+## 3. Run in development mode
 
 ```bash
 npm run dev
@@ -19,7 +31,7 @@ npm run dev
 
 This starts the Next.js dev server on `http://localhost:3000`.
 
-## 3. Build production assets
+## 4. Build production assets
 
 ```bash
 npm run build
@@ -29,13 +41,14 @@ npm run build
 
 - Signup page: `/signup`
 - Credentials signup (email/password) and Google sign-in are supported.
-- Set `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` in your environment.
+- Set `DATABASE_URL`, `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` in your environment.
 - Example environment variables are in `.env.example`.
 
-## Local database location
+## Database layout
 
-- User/account metadata is stored in `database/auth/accounts.sqlite`.
-- Accounting data is workspace-isolated and stored per workspace in `database/data/workspaces/<workspaceId>/accounting.sqlite`.
+- Authentication and workspace membership live in the default PostgreSQL schema.
+- Accounting data is isolated per workspace in PostgreSQL schemas named `workspace_<workspaceId>`.
+- Schemas and tables are created automatically on first use.
 
 ## Workspace roles
 
@@ -51,7 +64,7 @@ Each workspace supports these roles:
 Implemented now:
 
 - Next.js API bridge for data operations
-- Local SQLite initialization and schema creation
+- PostgreSQL initialization and workspace schema creation
 - Basic accounting management UI
 
 Suggested next modules:

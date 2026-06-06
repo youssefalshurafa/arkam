@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ valid: false, error: 'Token is required.' }, { status: 400 });
  }
 
- const valid = authDb.validatePasswordResetToken(token);
+ const valid = await authDb.validatePasswordResetToken(token);
  return NextResponse.json({ valid });
 }
 
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Token is required.' }, { status: 400 });
   }
 
-  authDb.resetPasswordWithToken({ token, password });
+  await authDb.resetPasswordWithToken({ token, password });
 
   return NextResponse.json({ ok: true });
  } catch (error) {

@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'No workspace selected.' }, { status: 400 });
   }
 
-  const role = authDb.getWorkspaceRole(userId, workspaceId);
+  const role = await authDb.getWorkspaceRole(userId, workspaceId);
   if (!role) {
    return NextResponse.json({ error: 'Access denied for this workspace.' }, { status: 403 });
   }
@@ -160,85 +160,85 @@ export async function POST(request: NextRequest) {
 
   switch (action) {
    case 'getDbInfo':
-    return NextResponse.json(db.getDbInfo(appLike));
+    return NextResponse.json(await db.getDbInfo(appLike));
    case 'setDbDirectory':
-    return NextResponse.json(db.setDbDirectory(appLike, payload));
+    return NextResponse.json(await db.setDbDirectory(appLike, payload));
    case 'listOrganizations':
-    return NextResponse.json(db.listOrganizations(appLike));
+    return NextResponse.json(await db.listOrganizations(appLike));
    case 'createOrganization':
-    db.createOrganization(appLike, payload);
+    await db.createOrganization(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'updateOrganization':
-    db.updateOrganization(appLike, payload);
+    await db.updateOrganization(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteOrganization':
-    db.deleteOrganization(appLike, payload);
+    await db.deleteOrganization(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'listClients':
-    return NextResponse.json(db.listClients(appLike));
+    return NextResponse.json(await db.listClients(appLike));
    case 'createClient':
-    return NextResponse.json({ ok: true, clientId: db.createClient(appLike, payload) });
+    return NextResponse.json({ ok: true, clientId: await db.createClient(appLike, payload) });
    case 'updateClient':
-    db.updateClient(appLike, payload);
+    await db.updateClient(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteClient':
-    db.deleteClient(appLike, payload);
+    await db.deleteClient(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteAllClients':
-    db.deleteAllClients(appLike);
+    await db.deleteAllClients(appLike);
     return NextResponse.json({ ok: true });
    case 'listAllClientAccounts':
-    return NextResponse.json(db.listAllClientAccounts(appLike));
+    return NextResponse.json(await db.listAllClientAccounts(appLike));
    case 'listClientAccounts':
-    return NextResponse.json(db.listClientAccounts(appLike, payload));
+    return NextResponse.json(await db.listClientAccounts(appLike, payload));
    case 'createClientAccount':
-    db.createClientAccount(appLike, payload);
+    await db.createClientAccount(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'updateClientAccountStartingBalance':
-    db.updateClientAccountStartingBalance(appLike, payload);
+    await db.updateClientAccountStartingBalance(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteClientAccount':
-    db.deleteClientAccount(appLike, payload);
+    await db.deleteClientAccount(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'listCurrencies':
-    return NextResponse.json(db.listCurrencies(appLike));
+    return NextResponse.json(await db.listCurrencies(appLike));
    case 'createCurrency':
-    db.createCurrency(appLike, payload);
+    await db.createCurrency(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'updateCurrency':
-    db.updateCurrency(appLike, payload);
+    await db.updateCurrency(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteCurrency':
-    db.deleteCurrency(appLike, payload);
+    await db.deleteCurrency(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteAllCurrencies':
-    db.deleteAllCurrencies(appLike);
+    await db.deleteAllCurrencies(appLike);
     return NextResponse.json({ ok: true });
    case 'reseedCurrencies':
-    db.reseedCurrencies(appLike);
+    await db.reseedCurrencies(appLike);
     return NextResponse.json({ ok: true });
    case 'enableCurrency':
-    db.enableCurrency(appLike, payload);
+    await db.enableCurrency(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'disableCurrency':
-    db.disableCurrency(appLike, payload);
+    await db.disableCurrency(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'setMainCurrency':
-    db.setMainCurrency(appLike, payload);
+    await db.setMainCurrency(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'listTransactions':
-    return NextResponse.json(db.listTransactions(appLike));
+    return NextResponse.json(await db.listTransactions(appLike));
    case 'createTransaction':
-    db.createTransaction(appLike, payload);
+    await db.createTransaction(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'updateTransaction':
-    db.updateTransaction(appLike, payload);
+    await db.updateTransaction(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteTransaction':
-    db.deleteTransaction(appLike, payload);
+    await db.deleteTransaction(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteAllTransactions':
-    db.deleteAllTransactions(appLike);
+    await db.deleteAllTransactions(appLike);
     return NextResponse.json({ ok: true });
    default:
     return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });

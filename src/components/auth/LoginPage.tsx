@@ -9,6 +9,14 @@ import { useTranslation } from '@/hooks/useTranslation';
 const rememberedEmailStorageKey = 'arkam.rememberedEmail';
 const rememberedPasswordStorageKey = 'arkam.rememberedPassword';
 
+function getLoginErrorMessage(message: string, t: (key: string) => string) {
+ if (message === 'CredentialsSignin') {
+  return t('login_invalid_credentials');
+ }
+
+ return message;
+}
+
 export default function LoginPage() {
  const router = useRouter();
  const { language } = useLanguage();
@@ -95,7 +103,7 @@ export default function LoginPage() {
    });
 
    if (!result || result.error) {
-    throw new Error(result?.error || 'Login failed.');
+    throw new Error(getLoginErrorMessage(result?.error || t('login_failed'), t));
    }
 
    // Clear any stale workspace ID from a previous session so the
@@ -107,7 +115,7 @@ export default function LoginPage() {
    router.replace('/');
    router.refresh();
   } catch (loginError) {
-   setError(loginError instanceof Error ? loginError.message : 'Login failed.');
+   setError(loginError instanceof Error ? loginError.message : t('login_failed'));
   } finally {
    setIsSubmitting(false);
   }

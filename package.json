@@ -8,22 +8,19 @@
   "dev": "next dev",
   "predev:web": "node scripts/clean-next-lock.mjs",
   "dev:web": "next dev",
-  "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
-  "rebuild:native": "electron-builder install-app-deps",
-  "postinstall": "electron-builder install-app-deps",
   "build": "next build",
   "start": "next start",
   "lint": "eslint"
  },
  "dependencies": {
   "bcryptjs": "^3.0.3",
-  "better-sqlite3": "^12.9.0",
   "drizzle-orm": "^0.45.2",
   "i18next": "^26.0.4",
   "i18next-resources-to-backend": "^1.2.1",
   "next": "16.2.3",
   "next-auth": "^4.24.14",
   "next-i18next": "^16.0.5",
+  "pg": "^8.16.3",
   "react": "19.2.4",
   "react-dom": "19.2.4",
   "xlsx": "^0.18.5"

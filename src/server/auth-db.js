@@ -1,72 +1,20 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const fs = require('node:fs');
-const path = require('node:path');
 const crypto = require('node:crypto');
-const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
+const { getPool, ensurePublicSchema, withTransaction } = require('@/server/postgres');
 
-let authDb;
-
-function getAuthDbPath() {
-    return path.join(process.cwd(), 'database', 'auth', 'accounts.sqlite');
+async function runQuery(text, params = [], executor = getPool()) {
+    return executor.query(text, params);
 }
 
-function openAuthDb() {
-    if (authDb) {
-        return authDb;
-    }
+async function fetchOne(text, params = [], executor = getPool()) {
+    const result = await runQuery(text, params, executor);
+    return result.rows[0] || null;
+}
 
-    const dbPath = getAuthDbPath();
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    authDb = new Database(dbPath);
-    authDb.pragma('journal_mode = WAL');
-    authDb.pragma('foreign_keys = ON');
-    authDb.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-   id TEXT PRIMARY KEY,
-   email TEXT NOT NULL UNIQUE,
-   name TEXT NOT NULL,
-   password_hash TEXT,
-   image TEXT,
-   created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS workspaces (
-   id TEXT PRIMARY KEY,
-   name TEXT NOT NULL,
-   owner_user_id TEXT NOT NULL,
-   slug TEXT NOT NULL UNIQUE,
-   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-   FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS workspace_members (
-   workspace_id TEXT NOT NULL,
-   user_id TEXT NOT NULL,
-   role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
-   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-   UNIQUE(workspace_id, user_id),
-   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-    CREATE TABLE IF NOT EXISTS password_reset_tokens (
-     id TEXT PRIMARY KEY,
-     user_id TEXT NOT NULL,
-     token_hash TEXT NOT NULL UNIQUE,
-     expires_at TEXT NOT NULL,
-     used_at TEXT,
-     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-  CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
-  CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
-    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
-    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
- `);
-
-    return authDb;
+async function openAuthDb() {
+    await ensurePublicSchema();
+    return getPool();
 }
 
 function generateId() {
@@ -83,13 +31,12 @@ function slugify(name) {
     return base;
 }
 
-function reserveWorkspaceSlug(db, preferredName) {
+async function reserveWorkspaceSlug(executor, preferredName) {
     const base = slugify(preferredName);
     let candidate = base;
     let suffix = 1;
 
-    const find = db.prepare('SELECT 1 FROM workspaces WHERE slug = ? LIMIT 1');
-    while (find.get(candidate)) {
+    while (await fetchOne('SELECT 1 FROM workspaces WHERE slug = $1 LIMIT 1', [candidate], executor)) {
         suffix += 1;
         candidate = `${base}-${suffix}`;
     }
@@ -97,46 +44,48 @@ function reserveWorkspaceSlug(db, preferredName) {
     return candidate;
 }
 
-function createWorkspaceForUser(userId, workspaceName) {
-    const db = openAuthDb();
+async function createWorkspaceForUserWithExecutor(executor, userId, workspaceName) {
     const workspaceId = generateId();
-    const slug = reserveWorkspaceSlug(db, workspaceName);
+    const slug = await reserveWorkspaceSlug(executor, workspaceName);
 
-    const tx = db.transaction(() => {
-        db.prepare('INSERT INTO workspaces (id, name, owner_user_id, slug) VALUES (?, ?, ?, ?)').run(
-            workspaceId,
-            workspaceName,
-            userId,
-            slug,
-        );
-        db.prepare('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)').run(
-            workspaceId,
-            userId,
-            'owner',
-        );
-    });
-
-    tx();
+    await runQuery(
+        'INSERT INTO workspaces (id, name, owner_user_id, slug) VALUES ($1, $2, $3, $4)',
+        [workspaceId, workspaceName, userId, slug],
+        executor,
+    );
+    await runQuery(
+        'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)',
+        [workspaceId, userId, 'owner'],
+        executor,
+    );
 
     return { id: workspaceId, name: workspaceName, slug };
 }
 
-function ensureUserHasWorkspace(userId, preferredName) {
-    const db = openAuthDb();
-    const membership = db
-        .prepare('SELECT workspace_id AS workspaceId FROM workspace_members WHERE user_id = ? ORDER BY created_at ASC LIMIT 1')
-        .get(userId);
+async function createWorkspaceForUser(userId, workspaceName) {
+    await ensurePublicSchema();
+    return withTransaction((client) => createWorkspaceForUserWithExecutor(client, userId, workspaceName));
+}
+
+async function ensureUserHasWorkspace(userId, preferredName) {
+    await ensurePublicSchema();
+
+    const membership = await fetchOne(
+        'SELECT workspace_id AS "workspaceId" FROM workspace_members WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1',
+        [userId],
+    );
 
     if (membership?.workspaceId) {
         return membership.workspaceId;
     }
 
-    const ws = createWorkspaceForUser(userId, preferredName || 'My Workspace');
-    return ws.id;
+    const workspace = await createWorkspaceForUser(userId, preferredName || 'My Workspace');
+    return workspace.id;
 }
 
-function createCredentialsUser({ name, email, password, workspaceName }) {
-    const db = openAuthDb();
+async function createCredentialsUser({ name, email, password, workspaceName }) {
+    await ensurePublicSchema();
+
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const displayName = String(name || '').trim();
 
@@ -152,7 +101,7 @@ function createCredentialsUser({ name, email, password, workspaceName }) {
         throw new Error('Password must be at least 8 characters.');
     }
 
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
+    const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
     if (existing) {
         throw new Error('Email is already registered.');
     }
@@ -160,56 +109,62 @@ function createCredentialsUser({ name, email, password, workspaceName }) {
     const userId = generateId();
     const hash = bcrypt.hashSync(String(password), 10);
 
-    const tx = db.transaction(() => {
-        db.prepare('INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)').run(userId, normalizedEmail, displayName, hash);
-        createWorkspaceForUser(userId, String(workspaceName || `${displayName} Workspace`).trim());
+    await withTransaction(async (client) => {
+        await runQuery(
+            'INSERT INTO users (id, email, name, password_hash) VALUES ($1, $2, $3, $4)',
+            [userId, normalizedEmail, displayName, hash],
+            client,
+        );
+        await createWorkspaceForUserWithExecutor(client, userId, String(workspaceName || `${displayName} Workspace`).trim());
     });
 
-    tx();
-
-    return db.prepare('SELECT id, email, name, image FROM users WHERE id = ?').get(userId);
+    return fetchOne('SELECT id, email, name, image FROM users WHERE id = $1', [userId]);
 }
 
-function upsertOAuthUser({ email, name, image }) {
-    const db = openAuthDb();
+async function upsertOAuthUser({ email, name, image }) {
+    await ensurePublicSchema();
+
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail) {
         throw new Error('Google account email is missing.');
     }
 
-    const existing = db.prepare('SELECT id, email, name, image FROM users WHERE email = ?').get(normalizedEmail);
+    const existing = await fetchOne('SELECT id, email, name, image FROM users WHERE email = $1', [normalizedEmail]);
 
     if (existing) {
-        db.prepare('UPDATE users SET name = ?, image = ? WHERE id = ?').run(
-            String(name || existing.name || 'User').trim(),
-            image || null,
-            existing.id,
-        );
-        ensureUserHasWorkspace(existing.id, `${existing.name || 'My'} Workspace`);
-        return db.prepare('SELECT id, email, name, image FROM users WHERE id = ?').get(existing.id);
+        await runQuery('UPDATE users SET name = $1, image = $2 WHERE id = $3', [String(name || existing.name || 'User').trim(), image || null, existing.id]);
+        await ensureUserHasWorkspace(existing.id, `${existing.name || 'My'} Workspace`);
+        return fetchOne('SELECT id, email, name, image FROM users WHERE id = $1', [existing.id]);
     }
 
     const userId = generateId();
     const displayName = String(name || normalizedEmail.split('@')[0] || 'User').trim();
 
-    const tx = db.transaction(() => {
-        db.prepare('INSERT INTO users (id, email, name, image) VALUES (?, ?, ?, ?)').run(userId, normalizedEmail, displayName, image || null);
-        createWorkspaceForUser(userId, `${displayName} Workspace`);
+    await withTransaction(async (client) => {
+        await runQuery(
+            'INSERT INTO users (id, email, name, image) VALUES ($1, $2, $3, $4)',
+            [userId, normalizedEmail, displayName, image || null],
+            client,
+        );
+        await createWorkspaceForUserWithExecutor(client, userId, `${displayName} Workspace`);
     });
 
-    tx();
-
-    return db.prepare('SELECT id, email, name, image FROM users WHERE id = ?').get(userId);
+    return fetchOne('SELECT id, email, name, image FROM users WHERE id = $1', [userId]);
 }
 
-function verifyCredentials({ email, password }) {
-    const db = openAuthDb();
+async function verifyCredentials({ email, password }) {
+    await ensurePublicSchema();
+
     const normalizedEmail = String(email || '').trim().toLowerCase();
     if (!normalizedEmail || !password) {
         return null;
     }
 
-    const user = db.prepare('SELECT id, email, name, image, password_hash as passwordHash FROM users WHERE email = ?').get(normalizedEmail);
+    const user = await fetchOne(
+        'SELECT id, email, name, image, password_hash AS "passwordHash" FROM users WHERE email = $1',
+        [normalizedEmail],
+    );
+
     if (!user?.passwordHash) {
         return null;
     }
@@ -226,50 +181,57 @@ function verifyCredentials({ email, password }) {
     };
 }
 
-function listUserWorkspaces(userId) {
-    const db = openAuthDb();
-    return db
-        .prepare(`
-   SELECT
-    w.id,
-    w.name,
-    w.slug,
-    wm.role,
-    w.owner_user_id AS ownerUserId,
-    w.created_at AS createdAt
-   FROM workspace_members wm
-   JOIN workspaces w ON w.id = wm.workspace_id
-   WHERE wm.user_id = ?
-   ORDER BY w.created_at ASC
-  `)
-        .all(userId);
+async function listUserWorkspaces(userId) {
+    await ensurePublicSchema();
+
+    const result = await runQuery(
+        `
+            SELECT
+                w.id,
+                w.name,
+                w.slug,
+                wm.role,
+                w.owner_user_id AS "ownerUserId",
+                w.created_at AS "createdAt"
+            FROM workspace_members wm
+            JOIN workspaces w ON w.id = wm.workspace_id
+            WHERE wm.user_id = $1
+            ORDER BY w.created_at ASC
+        `,
+        [userId],
+    );
+
+    return result.rows;
 }
 
-function getDefaultWorkspaceIdByUserId(userId) {
-    const db = openAuthDb();
-    const row = db
-        .prepare('SELECT workspace_id AS workspaceId FROM workspace_members WHERE user_id = ? ORDER BY created_at ASC LIMIT 1')
-        .get(userId);
+async function getDefaultWorkspaceIdByUserId(userId) {
+    await ensurePublicSchema();
+
+    const row = await fetchOne(
+        'SELECT workspace_id AS "workspaceId" FROM workspace_members WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1',
+        [userId],
+    );
+
     return row?.workspaceId || null;
 }
 
-function getWorkspaceRole(userId, workspaceId) {
-    const db = openAuthDb();
-    const row = db
-        .prepare('SELECT role FROM workspace_members WHERE user_id = ? AND workspace_id = ? LIMIT 1')
-        .get(userId, workspaceId);
+async function getWorkspaceRole(userId, workspaceId) {
+    await ensurePublicSchema();
+
+    const row = await fetchOne('SELECT role FROM workspace_members WHERE user_id = $1 AND workspace_id = $2 LIMIT 1', [userId, workspaceId]);
     return row?.role || null;
 }
 
-function assertWorkspaceAccess(userId, workspaceId) {
-    const role = getWorkspaceRole(userId, workspaceId);
+async function assertWorkspaceAccess(userId, workspaceId) {
+    const role = await getWorkspaceRole(userId, workspaceId);
     if (!role) {
         throw new Error('You do not have access to this workspace.');
     }
+
     return role;
 }
 
-function createWorkspace(ownerUserId, name) {
+async function createWorkspace(ownerUserId, name) {
     const workspaceName = String(name || '').trim();
     if (!workspaceName) {
         throw new Error('Workspace name is required.');
@@ -278,8 +240,9 @@ function createWorkspace(ownerUserId, name) {
     return createWorkspaceForUser(ownerUserId, workspaceName);
 }
 
-function addWorkspaceMemberByEmail({ workspaceId, email, role, addedByUserId }) {
-    const db = openAuthDb();
+async function addWorkspaceMemberByEmail({ workspaceId, email, role, addedByUserId }) {
+    await ensurePublicSchema();
+
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const normalizedRole = String(role || 'member').trim().toLowerCase();
 
@@ -287,20 +250,23 @@ function addWorkspaceMemberByEmail({ workspaceId, email, role, addedByUserId }) 
         throw new Error('Role must be one of: admin, member, viewer.');
     }
 
-    const actorRole = assertWorkspaceAccess(addedByUserId, workspaceId);
+    const actorRole = await assertWorkspaceAccess(addedByUserId, workspaceId);
     if (!['owner', 'admin'].includes(actorRole)) {
         throw new Error('Only owners and admins can add workspace members.');
     }
 
-    const targetUser = db.prepare('SELECT id, email, name, image FROM users WHERE email = ?').get(normalizedEmail);
+    const targetUser = await fetchOne('SELECT id, email, name, image FROM users WHERE email = $1', [normalizedEmail]);
     if (!targetUser) {
         throw new Error('User not found. Ask them to sign up first.');
     }
 
-    db.prepare('INSERT OR REPLACE INTO workspace_members (workspace_id, user_id, role) VALUES (?, ?, ?)').run(
-        workspaceId,
-        targetUser.id,
-        normalizedRole,
+    await runQuery(
+        `
+            INSERT INTO workspace_members (workspace_id, user_id, role)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role
+        `,
+        [workspaceId, targetUser.id, normalizedRole],
     );
 
     return {
@@ -310,66 +276,67 @@ function addWorkspaceMemberByEmail({ workspaceId, email, role, addedByUserId }) 
     };
 }
 
-function listWorkspaceMembers({ workspaceId, userId }) {
-    const db = openAuthDb();
-    assertWorkspaceAccess(userId, workspaceId);
+async function listWorkspaceMembers({ workspaceId, userId }) {
+    await ensurePublicSchema();
+    await assertWorkspaceAccess(userId, workspaceId);
 
-    return db
-        .prepare(`
-   SELECT
-    u.id,
-    u.email,
-    u.name,
-    u.image,
-    wm.role,
-    wm.created_at AS addedAt
-   FROM workspace_members wm
-   JOIN users u ON u.id = wm.user_id
-   WHERE wm.workspace_id = ?
-   ORDER BY
-    CASE wm.role
-     WHEN 'owner' THEN 1
-     WHEN 'admin' THEN 2
-     WHEN 'member' THEN 3
-     ELSE 4
-    END,
-    u.name COLLATE NOCASE ASC
-  `)
-        .all(workspaceId);
+    const result = await runQuery(
+        `
+            SELECT
+                u.id,
+                u.email,
+                u.name,
+                u.image,
+                wm.role,
+                wm.created_at AS "addedAt"
+            FROM workspace_members wm
+            JOIN users u ON u.id = wm.user_id
+            WHERE wm.workspace_id = $1
+            ORDER BY
+                CASE wm.role
+                    WHEN 'owner' THEN 1
+                    WHEN 'admin' THEN 2
+                    WHEN 'member' THEN 3
+                    ELSE 4
+                END,
+                LOWER(u.name) ASC
+        `,
+        [workspaceId],
+    );
+
+    return result.rows;
 }
 
 function hashResetToken(token) {
     return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
-function requestPasswordReset(email) {
-    const db = openAuthDb();
+async function requestPasswordReset(email) {
+    await ensurePublicSchema();
+
     const normalizedEmail = String(email || '').trim().toLowerCase();
 
     if (!normalizedEmail) {
         throw new Error('Email is required.');
     }
 
-    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
+    const user = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
     if (!user?.id) {
         return { ok: true, resetToken: null, expiresAt: null };
     }
 
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = hashResetToken(rawToken);
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    const tx = db.transaction(() => {
-        db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? OR expires_at <= datetime(\'now\')').run(user.id);
-        db.prepare('INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)').run(
-            generateId(),
-            user.id,
-            tokenHash,
-            expiresAt,
+    await withTransaction(async (client) => {
+        await runQuery('DELETE FROM password_reset_tokens WHERE user_id = $1 OR expires_at <= NOW()', [user.id], client);
+        await runQuery(
+            'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
+            [generateId(), user.id, tokenHash, expiresAt],
+            client,
         );
     });
-
-    tx();
 
     return {
         ok: true,
@@ -378,42 +345,45 @@ function requestPasswordReset(email) {
     };
 }
 
-function validatePasswordResetToken(token) {
-    const db = openAuthDb();
-    const tokenHash = hashResetToken(token);
+async function validatePasswordResetToken(token) {
+    await ensurePublicSchema();
 
-    const record = db
-        .prepare(`
-   SELECT id
-   FROM password_reset_tokens
-   WHERE token_hash = ?
-    AND used_at IS NULL
-    AND expires_at > datetime('now')
-   LIMIT 1
-  `)
-        .get(tokenHash);
+    const tokenHash = hashResetToken(token);
+    const record = await fetchOne(
+        `
+            SELECT id
+            FROM password_reset_tokens
+            WHERE token_hash = $1
+                AND used_at IS NULL
+                AND expires_at > NOW()
+            LIMIT 1
+        `,
+        [tokenHash],
+    );
 
     return Boolean(record?.id);
 }
 
-function resetPasswordWithToken({ token, password }) {
-    const db = openAuthDb();
+async function resetPasswordWithToken({ token, password }) {
+    await ensurePublicSchema();
+
     const rawPassword = String(password || '');
     if (rawPassword.length < 8) {
         throw new Error('Password must be at least 8 characters.');
     }
 
     const tokenHash = hashResetToken(token);
-    const record = db
-        .prepare(`
-   SELECT id, user_id AS userId
-   FROM password_reset_tokens
-   WHERE token_hash = ?
-    AND used_at IS NULL
-    AND expires_at > datetime('now')
-   LIMIT 1
-  `)
-        .get(tokenHash);
+    const record = await fetchOne(
+        `
+            SELECT id, user_id AS "userId"
+            FROM password_reset_tokens
+            WHERE token_hash = $1
+                AND used_at IS NULL
+                AND expires_at > NOW()
+            LIMIT 1
+        `,
+        [tokenHash],
+    );
 
     if (!record?.id) {
         throw new Error('Reset link is invalid or has expired.');
@@ -421,13 +391,11 @@ function resetPasswordWithToken({ token, password }) {
 
     const passwordHash = bcrypt.hashSync(rawPassword, 10);
 
-    const tx = db.transaction(() => {
-        db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, record.userId);
-        db.prepare('UPDATE password_reset_tokens SET used_at = datetime(\'now\') WHERE id = ?').run(record.id);
-        db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? AND id != ?').run(record.userId, record.id);
+    await withTransaction(async (client) => {
+        await runQuery('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, record.userId], client);
+        await runQuery('UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1', [record.id], client);
+        await runQuery('DELETE FROM password_reset_tokens WHERE user_id = $1 AND id != $2', [record.userId, record.id], client);
     });
-
-    tx();
 
     return { ok: true };
 }

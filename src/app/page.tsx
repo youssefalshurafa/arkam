@@ -9,8 +9,14 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 
 type DbInfo = {
+ provider: string;
+ host: string;
+ port: string;
+ database: string;
+ schema: string;
  dbPath: string;
  dbDirectory: string;
+ supportsDirectoryChange: boolean;
 };
 
 type Organization = {
@@ -667,8 +673,6 @@ function AuthenticatedHome() {
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
- const [pendingDbDirectory, setPendingDbDirectory] = useState<string | null>(null);
- const [isChangingDbDirectory, setIsChangingDbDirectory] = useState(false);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -2166,43 +2170,6 @@ function AuthenticatedHome() {
   }
  }
 
- async function onChooseDbDirectory() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  try {
-   const nextDirectory = await accountingApi.chooseDbDirectory();
-   if (nextDirectory && nextDirectory !== dbInfo?.dbDirectory) {
-    setPendingDbDirectory(nextDirectory);
-   }
-  } catch (e) {
-   console.error('[onChooseDbDirectory] error:', e);
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  }
- }
-
- async function onSaveDbDirectory() {
-  if (!accountingApi || !pendingDbDirectory) {
-   return;
-  }
-
-  try {
-   setIsChangingDbDirectory(true);
-   await accountingApi.setDbDirectory(pendingDbDirectory);
-   setPendingDbDirectory(null);
-   await loadData();
-   setError('');
-  } catch (e) {
-   console.error('[onSaveDbDirectory] error:', e);
-   const msg = e instanceof Error ? e.message : t('error_failed_update');
-   setError(msg);
-  } finally {
-   setIsChangingDbDirectory(false);
-  }
- }
-
  const navItems: Array<{ key: Section; label: string; icon: IconName }> = [
   { key: 'overview', label: t('nav_overview'), icon: 'home' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
@@ -2454,56 +2421,26 @@ function AuthenticatedHome() {
     <h2 className="text-2xl font-semibold">{t('settings_database_title')}</h2>
     <p className="mt-2 text-sm text-slate-600">{t('settings_database_description')}</p>
 
-    <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-     <div className="space-y-4">
-      <div className={mutedPanelClassName}>
-       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_folder_label')}</p>
-       <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.dbDirectory ?? t('loading')}</p>
-      </div>
-      <div className={mutedPanelClassName}>
-       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('database_file')}</p>
-       <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.dbPath ?? t('loading')}</p>
-      </div>
-      {pendingDbDirectory ? (
-       <div className="rounded-3xl border border-blue-300 bg-blue-50/80 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">{t('settings_database_new_folder_label')}</p>
-        <p className="mt-3 break-all font-mono text-sm text-blue-900">{pendingDbDirectory}</p>
-       </div>
-      ) : null}
+    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+     <div className={mutedPanelClassName}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_provider_label')}</p>
+      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.provider ?? t('loading')}</p>
      </div>
-
-     <div className="flex flex-col gap-2">
-      <button
-       type="button"
-       onClick={() => void onChooseDbDirectory()}
-       disabled={isChangingDbDirectory}
-       className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-       {t('settings_database_change_action')}
-      </button>
-      {pendingDbDirectory ? (
-       <>
-        <button
-         type="button"
-         onClick={() => void onSaveDbDirectory()}
-         disabled={isChangingDbDirectory}
-         className="rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-         {isChangingDbDirectory ? t('settings_database_updating') : t('settings_database_save_action')}
-        </button>
-        <button
-         type="button"
-         onClick={() => setPendingDbDirectory(null)}
-         disabled={isChangingDbDirectory}
-         className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-         {t('cancel')}
-        </button>
-       </>
-      ) : null}
+     <div className={mutedPanelClassName}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_host_label')}</p>
+      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo ? `${dbInfo.host}:${dbInfo.port}` : t('loading')}</p>
+     </div>
+     <div className={mutedPanelClassName}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_name_label')}</p>
+      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.database ?? t('loading')}</p>
+     </div>
+     <div className={mutedPanelClassName}>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_schema_label')}</p>
+      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.schema ?? t('loading')}</p>
      </div>
     </div>
-    <p className="mt-4 text-sm text-slate-500">{t('settings_database_hint')}</p>
+
+    <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">{t('settings_database_hint')}</div>
    </div>
   </section>
  );

@@ -12,7 +12,7 @@ const providers: NextAuthOptions['providers'] = [
    password: { label: 'Password', type: 'password' },
   },
   async authorize(credentials) {
-   const user = authDb.verifyCredentials({
+   const user = await authDb.verifyCredentials({
     email: credentials?.email,
     password: credentials?.password,
    });
@@ -55,7 +55,7 @@ export const authOptions: NextAuthOptions = {
    }
 
    if (account?.provider === 'google' && token.email) {
-    const dbUser = authDb.upsertOAuthUser({
+    const dbUser = await authDb.upsertOAuthUser({
      email: token.email,
      name: token.name,
      image: token.picture,
@@ -64,7 +64,7 @@ export const authOptions: NextAuthOptions = {
    }
 
    if (token.sub) {
-    token.defaultWorkspaceId = authDb.getDefaultWorkspaceIdByUserId(token.sub);
+    token.defaultWorkspaceId = await authDb.getDefaultWorkspaceIdByUserId(token.sub);
    }
 
    return token;

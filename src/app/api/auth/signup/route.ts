@@ -16,14 +16,14 @@ export async function POST(request: NextRequest) {
  try {
   const body = (await request.json()) as SignupBody;
 
-  const user = authDb.createCredentialsUser({
+  const user = await authDb.createCredentialsUser({
    name: body.name,
    email: body.email,
    password: body.password,
    workspaceName: body.workspaceName,
   });
 
-  const defaultWorkspaceId = authDb.getDefaultWorkspaceIdByUserId(user.id);
+  const defaultWorkspaceId = await authDb.getDefaultWorkspaceIdByUserId(user.id);
 
   return NextResponse.json({
    ok: true,
