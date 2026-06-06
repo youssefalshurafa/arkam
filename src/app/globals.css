@@ -1,49 +1,68 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+ --background: #ffffff;
+ --foreground: #171717;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-arabic: var(--font-arabic-sans);
+ --color-background: var(--background);
+ --color-foreground: var(--foreground);
+ --font-sans: var(--font-geist-sans);
+ --font-mono: var(--font-geist-mono);
+ --font-arabic: var(--font-arabic-sans);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+ :root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+ }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+ min-height: 100vh;
+ background: var(--background);
+ color: var(--foreground);
+ font-family: var(--font-geist-sans), 'Segoe UI', sans-serif;
+ text-rendering: optimizeLegibility;
 }
 
-html[lang="ar"] body {
-  font-family: var(--font-arabic), Arial, Helvetica, sans-serif;
+html[lang='ar'] body {
+ font-family: var(--font-arabic), 'Segoe UI', sans-serif;
 }
 
-html[dir="rtl"] {
-  direction: rtl;
-  text-align: right;
+html[dir='rtl'] {
+ direction: rtl;
+ text-align: right;
 }
 
-html[dir="ltr"] {
-  direction: ltr;
-  text-align: left;
+html[dir='ltr'] {
+ direction: ltr;
+ text-align: left;
 }
 
 /* RTL support for forms */
-html[dir="rtl"] input,
-html[dir="rtl"] select,
-html[dir="rtl"] textarea {
-  text-align: right;
+html[dir='rtl'] input,
+html[dir='rtl'] select,
+html[dir='rtl'] textarea {
+ text-align: right;
 }
 
+@media (min-width: 80rem) {
+ .xl\:flex-row {
+  flex-direction: row;
+ }
+ .xl\:items-start {
+  align-items: flex-start;
+ }
+ .xl\:w-96 {
+  width: 24rem;
+ }
+ .xl\:shrink-0 {
+  flex-shrink: 0;
+ }
+ .xl\:flex-1 {
+  flex: 1 1 0%;
+ }
+}

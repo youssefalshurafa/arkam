@@ -1,14 +1,12 @@
-const translations: Record<
-  'en' | 'ar' | 'fr',
-  Record<string, string>
-> = {
-  en: require('../../public/locales/en/common.json'),
-  ar: require('../../public/locales/ar/common.json'),
-  fr: require('../../public/locales/fr/common.json'),
+const translations: Record<'en' | 'ar' | 'fr', Record<string, string>> = {
+ en: require('../../public/locales/en/common.json'),
+ ar: require('../../public/locales/ar/common.json'),
+ fr: require('../../public/locales/fr/common.json'),
 };
 
+import { useCallback } from 'react';
+
 export function useTranslation(lang: 'en' | 'ar' | 'fr') {
-  return {
-    t: (key: string) => translations[lang][key] || key,
-  };
+ const t = useCallback((key: string) => translations[lang][key] || key, [lang]);
+ return { t };
 }
