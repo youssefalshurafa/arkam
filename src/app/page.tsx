@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -416,12 +416,12 @@ function normalizeClientNameForCurrencySuffix(name: string, currency: Currency) 
  }
 
  const currencyAliasesByCode: Record<string, string[]> = {
-  EUR: ['euro', 'euros', 'يورو'],
-  USD: ['dollar', 'dollars', 'usd', 'دولار'],
-  TRY: ['turk', 'turkish', 'lira', 'try', 'ليرة', 'تركي'],
-  GBP: ['pound', 'sterling', 'gbp', 'جنيه'],
-  AED: ['aed', 'dirham', 'درهم'],
-  SAR: ['sar', 'riyal', 'ريال'],
+  EUR: ['euro', 'euros', 'ÙŠÙˆØ±Ùˆ'],
+  USD: ['dollar', 'dollars', 'usd', 'Ø¯ÙˆÙ„Ø§Ø±'],
+  TRY: ['turk', 'turkish', 'lira', 'try', 'Ù„ÙŠØ±Ø©', 'ØªØ±ÙƒÙŠ'],
+  GBP: ['pound', 'sterling', 'gbp', 'Ø¬Ù†ÙŠÙ‡'],
+  AED: ['aed', 'dirham', 'Ø¯Ø±Ù‡Ù…'],
+  SAR: ['sar', 'riyal', 'Ø±ÙŠØ§Ù„'],
  };
 
  const aliases = [currency.code, currency.name, currency.symbol, ...(currencyAliasesByCode[currency.code] || [])]
@@ -1586,11 +1586,11 @@ function AuthenticatedHome() {
    }
 
    const headerAliases = {
-    from: ['عليه', 'from', 'accountfrom', 'sender', 'debtor'],
-    to: ['له', 'to', 'accountto', 'receiver', 'creditor'],
-    amount: ['القيمة', 'المبلغ', 'amount', 'value'],
-    date: ['التاريخ', 'date', 'createdat'],
-    description: ['الوصف', 'البيان', 'ملاحظة', 'description', 'note', 'details'],
+    from: ['Ø¹Ù„ÙŠÙ‡', 'from', 'accountfrom', 'sender', 'debtor'],
+    to: ['Ù„Ù‡', 'to', 'accountto', 'receiver', 'creditor'],
+    amount: ['Ø§Ù„Ù‚ÙŠÙ…Ø©', 'Ø§Ù„Ù…Ø¨Ù„Øº', 'amount', 'value'],
+    date: ['Ø§Ù„ØªØ§Ø±ÙŠØ®', 'date', 'createdat'],
+    description: ['Ø§Ù„ÙˆØµÙ', 'Ø§Ù„Ø¨ÙŠØ§Ù†', 'Ù…Ù„Ø§Ø­Ø¸Ø©', 'description', 'note', 'details'],
    };
 
    const detectColumnByAliases = (aliases: string[]) => {
@@ -2137,7 +2137,7 @@ function AuthenticatedHome() {
  </div>
  <div class="meta-card">
   <div class="label">${t('export_period')}</div>
-  <div class="value" style="font-size:12px">${fromDate} → ${toDate}</div>
+  <div class="value" style="font-size:12px">${fromDate} â†’ ${toDate}</div>
  </div>
 </div>
 <table>
@@ -2370,9 +2370,9 @@ function AuthenticatedHome() {
   .map((key) => ledgerColumnOptions.find((column) => column.key === key))
   .filter((column): column is { key: LedgerColumnKey; label: string } => Boolean(column));
 
- const panelClassName = 'rounded-4xl border border-slate-200/70 bg-white/90 p-6 shadow-[0_24px_60px_-32px_rgba(15,23,42,0.35)] backdrop-blur';
- const mutedPanelClassName = 'rounded-3xl border border-slate-200/70 bg-slate-50/85 p-4';
- const tableWrapClassName = 'mt-4 overflow-x-auto rounded-3xl border border-slate-200/80 bg-white';
+ const panelClassName = 'border border-gray-200 bg-white p-5 shadow-sm';
+ const mutedPanelClassName = 'border border-gray-200 bg-gray-50 p-4';
+ const tableWrapClassName = 'mt-3 overflow-x-auto border border-gray-200 bg-white';
  const transactionsPager =
   transactions.length > 0 ? (
    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -2387,7 +2387,7 @@ function AuthenticatedHome() {
        setTransactionsPageSize(nextSize);
        setTransactionsPage(1);
       }}
-      className="rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+      className="rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
      >
       <option value={50}>50/page</option>
       <option value={100}>100/page</option>
@@ -2397,7 +2397,7 @@ function AuthenticatedHome() {
       type="button"
       onClick={() => setTransactionsPage((current) => Math.max(1, current - 1))}
       disabled={transactionsPage <= 1}
-      className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="rounded border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
       Prev
      </button>
@@ -2408,7 +2408,7 @@ function AuthenticatedHome() {
       type="button"
       onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, current + 1))}
       disabled={transactionsPage >= totalTransactionPages}
-      className="rounded-lg border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="rounded border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
       Next
      </button>
@@ -2423,24 +2423,24 @@ function AuthenticatedHome() {
 
     <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
      <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_provider_label')}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_provider_label')}</p>
       <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.provider ?? t('loading')}</p>
      </div>
      <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_host_label')}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_host_label')}</p>
       <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo ? `${dbInfo.host}:${dbInfo.port}` : t('loading')}</p>
      </div>
      <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_name_label')}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_name_label')}</p>
       <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.database ?? t('loading')}</p>
      </div>
      <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t('settings_database_schema_label')}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_schema_label')}</p>
       <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.schema ?? t('loading')}</p>
      </div>
     </div>
 
-    <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">{t('settings_database_hint')}</div>
+    <div className="mt-4 rounded border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">{t('settings_database_hint')}</div>
    </div>
   </section>
  );
@@ -2538,7 +2538,7 @@ function AuthenticatedHome() {
       <button
        type="button"
        onClick={() => setOrganizationForm(emptyOrganizationForm())}
-       className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+       className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
       >
        {t('cancel')}
       </button>
@@ -2549,14 +2549,14 @@ function AuthenticatedHome() {
     <input
      value={organizationForm.name}
      onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
-     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
      placeholder={t('organization_name_placeholder')}
      required
     />
 
     <button
      type="submit"
-     className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+     className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
     >
      {organizationForm.id ? t('update_organization') : t('save_organization')}
     </button>
@@ -2592,7 +2592,7 @@ function AuthenticatedHome() {
            <button
             type="button"
             onClick={() => openOrganizationClientsPage(organization)}
-            className="cursor-pointer rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+            className="cursor-pointer rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
            >
             {t('organization_page_open')}
            </button>
@@ -2604,14 +2604,14 @@ function AuthenticatedHome() {
               name: organization.name,
              })
             }
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
            >
             {t('edit')}
            </button>
            <button
             type="button"
             onClick={() => onDeleteOrganization(organization.id)}
-            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+            className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
            >
             {t('delete')}
            </button>
@@ -2647,7 +2647,7 @@ function AuthenticatedHome() {
      <select
       value={language}
       onChange={(e) => setLanguage(e.target.value as 'en' | 'ar' | 'fr')}
-      className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
      >
       <option value="en">{t('english')}</option>
       <option value="ar">{t('arabic')}</option>
@@ -2664,13 +2664,13 @@ function AuthenticatedHome() {
     <h2 className="text-2xl font-semibold text-red-800">{t('settings_danger_title')}</h2>
     <p className="mt-2 text-sm text-slate-700">{t('settings_danger_description')}</p>
 
-    <div className="mt-5 rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+    <div className="mt-5 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
      <p className="font-semibold">{t('danger_zone_warning_title')}</p>
      <p className="mt-1">{t('danger_zone_warning_body')}</p>
     </div>
 
     <div className="mt-6 grid gap-4 md:grid-cols-2">
-     <div className="rounded-2xl border border-slate-200 bg-white p-4">
+     <div className="rounded border border-slate-200 bg-white p-4">
       <h3 className="text-sm font-semibold text-slate-900">{t('danger_delete_all_transactions')}</h3>
       <p className="mt-1 text-sm text-slate-600">{t('danger_delete_all_transactions_hint')}</p>
       <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -2680,13 +2680,13 @@ function AuthenticatedHome() {
        type="button"
        onClick={() => void onDeleteAllTransactions()}
        disabled={!transactions.length}
-       className="mt-4 rounded-lg border border-red-300 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+       className="mt-4 rounded border border-red-300 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
        {t('danger_delete_all_transactions')}
       </button>
      </div>
 
-     <div className="rounded-2xl border border-slate-200 bg-white p-4">
+     <div className="rounded border border-slate-200 bg-white p-4">
       <h3 className="text-sm font-semibold text-slate-900">{t('danger_delete_all_clients')}</h3>
       <p className="mt-1 text-sm text-slate-600">{t('danger_delete_all_clients_hint')}</p>
       <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -2696,7 +2696,7 @@ function AuthenticatedHome() {
        type="button"
        onClick={() => void onDeleteAllClients()}
        disabled={!clients.length}
-       className="mt-4 rounded-lg border border-red-300 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+       className="mt-4 rounded border border-red-300 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
        {t('danger_delete_all_clients')}
       </button>
@@ -2725,7 +2725,7 @@ function AuthenticatedHome() {
         setOpenAccountOnCreate(false);
         setNewClientAccountDrafts([createNewClientAccountDraft()]);
        }}
-       className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+       className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
       >
        {t('cancel')}
       </button>
@@ -2736,7 +2736,7 @@ function AuthenticatedHome() {
     <input
      value={clientForm.name}
      onChange={(event) => setClientForm((current) => ({ ...current, name: event.target.value }))}
-     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
      placeholder={t('client_name_placeholder')}
      required
     />
@@ -2750,7 +2750,7 @@ function AuthenticatedHome() {
        organizationId: event.target.value ? Number(event.target.value) : null,
       }))
      }
-     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
     >
      <option value="">{t('client_organization_placeholder')}</option>
      {organizations.map((organization) => (
@@ -2767,7 +2767,7 @@ function AuthenticatedHome() {
     <input
      value={clientForm.email}
      onChange={(event) => setClientForm((current) => ({ ...current, email: event.target.value }))}
-     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
      placeholder={t('client_email_placeholder')}
     />
 
@@ -2775,7 +2775,7 @@ function AuthenticatedHome() {
     <input
      value={clientForm.phone}
      onChange={(event) => setClientForm((current) => ({ ...current, phone: event.target.value }))}
-     className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
      placeholder={t('client_phone_placeholder')}
     />
 
@@ -2783,12 +2783,12 @@ function AuthenticatedHome() {
     <textarea
      value={clientForm.address}
      onChange={(event) => setClientForm((current) => ({ ...current, address: event.target.value }))}
-     className="mt-2 min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+     className="mt-2 min-h-28 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
      placeholder={t('client_address_placeholder')}
     />
 
     {!clientForm.id ? (
-     <div className="mt-4 rounded-3xl border border-slate-200/70 bg-slate-50/85 p-4">
+     <div className="mt-4 rounded border border-slate-200/70 bg-slate-50/85 p-4">
       <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
        <input
         type="checkbox"
@@ -2810,7 +2810,7 @@ function AuthenticatedHome() {
         {newClientAccountDrafts.map((draft, index) => (
          <div
           key={`new-client-account-${index}`}
-          className="rounded-2xl border border-slate-200/70 bg-white/90 p-3"
+          className="rounded border border-slate-200/70 bg-white/90 p-3"
          >
           <div className="flex flex-col gap-2 sm:flex-row">
            <select
@@ -2819,7 +2819,7 @@ function AuthenticatedHome() {
              const currencyId = event.target.value ? Number(event.target.value) : null;
              setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, currencyId } : row)));
             }}
-            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
            >
             <option value="">{t('client_account_currency_placeholder')}</option>
             {enabledCurrencies
@@ -2841,14 +2841,14 @@ function AuthenticatedHome() {
              setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
             }}
             placeholder={t('starting_balance')}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring sm:w-40"
+            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring sm:w-40"
            />
           </div>
           {newClientAccountDrafts.length > 1 ? (
            <button
             type="button"
             onClick={() => setNewClientAccountDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
-            className="mt-2 inline-flex rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+            className="mt-2 inline-flex rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
            >
             Remove account
            </button>
@@ -2859,7 +2859,7 @@ function AuthenticatedHome() {
         <button
          type="button"
          onClick={() => setNewClientAccountDrafts((current) => [...current, createNewClientAccountDraft()])}
-         className="inline-flex rounded-2xl border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+         className="inline-flex rounded border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
         >
          Open another account
         </button>
@@ -2870,7 +2870,7 @@ function AuthenticatedHome() {
 
     <button
      type="submit"
-     className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+     className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
     >
      {clientForm.id ? t('update_client') : t('save_client')}
     </button>
@@ -2917,14 +2917,14 @@ function AuthenticatedHome() {
               setOpenAccountOnCreate(false);
               setNewClientAccountDrafts([createNewClientAccountDraft()]);
              }}
-             className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+             className="cursor-pointer rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
              {t('edit')}
             </button>
             <button
              type="button"
              onClick={() => onDeleteClient(client.id)}
-             className="cursor-pointer rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+             className="cursor-pointer rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
             >
              {t('delete')}
             </button>
@@ -2935,7 +2935,7 @@ function AuthenticatedHome() {
            <button
             type="button"
             onClick={() => setSelectedClientForAccounts(selectedClientForAccounts?.id === client.id ? null : client)}
-            className={`cursor-pointer rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+            className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
              selectedClientForAccounts?.id === client.id ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
             }`}
            >
@@ -2968,7 +2968,7 @@ function AuthenticatedHome() {
        <button
         type="button"
         onClick={() => setSelectedClientForAccounts(null)}
-        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
        >
         {t('cancel')}
        </button>
@@ -2980,13 +2980,13 @@ function AuthenticatedHome() {
         .map((account) => (
          <div
           key={account.id}
-          className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3"
+          className="flex items-center justify-between rounded border border-slate-200 px-4 py-3"
          >
           <span className="font-mono font-semibold text-slate-800">{account.currencySymbol || account.currencyCode}</span>
           <button
            type="button"
            onClick={() => onDeleteClientAccount(account.id)}
-           className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+           className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
           >
            {t('delete')}
           </button>
@@ -3000,7 +3000,7 @@ function AuthenticatedHome() {
         <select
          value={newAccountCurrencyId ?? ''}
          onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-         className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
         >
          <option value="">{t('client_account_currency_placeholder')}</option>
          {enabledCurrencies
@@ -3010,7 +3010,7 @@ function AuthenticatedHome() {
             key={cur.id}
             value={cur.id}
            >
-            {cur.code} – {cur.name}
+            {cur.code} â€“ {cur.name}
            </option>
           ))}
         </select>
@@ -3019,14 +3019,14 @@ function AuthenticatedHome() {
          value={newAccountStartingBalance}
          onChange={(event) => setNewAccountStartingBalance(event.target.value)}
          placeholder={t('starting_balance')}
-         className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
         />
        </div>
        <button
         type="button"
         onClick={() => onAddClientAccount(selectedClientForAccounts.id)}
         disabled={!newAccountCurrencyId}
-        className="self-start rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+        className="self-start rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
        >
         {t('client_account_open')}
        </button>
@@ -3045,12 +3045,12 @@ function AuthenticatedHome() {
       <h2 className="text-xl font-semibold">{t('currencies_title')}</h2>
       <p className="mt-1 text-sm text-slate-600">{t('currencies_description')}</p>
      </div>
-     <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">{t('currencies_seeded_hint')}</div>
+     <div className="rounded border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">{t('currencies_seeded_hint')}</div>
     </div>
 
-    <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">{t('currencies_seeded_description')}</div>
+    <div className="mt-4 rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">{t('currencies_seeded_description')}</div>
 
-    <div className="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-4">
+    <div className="mt-4 rounded border border-slate-200 bg-white px-4 py-4">
      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
       <div className="flex-1">
        <label className="block text-sm font-medium text-slate-700">{t('currency_catalog_title')}</label>
@@ -3060,10 +3060,10 @@ function AuthenticatedHome() {
          setCatalogCurrencyQuery(event.target.value);
          setSelectedCatalogCurrencyId(null);
         }}
-        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
         placeholder={t('currency_catalog_search_placeholder')}
        />
-       <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50">
+       <div className="mt-2 max-h-64 overflow-y-auto rounded border border-slate-200 bg-slate-50">
         {filteredAvailableCurrencies.length > 0 ? (
          filteredAvailableCurrencies.map((currency) => (
           <button
@@ -3090,7 +3090,7 @@ function AuthenticatedHome() {
        type="button"
        onClick={() => (selectedCatalogCurrencyId ? void onEnableCurrency(selectedCatalogCurrencyId) : undefined)}
        disabled={!selectedCatalogCurrencyId}
-       className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+       className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
       >
        {t('currency_add_to_used')}
       </button>
@@ -3120,9 +3120,9 @@ function AuthenticatedHome() {
          <td className="px-4 py-3 text-slate-600">{currency.symbol || '-'}</td>
          <td className="px-4 py-3">
           {currency.isMain === 1 ? (
-           <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
+           <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
           ) : (
-           <span className="text-slate-400">—</span>
+           <span className="text-slate-400">â€”</span>
           )}
          </td>
          <td className="px-4 py-3">
@@ -3130,7 +3130,7 @@ function AuthenticatedHome() {
            <button
             type="button"
             onClick={() => onDisableCurrency(currency.id)}
-            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+            className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
            >
             {t('currency_remove_from_used')}
            </button>
@@ -3138,7 +3138,7 @@ function AuthenticatedHome() {
             <button
              type="button"
              onClick={() => onSetMainCurrency(currency.id)}
-             className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+             className="rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
             >
              {t('set_as_main')}
             </button>
@@ -3176,7 +3176,7 @@ function AuthenticatedHome() {
       setSettingsTab('organizations');
       navigateToSection('settings');
      }}
-     className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+     className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
     >
      {t('open_in_settings')}
     </button>
@@ -3237,7 +3237,7 @@ function AuthenticatedHome() {
        setSettingsTab('clients');
        navigateToSection('settings');
       }}
-      className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+      className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
      >
       {t('open_in_settings')}
      </button>
@@ -3295,7 +3295,7 @@ function AuthenticatedHome() {
       <button
        type="button"
        onClick={() => setSelectedClientForAccounts(null)}
-       className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+       className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
       >
        {t('cancel')}
       </button>
@@ -3307,7 +3307,7 @@ function AuthenticatedHome() {
        .map((account) => (
         <div
          key={account.id}
-         className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3"
+         className="flex items-center justify-between rounded border border-slate-200 px-4 py-3"
         >
          <span className="font-mono font-semibold text-slate-800">{account.currencySymbol || account.currencyCode}</span>
         </div>
@@ -3331,7 +3331,7 @@ function AuthenticatedHome() {
       setSettingsTab('currencies');
       navigateToSection('settings');
      }}
-     className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+     className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
     >
      {t('open_in_settings')}
     </button>
@@ -3358,9 +3358,9 @@ function AuthenticatedHome() {
         <td className="px-4 py-3 text-slate-600">{currency.symbol || '-'}</td>
         <td className="px-4 py-3">
          {currency.isMain === 1 ? (
-          <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
+          <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
          ) : (
-          <span className="text-slate-400">—</span>
+          <span className="text-slate-400">â€”</span>
          )}
         </td>
        </tr>
@@ -3382,46 +3382,80 @@ function AuthenticatedHome() {
  );
 
  const settingsSection = (
-  <section className="flex flex-col gap-6">
-   {settingsTab === 'database' ? databaseSection : null}
-   {settingsTab === 'language' ? languageSection : null}
-   {settingsTab === 'danger' ? dangerSection : null}
-   {settingsTab === 'clients' ? clientsSection : null}
-   {settingsTab === 'organizations' ? organizationsSection : null}
-   {settingsTab === 'currencies' ? currenciesSection : null}
+  <section className="flex flex-col gap-0">
+   {/* Settings section header */}
+   <div className="border-b-2 border-blue-800 bg-white px-5 py-4">
+    <div className="flex items-center gap-3">
+     <span className="inline-flex h-8 w-8 items-center justify-center rounded bg-blue-800 text-white">{renderIcon('settings', 'h-4 w-4')}</span>
+     <div>
+      <h2 className="text-base font-bold text-gray-900">{t('settings_title')}</h2>
+      <p className="text-xs text-gray-500">{t('settings_description')}</p>
+     </div>
+    </div>
+    {/* Tab strip */}
+    <div className="mt-4 flex flex-wrap gap-0 border-b border-gray-200 -mb-px">
+     {settingsTabs.map((tab) => {
+      const isActive = settingsTab === tab.key;
+      return (
+       <button
+        key={tab.key}
+        type="button"
+        onClick={() => setSettingsTab(tab.key)}
+        className={`inline-flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition ${
+         isActive ? 'border-blue-700 text-blue-700' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+        }`}
+       >
+        {renderIcon(tab.icon, 'h-4 w-4')}
+        {tab.label}
+       </button>
+      );
+     })}
+    </div>
+   </div>
+   {/* Active tab content */}
+   <div className="flex flex-col gap-4 p-4">
+    {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
+    {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
+    {settingsTab === 'database' ? databaseSection : null}
+    {settingsTab === 'language' ? languageSection : null}
+    {settingsTab === 'danger' ? dangerSection : null}
+    {settingsTab === 'clients' ? clientsSection : null}
+    {settingsTab === 'organizations' ? organizationsSection : null}
+    {settingsTab === 'currencies' ? currenciesSection : null}
+   </div>
   </section>
  );
 
  return (
-  <div
-   className={`min-h-screen bg-[radial-gradient(circle_at_top,rgba(30,64,175,0.14),transparent_42%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] text-slate-900 ${isRTL ? 'rtl' : 'ltr'}`}
-  >
-   <main className="flex w-full gap-4 px-4 py-6 sm:px-6 xl:px-8">
+  <div className={`min-h-screen flex bg-gray-100 text-gray-900 ${isRTL ? 'rtl' : 'ltr'}`}>
+   <main className="flex w-full">
+    {/* Classic sidebar - desktop only */}
     <aside
-     className={`sticky top-6 hidden h-[calc(100vh-3rem)] flex-col rounded-4xl border border-slate-800 bg-slate-950 p-4 text-white shadow-[0_28px_80px_-40px_rgba(15,23,42,0.85)] lg:flex ${
-      isSidebarCollapsed ? 'w-24' : 'w-72'
-     } transition-[width] duration-200`}
+     className={`hidden lg:flex flex-col bg-[#1e3a5f] text-white border-r border-[#15304f] shrink-0 transition-[width] duration-200 ${isSidebarCollapsed ? 'w-16' : 'w-56'}`}
+     style={{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}
     >
-     <div className="flex items-start justify-between gap-3">
-      <div className={isSidebarCollapsed ? 'hidden' : 'min-w-0'}>
-       <p className="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-200">Arkam</p>
-       <p className="mt-3 text-sm leading-6 text-slate-300">{t('app_description')}</p>
-      </div>
+     {/* Brand */}
+     <div className={`flex items-center border-b border-white/10 px-3 py-3 ${isSidebarCollapsed ? 'justify-center' : 'justify-between gap-2'}`}>
+      {!isSidebarCollapsed && (
+       <div className="min-w-0">
+        <span className="block text-xs font-bold tracking-widest text-white">ARKAM</span>
+        <span className="block truncate text-xs leading-tight text-blue-300">{t('app_description')}</span>
+       </div>
+      )}
       <button
        type="button"
        onClick={() => setIsSidebarCollapsed((current) => !current)}
        aria-label={isSidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
        title={isSidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
-       className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-sm font-semibold text-white transition hover:bg-white/15"
+       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/20 text-blue-200 transition hover:bg-white/10 hover:text-white"
       >
-       {isSidebarCollapsed ? '>>' : '<<'}
+       {isSidebarCollapsed ? (isRTL ? '<' : '>') : isRTL ? '>' : '<'}
       </button>
      </div>
-
-     <div className="mt-6 flex-1 space-y-2">
+     {/* Navigation */}
+     <nav className="flex-1 py-1">
       {sidebarItems.map((item) => {
        const isActive = item.isActive;
-
        return (
         <button
          key={item.id}
@@ -3430,46 +3464,32 @@ function AuthenticatedHome() {
          aria-pressed={isActive}
          aria-label={item.label}
          title={item.label}
-         className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-semibold transition ${
-          isActive ? 'border-cyan-300/30 bg-white text-slate-950 shadow-[0_16px_30px_-20px_rgba(15,23,42,0.9)]' : 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10'
-         } ${isSidebarCollapsed ? 'justify-center px-2' : ''}`}
+         className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium transition ${
+          isActive ? 'bg-blue-600 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+         } ${isSidebarCollapsed ? 'justify-center' : ''}`}
         >
-         <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${isActive ? 'bg-slate-950 text-white' : 'bg-white/10 text-cyan-100'}`}>
-          {renderIcon(item.icon, 'h-5 w-5')}
-         </span>
+         <span className="shrink-0">{renderIcon(item.icon, 'h-4 w-4')}</span>
          {isSidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
         </button>
        );
       })}
-     </div>
-
-     <div className="space-y-3 border-t border-white/10 pt-4">
-      <div className={`rounded-3xl border border-white/10 bg-white/5 p-4 ${isSidebarCollapsed ? 'text-center' : ''}`}>
-       {isSidebarCollapsed ? (
-        <div className="flex justify-center text-slate-300">{renderIcon(activeSidebarItem.icon, 'h-5 w-5')}</div>
-       ) : (
-        <>
-         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{activeSectionMeta.title}</p>
-         <p className="mt-2 text-sm text-slate-200">{activeSectionMeta.accent}</p>
-        </>
-       )}
-      </div>
-
+     </nav>
+     {/* Footer */}
+     <div className="border-t border-white/10 py-1">
       {section !== 'settings' ? (
        <button
         type="button"
         onClick={() => navigateToSection('settings')}
         aria-label={t('settings_title')}
         title={t('settings_title')}
-        className={`flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10 ${
-         isSidebarCollapsed ? 'justify-center px-2' : ''
+        className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-blue-100 transition hover:bg-white/10 hover:text-white ${
+         isSidebarCollapsed ? 'justify-center' : ''
         }`}
        >
-        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-base">{renderIcon('settings', 'h-5 w-5')}</span>
+        <span className="shrink-0">{renderIcon('settings', 'h-4 w-4')}</span>
         {isSidebarCollapsed ? null : <span>{t('settings_title')}</span>}
        </button>
       ) : null}
-
       <button
        type="button"
        onClick={() => {
@@ -3478,21 +3498,19 @@ function AuthenticatedHome() {
        }}
        aria-label={t('sign_out')}
        title={t('sign_out')}
-       className={`flex w-full items-center gap-3 rounded-2xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-3 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-400/15 ${
-        isSidebarCollapsed ? 'justify-center px-2' : ''
+       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-blue-100 transition hover:bg-white/10 hover:text-white ${
+        isSidebarCollapsed ? 'justify-center' : ''
        }`}
       >
-       <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-300/15 text-cyan-100">{renderIcon('auth', 'h-5 w-5')}</span>
+       <span className="shrink-0">{renderIcon('auth', 'h-4 w-4')}</span>
        {isSidebarCollapsed ? null : <span>{t('sign_out')}</span>}
       </button>
-
       {isSidebarCollapsed ? null : (
-       <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-        <label className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">{t('language')}</label>
+       <div className="px-3 pb-2 pt-1">
         <select
          value={language}
          onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
-         className="mt-3 w-full cursor-pointer rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm font-semibold text-slate-100 outline-none transition focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
+         className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
         >
          <option value="en">{t('english')}</option>
          <option value="ar">{t('arabic')}</option>
@@ -3503,701 +3521,773 @@ function AuthenticatedHome() {
      </div>
     </aside>
 
-    <div className="flex min-w-0 flex-1 flex-col gap-6">
-     <div className="rounded-4xl border border-slate-800 bg-slate-950 px-6 py-6 text-white shadow-[0_28px_80px_-40px_rgba(15,23,42,0.85)] lg:hidden">
-      <div className="flex items-start justify-between gap-3">
-       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-200">Arkam</p>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight">{t('app_title')}</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-300">{t('app_description')}</p>
+    <div className="flex min-w-0 flex-1 flex-col overflow-auto">
+     {/* Top bar - mobile navigation */}
+     <div className="border-b border-[#15304f] bg-[#1e3a5f] px-4 py-2 lg:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+       <span className="text-sm font-bold tracking-widest text-white">ARKAM</span>
+       <div className="flex flex-wrap items-center gap-1">
+        {sidebarItems.map((item) => {
+         const isActive = item.isActive;
+         return (
+          <button
+           key={item.id}
+           type="button"
+           onClick={item.onClick}
+           aria-pressed={isActive}
+           title={item.label}
+           className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium transition ${
+            isActive ? 'border-blue-400 bg-blue-600 text-white' : 'border-white/20 text-blue-100 hover:bg-white/10 hover:text-white'
+           }`}
+          >
+           {renderIcon(item.icon, 'h-4 w-4')}
+           <span className="hidden sm:inline">{item.label}</span>
+          </button>
+         );
+        })}
+        <button
+         type="button"
+         onClick={() => navigateToSection('settings')}
+         title={t('settings_title')}
+         className="inline-flex items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs text-blue-100 transition hover:bg-white/10 hover:text-white"
+        >
+         {renderIcon('settings', 'h-4 w-4')}
+        </button>
+        <button
+         type="button"
+         onClick={() => {
+          accountingApi.setActiveWorkspaceId(null);
+          void signOut({ callbackUrl: '/login' });
+         }}
+         title={t('sign_out')}
+         className="inline-flex items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs text-blue-100 transition hover:bg-white/10 hover:text-white"
+        >
+         {renderIcon('auth', 'h-4 w-4')}
+        </button>
+        <select
+         value={language}
+         onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
+         className="rounded border border-white/20 bg-white/10 px-1.5 py-1 text-xs text-blue-100 outline-none"
+        >
+         <option value="en">EN</option>
+         <option value="ar">Ø¹Ø±</option>
+         <option value="fr">FR</option>
+        </select>
        </div>
-       <button
-        type="button"
-        onClick={() => navigateToSection('settings')}
-        aria-label={t('settings_title')}
-        title={t('settings_title')}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-xl text-white transition hover:bg-white/15"
-       >
-        {renderIcon('settings', 'h-5 w-5')}
-       </button>
-      </div>
-
-      <div className="mt-5 grid gap-2 sm:grid-cols-2">
-       {sidebarItems.map((item) => {
-        const isActive = item.isActive;
-
-        return (
-         <button
-          key={item.id}
-          type="button"
-          onClick={item.onClick}
-          aria-pressed={isActive}
-          className={`flex items-center justify-center gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-           isActive ? 'border-cyan-300/30 bg-white text-slate-950' : 'border-white/10 bg-white/5 text-slate-100 hover:bg-white/10'
-          }`}
-         >
-          {renderIcon(item.icon, 'h-4 w-4')}
-          {item.label}
-         </button>
-        );
-       })}
       </div>
      </div>
 
-     {section !== 'client-ledger' ? (
-      <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-       <div className={panelClassName}>
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">{activeSectionMeta.title}</p>
-        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">{activeSectionMeta.title}</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{activeSectionMeta.description}</p>
-       </div>
-       <div className={`${panelClassName} grid gap-3 sm:grid-cols-3`}>
-        {shellMetrics.map((metric) => (
-         <div
-          key={metric.label}
-          className={mutedPanelClassName}
-         >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{metric.label}</p>
-          <p className="mt-3 text-2xl font-semibold text-slate-950">{metric.value}</p>
-         </div>
-        ))}
-       </div>
-      </section>
-     ) : null}
-
-     {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-     {importSummary ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{importSummary}</div> : null}
-
-     {section === 'overview' ? (
-      <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
-       <div className={panelClassName}>
-        <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
-        <p className="mt-2 text-sm text-slate-600">{t('overview_description')}</p>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-         {overviewCards.map((card) => (
+     {/* Page title bar — hidden when in settings (settings has its own header) */}
+     {section !== 'client-ledger' && section !== 'settings' ? (
+      <div className="border-b border-gray-200 bg-white px-5 py-3">
+       <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+         <h1 className="text-sm font-semibold text-gray-800">{activeSectionMeta.title}</h1>
+         <p className="mt-0.5 text-xs text-gray-500">{activeSectionMeta.description}</p>
+        </div>
+        <div className="flex items-center gap-6">
+         {shellMetrics.map((metric) => (
           <div
-           key={card.label}
-           className={mutedPanelClassName}
+           key={metric.label}
+           className="text-right"
           >
-           <p className="text-sm text-slate-500">{card.label}</p>
-           <p className="mt-3 text-3xl font-bold text-slate-900">{card.value}</p>
+           <p className="text-xs text-gray-500">{metric.label}</p>
+           <p className="text-sm font-semibold text-gray-800">{metric.value}</p>
           </div>
          ))}
         </div>
        </div>
-
-       <div className={panelClassName}>
-        <h2 className="text-xl font-semibold">{t('organizations_title')}</h2>
-        <div className="mt-4 space-y-3 text-sm text-slate-600">
-         {organizations.slice(0, 5).map((organization) => (
-          <div
-           key={organization.id}
-           className="rounded-xl border border-slate-200 px-4 py-3"
-          >
-           <button
-            type="button"
-            onClick={() => openOrganizationClientsPage(organization)}
-            className="cursor-pointer font-semibold text-slate-900 transition hover:text-blue-700"
-           >
-            {organization.name}
-           </button>
-           <p>
-            {clients.filter((client) => client.organizationId === organization.id).length} {t('overview_clients')}
-           </p>
-          </div>
-         ))}
-         {organizations.length === 0 ? <p>{t('no_organizations')}</p> : null}
-        </div>
-       </div>
-      </section>
+      </div>
      ) : null}
 
+     {/* Settings: full-width, no outer padding */}
      {section === 'settings' ? settingsSection : null}
 
-     {section === 'organizations' ? organizationsReadOnlySection : null}
+     {section !== 'settings' ? (
+      <div className="flex flex-col gap-4 p-4">
+       {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
+       {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
 
-     {section === 'organization-clients' ? (
-      <section className="flex flex-col gap-6">
-       <div className={panelClassName}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-700">{t('organization_page_title')}</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-900">{selectedOrganizationForClients?.name ?? t('organizations_title')}</h2>
-          <p className="mt-2 text-sm text-slate-600">{selectedOrganizationForClients ? t('organization_page_description') : t('organization_page_no_organization')}</p>
-         </div>
+       {section === 'overview' ? (
+        <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+         <div className={panelClassName}>
+          <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
+          <p className="mt-2 text-sm text-slate-600">{t('overview_description')}</p>
 
-         <button
-          type="button"
-          onClick={() => navigateToSection('organizations')}
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-         >
-          {t('organization_page_back')}
-         </button>
-        </div>
-
-        {selectedOrganizationForClients ? (
-         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className={mutedPanelClassName}>
-           <p className="text-sm text-slate-500">{t('organizations_title')}</p>
-           <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationForClients.name}</p>
-          </div>
-          <div className={mutedPanelClassName}>
-           <p className="text-sm text-slate-500">{t('overview_clients')}</p>
-           <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationClients.length}</p>
-          </div>
-          <div className={mutedPanelClassName}>
-           <p className="text-sm text-slate-500">{t('client_accounts')}</p>
-           <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationClients.reduce((sum, client) => sum + client.accountCount, 0)}</p>
-          </div>
-         </div>
-        ) : null}
-       </div>
-
-       {!selectedOrganizationForClients ? (
-        <div className={`${panelClassName} text-sm text-slate-600`}>{t('organization_page_no_organization')}</div>
-       ) : selectedOrganizationClients.length === 0 ? (
-        <div className={`${panelClassName} text-sm text-slate-600`}>{t('organization_page_no_clients')}</div>
-       ) : (
-        <div className={panelClassName}>
-         <h3 className="text-xl font-semibold text-slate-900">{t('organization_clients_title')}</h3>
-         <div className={tableWrapClassName}>
-          <table className="w-full text-sm">
-           <thead className="bg-slate-100 text-slate-700">
-            <tr>
-             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-             <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
-            </tr>
-           </thead>
-           <tbody>
-            {selectedOrganizationClients.map((client) => (
-             <tr
-              key={client.id}
-              className="border-t border-slate-200 align-top"
-             >
-              <td className="px-4 py-3 font-medium text-slate-900">
-               <button
-                type="button"
-                onClick={() => openClientLedger(client, 'organization-clients')}
-                className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
-               >
-                {client.name}
-               </button>
-              </td>
-              <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
-             </tr>
-            ))}
-           </tbody>
-          </table>
-         </div>
-        </div>
-       )}
-      </section>
-     ) : null}
-
-     {section === 'clients' ? clientsReadOnlySection : null}
-
-     {section === 'client-ledger' ? (
-      <section className="flex flex-col gap-6">
-       <div className={panelClassName}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-700">{t('client_page_title')}</p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-900">{selectedClientForLedger?.name ?? t('clients_title')}</h2>
-          <p className="mt-2 text-sm text-slate-600">{selectedClientForLedger ? t('client_page_description') : t('client_page_no_client')}</p>
-         </div>
-
-         <button
-          type="button"
-          onClick={() => navigateToSection(clientLedgerBackSection)}
-          className="cursor-pointer rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-         >
-          {clientLedgerBackSection === 'organization-clients' ? t('organization_page_back') : t('client_page_back')}
-         </button>
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-         {selectedClientForLedger && selectedClientLedgers.length > 1
-          ? selectedClientLedgers.map((ledger) => (
-             <button
-              key={ledger.accountId}
-              type="button"
-              onClick={() => setSelectedLedgerAccountId(ledger.accountId)}
-              className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-               selectedLedgerAccountId === ledger.accountId ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-             >
-              {ledger.currencyName}
-             </button>
-            ))
-          : null}
-         {selectedClientForLedger ? (
-          <>
-           {isClientLedgerEditMode ? (
-            <>
-             <button
-              type="button"
-              onClick={() => void onSaveAllLedgerTransactions()}
-              className="cursor-pointer rounded-full border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-             >
-              {t('save_changes')}
-             </button>
-             <button
-              type="button"
-              onClick={cancelClientLedgerEditMode}
-              className="cursor-pointer rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-             >
-              {t('cancel')}
-             </button>
-            </>
-           ) : null}
-           <button
-            type="button"
-            onClick={() => (isClientLedgerEditMode ? cancelClientLedgerEditMode() : beginClientLedgerEditMode())}
-            className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-             isClientLedgerEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-            }`}
-           >
-            {isClientLedgerEditMode ? t('client_ledger_done_editing') : t('client_ledger_edit_mode')}
-           </button>
-           {!isClientLedgerEditMode ? (
-            <button
-             type="button"
-             onClick={() => {
-              const targetLedger =
-               selectedClientLedgers.length === 1
-                ? selectedClientLedgers[0]
-                : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-              if (!targetLedger) return;
-              const today = new Date().toISOString().slice(0, 10);
-              const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
-              setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today });
-             }}
-             className="cursor-pointer rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+           {overviewCards.map((card) => (
+            <div
+             key={card.label}
+             className={mutedPanelClassName}
             >
-             {t('export_pdf')}
-            </button>
-           ) : null}
-          </>
-         ) : null}
-        </div>
-       </div>
-
-       {!selectedClientForLedger ? (
-        <div className={`${panelClassName} text-sm text-slate-600`}>{t('client_page_no_client')}</div>
-       ) : selectedClientLedgers.length === 0 ? (
-        <div className={`${panelClassName} text-sm text-slate-600`}>{t('no_client_accounts')}</div>
-       ) : (
-        selectedClientLedgers
-         .filter((ledger) => selectedClientLedgers.length === 1 || ledger.accountId === selectedLedgerAccountId)
-         .map((ledger) => (
-          <div
-           key={ledger.accountId}
-           className={panelClassName}
-          >
-           <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-             <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
-             <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
+             <p className="text-sm text-slate-500">{card.label}</p>
+             <p className="mt-3 text-3xl font-bold text-slate-900">{card.value}</p>
             </div>
+           ))}
+          </div>
+         </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
-             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('starting_balance')}</p>
-              {isClientLedgerEditMode ? (
-               <div className="mt-2">
-                <input
-                 type="number"
-                 value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
-                 onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
-                 className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                />
-               </div>
-              ) : (
-               <p className={`mt-2 text-xl font-bold ${ledger.startingBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {ledger.startingBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
-               </p>
-              )}
-             </div>
-             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
-              <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-               {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
-              </p>
-             </div>
-             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_transaction_count')}</p>
-              <p className="mt-2 text-xl font-bold text-slate-900">{ledger.transactionCount}</p>
-             </div>
+         <div className={panelClassName}>
+          <h2 className="text-xl font-semibold">{t('organizations_title')}</h2>
+          <div className="mt-4 space-y-3 text-sm text-slate-600">
+           {organizations.slice(0, 5).map((organization) => (
+            <div
+             key={organization.id}
+             className="rounded border border-slate-200 px-4 py-3"
+            >
+             <button
+              type="button"
+              onClick={() => openOrganizationClientsPage(organization)}
+              className="cursor-pointer font-semibold text-slate-900 transition hover:text-blue-700"
+             >
+              {organization.name}
+             </button>
+             <p>
+              {clients.filter((client) => client.organizationId === organization.id).length} {t('overview_clients')}
+             </p>
             </div>
+           ))}
+           {organizations.length === 0 ? <p>{t('no_organizations')}</p> : null}
+          </div>
+         </div>
+        </section>
+       ) : null}
+
+       {section === 'organizations' ? organizationsReadOnlySection : null}
+
+       {section === 'organization-clients' ? (
+        <section className="flex flex-col gap-6">
+         <div className={panelClassName}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+           <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">{t('organization_page_title')}</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900">{selectedOrganizationForClients?.name ?? t('organizations_title')}</h2>
+            <p className="mt-2 text-sm text-slate-600">{selectedOrganizationForClients ? t('organization_page_description') : t('organization_page_no_organization')}</p>
            </div>
 
-           {ledger.entries.length === 0 ? (
-            <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
-           ) : (
-            <div className={tableWrapClassName}>
-             {isClientLedgerEditMode ? (
-              <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</span>
-                {orderedLedgerColumnOptions.map((column) => {
-                 const isVisible = ledgerColumnVisibility[column.key];
+           <button
+            type="button"
+            onClick={() => navigateToSection('organizations')}
+            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+           >
+            {t('organization_page_back')}
+           </button>
+          </div>
 
-                 return (
-                  <button
-                   key={column.key}
-                   type="button"
-                   onClick={() => toggleLedgerColumn(column.key)}
-                   aria-pressed={isVisible}
-                   className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                   }`}
-                  >
-                   {column.label}
-                  </button>
-                 );
-                })}
-                <button
-                 type="button"
-                 onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
-                 aria-pressed={showLedgerCurrencySymbol}
-                 className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                  showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                 }`}
-                >
-                 {t('currency_symbol')}
-                </button>
+          {selectedOrganizationForClients ? (
+           <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <div className={mutedPanelClassName}>
+             <p className="text-sm text-slate-500">{t('organizations_title')}</p>
+             <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationForClients.name}</p>
+            </div>
+            <div className={mutedPanelClassName}>
+             <p className="text-sm text-slate-500">{t('overview_clients')}</p>
+             <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationClients.length}</p>
+            </div>
+            <div className={mutedPanelClassName}>
+             <p className="text-sm text-slate-500">{t('client_accounts')}</p>
+             <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationClients.reduce((sum, client) => sum + client.accountCount, 0)}</p>
+            </div>
+           </div>
+          ) : null}
+         </div>
+
+         {!selectedOrganizationForClients ? (
+          <div className={`${panelClassName} text-sm text-slate-600`}>{t('organization_page_no_organization')}</div>
+         ) : selectedOrganizationClients.length === 0 ? (
+          <div className={`${panelClassName} text-sm text-slate-600`}>{t('organization_page_no_clients')}</div>
+         ) : (
+          <div className={panelClassName}>
+           <h3 className="text-xl font-semibold text-slate-900">{t('organization_clients_title')}</h3>
+           <div className={tableWrapClassName}>
+            <table className="w-full text-sm">
+             <thead className="bg-slate-100 text-slate-700">
+              <tr>
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
+              </tr>
+             </thead>
+             <tbody>
+              {selectedOrganizationClients.map((client) => (
+               <tr
+                key={client.id}
+                className="border-t border-slate-200 align-top"
+               >
+                <td className="px-4 py-3 font-medium text-slate-900">
+                 <button
+                  type="button"
+                  onClick={() => openClientLedger(client, 'organization-clients')}
+                  className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
+                 >
+                  {client.name}
+                 </button>
+                </td>
+                <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
+               </tr>
+              ))}
+             </tbody>
+            </table>
+           </div>
+          </div>
+         )}
+        </section>
+       ) : null}
+
+       {section === 'clients' ? clientsReadOnlySection : null}
+
+       {section === 'client-ledger' ? (
+        <section className="flex flex-col gap-6">
+         <div className={panelClassName}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+           <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">{t('client_page_title')}</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900">{selectedClientForLedger?.name ?? t('clients_title')}</h2>
+            <p className="mt-2 text-sm text-slate-600">{selectedClientForLedger ? t('client_page_description') : t('client_page_no_client')}</p>
+           </div>
+
+           <button
+            type="button"
+            onClick={() => navigateToSection(clientLedgerBackSection)}
+            className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+           >
+            {clientLedgerBackSection === 'organization-clients' ? t('organization_page_back') : t('client_page_back')}
+           </button>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+           {selectedClientForLedger && selectedClientLedgers.length > 1
+            ? selectedClientLedgers.map((ledger) => (
+               <button
+                key={ledger.accountId}
+                type="button"
+                onClick={() => setSelectedLedgerAccountId(ledger.accountId)}
+                className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
+                 selectedLedgerAccountId === ledger.accountId ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+               >
+                {ledger.currencyName}
+               </button>
+              ))
+            : null}
+           {selectedClientForLedger ? (
+            <>
+             {isClientLedgerEditMode ? (
+              <>
+               <button
+                type="button"
+                onClick={() => void onSaveAllLedgerTransactions()}
+                className="cursor-pointer rounded border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+               >
+                {t('save_changes')}
+               </button>
+               <button
+                type="button"
+                onClick={cancelClientLedgerEditMode}
+                className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+               >
+                {t('cancel')}
+               </button>
+              </>
+             ) : null}
+             <button
+              type="button"
+              onClick={() => (isClientLedgerEditMode ? cancelClientLedgerEditMode() : beginClientLedgerEditMode())}
+              className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
+               isClientLedgerEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+              }`}
+             >
+              {isClientLedgerEditMode ? t('client_ledger_done_editing') : t('client_ledger_edit_mode')}
+             </button>
+             {!isClientLedgerEditMode ? (
+              <button
+               type="button"
+               onClick={() => {
+                const targetLedger =
+                 selectedClientLedgers.length === 1
+                  ? selectedClientLedgers[0]
+                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+                if (!targetLedger) return;
+                const today = new Date().toISOString().slice(0, 10);
+                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
+                setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today });
+               }}
+               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+               {t('export_pdf')}
+              </button>
+             ) : null}
+            </>
+           ) : null}
+          </div>
+         </div>
+
+         {!selectedClientForLedger ? (
+          <div className={`${panelClassName} text-sm text-slate-600`}>{t('client_page_no_client')}</div>
+         ) : selectedClientLedgers.length === 0 ? (
+          <div className={`${panelClassName} text-sm text-slate-600`}>{t('no_client_accounts')}</div>
+         ) : (
+          selectedClientLedgers
+           .filter((ledger) => selectedClientLedgers.length === 1 || ledger.accountId === selectedLedgerAccountId)
+           .map((ledger) => (
+            <div
+             key={ledger.accountId}
+             className={panelClassName}
+            >
+             <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+               <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
+               <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+               <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('starting_balance')}</p>
+                {isClientLedgerEditMode ? (
+                 <div className="mt-2">
+                  <input
+                   type="number"
+                   value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
+                   onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
+                   className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                  />
+                 </div>
+                ) : (
+                 <p className={`mt-2 text-xl font-bold ${ledger.startingBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {ledger.startingBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                 </p>
+                )}
+               </div>
+               <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
+                <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                 {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                </p>
+               </div>
+               <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_transaction_count')}</p>
+                <p className="mt-2 text-xl font-bold text-slate-900">{ledger.transactionCount}</p>
                </div>
               </div>
-             ) : null}
-             <table className="w-full text-sm">
-              <thead className="bg-slate-100 text-slate-700">
-               <tr>
-                {orderedLedgerColumnOptions.map((column) => {
-                 if (!ledgerColumnVisibility[column.key]) {
-                  return null;
-                 }
+             </div>
 
-                 const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} ${isClientLedgerEditMode ? 'cursor-move select-none' : ''}`;
+             {ledger.entries.length === 0 ? (
+              <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
+             ) : (
+              <div className={tableWrapClassName}>
+               {isClientLedgerEditMode ? (
+                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                 <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</span>
+                  {orderedLedgerColumnOptions.map((column) => {
+                   const isVisible = ledgerColumnVisibility[column.key];
 
-                 const headerContent = (
-                  <span className="inline-flex items-center gap-2">
-                   {isClientLedgerEditMode ? <span className={`text-[10px] ${draggedLedgerColumn === column.key ? 'opacity-60' : 'opacity-80'}`}>::</span> : null}
-                   <span>{column.label}</span>
-                  </span>
-                 );
+                   return (
+                    <button
+                     key={column.key}
+                     type="button"
+                     onClick={() => toggleLedgerColumn(column.key)}
+                     aria-pressed={isVisible}
+                     className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+                      isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                     }`}
+                    >
+                     {column.label}
+                    </button>
+                   );
+                  })}
+                  <button
+                   type="button"
+                   onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
+                   aria-pressed={showLedgerCurrencySymbol}
+                   className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+                    showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                   }`}
+                  >
+                   {t('currency_symbol')}
+                  </button>
+                 </div>
+                </div>
+               ) : null}
+               <table className="w-full text-sm">
+                <thead className="bg-slate-100 text-slate-700">
+                 <tr>
+                  {orderedLedgerColumnOptions.map((column) => {
+                   if (!ledgerColumnVisibility[column.key]) {
+                    return null;
+                   }
 
-                 switch (column.key) {
-                  case 'created':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'counterparty':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'direction':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'type':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'amount':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'exchangeRate':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'commission':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'netChange':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'runningBalance':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                  case 'description':
-                   return (
-                    <th
-                     key={column.key}
-                     draggable={isClientLedgerEditMode}
-                     onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                     onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                     onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                     onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
-                     className={headerClassName}
-                    >
-                     {headerContent}
-                    </th>
-                   );
-                 }
-                })}
-               </tr>
-              </thead>
-              <tbody>
-               {ledger.entries.map((entry) => (
-                <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
-                 <tr className="border-t border-slate-200 align-top">
-                  {(() => {
-                   const draft = isClientLedgerEditMode ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+                   const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} ${isClientLedgerEditMode ? 'cursor-move select-none' : ''}`;
 
-                   return orderedLedgerColumnOptions.map((column) => {
-                    if (!ledgerColumnVisibility[column.key]) {
-                     return null;
-                    }
+                   const headerContent = (
+                    <span className="inline-flex items-center gap-2">
+                     {isClientLedgerEditMode ? <span className={`text-[10px] ${draggedLedgerColumn === column.key ? 'opacity-60' : 'opacity-80'}`}>::</span> : null}
+                     <span>{column.label}</span>
+                    </span>
+                   );
 
-                    switch (column.key) {
-                     case 'created':
-                      return (
-                       <td
-                        key={column.key}
-                        className="px-4 py-3 text-slate-500"
-                       >
-                        {isClientLedgerEditMode && draft ? (
-                         <input
-                          type="date"
-                          value={draft.createdDate}
-                          onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                         />
-                        ) : (
-                         new Date(entry.createdAt).toLocaleDateString(language)
-                        )}
-                       </td>
-                      );
-                     case 'counterparty':
-                      return (
-                       <td
-                        key={column.key}
-                        className="px-4 py-3 font-medium text-slate-900"
-                       >
-                        {isClientLedgerEditMode && draft ? (
-                         <select
-                          value={draft.counterpartyAccountId ?? ''}
-                          onChange={(event) =>
-                           updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
-                          }
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                   switch (column.key) {
+                    case 'created':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'counterparty':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'direction':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'type':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'amount':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'exchangeRate':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'commission':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'netChange':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'runningBalance':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                    case 'description':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable={isClientLedgerEditMode}
+                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
+                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
+                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
+                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
+                   }
+                  })}
+                 </tr>
+                </thead>
+                <tbody>
+                 {ledger.entries.map((entry) => (
+                  <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
+                   <tr className="border-t border-slate-200 align-top">
+                    {(() => {
+                     const draft = isClientLedgerEditMode ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+
+                     return orderedLedgerColumnOptions.map((column) => {
+                      if (!ledgerColumnVisibility[column.key]) {
+                       return null;
+                      }
+
+                      switch (column.key) {
+                       case 'created':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 text-slate-500"
                          >
-                          <option value="">{t('transaction_account_placeholder')}</option>
-                          {clientAccounts
-                           .filter((account) => account.id !== ledger.accountId)
-                           .map((account) => (
-                            <option
-                             key={account.id}
-                             value={account.id}
-                            >
-                             {account.clientName} - {account.currencySymbol || account.currencyCode}
-                            </option>
-                           ))}
-                         </select>
-                        ) : entry.counterpartyClientId ? (
-                         <button
-                          type="button"
-                          onClick={() => {
-                           const client = clients.find((c) => c.id === entry.counterpartyClientId);
-                           if (client) openClientLedger(client, clientLedgerBackSection);
-                          }}
-                          className="font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
+                          {isClientLedgerEditMode && draft ? (
+                           <input
+                            type="date"
+                            value={draft.createdDate}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           />
+                          ) : (
+                           new Date(entry.createdAt).toLocaleDateString(language)
+                          )}
+                         </td>
+                        );
+                       case 'counterparty':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 font-medium text-slate-900"
                          >
-                          {entry.counterpartyName}
-                         </button>
-                        ) : (
-                         entry.counterpartyName
-                        )}
-                       </td>
-                      );
-                     case 'direction':
-                      return (
-                       <td
-                        key={column.key}
-                        className="px-4 py-3"
-                       >
-                        {isClientLedgerEditMode && draft ? (
-                         <select
-                          value={draft.direction}
-                          onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                          {isClientLedgerEditMode && draft ? (
+                           <select
+                            value={draft.counterpartyAccountId ?? ''}
+                            onChange={(event) =>
+                             updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
+                            }
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           >
+                            <option value="">{t('transaction_account_placeholder')}</option>
+                            {clientAccounts
+                             .filter((account) => account.id !== ledger.accountId)
+                             .map((account) => (
+                              <option
+                               key={account.id}
+                               value={account.id}
+                              >
+                               {account.clientName} - {account.currencySymbol || account.currencyCode}
+                              </option>
+                             ))}
+                           </select>
+                          ) : entry.counterpartyClientId ? (
+                           <button
+                            type="button"
+                            onClick={() => {
+                             const client = clients.find((c) => c.id === entry.counterpartyClientId);
+                             if (client) openClientLedger(client, clientLedgerBackSection);
+                            }}
+                            className="font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
+                           >
+                            {entry.counterpartyName}
+                           </button>
+                          ) : (
+                           entry.counterpartyName
+                          )}
+                         </td>
+                        );
+                       case 'direction':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3"
                          >
-                          <option value="incoming">{t('incoming')}</option>
-                          <option value="outgoing">{t('outgoing')}</option>
-                         </select>
-                        ) : (
-                         <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                          {isClientLedgerEditMode && draft ? (
+                           <select
+                            value={draft.direction}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           >
+                            <option value="incoming">{t('incoming')}</option>
+                            <option value="outgoing">{t('outgoing')}</option>
+                           </select>
+                          ) : (
+                           <span
+                            className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                           >
+                            {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
+                           </span>
+                          )}
+                         </td>
+                        );
+                       case 'type':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 text-slate-600"
                          >
-                          {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
-                         </span>
-                        )}
-                       </td>
-                      );
-                     case 'type':
-                      return (
-                       <td
-                        key={column.key}
-                        className="px-4 py-3 text-slate-600"
-                       >
-                        {isClientLedgerEditMode && draft ? (
-                         <select
-                          value={draft.type}
-                          onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                          {isClientLedgerEditMode && draft ? (
+                           <select
+                            value={draft.type}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           >
+                            <option value="exchange">{t('transaction_type_exchange')}</option>
+                            <option value="transfer">{t('transaction_type_transfer')}</option>
+                           </select>
+                          ) : (
+                           t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
+                          )}
+                         </td>
+                        );
+                       case 'amount':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 text-slate-700"
                          >
-                          <option value="exchange">{t('transaction_type_exchange')}</option>
-                          <option value="transfer">{t('transaction_type_transfer')}</option>
-                         </select>
-                        ) : (
-                         t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
-                        )}
-                       </td>
-                      );
-                     case 'amount':
-                      return (
-                       <td
-                        key={column.key}
-                        className="px-4 py-3 text-slate-700"
-                       >
-                        {isClientLedgerEditMode && draft ? (
-                         <input
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={draft.amount}
-                          onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                         />
-                        ) : (
-                         <>
-                          {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })}
-                          {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
-                         </>
-                        )}
-                       </td>
-                      );
-                     case 'exchangeRate':
-                      return (
-                       <td
-                        key={column.key}
-                        className="px-4 py-3 text-slate-600"
-                       >
-                        {isClientLedgerEditMode && draft
-                         ? (() => {
-                            const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                            const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
-                            const txCurr = entry.currencyCode;
-                            const accCurr = ledger.currencyCode;
-                            return (
-                             <div>
-                              {txCurr && accCurr && txCurr !== accCurr && (
-                               <div className="mb-1 flex items-center justify-between">
-                                <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
+                          {isClientLedgerEditMode && draft ? (
+                           <input
+                            type="text"
+                            inputMode="decimal"
+                            dir="ltr"
+                            value={draft.amount}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           />
+                          ) : (
+                           <>
+                            {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })}
+                            {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
+                           </>
+                          )}
+                         </td>
+                        );
+                       case 'exchangeRate':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 text-slate-600"
+                         >
+                          {isClientLedgerEditMode && draft
+                           ? (() => {
+                              const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                              const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
+                              const txCurr = entry.currencyCode;
+                              const accCurr = ledger.currencyCode;
+                              return (
+                               <div>
+                                {txCurr && accCurr && txCurr !== accCurr && (
+                                 <div className="mb-1 flex items-center justify-between">
+                                  <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
+                                  <button
+                                   type="button"
+                                   title="Reverse rate direction"
+                                   onClick={() => {
+                                    const val = parseFloat(draft.exchangeRate) || 1;
+                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                                    setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
+                                   }}
+                                   className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                  >
+                                   <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    aria-hidden
+                                    width="14"
+                                    height="14"
+                                   >
+                                    <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                    <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                   </svg>
+                                  </button>
+                                 </div>
+                                )}
+                                <input
+                                 type="text"
+                                 inputMode="decimal"
+                                 dir="ltr"
+                                 value={draft.exchangeRate}
+                                 onChange={(event) =>
+                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
+                                 }
+                                 className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                                />
+                               </div>
+                              );
+                             })()
+                           : (() => {
+                              const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                              const txCurr = entry.currencyCode;
+                              const accCurr = ledger.currencyCode;
+                              const defaultReversed = entry.exchangeRateReversed;
+                              const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
+                              if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
+                               return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                              }
+                              const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                              const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                              return (
+                               <div className="flex items-center gap-1">
+                                <span title={rateLabel}>{rateNumber}</span>
                                 <button
                                  type="button"
                                  title="Reverse rate direction"
-                                 onClick={() => {
-                                  const val = parseFloat(draft.exchangeRate) || 1;
-                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                                  setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
-                                 }}
-                                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                 onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
+                                 className="rounded p-0.5 text-slate-400 hover:text-slate-700"
                                 >
                                  <svg
                                   width="14"
@@ -4209,1383 +4299,1341 @@ function AuthenticatedHome() {
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                   aria-hidden
-                                  className="h-3.5 w-3.5"
+                                  width="14"
+                                  height="14"
                                  >
                                   <path d="M7 4 3 8l4 4M3 8h13.5" />
                                   <path d="M17 20l4-4-4-4m4 4H7.5" />
                                  </svg>
                                 </button>
                                </div>
-                              )}
-                              <input
-                               type="text"
-                               inputMode="decimal"
-                               dir="ltr"
-                               value={draft.exchangeRate}
-                               onChange={(event) =>
-                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
-                               }
-                               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                              />
-                             </div>
-                            );
-                           })()
-                         : (() => {
-                            const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                            const txCurr = entry.currencyCode;
-                            const accCurr = ledger.currencyCode;
-                            const defaultReversed = entry.exchangeRateReversed;
-                            const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
-                            if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
-                             return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-                            }
-                            const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
-                            const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
-                            return (
-                             <div className="flex items-center gap-1">
-                              <span title={rateLabel}>{rateNumber}</span>
+                              );
+                             })()}
+                         </td>
+                        );
+                       case 'commission':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 text-slate-600"
+                         >
+                          {isClientLedgerEditMode && draft ? (
+                           (() => {
+                            const entryKey = `${entry.transactionId}:${ledger.accountId}`;
+                            const isZero = parseFloat(draft.commission) === 0;
+                            const expanded = ledgerCommissionExpandedEntries.has(entryKey);
+                            if (isZero && !expanded) {
+                             return (
                               <button
                                type="button"
-                               title="Reverse rate direction"
-                               onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
-                               className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                               onClick={() => setLedgerCommissionExpandedEntries((prev) => new Set([...prev, entryKey]))}
+                               className="text-sm text-blue-600 hover:underline"
                               >
-                               <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden
-                                className="h-3.5 w-3.5"
-                               >
-                                <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                <path d="M17 20l4-4-4-4m4 4H7.5" />
-                               </svg>
+                               + {t('add_commission')}
                               </button>
-                             </div>
+                             );
+                            }
+                            return (
+                             <input
+                              type="text"
+                              inputMode="decimal"
+                              dir="ltr"
+                              value={draft.commission}
+                              onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
+                              className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                              placeholder="0"
+                             />
                             );
-                           })()}
-                       </td>
-                      );
-                     case 'commission':
-                      return (
-                       <td
-                        key={column.key}
-                        className="px-4 py-3 text-slate-600"
-                       >
-                        {isClientLedgerEditMode && draft ? (
-                         (() => {
-                          const entryKey = `${entry.transactionId}:${ledger.accountId}`;
-                          const isZero = parseFloat(draft.commission) === 0;
-                          const expanded = ledgerCommissionExpandedEntries.has(entryKey);
-                          if (isZero && !expanded) {
-                           return (
-                            <button
-                             type="button"
-                             onClick={() => setLedgerCommissionExpandedEntries((prev) => new Set([...prev, entryKey]))}
-                             className="text-sm text-blue-600 hover:underline"
-                            >
-                             + {t('add_commission')}
-                            </button>
-                           );
-                          }
-                          return (
+                           })()
+                          ) : entry.commission ? (
+                           <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</>
+                          ) : (
+                           <span className="text-slate-400">â€”</span>
+                          )}
+                         </td>
+                        );
+                       case 'netChange':
+                        return (
+                         <td
+                          key={column.key}
+                          className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                         >
+                          {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}
+                          {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                         </td>
+                        );
+                       case 'runningBalance':
+                        return (
+                         <td
+                          key={column.key}
+                          className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                         >
+                          {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                          {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                         </td>
+                        );
+                       case 'description':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 text-slate-500"
+                         >
+                          {isClientLedgerEditMode && draft ? (
                            <input
                             type="text"
-                            inputMode="decimal"
-                            dir="ltr"
-                            value={draft.commission}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
-                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                            placeholder="0"
+                            value={draft.description}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                            />
-                          );
-                         })()
-                        ) : entry.commission ? (
-                         <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</>
-                        ) : (
-                         <span className="text-slate-400">—</span>
-                        )}
-                       </td>
-                      );
-                     case 'netChange':
-                      return (
-                       <td
-                        key={column.key}
-                        className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                       >
-                        {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}
-                        {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                       </td>
-                      );
-                     case 'runningBalance':
-                      return (
-                       <td
-                        key={column.key}
-                        className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                       >
-                        {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
-                        {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                       </td>
-                      );
-                     case 'description':
-                      return (
-                       <td
-                        key={column.key}
-                        className="px-4 py-3 text-slate-500"
-                       >
-                        {isClientLedgerEditMode && draft ? (
-                         <input
-                          type="text"
-                          value={draft.description}
-                          onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                         />
-                        ) : (
-                         entry.description || '-'
-                        )}
-                       </td>
-                      );
-                    }
-                   });
-                  })()}
-                 </tr>
-                 {entry.charges > 0 && (
-                  <tr
-                   key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}-charges`}
-                   className="border-t border-dashed border-slate-200 bg-amber-50/60"
+                          ) : (
+                           entry.description || '-'
+                          )}
+                         </td>
+                        );
+                      }
+                     });
+                    })()}
+                   </tr>
+                   {entry.charges > 0 && (
+                    <tr
+                     key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}-charges`}
+                     className="border-t border-dashed border-slate-200 bg-amber-50/60"
+                    >
+                     <td
+                      colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 1}
+                      className="px-4 py-2"
+                     >
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                       <span className="font-medium text-amber-700">{t('charges')}</span>
+                       <span className="font-semibold">
+                        {entry.charges.toLocaleString(language, { maximumFractionDigits: 2 })}
+                        {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
+                       </span>
+                       {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
+                        <span className="text-slate-400">@ {entry.chargesExchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
+                       )}
+                       {entry.chargesPayer && (
+                        <span className="text-slate-500">
+                         â€” {t('charges_payer_placeholder')}:{' '}
+                         {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
+                        </span>
+                       )}
+                       {entry.chargesDescription && <span className="italic text-slate-500">"{entry.chargesDescription}"</span>}
+                      </div>
+                     </td>
+                    </tr>
+                   )}
+                  </Fragment>
+                 ))}
+                </tbody>
+               </table>
+              </div>
+             )}
+            </div>
+           ))
+         )}
+        </section>
+       ) : null}
+
+       {section === 'currencies' ? currenciesReadOnlySection : null}
+
+       {section === 'transactions' ? (
+        <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
+         {isNewTransactionSectionOpen ? (
+          <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
+           <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
+           <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
+
+           {pendingImportData ? (
+            <div className="mt-5 rounded border border-blue-200 bg-blue-50/60 p-4">
+             <p className="text-sm font-semibold text-blue-900">Import Setup: {pendingImportData.fileName}</p>
+             <p className="mt-1 text-xs text-blue-700">Answer these questions before importing.</p>
+
+             <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
+               <select
+                value={importMapping.dateColumn ?? ''}
+                onChange={(event) =>
+                 setImportMapping((current) => ({
+                  ...current,
+                  dateColumn: event.target.value === '' ? null : Number(event.target.value),
+                 }))
+                }
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="">No date column</option>
+                {pendingImportData.columnOptions.map((option) => (
+                 <option
+                  key={option.index}
+                  value={option.index}
+                 >
+                  {option.label}
+                 </option>
+                ))}
+               </select>
+              </label>
+
+              <label className="text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
+               <select
+                value={importMapping.fromColumn ?? ''}
+                onChange={(event) =>
+                 setImportMapping((current) => ({
+                  ...current,
+                  fromColumn: event.target.value === '' ? null : Number(event.target.value),
+                 }))
+                }
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="">Select from column</option>
+                {pendingImportData.columnOptions.map((option) => (
+                 <option
+                  key={option.index}
+                  value={option.index}
+                 >
+                  {option.label}
+                 </option>
+                ))}
+               </select>
+              </label>
+
+              <label className="text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
+               <select
+                value={importMapping.toColumn ?? ''}
+                onChange={(event) =>
+                 setImportMapping((current) => ({
+                  ...current,
+                  toColumn: event.target.value === '' ? null : Number(event.target.value),
+                 }))
+                }
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="">Select to column</option>
+                {pendingImportData.columnOptions.map((option) => (
+                 <option
+                  key={option.index}
+                  value={option.index}
+                 >
+                  {option.label}
+                 </option>
+                ))}
+               </select>
+              </label>
+
+              <label className="text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
+               <select
+                value={importMapping.amountColumn ?? ''}
+                onChange={(event) =>
+                 setImportMapping((current) => ({
+                  ...current,
+                  amountColumn: event.target.value === '' ? null : Number(event.target.value),
+                 }))
+                }
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="">Select amount column</option>
+                {pendingImportData.columnOptions.map((option) => (
+                 <option
+                  key={option.index}
+                  value={option.index}
+                 >
+                  {option.label}
+                 </option>
+                ))}
+               </select>
+              </label>
+
+              <label className="text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
+               <select
+                value={importMapping.descriptionColumn ?? ''}
+                onChange={(event) =>
+                 setImportMapping((current) => ({
+                  ...current,
+                  descriptionColumn: event.target.value === '' ? null : Number(event.target.value),
+                 }))
+                }
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="">No description column</option>
+                {pendingImportData.columnOptions.map((option) => (
+                 <option
+                  key={option.index}
+                  value={option.index}
+                 >
+                  {option.label}
+                 </option>
+                ))}
+               </select>
+              </label>
+
+              <label className="text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
+               <select
+                value={importMapping.currencyId ?? ''}
+                onChange={(event) =>
+                 setImportMapping((current) => ({
+                  ...current,
+                  currencyId: event.target.value === '' ? null : Number(event.target.value),
+                 }))
+                }
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="">Select currency</option>
+                {currencies.map((currency) => (
+                 <option
+                  key={currency.id}
+                  value={currency.id}
+                 >
+                  {currency.code} - {currency.name}
+                 </option>
+                ))}
+               </select>
+              </label>
+             </div>
+
+             <div className="mt-4 flex flex-wrap gap-2">
+              <button
+               type="button"
+               onClick={() => void onConfirmImportTransactions()}
+               disabled={isImportingTransactions}
+               className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+               {isImportingTransactions ? 'Importing...' : 'Import Now'}
+              </button>
+              <button
+               type="button"
+               onClick={onCancelImportTransactions}
+               disabled={isImportingTransactions}
+               className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+               Cancel Import
+              </button>
+             </div>
+            </div>
+           ) : null}
+
+           <form
+            onSubmit={onTransactionSubmit}
+            className="mt-5 max-w-md"
+           >
+            <label className="block text-sm font-medium">
+             {t('transaction_account_from')} <span className="text-red-500">*</span>
+            </label>
+            <div className="relative mt-2">
+             <input
+              type="text"
+              value={
+               txFromOpen
+                ? txFromQuery
+                : transactionForm.accountFromId
+                  ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
+                    ' â€” ' +
+                    (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
+                  : ''
+              }
+              onChange={(event) => {
+               setTxFromQuery(event.target.value);
+               setTxFromOpen(true);
+              }}
+              onFocus={() => {
+               setTxFromQuery('');
+               setTxFromOpen(true);
+              }}
+              onBlur={() => setTimeout(() => setTxFromOpen(false), 150)}
+              placeholder={t('transaction_account_placeholder')}
+              className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+              autoComplete="off"
+             />
+             {txFromOpen && (
+              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+               {clientAccounts
+                .filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase()))
+                .map((account) => (
+                 <li
+                  key={account.id}
+                  onMouseDown={() => {
+                   setTransactionForm((current) => ({ ...current, accountFromId: account.id }));
+                   setTxFromQuery('');
+                   setTxFromOpen(false);
+                  }}
+                  className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                 >
+                  {account.clientName} â€” {account.currencyCode}
+                 </li>
+                ))}
+               {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
+                <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+               )}
+              </ul>
+             )}
+            </div>
+
+            <label className="mt-4 block text-sm font-medium">
+             {t('transaction_account_to')} <span className="text-red-500">*</span>
+            </label>
+            <div className="relative mt-2">
+             <input
+              type="text"
+              value={
+               txToOpen
+                ? txToQuery
+                : transactionForm.accountToId
+                  ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
+                    ' â€” ' +
+                    (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
+                  : ''
+              }
+              onChange={(event) => {
+               setTxToQuery(event.target.value);
+               setTxToOpen(true);
+              }}
+              onFocus={() => {
+               setTxToQuery('');
+               setTxToOpen(true);
+              }}
+              onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
+              placeholder={t('transaction_account_placeholder')}
+              className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+              autoComplete="off"
+             />
+             {txToOpen && (
+              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+               {clientAccounts
+                .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
+                .map((account) => (
+                 <li
+                  key={account.id}
+                  onMouseDown={() => {
+                   setTransactionForm((current) => ({ ...current, accountToId: account.id }));
+                   setTxToQuery('');
+                   setTxToOpen(false);
+                  }}
+                  className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                 >
+                  {account.clientName} â€” {account.currencyCode}
+                 </li>
+                ))}
+               {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
+                <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+               )}
+              </ul>
+             )}
+            </div>
+
+            <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
+            <select
+             value={transactionForm.type}
+             onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
+             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+            >
+             <option value="exchange">{t('transaction_type_exchange')}</option>
+             <option value="transfer">{t('transaction_type_transfer')}</option>
+            </select>
+
+            <label className="mt-4 block text-sm font-medium">
+             {t('transaction_amount')} <span className="text-red-500">*</span>
+            </label>
+            <div className="mt-2 flex gap-2">
+             <input
+              type="text"
+              inputMode="decimal"
+              dir="ltr"
+              value={transactionForm.amount}
+              onChange={(event) => setTransactionForm((current) => ({ ...current, amount: normalizeDecimalInput(event.target.value) }))}
+              className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+              placeholder="0.00"
+              required
+             />
+             <select
+              value={transactionForm.currencyId ?? ''}
+              onChange={(event) =>
+               setTransactionForm((current) => ({
+                ...current,
+                currencyId: event.target.value ? Number(event.target.value) : null,
+               }))
+              }
+              className="w-28 rounded border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              required
+             >
+              <option value="">{t('transaction_currency_placeholder')}</option>
+              {enabledCurrencies.map((cur) => (
+               <option
+                key={cur.id}
+                value={cur.id}
+               >
+                {cur.code}
+               </option>
+              ))}
+             </select>
+            </div>
+
+            <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
+             <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
+             <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
+              {showExchangeRateFrom && (
+               <div>
+                <div className="flex items-center justify-between">
+                 <label className="block text-xs font-medium text-slate-500">
+                  {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode
+                   ? txFromRateReversed
+                     ? `1 ${transactionAccountFromCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
+                     : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountFromCurrencyCode}`
+                   : t('transaction_exchange_rate_from')}
+                 </label>
+                 {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountFromCurrencyCode && (
+                  <button
+                   type="button"
+                   title="Reverse rate direction"
+                   onClick={() => {
+                    const val = parseFloat(transactionForm.exchangeRateFrom) || 1;
+                    setTransactionForm((c) => ({ ...c, exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
+                    setTxFromRateReversed((r) => !r);
+                   }}
+                   className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
                   >
-                   <td
-                    colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 1}
-                    className="px-4 py-2"
+                   <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                    width="14"
+                    height="14"
                    >
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                     <span className="font-medium text-amber-700">{t('charges')}</span>
-                     <span className="font-semibold">
-                      {entry.charges.toLocaleString(language, { maximumFractionDigits: 2 })}
-                      {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
-                     </span>
-                     {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
-                      <span className="text-slate-400">@ {entry.chargesExchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
-                     )}
-                     {entry.chargesPayer && (
-                      <span className="text-slate-500">
-                       — {t('charges_payer_placeholder')}:{' '}
-                       {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
-                      </span>
-                     )}
-                     {entry.chargesDescription && <span className="italic text-slate-500">"{entry.chargesDescription}"</span>}
-                    </div>
-                   </td>
-                  </tr>
+                    <path d="M7 4 3 8l4 4M3 8h13.5" />
+                    <path d="M17 20l4-4-4-4m4 4H7.5" />
+                   </svg>
+                  </button>
                  )}
-                </Fragment>
-               ))}
-              </tbody>
-             </table>
-            </div>
-           )}
-          </div>
-         ))
-       )}
-      </section>
-     ) : null}
-
-     {section === 'currencies' ? currenciesReadOnlySection : null}
-
-     {section === 'transactions' ? (
-      <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
-       {isNewTransactionSectionOpen ? (
-        <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
-         <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
-         <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
-
-         {pendingImportData ? (
-          <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
-           <p className="text-sm font-semibold text-blue-900">Import Setup: {pendingImportData.fileName}</p>
-           <p className="mt-1 text-xs text-blue-700">Answer these questions before importing.</p>
-
-           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <label className="text-sm text-slate-700">
-             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
-             <select
-              value={importMapping.dateColumn ?? ''}
-              onChange={(event) =>
-               setImportMapping((current) => ({
-                ...current,
-                dateColumn: event.target.value === '' ? null : Number(event.target.value),
-               }))
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-             >
-              <option value="">No date column</option>
-              {pendingImportData.columnOptions.map((option) => (
-               <option
-                key={option.index}
-                value={option.index}
-               >
-                {option.label}
-               </option>
-              ))}
-             </select>
-            </label>
-
-            <label className="text-sm text-slate-700">
-             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
-             <select
-              value={importMapping.fromColumn ?? ''}
-              onChange={(event) =>
-               setImportMapping((current) => ({
-                ...current,
-                fromColumn: event.target.value === '' ? null : Number(event.target.value),
-               }))
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-             >
-              <option value="">Select from column</option>
-              {pendingImportData.columnOptions.map((option) => (
-               <option
-                key={option.index}
-                value={option.index}
-               >
-                {option.label}
-               </option>
-              ))}
-             </select>
-            </label>
-
-            <label className="text-sm text-slate-700">
-             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
-             <select
-              value={importMapping.toColumn ?? ''}
-              onChange={(event) =>
-               setImportMapping((current) => ({
-                ...current,
-                toColumn: event.target.value === '' ? null : Number(event.target.value),
-               }))
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-             >
-              <option value="">Select to column</option>
-              {pendingImportData.columnOptions.map((option) => (
-               <option
-                key={option.index}
-                value={option.index}
-               >
-                {option.label}
-               </option>
-              ))}
-             </select>
-            </label>
-
-            <label className="text-sm text-slate-700">
-             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
-             <select
-              value={importMapping.amountColumn ?? ''}
-              onChange={(event) =>
-               setImportMapping((current) => ({
-                ...current,
-                amountColumn: event.target.value === '' ? null : Number(event.target.value),
-               }))
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-             >
-              <option value="">Select amount column</option>
-              {pendingImportData.columnOptions.map((option) => (
-               <option
-                key={option.index}
-                value={option.index}
-               >
-                {option.label}
-               </option>
-              ))}
-             </select>
-            </label>
-
-            <label className="text-sm text-slate-700">
-             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
-             <select
-              value={importMapping.descriptionColumn ?? ''}
-              onChange={(event) =>
-               setImportMapping((current) => ({
-                ...current,
-                descriptionColumn: event.target.value === '' ? null : Number(event.target.value),
-               }))
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-             >
-              <option value="">No description column</option>
-              {pendingImportData.columnOptions.map((option) => (
-               <option
-                key={option.index}
-                value={option.index}
-               >
-                {option.label}
-               </option>
-              ))}
-             </select>
-            </label>
-
-            <label className="text-sm text-slate-700">
-             <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
-             <select
-              value={importMapping.currencyId ?? ''}
-              onChange={(event) =>
-               setImportMapping((current) => ({
-                ...current,
-                currencyId: event.target.value === '' ? null : Number(event.target.value),
-               }))
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-             >
-              <option value="">Select currency</option>
-              {currencies.map((currency) => (
-               <option
-                key={currency.id}
-                value={currency.id}
-               >
-                {currency.code} - {currency.name}
-               </option>
-              ))}
-             </select>
-            </label>
-           </div>
-
-           <div className="mt-4 flex flex-wrap gap-2">
-            <button
-             type="button"
-             onClick={() => void onConfirmImportTransactions()}
-             disabled={isImportingTransactions}
-             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-             {isImportingTransactions ? 'Importing...' : 'Import Now'}
-            </button>
-            <button
-             type="button"
-             onClick={onCancelImportTransactions}
-             disabled={isImportingTransactions}
-             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-             Cancel Import
-            </button>
-           </div>
-          </div>
-         ) : null}
-
-         <form
-          onSubmit={onTransactionSubmit}
-          className="mt-5 max-w-md"
-         >
-          <label className="block text-sm font-medium">
-           {t('transaction_account_from')} <span className="text-red-500">*</span>
-          </label>
-          <div className="relative mt-2">
-           <input
-            type="text"
-            value={
-             txFromOpen
-              ? txFromQuery
-              : transactionForm.accountFromId
-                ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
-                  ' — ' +
-                  (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
-                : ''
-            }
-            onChange={(event) => {
-             setTxFromQuery(event.target.value);
-             setTxFromOpen(true);
-            }}
-            onFocus={() => {
-             setTxFromQuery('');
-             setTxFromOpen(true);
-            }}
-            onBlur={() => setTimeout(() => setTxFromOpen(false), 150)}
-            placeholder={t('transaction_account_placeholder')}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-            autoComplete="off"
-           />
-           {txFromOpen && (
-            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-             {clientAccounts
-              .filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase()))
-              .map((account) => (
-               <li
-                key={account.id}
-                onMouseDown={() => {
-                 setTransactionForm((current) => ({ ...current, accountFromId: account.id }));
-                 setTxFromQuery('');
-                 setTxFromOpen(false);
-                }}
-                className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-               >
-                {account.clientName} — {account.currencyCode}
-               </li>
-              ))}
-             {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
-              <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
-             )}
-            </ul>
-           )}
-          </div>
-
-          <label className="mt-4 block text-sm font-medium">
-           {t('transaction_account_to')} <span className="text-red-500">*</span>
-          </label>
-          <div className="relative mt-2">
-           <input
-            type="text"
-            value={
-             txToOpen
-              ? txToQuery
-              : transactionForm.accountToId
-                ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
-                  ' — ' +
-                  (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
-                : ''
-            }
-            onChange={(event) => {
-             setTxToQuery(event.target.value);
-             setTxToOpen(true);
-            }}
-            onFocus={() => {
-             setTxToQuery('');
-             setTxToOpen(true);
-            }}
-            onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
-            placeholder={t('transaction_account_placeholder')}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-            autoComplete="off"
-           />
-           {txToOpen && (
-            <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
-             {clientAccounts
-              .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
-              .map((account) => (
-               <li
-                key={account.id}
-                onMouseDown={() => {
-                 setTransactionForm((current) => ({ ...current, accountToId: account.id }));
-                 setTxToQuery('');
-                 setTxToOpen(false);
-                }}
-                className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-               >
-                {account.clientName} — {account.currencyCode}
-               </li>
-              ))}
-             {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
-              <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
-             )}
-            </ul>
-           )}
-          </div>
-
-          <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
-          <select
-           value={transactionForm.type}
-           onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
-           className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-          >
-           <option value="exchange">{t('transaction_type_exchange')}</option>
-           <option value="transfer">{t('transaction_type_transfer')}</option>
-          </select>
-
-          <label className="mt-4 block text-sm font-medium">
-           {t('transaction_amount')} <span className="text-red-500">*</span>
-          </label>
-          <div className="mt-2 flex gap-2">
-           <input
-            type="text"
-            inputMode="decimal"
-            dir="ltr"
-            value={transactionForm.amount}
-            onChange={(event) => setTransactionForm((current) => ({ ...current, amount: normalizeDecimalInput(event.target.value) }))}
-            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-            placeholder="0.00"
-            required
-           />
-           <select
-            value={transactionForm.currencyId ?? ''}
-            onChange={(event) =>
-             setTransactionForm((current) => ({
-              ...current,
-              currencyId: event.target.value ? Number(event.target.value) : null,
-             }))
-            }
-            className="w-28 rounded-lg border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            required
-           >
-            <option value="">{t('transaction_currency_placeholder')}</option>
-            {enabledCurrencies.map((cur) => (
-             <option
-              key={cur.id}
-              value={cur.id}
-             >
-              {cur.code}
-             </option>
-            ))}
-           </select>
-          </div>
-
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-           <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
-           <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
-            {showExchangeRateFrom && (
-             <div>
-              <div className="flex items-center justify-between">
-               <label className="block text-xs font-medium text-slate-500">
-                {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode
-                 ? txFromRateReversed
-                   ? `1 ${transactionAccountFromCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
-                   : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountFromCurrencyCode}`
-                 : t('transaction_exchange_rate_from')}
-               </label>
-               {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountFromCurrencyCode && (
-                <button
-                 type="button"
-                 title="Reverse rate direction"
-                 onClick={() => {
-                  const val = parseFloat(transactionForm.exchangeRateFrom) || 1;
-                  setTransactionForm((c) => ({ ...c, exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
-                  setTxFromRateReversed((r) => !r);
-                 }}
-                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                >
-                 <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                  className="h-3.5 w-3.5"
-                 >
-                  <path d="M7 4 3 8l4 4M3 8h13.5" />
-                  <path d="M17 20l4-4-4-4m4 4H7.5" />
-                 </svg>
-                </button>
-               )}
-              </div>
-              <input
-               type="text"
-               inputMode="decimal"
-               dir="ltr"
-               value={transactionForm.exchangeRateFrom}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
-               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               placeholder="1"
-              />
-             </div>
-            )}
-            <div>
-             <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
-             <input
-              type="text"
-              inputMode="decimal"
-              dir="ltr"
-              value={transactionForm.commissionFrom}
-              onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              placeholder="0"
-             />
-            </div>
-           </div>
-          </div>
-
-          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-           <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
-           <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
-            {showExchangeRateTo && (
-             <div>
-              <div className="flex items-center justify-between">
-               <label className="block text-xs font-medium text-slate-500">
-                {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
-                 ? txToRateReversed
-                   ? `1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
-                   : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`
-                 : t('transaction_exchange_rate_to')}
-               </label>
-               {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
-                <button
-                 type="button"
-                 title="Reverse rate direction"
-                 onClick={() => {
-                  const val = parseFloat(transactionForm.exchangeRateTo) || 1;
-                  setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
-                  setTxToRateReversed((r) => !r);
-                 }}
-                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                >
-                 <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                  className="h-3.5 w-3.5"
-                 >
-                  <path d="M7 4 3 8l4 4M3 8h13.5" />
-                  <path d="M17 20l4-4-4-4m4 4H7.5" />
-                 </svg>
-                </button>
-               )}
-              </div>
-              <input
-               type="text"
-               inputMode="decimal"
-               dir="ltr"
-               value={transactionForm.exchangeRateTo}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
-               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               placeholder="1"
-              />
-             </div>
-            )}
-            <div>
-             <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
-             <input
-              type="text"
-              inputMode="decimal"
-              dir="ltr"
-              value={transactionForm.commissionTo}
-              onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              placeholder="0"
-             />
-            </div>
-           </div>
-          </div>
-
-          <div className="mt-4">
-           <button
-            type="button"
-            onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
-            className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
-           >
-            <span>{isNewTransactionExpensesOpen ? '▾' : '▸'}</span>
-            {t('extra_expenses')}
-           </button>
-           {isNewTransactionExpensesOpen && (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-             <div className="grid gap-2 sm:grid-cols-3">
-              <input
-               type="text"
-               inputMode="decimal"
-               dir="ltr"
-               value={transactionForm.charges}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
-               className="rounded-lg border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
-               placeholder="0"
-              />
-              <select
-               value={transactionForm.chargesCurrencyId ?? ''}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, chargesCurrencyId: event.target.value ? Number(event.target.value) : null }))}
-               className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              >
-               <option value="">{t('currency')}</option>
-               {enabledCurrencies.map((cur) => (
-                <option
-                 key={cur.id}
-                 value={cur.id}
-                >
-                 {cur.code}
-                </option>
-               ))}
-              </select>
-              <select
-               value={transactionForm.chargesPayer}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, chargesPayer: event.target.value }))}
-               className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              >
-               <option value="">{t('charges_payer_placeholder')}</option>
-               <option value="from">
-                {transactionForm.accountFromId ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from')) : t('transaction_account_from')}
-               </option>
-               <option value="to">
-                {transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
-               </option>
-              </select>
-             </div>
-             {showChargesExchangeRate && (
-              <div className="mt-2">
-               <label className="block text-xs font-medium text-slate-500">
-                {t('charges_exchange_rate')} ({chargesCurrencyCode} → {chargesPayerAccountCurrencyCode})
-               </label>
+                </div>
+                <input
+                 type="text"
+                 inputMode="decimal"
+                 dir="ltr"
+                 value={transactionForm.exchangeRateFrom}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
+                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 placeholder="1"
+                />
+               </div>
+              )}
+              <div>
+               <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
                <input
                 type="text"
                 inputMode="decimal"
                 dir="ltr"
-                value={transactionForm.chargesExchangeRate}
-                onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizeDecimalInput(event.target.value) }))}
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
-                placeholder="1"
+                value={transactionForm.commissionFrom}
+                onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                placeholder="0"
                />
               </div>
-             )}
-             <div className="mt-2">
-              <label className="block text-xs font-medium text-slate-500">{t('charges_description')}</label>
-              <input
-               type="text"
-               value={transactionForm.chargesDescription}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
-               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               placeholder={t('charges_description_placeholder')}
-              />
              </div>
             </div>
-           )}
+
+            <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
+             <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
+             <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
+              {showExchangeRateTo && (
+               <div>
+                <div className="flex items-center justify-between">
+                 <label className="block text-xs font-medium text-slate-500">
+                  {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
+                   ? txToRateReversed
+                     ? `1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
+                     : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`
+                   : t('transaction_exchange_rate_to')}
+                 </label>
+                 {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
+                  <button
+                   type="button"
+                   title="Reverse rate direction"
+                   onClick={() => {
+                    const val = parseFloat(transactionForm.exchangeRateTo) || 1;
+                    setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
+                    setTxToRateReversed((r) => !r);
+                   }}
+                   className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                  >
+                   <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                    width="14"
+                    height="14"
+                   >
+                    <path d="M7 4 3 8l4 4M3 8h13.5" />
+                    <path d="M17 20l4-4-4-4m4 4H7.5" />
+                   </svg>
+                  </button>
+                 )}
+                </div>
+                <input
+                 type="text"
+                 inputMode="decimal"
+                 dir="ltr"
+                 value={transactionForm.exchangeRateTo}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 placeholder="1"
+                />
+               </div>
+              )}
+              <div>
+               <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
+               <input
+                type="text"
+                inputMode="decimal"
+                dir="ltr"
+                value={transactionForm.commissionTo}
+                onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                placeholder="0"
+               />
+              </div>
+             </div>
+            </div>
+
+            <div className="mt-4">
+             <button
+              type="button"
+              onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
+              className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+             >
+              <span>{isNewTransactionExpensesOpen ? 'â–¾' : 'â–¸'}</span>
+              {t('extra_expenses')}
+             </button>
+             {isNewTransactionExpensesOpen && (
+              <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
+               <div className="grid gap-2 sm:grid-cols-3">
+                <input
+                 type="text"
+                 inputMode="decimal"
+                 dir="ltr"
+                 value={transactionForm.charges}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
+                 className="rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                 placeholder="0"
+                />
+                <select
+                 value={transactionForm.chargesCurrencyId ?? ''}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesCurrencyId: event.target.value ? Number(event.target.value) : null }))}
+                 className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                >
+                 <option value="">{t('currency')}</option>
+                 {enabledCurrencies.map((cur) => (
+                  <option
+                   key={cur.id}
+                   value={cur.id}
+                  >
+                   {cur.code}
+                  </option>
+                 ))}
+                </select>
+                <select
+                 value={transactionForm.chargesPayer}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesPayer: event.target.value }))}
+                 className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                >
+                 <option value="">{t('charges_payer_placeholder')}</option>
+                 <option value="from">
+                  {transactionForm.accountFromId
+                   ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
+                   : t('transaction_account_from')}
+                 </option>
+                 <option value="to">
+                  {transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
+                 </option>
+                </select>
+               </div>
+               {showChargesExchangeRate && (
+                <div className="mt-2">
+                 <label className="block text-xs font-medium text-slate-500">
+                  {t('charges_exchange_rate')} ({chargesCurrencyCode} â†’ {chargesPayerAccountCurrencyCode})
+                 </label>
+                 <input
+                  type="text"
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={transactionForm.chargesExchangeRate}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizeDecimalInput(event.target.value) }))}
+                  className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                  placeholder="1"
+                 />
+                </div>
+               )}
+               <div className="mt-2">
+                <label className="block text-xs font-medium text-slate-500">{t('charges_description')}</label>
+                <input
+                 type="text"
+                 value={transactionForm.chargesDescription}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
+                 className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 placeholder={t('charges_description_placeholder')}
+                />
+               </div>
+              </div>
+             )}
+            </div>
+
+            <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
+            <textarea
+             value={transactionForm.description}
+             onChange={(event) => setTransactionForm((current) => ({ ...current, description: event.target.value }))}
+             className="mt-2 min-h-20 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+             placeholder={t('transaction_description_placeholder')}
+            />
+
+            <button
+             type="submit"
+             className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+            >
+             {t('save_transaction')}
+            </button>
+           </form>
           </div>
+         ) : null}
 
-          <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
-          <textarea
-           value={transactionForm.description}
-           onChange={(event) => setTransactionForm((current) => ({ ...current, description: event.target.value }))}
-           className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-           placeholder={t('transaction_description_placeholder')}
-          />
-
-          <button
-           type="submit"
-           className="mt-6 w-full rounded-lg bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
-          >
-           {t('save_transaction')}
-          </button>
-         </form>
-        </div>
-       ) : null}
-
-       <div className={`${panelClassName} min-w-0 xl:flex-1`}>
-        <div className="flex items-start justify-between gap-4">
-         <h2 className="text-xl font-semibold">{t('transactions_title')}</h2>
-         <div className="flex flex-wrap items-center gap-2">
-          <input
-           ref={transactionsImportInputRef}
-           type="file"
-           accept=".xlsx,.xls,.csv"
-           onChange={onImportTransactionsFile}
-           className="hidden"
-          />
-          <button
-           type="button"
-           onClick={() => transactionsImportInputRef.current?.click()}
-           disabled={isImportingTransactions}
-           className="cursor-pointer rounded-full border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-           {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
-          </button>
-          {isTransactionsEditMode ? (
-           <>
+         <div className={`${panelClassName} min-w-0 xl:flex-1`}>
+          <div className="flex items-start justify-between gap-4">
+           <h2 className="text-xl font-semibold">{t('transactions_title')}</h2>
+           <div className="flex flex-wrap items-center gap-2">
+            <input
+             ref={transactionsImportInputRef}
+             type="file"
+             accept=".xlsx,.xls,.csv"
+             onChange={onImportTransactionsFile}
+             className="hidden"
+            />
             <button
              type="button"
-             onClick={() => void onSaveAllTransactionDrafts()}
-             className="cursor-pointer rounded-full border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+             onClick={() => transactionsImportInputRef.current?.click()}
+             disabled={isImportingTransactions}
+             className="cursor-pointer rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-             {t('save_changes')}
+             {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
             </button>
-            <button
-             type="button"
-             onClick={cancelTransactionsEditMode}
-             className="cursor-pointer rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-             {t('cancel')}
-            </button>
-           </>
-          ) : null}
-          <button
-           type="button"
-           onClick={() => (isTransactionsEditMode ? cancelTransactionsEditMode() : beginTransactionsEditMode())}
-           className={`cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition ${
-            isTransactionsEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-           }`}
-          >
-           {isTransactionsEditMode ? t('transactions_done_editing') : t('transactions_edit_mode')}
-          </button>
-          {isTransactionsEditMode ? (
-           <button
-            type="button"
-            onClick={() => void onDeleteSelectedTransactions()}
-            className="cursor-pointer rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-           >
-            Delete Selected
-           </button>
-          ) : null}
-          <button
-           type="button"
-           onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
-           aria-expanded={isNewTransactionSectionOpen}
-           title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
-           className={`cursor-pointer rounded-2xl border p-2 transition ${
-            isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-           }`}
-          >
-           <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            className="h-4 w-4"
-            aria-hidden="true"
-           >
-            {isNewTransactionSectionOpen ? (
-             <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M6 18L18 6M6 6l12 12"
-             />
-            ) : (
-             <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 4v16M4 12h16"
-             />
-            )}
-           </svg>
-          </button>
-         </div>
-        </div>
-        {transactionsPager}
-        <div className={tableWrapClassName}>
-         <table className="w-full text-sm">
-          <colgroup>
-           {isTransactionsEditMode ? <col className="w-[5%]" /> : null}
-           <col className="w-[10%]" />
-           <col className="w-[15%]" />
-           <col className="w-[17%]" />
-           <col className="w-[17%]" />
-           <col className="w-[13%]" />
-           <col className="w-[13%]" />
-           <col className="w-[15%]" />
-          </colgroup>
-          <thead className="bg-slate-100 text-slate-700">
-           <tr>
             {isTransactionsEditMode ? (
-             <th className="px-4 py-3">
-              <input
-               type="checkbox"
-               checked={paginatedTransactions.length > 0 && paginatedTransactions.every((transaction) => selectedTransactionIds.has(transaction.id))}
-               onChange={onToggleSelectAllTransactions}
-               aria-label="Select all transactions"
-               className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
-              />
-             </th>
+             <>
+              <button
+               type="button"
+               onClick={() => void onSaveAllTransactionDrafts()}
+               className="cursor-pointer rounded border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+              >
+               {t('save_changes')}
+              </button>
+              <button
+               type="button"
+               onClick={cancelTransactionsEditMode}
+               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+               {t('cancel')}
+              </button>
+             </>
             ) : null}
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th>
-            <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
-           </tr>
-          </thead>
-          <tbody>
-           {paginatedTransactions.map((txn) => (
-            <tr
-             key={txn.id}
-             className="border-t border-slate-200 align-top"
+            <button
+             type="button"
+             onClick={() => (isTransactionsEditMode ? cancelTransactionsEditMode() : beginTransactionsEditMode())}
+             className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
+              isTransactionsEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+             }`}
             >
-             {(() => {
-              const draft = isTransactionsEditMode ? getTransactionTableDraft(txn.id) : null;
+             {isTransactionsEditMode ? t('transactions_done_editing') : t('transactions_edit_mode')}
+            </button>
+            {isTransactionsEditMode ? (
+             <button
+              type="button"
+              onClick={() => void onDeleteSelectedTransactions()}
+              className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+             >
+              Delete Selected
+             </button>
+            ) : null}
+            <button
+             type="button"
+             onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
+             aria-expanded={isNewTransactionSectionOpen}
+             title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
+             className={`cursor-pointer rounded border p-2 transition ${
+              isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+             }`}
+            >
+             <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              className="h-4 w-4"
+              aria-hidden="true"
+             >
+              {isNewTransactionSectionOpen ? (
+               <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+               />
+              ) : (
+               <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 4v16M4 12h16"
+               />
+              )}
+             </svg>
+            </button>
+           </div>
+          </div>
+          {transactionsPager}
+          <div className={tableWrapClassName}>
+           <table className="w-full text-sm">
+            <colgroup>
+             {isTransactionsEditMode ? <col className="w-[5%]" /> : null}
+             <col className="w-[10%]" />
+             <col className="w-[15%]" />
+             <col className="w-[17%]" />
+             <col className="w-[17%]" />
+             <col className="w-[13%]" />
+             <col className="w-[13%]" />
+             <col className="w-[15%]" />
+            </colgroup>
+            <thead className="bg-slate-100 text-slate-700">
+             <tr>
+              {isTransactionsEditMode ? (
+               <th className="px-4 py-3">
+                <input
+                 type="checkbox"
+                 checked={paginatedTransactions.length > 0 && paginatedTransactions.every((transaction) => selectedTransactionIds.has(transaction.id))}
+                 onChange={onToggleSelectAllTransactions}
+                 aria-label="Select all transactions"
+                 className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                />
+               </th>
+              ) : null}
+              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th>
+              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
+              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
+              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
+              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
+              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th>
+              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
+             </tr>
+            </thead>
+            <tbody>
+             {paginatedTransactions.map((txn) => (
+              <tr
+               key={txn.id}
+               className="border-t border-slate-200 align-top"
+              >
+               {(() => {
+                const draft = isTransactionsEditMode ? getTransactionTableDraft(txn.id) : null;
 
-              return (
-               <>
-                {isTransactionsEditMode ? (
-                 <td className="px-4 py-3 align-top">
-                  <input
-                   type="checkbox"
-                   checked={selectedTransactionIds.has(txn.id)}
-                   onChange={() => onToggleTransactionSelection(txn.id)}
-                   aria-label={`Select transaction ${txn.id}`}
-                   className="mt-1 h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
-                  />
-                 </td>
-                ) : null}
-                <td className="px-4 py-3 text-slate-500">
-                 {isTransactionsEditMode && draft ? (
-                  <input
-                   type="date"
-                   value={draft.createdDate}
-                   onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
-                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  />
-                 ) : (
-                  new Date(txn.createdAt).toLocaleDateString(language)
-                 )}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                 {isTransactionsEditMode && draft ? (
-                  <input
-                   type="text"
-                   value={draft.description}
-                   onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
-                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                   placeholder={t('transaction_description_placeholder')}
-                  />
-                 ) : (
-                  txn.description || <span className="text-slate-400">—</span>
-                 )}
-                </td>
-                <td className="px-4 py-3 font-medium text-slate-900">
-                 {isTransactionsEditMode && draft ? (
-                  <div className="space-y-2">
-                   <select
-                    value={draft.accountFromId ?? ''}
-                    onChange={(event) => updateTransactionTableDraft(txn.id, { accountFromId: event.target.value ? Number(event.target.value) : null })}
-                    className="min-w-40 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                   >
-                    <option value="">{t('transaction_account_placeholder')}</option>
-                    {clientAccounts.map((account) => (
-                     <option
-                      key={account.id}
-                      value={account.id}
-                     >
-                      {account.clientName} - {account.currencySymbol || account.currencyCode}
-                     </option>
-                    ))}
-                   </select>
-                   {txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
-                    <div className="flex items-center justify-between">
-                     <span className="text-xs text-slate-400">
-                      {tableRateFromReversed[txn.id] ? `1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`}
-                     </span>
-                     <button
-                      type="button"
-                      title="Reverse rate direction"
-                      onClick={() => {
-                       const val = parseFloat(draft.exchangeRateFrom) || 1;
-                       updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                       setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
-                      }}
-                      className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                     >
-                      <svg
-                       width="14"
-                       height="14"
-                       viewBox="0 0 24 24"
-                       fill="none"
-                       stroke="currentColor"
-                       strokeWidth="1.8"
-                       strokeLinecap="round"
-                       strokeLinejoin="round"
-                       aria-hidden
-                       className="h-3.5 w-3.5"
-                      >
-                       <path d="M7 4 3 8l4 4M3 8h13.5" />
-                       <path d="M17 20l4-4-4-4m4 4H7.5" />
-                      </svg>
-                     </button>
-                    </div>
+                return (
+                 <>
+                  {isTransactionsEditMode ? (
+                   <td className="px-4 py-3 align-top">
+                    <input
+                     type="checkbox"
+                     checked={selectedTransactionIds.has(txn.id)}
+                     onChange={() => onToggleTransactionSelection(txn.id)}
+                     aria-label={`Select transaction ${txn.id}`}
+                     className="mt-1 h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                    />
+                   </td>
+                  ) : null}
+                  <td className="px-4 py-3 text-slate-500">
+                   {isTransactionsEditMode && draft ? (
+                    <input
+                     type="date"
+                     value={draft.createdDate}
+                     onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
+                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                    />
+                   ) : (
+                    new Date(txn.createdAt).toLocaleDateString(language)
                    )}
-                   <input
-                    type="text"
-                    inputMode="decimal"
-                    dir="ltr"
-                    value={draft.exchangeRateFrom}
-                    onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                    placeholder={t('transaction_exchange_rate')}
-                   />
-                  </div>
-                 ) : (
-                  <>
-                   {(() => {
-                    const fromAccount = clientAccountMap.get(txn.accountFromId);
-                    const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
-
-                    return fromClient ? (
-                     <button
-                      type="button"
-                      onClick={() => openClientLedger(fromClient, 'clients')}
-                      className="cursor-pointer text-left hover:text-blue-700 hover:underline"
-                     >
-                      {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                     </button>
-                    ) : (
-                     <div>
-                      {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                     </div>
-                    );
-                   })()}
-                   {txn.exchangeRateFrom !== 1 ? (
-                    <div className="text-xs text-slate-500">
-                     {t('transaction_exchange_rate')}:{' '}
-                     {txn.exchangeRateFromReversed
-                      ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
-                      : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
-                    </div>
-                   ) : null}
-                  </>
-                 )}
-                </td>
-                <td className="px-4 py-3 font-medium text-slate-900">
-                 {isTransactionsEditMode && draft ? (
-                  <div className="space-y-2">
-                   <select
-                    value={draft.accountToId ?? ''}
-                    onChange={(event) => updateTransactionTableDraft(txn.id, { accountToId: event.target.value ? Number(event.target.value) : null })}
-                    className="min-w-40 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                   >
-                    <option value="">{t('transaction_account_placeholder')}</option>
-                    {clientAccounts.map((account) => (
-                     <option
-                      key={account.id}
-                      value={account.id}
-                     >
-                      {account.clientName} - {account.currencySymbol || account.currencyCode}
-                     </option>
-                    ))}
-                   </select>
-                   {txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
-                    <div className="flex items-center justify-between">
-                     <span className="text-xs text-slate-400">
-                      {tableRateToReversed[txn.id] ? `1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`}
-                     </span>
-                     <button
-                      type="button"
-                      title="Reverse rate direction"
-                      onClick={() => {
-                       const val = parseFloat(draft.exchangeRateTo) || 1;
-                       updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                       setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
-                      }}
-                      className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                     >
-                      <svg
-                       width="14"
-                       height="14"
-                       viewBox="0 0 24 24"
-                       fill="none"
-                       stroke="currentColor"
-                       strokeWidth="1.8"
-                       strokeLinecap="round"
-                       strokeLinejoin="round"
-                       aria-hidden
-                       className="h-3.5 w-3.5"
-                      >
-                       <path d="M7 4 3 8l4 4M3 8h13.5" />
-                       <path d="M17 20l4-4-4-4m4 4H7.5" />
-                      </svg>
-                     </button>
-                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                   {isTransactionsEditMode && draft ? (
+                    <input
+                     type="text"
+                     value={draft.description}
+                     onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
+                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                     placeholder={t('transaction_description_placeholder')}
+                    />
+                   ) : (
+                    txn.description || <span className="text-slate-400">â€”</span>
                    )}
-                   <input
-                    type="text"
-                    inputMode="decimal"
-                    dir="ltr"
-                    value={draft.exchangeRateTo}
-                    onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                    placeholder={t('transaction_exchange_rate')}
-                   />
-                  </div>
-                 ) : (
-                  <>
-                   {(() => {
-                    const toAccount = clientAccountMap.get(txn.accountToId);
-                    const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
-
-                    return toClient ? (
-                     <button
-                      type="button"
-                      onClick={() => openClientLedger(toClient, 'clients')}
-                      className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                  </td>
+                  <td className="px-4 py-3 font-medium text-slate-900">
+                   {isTransactionsEditMode && draft ? (
+                    <div className="space-y-2">
+                     <select
+                      value={draft.accountFromId ?? ''}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { accountFromId: event.target.value ? Number(event.target.value) : null })}
+                      className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                      >
-                      {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
-                     </button>
-                    ) : (
-                     <div>
-                      {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
-                     </div>
-                    );
-                   })()}
-                   {txn.exchangeRateTo !== 1 ? (
-                    <div className="text-xs text-slate-500">
-                     {t('transaction_exchange_rate')}:{' '}
-                     {txn.exchangeRateToReversed
-                      ? `1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`
-                      : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`}
-                    </div>
-                   ) : null}
-                  </>
-                 )}
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                 {isTransactionsEditMode && draft ? (
-                  <div className="flex gap-2">
-                   <input
-                    type="text"
-                    inputMode="decimal"
-                    dir="ltr"
-                    value={draft.amount}
-                    onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
-                    className="min-w-0 w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                   />
-                   <select
-                    value={draft.currencyId ?? ''}
-                    onChange={(event) => updateTransactionTableDraft(txn.id, { currencyId: event.target.value ? Number(event.target.value) : null })}
-                    className="w-20 rounded-lg border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                   >
-                    <option value="">{t('transaction_currency_placeholder')}</option>
-                    {enabledCurrencies.map((currency) => (
-                     <option
-                      key={currency.id}
-                      value={currency.id}
-                     >
-                      {currency.code}
-                     </option>
-                    ))}
-                   </select>
-                  </div>
-                 ) : (
-                  <>
-                   <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
-                  </>
-                 )}
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                 {isTransactionsEditMode && draft ? (
-                  (() => {
-                   const isZero = parseFloat(draft.charges) === 0;
-                   const expanded = expensesExpandedTxns.has(txn.id);
-                   if (isZero && !expanded) {
-                    return (
-                     <button
-                      type="button"
-                      onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                      className="text-sm text-blue-600 hover:underline"
-                     >
-                      + {t('add_expenses')}
-                     </button>
-                    );
-                   }
-                   return (
-                    <div className="space-y-1">
+                      <option value="">{t('transaction_account_placeholder')}</option>
+                      {clientAccounts.map((account) => (
+                       <option
+                        key={account.id}
+                        value={account.id}
+                       >
+                        {account.clientName} - {account.currencySymbol || account.currencyCode}
+                       </option>
+                      ))}
+                     </select>
+                     {txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
+                      <div className="flex items-center justify-between">
+                       <span className="text-xs text-slate-400">
+                        {tableRateFromReversed[txn.id] ? `1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`}
+                       </span>
+                       <button
+                        type="button"
+                        title="Reverse rate direction"
+                        onClick={() => {
+                         const val = parseFloat(draft.exchangeRateFrom) || 1;
+                         updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                         setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                        }}
+                        className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                       >
+                        <svg
+                         width="14"
+                         height="14"
+                         viewBox="0 0 24 24"
+                         fill="none"
+                         stroke="currentColor"
+                         strokeWidth="1.8"
+                         strokeLinecap="round"
+                         strokeLinejoin="round"
+                         aria-hidden
+                         width="14"
+                         height="14"
+                        >
+                         <path d="M7 4 3 8l4 4M3 8h13.5" />
+                         <path d="M17 20l4-4-4-4m4 4H7.5" />
+                        </svg>
+                       </button>
+                      </div>
+                     )}
                      <input
                       type="text"
                       inputMode="decimal"
                       dir="ltr"
-                      value={draft.charges}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                      placeholder="0"
+                      value={draft.exchangeRateFrom}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      placeholder={t('transaction_exchange_rate')}
                      />
-                     <select
-                      value={draft.chargesCurrencyId ?? ''}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
-                      className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                     >
-                      <option value="">{t('currency')}</option>
-                      {enabledCurrencies.map((cur) => (
-                       <option
-                        key={cur.id}
-                        value={cur.id}
-                       >
-                        {cur.code}
-                       </option>
-                      ))}
-                     </select>
-                     <select
-                      value={draft.chargesPayer}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { chargesPayer: event.target.value })}
-                      className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                     >
-                      <option value="">{t('charges_payer_placeholder')}</option>
-                      <option value="from">{txn.clientFromName}</option>
-                      <option value="to">{txn.clientToName}</option>
-                     </select>
+                    </div>
+                   ) : (
+                    <>
                      {(() => {
-                      const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
-                      const draftPayerAccountCurrencyCode =
-                       draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
-                      if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
-                      return (
+                      const fromAccount = clientAccountMap.get(txn.accountFromId);
+                      const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
+
+                      return fromClient ? (
+                       <button
+                        type="button"
+                        onClick={() => openClientLedger(fromClient, 'clients')}
+                        className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                       >
+                        {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                       </button>
+                      ) : (
                        <div>
-                        <span className="text-xs text-slate-500">
-                         {draftChargesCurrencyCode} → {draftPayerAccountCurrencyCode}
-                        </span>
-                        <input
-                         type="text"
-                         inputMode="decimal"
-                         dir="ltr"
-                         value={draft.chargesExchangeRate}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
-                         className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                         placeholder="1"
-                        />
+                        {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                        </div>
                       );
                      })()}
-                     <div className="mt-1">
-                      <input
-                       type="text"
-                       value={draft.chargesDescription}
-                       onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
-                       className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                       placeholder={t('charges_description_placeholder')}
-                      />
-                     </div>
-                    </div>
-                   );
-                  })()
-                 ) : txn.charges ? (
-                  <div>
-                   <span>{txn.charges.toLocaleString()}</span>
-                   {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
-                   {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
-                   {txn.chargesPayer && (
-                    <div className="text-xs text-slate-500">{txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : ''}</div>
+                     {txn.exchangeRateFrom !== 1 ? (
+                      <div className="text-xs text-slate-500">
+                       {t('transaction_exchange_rate')}:{' '}
+                       {txn.exchangeRateFromReversed
+                        ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
+                        : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
+                      </div>
+                     ) : null}
+                    </>
                    )}
-                   {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
-                  </div>
-                 ) : (
-                  <span className="text-slate-400">—</span>
-                 )}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                 {isTransactionsEditMode && draft
-                  ? (() => {
-                     const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
-                     const expanded = commissionExpandedTxns.has(txn.id);
-                     if (bothZero && !expanded) {
-                      return (
-                       <div className="flex items-center gap-2">
-                        <button
-                         type="button"
-                         onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                         className="text-sm text-blue-600 hover:underline"
+                  </td>
+                  <td className="px-4 py-3 font-medium text-slate-900">
+                   {isTransactionsEditMode && draft ? (
+                    <div className="space-y-2">
+                     <select
+                      value={draft.accountToId ?? ''}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { accountToId: event.target.value ? Number(event.target.value) : null })}
+                      className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                     >
+                      <option value="">{t('transaction_account_placeholder')}</option>
+                      {clientAccounts.map((account) => (
+                       <option
+                        key={account.id}
+                        value={account.id}
+                       >
+                        {account.clientName} - {account.currencySymbol || account.currencyCode}
+                       </option>
+                      ))}
+                     </select>
+                     {txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
+                      <div className="flex items-center justify-between">
+                       <span className="text-xs text-slate-400">
+                        {tableRateToReversed[txn.id] ? `1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`}
+                       </span>
+                       <button
+                        type="button"
+                        title="Reverse rate direction"
+                        onClick={() => {
+                         const val = parseFloat(draft.exchangeRateTo) || 1;
+                         updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                         setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                        }}
+                        className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                       >
+                        <svg
+                         width="14"
+                         height="14"
+                         viewBox="0 0 24 24"
+                         fill="none"
+                         stroke="currentColor"
+                         strokeWidth="1.8"
+                         strokeLinecap="round"
+                         strokeLinejoin="round"
+                         aria-hidden
+                         width="14"
+                         height="14"
                         >
-                         + {t('add_commission')}
-                        </button>
-                        <button
-                         type="button"
-                         onClick={() => onDeleteTransaction(txn.id)}
-                         className="inline-flex shrink-0 items-center gap-1 rounded-lg border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                         title={t('delete')}
-                        >
-                         <svg
-                          className="h-4 w-4"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={1.8}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
-                         >
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6M14 11v6" />
-                          <path d="M9 6V4h6v2" />
-                         </svg>
-                         <span className="text-xs font-semibold">{t('delete')}</span>
-                        </button>
+                         <path d="M7 4 3 8l4 4M3 8h13.5" />
+                         <path d="M17 20l4-4-4-4m4 4H7.5" />
+                        </svg>
+                       </button>
+                      </div>
+                     )}
+                     <input
+                      type="text"
+                      inputMode="decimal"
+                      dir="ltr"
+                      value={draft.exchangeRateTo}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      placeholder={t('transaction_exchange_rate')}
+                     />
+                    </div>
+                   ) : (
+                    <>
+                     {(() => {
+                      const toAccount = clientAccountMap.get(txn.accountToId);
+                      const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
+
+                      return toClient ? (
+                       <button
+                        type="button"
+                        onClick={() => openClientLedger(toClient, 'clients')}
+                        className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                       >
+                        {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                       </button>
+                      ) : (
+                       <div>
+                        {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                        </div>
+                      );
+                     })()}
+                     {txn.exchangeRateTo !== 1 ? (
+                      <div className="text-xs text-slate-500">
+                       {t('transaction_exchange_rate')}:{' '}
+                       {txn.exchangeRateToReversed
+                        ? `1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`
+                        : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`}
+                      </div>
+                     ) : null}
+                    </>
+                   )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">
+                   {isTransactionsEditMode && draft ? (
+                    <div className="flex gap-2">
+                     <input
+                      type="text"
+                      inputMode="decimal"
+                      dir="ltr"
+                      value={draft.amount}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
+                      className="min-w-0 w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                     <select
+                      value={draft.currencyId ?? ''}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { currencyId: event.target.value ? Number(event.target.value) : null })}
+                      className="w-20 rounded border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                     >
+                      <option value="">{t('transaction_currency_placeholder')}</option>
+                      {enabledCurrencies.map((currency) => (
+                       <option
+                        key={currency.id}
+                        value={currency.id}
+                       >
+                        {currency.code}
+                       </option>
+                      ))}
+                     </select>
+                    </div>
+                   ) : (
+                    <>
+                     <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
+                    </>
+                   )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">
+                   {isTransactionsEditMode && draft ? (
+                    (() => {
+                     const isZero = parseFloat(draft.charges) === 0;
+                     const expanded = expensesExpandedTxns.has(txn.id);
+                     if (isZero && !expanded) {
+                      return (
+                       <button
+                        type="button"
+                        onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                        className="text-sm text-blue-600 hover:underline"
+                       >
+                        + {t('add_expenses')}
+                       </button>
                       );
                      }
                      return (
-                      <div className="space-y-2">
-                       <div className="flex items-center gap-2">
-                        <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
-                        <input
-                         type="text"
-                         inputMode="decimal"
-                         dir="ltr"
-                         value={draft.commissionFrom}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
-                         className="min-w-0 w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                         placeholder="0"
-                        />
-                        <span className="text-xs text-slate-400">%</span>
-                       </div>
-                       <div className="flex items-center gap-2">
-                        <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
-                        <input
-                         type="text"
-                         inputMode="decimal"
-                         dir="ltr"
-                         value={draft.commissionTo}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
-                         className="min-w-0 w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                         placeholder="0"
-                        />
-                        <span className="text-xs text-slate-400">%</span>
-                       </div>
-                       <div className="flex items-center gap-2">
-                        <button
-                         type="button"
-                         onClick={() => onDeleteTransaction(txn.id)}
-                         className="inline-flex shrink-0 items-center gap-1 rounded-lg border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                         title={t('delete')}
-                        >
-                         <svg
-                          className="h-4 w-4"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={1.8}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
+                      <div className="space-y-1">
+                       <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        value={draft.charges}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
+                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        placeholder="0"
+                       />
+                       <select
+                        value={draft.chargesCurrencyId ?? ''}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                       >
+                        <option value="">{t('currency')}</option>
+                        {enabledCurrencies.map((cur) => (
+                         <option
+                          key={cur.id}
+                          value={cur.id}
                          >
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6l-1 14H6L5 6" />
-                          <path d="M10 11v6M14 11v6" />
-                          <path d="M9 6V4h6v2" />
-                         </svg>
-                         <span className="text-xs font-semibold">{t('delete')}</span>
-                        </button>
+                          {cur.code}
+                         </option>
+                        ))}
+                       </select>
+                       <select
+                        value={draft.chargesPayer}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { chargesPayer: event.target.value })}
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                       >
+                        <option value="">{t('charges_payer_placeholder')}</option>
+                        <option value="from">{txn.clientFromName}</option>
+                        <option value="to">{txn.clientToName}</option>
+                       </select>
+                       {(() => {
+                        const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
+                        const draftPayerAccountCurrencyCode =
+                         draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
+                        if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
+                        return (
+                         <div>
+                          <span className="text-xs text-slate-500">
+                           {draftChargesCurrencyCode} â†’ {draftPayerAccountCurrencyCode}
+                          </span>
+                          <input
+                           type="text"
+                           inputMode="decimal"
+                           dir="ltr"
+                           value={draft.chargesExchangeRate}
+                           onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
+                           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                           placeholder="1"
+                          />
+                         </div>
+                        );
+                       })()}
+                       <div className="mt-1">
+                        <input
+                         type="text"
+                         value={draft.chargesDescription}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
+                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                         placeholder={t('charges_description_placeholder')}
+                        />
                        </div>
                       </div>
                      );
                     })()
-                  : (() => {
-                     const parts: string[] = [];
-                     if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
-                     if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
-                     return parts.length > 0 ? (
-                      <div className="space-y-0.5 text-xs">
-                       {parts.map((p, i) => (
-                        <div key={i}>{p}</div>
-                       ))}
-                      </div>
-                     ) : (
-                      <span className="text-slate-400">—</span>
-                     );
-                    })()}
-                </td>
-               </>
-              );
-             })()}
-            </tr>
-           ))}
-           {transactions.length === 0 ? (
-            <tr>
-             <td
-              className="px-4 py-6 text-slate-500"
-              colSpan={isTransactionsEditMode ? 8 : 7}
-             >
-              {t('no_transactions')}
-             </td>
-            </tr>
-           ) : null}
-          </tbody>
-         </table>
-        </div>
-        {transactionsPager}
-       </div>
-      </section>
+                   ) : txn.charges ? (
+                    <div>
+                     <span>{txn.charges.toLocaleString()}</span>
+                     {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
+                     {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
+                     {txn.chargesPayer && (
+                      <div className="text-xs text-slate-500">{txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : ''}</div>
+                     )}
+                     {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
+                    </div>
+                   ) : (
+                    <span className="text-slate-400">â€”</span>
+                   )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                   {isTransactionsEditMode && draft
+                    ? (() => {
+                       const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
+                       const expanded = commissionExpandedTxns.has(txn.id);
+                       if (bothZero && !expanded) {
+                        return (
+                         <div className="flex items-center gap-2">
+                          <button
+                           type="button"
+                           onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                           className="text-sm text-blue-600 hover:underline"
+                          >
+                           + {t('add_commission')}
+                          </button>
+                          <button
+                           type="button"
+                           onClick={() => onDeleteTransaction(txn.id)}
+                           className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
+                           title={t('delete')}
+                          >
+                           <svg
+                            className="h-4 w-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={1.8}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden
+                           >
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                            <path d="M10 11v6M14 11v6" />
+                            <path d="M9 6V4h6v2" />
+                           </svg>
+                           <span className="text-xs font-semibold">{t('delete')}</span>
+                          </button>
+                         </div>
+                        );
+                       }
+                       return (
+                        <div className="space-y-2">
+                         <div className="flex items-center gap-2">
+                          <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
+                          <input
+                           type="text"
+                           inputMode="decimal"
+                           dir="ltr"
+                           value={draft.commissionFrom}
+                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
+                           className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                           placeholder="0"
+                          />
+                          <span className="text-xs text-slate-400">%</span>
+                         </div>
+                         <div className="flex items-center gap-2">
+                          <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
+                          <input
+                           type="text"
+                           inputMode="decimal"
+                           dir="ltr"
+                           value={draft.commissionTo}
+                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
+                           className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                           placeholder="0"
+                          />
+                          <span className="text-xs text-slate-400">%</span>
+                         </div>
+                         <div className="flex items-center gap-2">
+                          <button
+                           type="button"
+                           onClick={() => onDeleteTransaction(txn.id)}
+                           className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
+                           title={t('delete')}
+                          >
+                           <svg
+                            className="h-4 w-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={1.8}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden
+                           >
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                            <path d="M10 11v6M14 11v6" />
+                            <path d="M9 6V4h6v2" />
+                           </svg>
+                           <span className="text-xs font-semibold">{t('delete')}</span>
+                          </button>
+                         </div>
+                        </div>
+                       );
+                      })()
+                    : (() => {
+                       const parts: string[] = [];
+                       if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
+                       if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
+                       return parts.length > 0 ? (
+                        <div className="space-y-0.5 text-xs">
+                         {parts.map((p, i) => (
+                          <div key={i}>{p}</div>
+                         ))}
+                        </div>
+                       ) : (
+                        <span className="text-slate-400">â€”</span>
+                       );
+                      })()}
+                  </td>
+                 </>
+                );
+               })()}
+              </tr>
+             ))}
+             {transactions.length === 0 ? (
+              <tr>
+               <td
+                className="px-4 py-6 text-slate-500"
+                colSpan={isTransactionsEditMode ? 8 : 7}
+               >
+                {t('no_transactions')}
+               </td>
+              </tr>
+             ) : null}
+            </tbody>
+           </table>
+          </div>
+          {transactionsPager}
+         </div>
+        </section>
+       ) : null}
+      </div>
      ) : null}
     </div>
    </main>
@@ -5596,7 +5644,7 @@ function AuthenticatedHome() {
        if (!ledger) return null;
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-         <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+         <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
           <h3 className="text-lg font-semibold text-slate-900">{t('export_pdf_title')}</h3>
           <p className="mt-1 text-sm text-slate-500">
            {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
@@ -5609,7 +5657,7 @@ function AuthenticatedHome() {
              type="date"
              value={pdfExportModal.fromDate}
              onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value } : prev))}
-             className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
            <div className="flex flex-col gap-1">
@@ -5618,7 +5666,7 @@ function AuthenticatedHome() {
              type="date"
              value={pdfExportModal.toDate}
              onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value } : prev))}
-             className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
 
@@ -5629,7 +5677,7 @@ function AuthenticatedHome() {
              return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
             }).length;
             return (
-             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+             <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
               <div className="flex justify-between">
                <span className="text-slate-500">{t('export_pre_balance')}</span>
                <span className={`font-semibold ${preBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -5649,7 +5697,7 @@ function AuthenticatedHome() {
            <button
             type="button"
             onClick={() => setPdfExportModal(null)}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
            >
             {t('cancel')}
            </button>
@@ -5657,7 +5705,7 @@ function AuthenticatedHome() {
             type="button"
             onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate)}
             disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
-            className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
             {t('export_pdf')}
            </button>

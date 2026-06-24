@@ -1,8 +1,15 @@
 @import 'tailwindcss';
 
 :root {
- --background: #ffffff;
- --foreground: #171717;
+ --background: #f3f4f6;
+ --foreground: #111827;
+ --sidebar-bg: #1e3a5f;
+ --sidebar-fg: #e2e8f0;
+ --sidebar-active-bg: #2563eb;
+ --sidebar-hover-bg: rgba(255, 255, 255, 0.1);
+ --panel-bg: #ffffff;
+ --border-color: #d1d5db;
+ --accent: #1d4ed8;
 }
 
 @theme inline {
@@ -13,23 +20,17 @@
  --font-arabic: var(--font-arabic-sans);
 }
 
-@media (prefers-color-scheme: dark) {
- :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
- }
-}
-
 body {
  min-height: 100vh;
  background: var(--background);
  color: var(--foreground);
- font-family: var(--font-geist-sans), 'Segoe UI', sans-serif;
+ font-family: var(--font-geist-sans), 'Segoe UI', Tahoma, sans-serif;
  text-rendering: optimizeLegibility;
+ font-size: 14px;
 }
 
 html[lang='ar'] body {
- font-family: var(--font-arabic), 'Segoe UI', sans-serif;
+ font-family: var(--font-arabic), 'Segoe UI', Tahoma, sans-serif;
 }
 
 html[dir='rtl'] {
@@ -47,6 +48,35 @@ html[dir='rtl'] input,
 html[dir='rtl'] select,
 html[dir='rtl'] textarea {
  text-align: right;
+}
+
+/* Classic app shell */
+.app-shell {
+ display: flex;
+ min-height: 100vh;
+}
+
+/* Classic table styles */
+table {
+ border-collapse: collapse;
+}
+
+/* Classic button base */
+.btn {
+ display: inline-flex;
+ align-items: center;
+ justify-content: center;
+ border-radius: 3px;
+ font-size: 13px;
+ font-weight: 600;
+ padding: 5px 14px;
+ border: 1px solid transparent;
+ cursor: pointer;
+ transition:
+  background 0.12s,
+  color 0.12s,
+  border-color 0.12s;
+ white-space: nowrap;
 }
 
 @media (min-width: 80rem) {
