@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -45,68 +45,71 @@ export default function ForgotPasswordPage() {
  };
 
  return (
-  <main
-   className="flex min-h-screen items-center justify-center p-4 text-slate-900 sm:p-6 lg:p-8"
-   style={{
-    background:
-     'radial-gradient(circle at top, rgba(34,211,238,0.14), transparent 34%), radial-gradient(circle at bottom right, rgba(59,130,246,0.18), transparent 30%), linear-gradient(180deg, #020617 0%, #0f172a 100%)',
-   }}
-  >
-   <section className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/95 p-6 text-slate-100 shadow-[0_24px_60px_-32px_rgba(15,23,42,0.35)] sm:p-8 lg:p-9">
-    <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-100">
-     Password reset
-    </div>
-    <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white">Forgot your password?</h1>
-    <p className="mt-2 text-sm leading-6 text-slate-300">Enter your account email and we will generate a reset link.</p>
-
-    <form
-     className="mt-6 space-y-4"
-     onSubmit={(event) => void onSubmit(event)}
-    >
-     <div className="space-y-2">
-      <label className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-300">Email</label>
-      <input
-       type="email"
-       value={email}
-       onChange={(event) => setEmail(event.target.value)}
-       placeholder="Email"
-       className="w-full rounded-2xl border border-white/15 bg-slate-800 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-400 focus:border-cyan-300/70 focus:bg-slate-800 focus:ring-4 focus:ring-cyan-300/20"
-       required
-      />
+  <main className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+   <div className="w-full max-w-sm">
+    <div className="mb-6 text-center">
+     <div className="inline-flex items-center justify-center rounded bg-blue-800 px-4 py-2 mb-3">
+      <span className="text-lg font-bold tracking-widest text-white">ARKAM</span>
      </div>
+    </div>
+    <section className="rounded border border-gray-300 bg-white shadow-md">
+     <div className="border-b border-gray-200 bg-gray-50 px-5 py-3">
+      <h2 className="text-sm font-semibold text-gray-700">Password Reset</h2>
+     </div>
+     <div className="p-5">
+      <p className="mb-4 text-sm text-gray-600">Enter your account email and we will generate a reset link.</p>
+      <form
+       className="space-y-4"
+       onSubmit={(event) => void onSubmit(event)}
+      >
+       <div>
+        <label className="mb-1 block text-xs font-semibold text-gray-600">Email</label>
+        <input
+         type="email"
+         value={email}
+         onChange={(event) => setEmail(event.target.value)}
+         placeholder="Email"
+         className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+         required
+        />
+       </div>
 
-     {error ? <p className="rounded-2xl border border-red-400/35 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
-     {message ? <p className="rounded-2xl border border-emerald-400/35 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{message}</p> : null}
+       {error ? <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+       {message ? <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{message}</p> : null}
 
-     {resetUrl ? (
-      <div className="rounded-2xl border border-cyan-300/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
-       <p className="font-medium">Reset link generated:</p>
-       <a
-        href={resetUrl}
-        className="mt-2 inline-flex break-all text-cyan-200 underline underline-offset-4"
+       {resetUrl ? (
+        <div className="rounded border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+         <p className="font-semibold">Reset link:</p>
+         <a
+          href={resetUrl}
+          className="mt-1 inline-flex break-all text-blue-700 underline underline-offset-4"
+         >
+          {resetUrl}
+         </a>
+        </div>
+       ) : null}
+
+       <button
+        type="submit"
+        disabled={isSubmitting}
+        className="w-full rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
        >
-        {resetUrl}
-       </a>
+        {isSubmitting ? 'Generating...' : 'Generate reset link'}
+       </button>
+      </form>
+
+      <div className="mt-4 border-t border-gray-200 pt-4 text-center">
+       <button
+        type="button"
+        onClick={() => router.push('/login')}
+        className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+       >
+        Back to sign in
+       </button>
       </div>
-     ) : null}
-
-     <button
-      type="submit"
-      disabled={isSubmitting}
-      className="inline-flex w-auto items-center justify-center rounded-2xl bg-blue-700 px-6 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_-18px_rgba(29,78,216,0.9)] transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-70"
-     >
-      {isSubmitting ? 'Generating...' : 'Generate reset link'}
-     </button>
-    </form>
-
-    <button
-     type="button"
-     onClick={() => router.push('/login')}
-     className="mt-5 inline-flex text-sm font-medium text-blue-300 underline decoration-blue-500/50 underline-offset-4 transition hover:text-blue-200"
-    >
-     Back to sign in
-    </button>
-   </section>
+     </div>
+    </section>
+   </div>
   </main>
  );
 }
