@@ -4247,8 +4247,6 @@ function AuthenticatedHome() {
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     aria-hidden
-                                    width="14"
-                                    height="14"
                                    >
                                     <path d="M7 4 3 8l4 4M3 8h13.5" />
                                     <path d="M17 20l4-4-4-4m4 4H7.5" />
@@ -4299,8 +4297,6 @@ function AuthenticatedHome() {
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                   aria-hidden
-                                  width="14"
-                                  height="14"
                                  >
                                   <path d="M7 4 3 8l4 4M3 8h13.5" />
                                   <path d="M17 20l4-4-4-4m4 4H7.5" />
@@ -4805,8 +4801,6 @@ function AuthenticatedHome() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     aria-hidden
-                    width="14"
-                    height="14"
                    >
                     <path d="M7 4 3 8l4 4M3 8h13.5" />
                     <path d="M17 20l4-4-4-4m4 4H7.5" />
@@ -4874,8 +4868,6 @@ function AuthenticatedHome() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     aria-hidden
-                    width="14"
-                    height="14"
                    >
                     <path d="M7 4 3 8l4 4M3 8h13.5" />
                     <path d="M17 20l4-4-4-4m4 4H7.5" />
@@ -5224,8 +5216,6 @@ function AuthenticatedHome() {
                          strokeLinecap="round"
                          strokeLinejoin="round"
                          aria-hidden
-                         width="14"
-                         height="14"
                         >
                          <path d="M7 4 3 8l4 4M3 8h13.5" />
                          <path d="M17 20l4-4-4-4m4 4H7.5" />
@@ -5317,8 +5307,6 @@ function AuthenticatedHome() {
                          strokeLinecap="round"
                          strokeLinejoin="round"
                          aria-hidden
-                         width="14"
-                         height="14"
                         >
                          <path d="M7 4 3 8l4 4M3 8h13.5" />
                          <path d="M17 20l4-4-4-4m4 4H7.5" />
