@@ -80,46 +80,52 @@ function getDatabaseMetadata() {
 async function ensurePublicSchema() {
     if (!publicSchemaReadyPromise) {
         publicSchemaReadyPromise = (async () => {
-            await query(`
-                CREATE TABLE IF NOT EXISTS users (
-                    id TEXT PRIMARY KEY,
-                    email TEXT NOT NULL UNIQUE,
-                    name TEXT NOT NULL,
-                    password_hash TEXT,
-                    image TEXT,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
+            // Advisory lock (class=1, key=1) serializes concurrent DDL across all server
+            // instances, preventing the pg_type_typname_nsp_index race condition that
+            // occurs when two requests try to CREATE TABLE at the exact same moment.
+            await withTransaction(async (client) => {
+                await client.query("SELECT pg_advisory_xact_lock(1, 1)");
+                await client.query(`
+                    CREATE TABLE IF NOT EXISTS users (
+                        id TEXT PRIMARY KEY,
+                        email TEXT NOT NULL UNIQUE,
+                        name TEXT NOT NULL,
+                        password_hash TEXT,
+                        image TEXT,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
 
-                CREATE TABLE IF NOT EXISTS workspaces (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    slug TEXT NOT NULL UNIQUE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
+                    CREATE TABLE IF NOT EXISTS workspaces (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        slug TEXT NOT NULL UNIQUE,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
 
-                CREATE TABLE IF NOT EXISTS workspace_members (
-                    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    PRIMARY KEY (workspace_id, user_id)
-                );
+                    CREATE TABLE IF NOT EXISTS workspace_members (
+                        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member', 'viewer')),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY (workspace_id, user_id)
+                    );
 
-                CREATE TABLE IF NOT EXISTS password_reset_tokens (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    token_hash TEXT NOT NULL UNIQUE,
-                    expires_at TIMESTAMPTZ NOT NULL,
-                    used_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
+                    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        token_hash TEXT NOT NULL UNIQUE,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        used_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
 
-                CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
-                CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
-                CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
-                CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
-            `);
+                    CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
+                    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+                    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
+                `);
+            });
         })().catch((error) => {
             publicSchemaReadyPromise = undefined;
             throw error;
@@ -138,72 +144,77 @@ async function ensureWorkspaceSchema(workspaceId) {
     }
 
     const schemaReadyPromise = (async () => {
-        const schema = quoteIdentifier(schemaName);
+        // Advisory lock (class=2, key=hashtext(schemaName)) serializes concurrent DDL
+        // for this specific workspace schema, preventing pg_type_typname_nsp_index races.
+        return withTransaction(async (client) => {
+            await client.query("SELECT pg_advisory_xact_lock(2, hashtext($1))", [schemaName]);
+            const schema = quoteIdentifier(schemaName);
 
-        await query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
-        await query(`
-            CREATE TABLE IF NOT EXISTS ${schema}.organizations (
-                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
+            await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+            await client.query(`
+                CREATE TABLE IF NOT EXISTS ${schema}.organizations (
+                    id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
 
-            CREATE TABLE IF NOT EXISTS ${schema}.currencies (
-                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                code TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                symbol TEXT NOT NULL DEFAULT '',
-                is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                is_main BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
+                CREATE TABLE IF NOT EXISTS ${schema}.currencies (
+                    id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    code TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    symbol TEXT NOT NULL DEFAULT '',
+                    is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_main BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
 
-            CREATE TABLE IF NOT EXISTS ${schema}.clients (
-                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                organization_id INTEGER REFERENCES ${schema}.organizations(id) ON DELETE SET NULL,
-                currency_id INTEGER REFERENCES ${schema}.currencies(id) ON DELETE SET NULL,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL DEFAULT '',
-                phone TEXT NOT NULL DEFAULT '',
-                address TEXT NOT NULL DEFAULT '',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
+                CREATE TABLE IF NOT EXISTS ${schema}.clients (
+                    id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    organization_id INTEGER REFERENCES ${schema}.organizations(id) ON DELETE SET NULL,
+                    currency_id INTEGER REFERENCES ${schema}.currencies(id) ON DELETE SET NULL,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL DEFAULT '',
+                    phone TEXT NOT NULL DEFAULT '',
+                    address TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
 
-            CREATE TABLE IF NOT EXISTS ${schema}.client_accounts (
-                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                client_id INTEGER NOT NULL REFERENCES ${schema}.clients(id) ON DELETE CASCADE,
-                currency_id INTEGER NOT NULL REFERENCES ${schema}.currencies(id) ON DELETE CASCADE,
-                starting_balance DOUBLE PRECISION NOT NULL DEFAULT 0,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                UNIQUE (client_id, currency_id)
-            );
+                CREATE TABLE IF NOT EXISTS ${schema}.client_accounts (
+                    id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    client_id INTEGER NOT NULL REFERENCES ${schema}.clients(id) ON DELETE CASCADE,
+                    currency_id INTEGER NOT NULL REFERENCES ${schema}.currencies(id) ON DELETE CASCADE,
+                    starting_balance DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (client_id, currency_id)
+                );
 
-            CREATE TABLE IF NOT EXISTS ${schema}.transactions (
-                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-                account_from_id INTEGER NOT NULL REFERENCES ${schema}.client_accounts(id) ON DELETE CASCADE,
-                account_to_id INTEGER NOT NULL REFERENCES ${schema}.client_accounts(id) ON DELETE CASCADE,
-                currency_id INTEGER NOT NULL REFERENCES ${schema}.currencies(id) ON DELETE CASCADE,
-                amount DOUBLE PRECISION NOT NULL,
-                type TEXT NOT NULL DEFAULT 'exchange',
-                exchange_rate_from DOUBLE PRECISION NOT NULL DEFAULT 1,
-                commission_from DOUBLE PRECISION NOT NULL DEFAULT 0,
-                exchange_rate_to DOUBLE PRECISION NOT NULL DEFAULT 1,
-                commission_to DOUBLE PRECISION NOT NULL DEFAULT 0,
-                exchange_rate_from_reversed BOOLEAN NOT NULL DEFAULT FALSE,
-                exchange_rate_to_reversed BOOLEAN NOT NULL DEFAULT FALSE,
-                charges DOUBLE PRECISION NOT NULL DEFAULT 0,
-                charges_currency_id INTEGER REFERENCES ${schema}.currencies(id) ON DELETE SET NULL,
-                charges_payer TEXT NOT NULL DEFAULT '',
-                charges_exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1,
-                charges_description TEXT NOT NULL DEFAULT '',
-                description TEXT NOT NULL DEFAULT '',
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-        `);
+                CREATE TABLE IF NOT EXISTS ${schema}.transactions (
+                    id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                    account_from_id INTEGER NOT NULL REFERENCES ${schema}.client_accounts(id) ON DELETE CASCADE,
+                    account_to_id INTEGER NOT NULL REFERENCES ${schema}.client_accounts(id) ON DELETE CASCADE,
+                    currency_id INTEGER NOT NULL REFERENCES ${schema}.currencies(id) ON DELETE CASCADE,
+                    amount DOUBLE PRECISION NOT NULL,
+                    type TEXT NOT NULL DEFAULT 'exchange',
+                    exchange_rate_from DOUBLE PRECISION NOT NULL DEFAULT 1,
+                    commission_from DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    exchange_rate_to DOUBLE PRECISION NOT NULL DEFAULT 1,
+                    commission_to DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    exchange_rate_from_reversed BOOLEAN NOT NULL DEFAULT FALSE,
+                    exchange_rate_to_reversed BOOLEAN NOT NULL DEFAULT FALSE,
+                    charges DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    charges_currency_id INTEGER REFERENCES ${schema}.currencies(id) ON DELETE SET NULL,
+                    charges_payer TEXT NOT NULL DEFAULT '',
+                    charges_exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1,
+                    charges_description TEXT NOT NULL DEFAULT '',
+                    description TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            `);
 
-        return schemaName;
+            return schemaName;
+        });
     })().catch((error) => {
         workspaceSchemaReadyPromises.delete(schemaName);
         throw error;
