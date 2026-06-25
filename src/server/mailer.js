@@ -27,13 +27,17 @@ async function sendVerificationEmail({ to, name, verificationUrl }) {
     if (isResendConfigured()) {
         const { Resend } = require('resend');
         const resend = new Resend(process.env.RESEND_API_KEY);
-        await resend.emails.send({
+        const { error } = await resend.emails.send({
             from,
             to,
             subject: 'Verify your email — Arkam',
             html: buildHtml({ name, verificationUrl }),
             text: buildText({ name, verificationUrl }),
         });
+        if (error) {
+            console.error('[Resend] Failed to send email:', error);
+            throw new Error(`Email send failed: ${error.message || JSON.stringify(error)}`);
+        }
         return;
     }
 

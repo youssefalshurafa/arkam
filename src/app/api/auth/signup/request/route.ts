@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ ok: true });
  } catch (error) {
+  console.error('[signup/request] Error:', error);
   const message = error instanceof Error ? error.message : 'Failed to send verification email.';
   return NextResponse.json({ error: message }, { status: 400 });
  }
