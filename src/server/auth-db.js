@@ -400,6 +400,61 @@ async function resetPasswordWithToken({ token, password }) {
     return { ok: true };
 }
 
+async function listAllUsers() {
+    await ensurePublicSchema();
+
+    const result = await runQuery(`
+        SELECT
+            u.id,
+            u.email,
+            u.name,
+            u.image,
+            CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' ELSE 'oauth' END AS "authProvider",
+            u.created_at AS "createdAt",
+            COUNT(DISTINCT wm.workspace_id)::int AS "workspaceCount",
+            COALESCE(
+                json_agg(
+                    json_build_object(
+                        'id', w.id,
+                        'name', w.name,
+                        'slug', w.slug,
+                        'role', wm.role,
+                        'isOwner', (w.owner_user_id = u.id)
+                    )
+                    ORDER BY w.created_at ASC
+                ) FILTER (WHERE w.id IS NOT NULL),
+                '[]'::json
+            ) AS workspaces
+        FROM users u
+        LEFT JOIN workspace_members wm ON wm.user_id = u.id
+        LEFT JOIN workspaces w ON w.id = wm.workspace_id
+        GROUP BY u.id
+        ORDER BY u.created_at DESC
+    `);
+
+    return result.rows;
+}
+
+async function deleteUser(userId) {
+    await ensurePublicSchema();
+
+    const owned = await runQuery(
+        'SELECT id FROM workspaces WHERE owner_user_id = $1',
+        [userId],
+    );
+
+    const user = await fetchOne('SELECT id FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    await withTransaction(async (client) => {
+        await runQuery('DELETE FROM users WHERE id = $1', [userId], client);
+    });
+
+    return { deletedWorkspaceIds: owned.rows.map((r) => r.id) };
+}
+
 module.exports = {
     openAuthDb,
     createCredentialsUser,
@@ -415,4 +470,6 @@ module.exports = {
     requestPasswordReset,
     validatePasswordResetToken,
     resetPasswordWithToken,
+    listAllUsers,
+    deleteUser,
 };
