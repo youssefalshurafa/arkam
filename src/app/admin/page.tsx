@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
@@ -308,11 +308,8 @@ export default function AdminPage() {
        </thead>
        <tbody className="divide-y divide-gray-100">
         {filtered.map((user) => (
-         <>
-          <tr
-           key={user.id}
-           className="hover:bg-gray-50 transition-colors"
-          >
+         <React.Fragment key={user.id}>
+          <tr className="hover:bg-gray-50 transition-colors">
            <td className="px-4 py-3">
             <div className="flex items-center gap-3">
              <Avatar user={user} />
@@ -394,7 +391,7 @@ export default function AdminPage() {
             </td>
            </tr>
           )}
-         </>
+         </React.Fragment>
         ))}
        </tbody>
       </table>
