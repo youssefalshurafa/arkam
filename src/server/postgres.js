@@ -224,6 +224,14 @@ async function ensureWorkspaceSchema(workspaceId) {
     return schemaReadyPromise;
 }
 
+async function dropWorkspaceSchema(workspaceId) {
+    const schemaName = getWorkspaceSchemaName(workspaceId);
+    const schema = quoteIdentifier(schemaName);
+
+    workspaceSchemaReadyPromises.delete(schemaName);
+    await query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+}
+
 module.exports = {
     getPool,
     query,
@@ -233,4 +241,5 @@ module.exports = {
     getDatabaseMetadata,
     ensurePublicSchema,
     ensureWorkspaceSchema,
+    dropWorkspaceSchema,
 };
