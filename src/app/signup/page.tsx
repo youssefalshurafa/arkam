@@ -1,53 +1,39 @@
 ﻿'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { getProviders, signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { accountingApi } from '@/lib/accountingApi';
-
-type SignupResponse = {
- ok: true;
- defaultWorkspaceId: string | null;
-};
 
 export default function SignupPage() {
  const router = useRouter();
  const { status } = useSession();
 
  const [fullName, setFullName] = useState('');
- const [workspaceName, setWorkspaceName] = useState('');
  const [email, setEmail] = useState('');
- const [password, setPassword] = useState('');
- const [showPassword, setShowPassword] = useState(false);
  const [error, setError] = useState('');
  const [isSubmitting, setIsSubmitting] = useState(false);
  const [isGoogleEnabled, setIsGoogleEnabled] = useState(false);
+ const [emailSent, setEmailSent] = useState(false);
 
- const inferredWorkspaceName = useMemo(() => {
-  const trimmed = fullName.trim();
-  return trimmed ? `${trimmed} Workspace` : '';
- }, [fullName]);
+ useEffect(() => {
+  if (status === 'authenticated') {
+   router.replace('/');
+  }
+ }, [status, router]);
 
  useEffect(() => {
   let isMounted = true;
-
   const loadProviders = async () => {
    try {
     const providers = await getProviders();
-    if (!isMounted) {
-     return;
-    }
+    if (!isMounted) return;
     setIsGoogleEnabled(Boolean(providers?.google));
    } catch {
-    if (!isMounted) {
-     return;
-    }
+    if (!isMounted) return;
     setIsGoogleEnabled(false);
    }
   };
-
   void loadProviders();
-
   return () => {
    isMounted = false;
   };
@@ -64,7 +50,6 @@ export default function SignupPage() {
      </div>
      <section className="rounded border border-gray-300 bg-white p-6 shadow-md">
       <h2 className="mb-4 text-sm font-semibold text-gray-700">You are already signed in.</h2>
-      <p className="mb-4 text-sm text-gray-600">Continue to your workspace.</p>
       <div className="flex flex-wrap gap-2">
        <button
         type="button"
@@ -73,13 +58,6 @@ export default function SignupPage() {
        >
         Go to Dashboard
        </button>
-       <button
-        type="button"
-        onClick={() => router.push('/login')}
-        className="rounded border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-       >
-        Back to login
-       </button>
       </div>
      </section>
     </div>
@@ -87,53 +65,58 @@ export default function SignupPage() {
   );
  }
 
- const onSignup = async (event: FormEvent) => {
+ const onSubmit = async (event: FormEvent) => {
   event.preventDefault();
   setError('');
   setIsSubmitting(true);
-
   try {
-   const response = await fetch('/api/auth/signup', {
+   const res = await fetch('/api/auth/signup/request', {
     method: 'POST',
-    headers: {
-     'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-     name: fullName,
-     email,
-     password,
-     workspaceName: workspaceName.trim() || inferredWorkspaceName,
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: fullName, email }),
    });
-
-   const payload = (await response.json()) as SignupResponse | { error?: string };
-
-   if (!response.ok || !('ok' in payload && payload.ok)) {
-    throw new Error(('error' in payload && payload.error) || 'Signup failed.');
+   const payload = (await res.json()) as { ok?: boolean; error?: string };
+   if (!res.ok || !payload.ok) {
+    throw new Error(payload.error || 'Failed to send verification email.');
    }
-
-   if (payload.defaultWorkspaceId) {
-    accountingApi.setActiveWorkspaceId(payload.defaultWorkspaceId);
-   }
-
-   const signInResult = await signIn('credentials', {
-    email,
-    password,
-    redirect: false,
-   });
-
-   if (!signInResult || signInResult.error) {
-    throw new Error(signInResult?.error || 'Account created but sign in failed.');
-   }
-
-   router.push('/');
-   router.refresh();
-  } catch (signupError) {
-   setError(signupError instanceof Error ? signupError.message : 'Signup failed.');
+   setEmailSent(true);
+  } catch (err) {
+   setError(err instanceof Error ? err.message : 'Something went wrong.');
   } finally {
    setIsSubmitting(false);
   }
  };
+
+ if (emailSent) {
+  return (
+   <main className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+    <div className="w-full max-w-sm">
+     <div className="mb-6 text-center">
+      <div className="inline-flex items-center justify-center rounded bg-blue-800 px-4 py-2 mb-3">
+       <span className="text-lg font-bold tracking-widest text-white">ARKAM</span>
+      </div>
+     </div>
+     <section className="rounded border border-gray-300 bg-white p-8 shadow-md text-center">
+      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-4xl">✉️</div>
+      <h2 className="mb-2 text-base font-semibold text-gray-900">Check your inbox</h2>
+      <p className="mb-1 text-sm text-gray-600">We sent a verification link to</p>
+      <p className="mb-5 text-sm font-semibold text-gray-900 break-all">{email}</p>
+      <p className="text-xs text-gray-400 mb-5">Click the link in the email to finish setting up your account. It expires in 24 hours.</p>
+      <button
+       type="button"
+       onClick={() => {
+        setEmailSent(false);
+        setError('');
+       }}
+       className="text-sm text-blue-700 hover:underline"
+      >
+       Wrong email? Go back
+      </button>
+     </section>
+    </div>
+   </main>
+  );
+ }
 
  return (
   <main className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
@@ -181,7 +164,7 @@ export default function SignupPage() {
 
       <form
        className="space-y-4"
-       onSubmit={(event) => void onSignup(event)}
+       onSubmit={(e) => void onSubmit(e)}
       >
        <div>
         <label className="mb-1 block text-xs font-semibold text-gray-600">Full name</label>
@@ -205,74 +188,6 @@ export default function SignupPage() {
          required
         />
        </div>
-       <div>
-        <label className="mb-1 block text-xs font-semibold text-gray-600">Password</label>
-        <div className="relative">
-         <input
-          type={showPassword ? 'text' : 'password'}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password (min 8 chars)"
-          className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          minLength={8}
-          required
-         />
-         <button
-          type="button"
-          onClick={() => setShowPassword((c) => !c)}
-          className="absolute inset-y-0 right-0 inline-flex w-9 items-center justify-center text-gray-400 transition hover:text-gray-600"
-         >
-          <svg
-           xmlns="http://www.w3.org/2000/svg"
-           viewBox="0 0 24 24"
-           fill="none"
-           stroke="currentColor"
-           strokeWidth="2"
-           width="16"
-           height="16"
-           aria-hidden="true"
-          >
-           {showPassword ? (
-            <>
-             <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 3l18 18"
-             />
-             <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M10.58 10.58a2 2 0 102.83 2.83"
-             />
-            </>
-           ) : (
-            <>
-             <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M2.56 11.38C3.94 7.57 7.64 4.88 12 4.88s8.06 2.69 9.44 6.5c-1.38 3.81-5.08 6.5-9.44 6.5s-8.06-2.69-9.44-6.5z"
-             />
-             <circle
-              cx="12"
-              cy="11.38"
-              r="3"
-             />
-            </>
-           )}
-          </svg>
-         </button>
-        </div>
-       </div>
-       <div>
-        <label className="mb-1 block text-xs font-semibold text-gray-600">Workspace name</label>
-        <input
-         type="text"
-         value={workspaceName}
-         onChange={(e) => setWorkspaceName(e.target.value)}
-         placeholder={inferredWorkspaceName || 'Workspace name'}
-         className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-        />
-       </div>
 
        {error ? <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
@@ -281,20 +196,14 @@ export default function SignupPage() {
         disabled={isSubmitting}
         className="w-full rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
        >
-        {isSubmitting ? 'Creating account...' : 'Create account'}
+        {isSubmitting ? 'Sending verification email…' : 'Continue'}
        </button>
       </form>
 
       <div className="border-t border-gray-200 pt-4 text-center">
        <button
         type="button"
-        onClick={() => {
-         if (!email || !password) {
-          setError('Enter email and password first, then click Sign in.');
-          return;
-         }
-         void signIn('credentials', { email, password, callbackUrl: '/' });
-        }}
+        onClick={() => router.push('/login')}
         className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
        >
         Already have an account? Sign in
