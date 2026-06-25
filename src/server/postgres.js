@@ -120,10 +120,21 @@ async function ensurePublicSchema() {
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
 
+                    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+                        id TEXT PRIMARY KEY,
+                        email TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        token_hash TEXT NOT NULL UNIQUE,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        used_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+
                     CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
                     CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
+                    CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
                 `);
             });
         })().catch((error) => {

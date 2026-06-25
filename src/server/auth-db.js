@@ -400,6 +400,88 @@ async function resetPasswordWithToken({ token, password }) {
     return { ok: true };
 }
 
+async function createEmailVerificationToken({ email, name }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const displayName = String(name || '').trim();
+
+    // Delete any prior unused tokens for this email
+    await runQuery('DELETE FROM email_verification_tokens WHERE email = $1', [normalizedEmail]);
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    await runQuery(
+        'INSERT INTO email_verification_tokens (id, email, name, token_hash, expires_at) VALUES ($1, $2, $3, $4, $5)',
+        [generateId(), normalizedEmail, displayName, tokenHash, expiresAt],
+    );
+
+    return { rawToken, expiresAt };
+}
+
+async function getEmailVerificationToken(rawToken) {
+    await ensurePublicSchema();
+
+    const tokenHash = crypto.createHash('sha256').update(String(rawToken)).digest('hex');
+    return fetchOne(
+        `SELECT id, email, name FROM email_verification_tokens
+         WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+         LIMIT 1`,
+        [tokenHash],
+    );
+}
+
+async function consumeEmailVerificationAndCreateUser({ rawToken, password }) {
+    await ensurePublicSchema();
+
+    const tokenHash = crypto.createHash('sha256').update(String(rawToken)).digest('hex');
+
+    return withTransaction(async (client) => {
+        const record = await fetchOne(
+            `SELECT id, email, name FROM email_verification_tokens
+             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+             LIMIT 1`,
+            [tokenHash],
+            client,
+        );
+
+        if (!record) {
+            throw new Error('Verification link is invalid or has expired.');
+        }
+
+        const rawPassword = String(password || '');
+        if (rawPassword.length < 8) {
+            throw new Error('Password must be at least 8 characters.');
+        }
+
+        const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [record.email], client);
+        if (existing) {
+            throw new Error('An account with this email already exists.');
+        }
+
+        const userId = generateId();
+        const passwordHash = bcrypt.hashSync(rawPassword, 10);
+
+        await runQuery(
+            'INSERT INTO users (id, email, name, password_hash) VALUES ($1, $2, $3, $4)',
+            [userId, record.email, record.name, passwordHash],
+            client,
+        );
+        await createWorkspaceForUserWithExecutor(client, userId, `${record.name} Workspace`);
+
+        // Mark token as used
+        await runQuery(
+            'UPDATE email_verification_tokens SET used_at = NOW() WHERE id = $1',
+            [record.id],
+            client,
+        );
+
+        return fetchOne('SELECT id, email, name, image FROM users WHERE id = $1', [userId], client);
+    });
+}
+
 async function listAllUsers() {
     await ensurePublicSchema();
 
@@ -472,4 +554,7 @@ module.exports = {
     resetPasswordWithToken,
     listAllUsers,
     deleteUser,
+    createEmailVerificationToken,
+    getEmailVerificationToken,
+    consumeEmailVerificationAndCreateUser,
 };
