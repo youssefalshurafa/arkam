@@ -3010,7 +3010,7 @@ function AuthenticatedHome() {
             key={cur.id}
             value={cur.id}
            >
-            {cur.code} â€“ {cur.name}
+            {cur.code} — {cur.name}
            </option>
           ))}
         </select>
@@ -3122,7 +3122,7 @@ function AuthenticatedHome() {
           {currency.isMain === 1 ? (
            <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
           ) : (
-           <span className="text-slate-400">â€”</span>
+           <span className="text-slate-400">—</span>
           )}
          </td>
          <td className="px-4 py-3">
@@ -3360,7 +3360,7 @@ function AuthenticatedHome() {
          {currency.isMain === 1 ? (
           <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
          ) : (
-          <span className="text-slate-400">â€”</span>
+          <span className="text-slate-400">—</span>
          )}
         </td>
        </tr>
@@ -4344,7 +4344,7 @@ function AuthenticatedHome() {
                           ) : entry.commission ? (
                            <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</>
                           ) : (
-                           <span className="text-slate-400">â€”</span>
+                           <span className="text-slate-400">—</span>
                           )}
                          </td>
                         );
@@ -4410,7 +4410,7 @@ function AuthenticatedHome() {
                        )}
                        {entry.chargesPayer && (
                         <span className="text-slate-500">
-                         â€” {t('charges_payer_placeholder')}:{' '}
+                         — {t('charges_payer_placeholder')}:{' '}
                          {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
                         </span>
                        )}
@@ -4627,7 +4627,7 @@ function AuthenticatedHome() {
                 ? txFromQuery
                 : transactionForm.accountFromId
                   ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
-                    ' â€” ' +
+                    ' — ' +
                     (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
                   : ''
               }
@@ -4658,7 +4658,7 @@ function AuthenticatedHome() {
                   }}
                   className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
                  >
-                  {account.clientName} â€” {account.currencyCode}
+                  {account.clientName} — {account.currencyCode}
                  </li>
                 ))}
                {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
@@ -4679,7 +4679,7 @@ function AuthenticatedHome() {
                 ? txToQuery
                 : transactionForm.accountToId
                   ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
-                    ' â€” ' +
+                    ' — ' +
                     (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
                   : ''
               }
@@ -4710,7 +4710,7 @@ function AuthenticatedHome() {
                   }}
                   className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
                  >
-                  {account.clientName} â€” {account.currencyCode}
+                  {account.clientName} — {account.currencyCode}
                  </li>
                 ))}
                {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
@@ -4907,7 +4907,7 @@ function AuthenticatedHome() {
               onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
               className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
              >
-              <span>{isNewTransactionExpensesOpen ? 'â–¾' : 'â–¸'}</span>
+              <span>{isNewTransactionExpensesOpen ? '▾' : '▸'}</span>
               {t('extra_expenses')}
              </button>
              {isNewTransactionExpensesOpen && (
@@ -5170,7 +5170,7 @@ function AuthenticatedHome() {
                      placeholder={t('transaction_description_placeholder')}
                     />
                    ) : (
-                    txn.description || <span className="text-slate-400">â€”</span>
+                    txn.description || <span className="text-slate-400">—</span>
                    )}
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-900">
@@ -5484,7 +5484,7 @@ function AuthenticatedHome() {
                      {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
                     </div>
                    ) : (
-                    <span className="text-slate-400">â€”</span>
+                    <span className="text-slate-400">—</span>
                    )}
                   </td>
                   <td className="px-4 py-3 text-slate-600">
@@ -5595,7 +5595,7 @@ function AuthenticatedHome() {
                          ))}
                         </div>
                        ) : (
-                        <span className="text-slate-400">â€”</span>
+                        <span className="text-slate-400">—</span>
                        );
                       })()}
                   </td>

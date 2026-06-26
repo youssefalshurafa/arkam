@@ -24,6 +24,9 @@ function getPool() {
     if (!pool) {
         pool = new Pool({
             connectionString: getDatabaseUrl(),
+            max: 20,
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 5000,
             ...(shouldUseSsl() ? { ssl: { rejectUnauthorized: false } } : {}),
         });
     }
