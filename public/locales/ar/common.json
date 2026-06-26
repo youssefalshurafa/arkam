@@ -138,6 +138,7 @@
  "transaction_type": "النوع",
  "transaction_type_exchange": "صرف",
  "transaction_type_transfer": "تحويل",
+ "transaction_type_adjustment": "إضافة مصروف",
  "transaction_currency_from": "من عملة",
  "transaction_currency_to": "إلى عملة",
  "transaction_currency_placeholder": "اختر عملة",
@@ -187,8 +188,12 @@
  "transactions_hide_new": "إخفاء المعاملة الجديدة",
  "transactions_edit_mode": "وضع التعديل",
  "transactions_done_editing": "إنهاء التعديل",
+ "transactions_more_settings": "إعدادات إضافية",
+ "transactions_table_settings_title": "إعدادات جدول المعاملات",
+ "transactions_show_exchange_rate": "إظهار سعر الصرف",
  "transaction_account_placeholder": "اختر حساباً",
  "transaction_required": "كلا الحسابين والمبلغ والعملة مطلوبة.",
+ "adjustment_required": "الحساب والمبلغ والعملة مطلوبة.",
  "transaction_client_no_currency": "أحد العميلين المحددين أو كلاهما ليس لديه عملة معينة.",
  "transaction_delete_confirm": "هل تريد حذف هذه المعاملة؟",
  "counterparty": "الطرف المقابل",
@@ -271,5 +276,8 @@
  "adjustment_description": "الوصف",
  "adjustment_description_placeholder": "مثال: أجرة بنزين، ثمن آيفون",
  "adjustment_amount_required": "أدخل مبلغاً صالحاً أكبر من صفر.",
- "adjustment_delete_confirm": "هل تريد حذف هذا المصروف؟"
+ "adjustment_delete_confirm": "هل تريد حذف هذا المصروف؟",
+ "reverse_rate": "عكس اتجاه السعر",
+ "rate_multiplication": "ضرب",
+ "rate_division": "قسمة"
 }

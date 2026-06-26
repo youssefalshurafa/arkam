@@ -139,6 +139,7 @@
  "transaction_type": "Type",
  "transaction_type_exchange": "Exchange",
  "transaction_type_transfer": "Transfer",
+ "transaction_type_adjustment": "Add Expense",
  "transaction_currency_from": "From currency",
  "transaction_currency_to": "To currency",
  "transaction_currency_placeholder": "Select a currency",
@@ -187,8 +188,12 @@
  "transactions_hide_new": "Hide New Transaction",
  "transactions_edit_mode": "Edit Mode",
  "transactions_done_editing": "Done Editing",
+ "transactions_more_settings": "More Settings",
+ "transactions_table_settings_title": "Transaction Table Settings",
+ "transactions_show_exchange_rate": "Show exchange rate",
  "transaction_account_placeholder": "Select an account",
  "transaction_required": "Both accounts, amount, and currency are required.",
+ "adjustment_required": "Account, amount, and currency are required.",
  "transaction_client_no_currency": "One or both selected clients have no currency assigned.",
  "transaction_delete_confirm": "Delete this transaction?",
  "counterparty": "Counterparty",
@@ -271,5 +276,8 @@
  "adjustment_description": "Description",
  "adjustment_description_placeholder": "e.g. Gas money, iPhone payment",
  "adjustment_amount_required": "Enter a valid amount greater than zero.",
- "adjustment_delete_confirm": "Delete this expense entry?"
+ "adjustment_delete_confirm": "Delete this expense entry?",
+ "reverse_rate": "Reverse rate direction",
+ "rate_multiplication": "Multiply",
+ "rate_division": "Divide"
 }

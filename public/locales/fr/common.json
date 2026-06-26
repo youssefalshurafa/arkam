@@ -138,6 +138,7 @@
  "transaction_type": "Type",
  "transaction_type_exchange": "Change",
  "transaction_type_transfer": "Transfert",
+ "transaction_type_adjustment": "Ajouter une depense",
  "transaction_currency_from": "Devise source",
  "transaction_currency_to": "Devise cible",
  "transaction_currency_placeholder": "Sélectionner une devise",
@@ -186,8 +187,12 @@
  "transactions_hide_new": "Masquer la nouvelle transaction",
  "transactions_edit_mode": "Mode modification",
  "transactions_done_editing": "Terminer la modification",
+ "transactions_more_settings": "Plus de paramètres",
+ "transactions_table_settings_title": "Paramètres du tableau des transactions",
+ "transactions_show_exchange_rate": "Afficher le taux de change",
  "transaction_account_placeholder": "Sélectionner un compte",
  "transaction_required": "Les deux comptes, le montant et la devise sont requis.",
+ "adjustment_required": "Le compte, le montant et la devise sont requis.",
  "transaction_client_no_currency": "Un ou les deux clients sélectionnés n'ont pas de devise assignée.",
  "transaction_delete_confirm": "Supprimer cette transaction ?",
  "counterparty": "Contrepartie",
@@ -270,5 +275,8 @@
  "adjustment_description": "Description",
  "adjustment_description_placeholder": "ex. Argent d'essence, paiement iPhone",
  "adjustment_amount_required": "Saisissez un montant valide superieur a zero.",
- "adjustment_delete_confirm": "Supprimer cette depense ?"
+ "adjustment_delete_confirm": "Supprimer cette depense ?",
+ "reverse_rate": "Inverser le sens du taux",
+ "rate_multiplication": "Multiplier",
+ "rate_division": "Diviser"
 }

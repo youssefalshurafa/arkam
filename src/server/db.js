@@ -700,6 +700,11 @@ async function listClientAdjustments(app) {
             a.account_id AS "accountId",
             a.amount,
             a.direction,
+            a.currency_id AS "currencyId",
+            a.currency_code AS "currencyCode",
+            a.currency_symbol AS "currencySymbol",
+            a.exchange_rate AS "exchangeRate",
+            a.exchange_rate_reversed AS "exchangeRateReversed",
             a.description,
             a.created_at AS "createdAt"
         FROM ${schema}.client_adjustments a
@@ -708,32 +713,36 @@ async function listClientAdjustments(app) {
     return result.rows;
 }
 
-async function createClientAdjustment(app, { accountId, amount, direction, description, createdAt }) {
+async function createClientAdjustment(app, { accountId, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
     const { schema } = await getSchemaInfo(app);
     if (!accountId) throw new Error('Account is required.');
     if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
     if (!['debit', 'credit'].includes(direction)) throw new Error('Direction must be debit or credit.');
+    const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+    const reversed = exchangeRateReversed ? true : false;
+    const columns = ['account_id', 'amount', 'direction', 'currency_id', 'currency_code', 'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description'];
+    const values = [accountId, amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || ''];
     if (createdAt) {
-        const result = await query(
-            `INSERT INTO ${schema}.client_adjustments (account_id, amount, direction, description, created_at)
-             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-            [accountId, amount, direction, description?.trim() || '', createdAt]
-        );
-        return result.rows[0];
+        columns.push('created_at');
+        values.push(createdAt);
     }
+    const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
     const result = await query(
-        `INSERT INTO ${schema}.client_adjustments (account_id, amount, direction, description)
-         VALUES ($1, $2, $3, $4) RETURNING id`,
-        [accountId, amount, direction, description?.trim() || '']
+        `INSERT INTO ${schema}.client_adjustments (${columns.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+        values
     );
     return result.rows[0];
 }
 
-async function updateClientAdjustment(app, { id, amount, direction, description, createdAt }) {
+async function updateClientAdjustment(app, { id, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
     const { schema } = await getSchemaInfo(app);
+    const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+    const reversed = exchangeRateReversed ? true : false;
     await query(
-        `UPDATE ${schema}.client_adjustments SET amount=$1, direction=$2, description=$3, created_at=$4 WHERE id=$5`,
-        [amount, direction, description?.trim() || '', createdAt, id]
+        `UPDATE ${schema}.client_adjustments
+         SET amount=$1, direction=$2, currency_id=$3, currency_code=$4, currency_symbol=$5, exchange_rate=$6, exchange_rate_reversed=$7, description=$8, created_at=$9
+         WHERE id=$10`,
+        [amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || '', createdAt, id]
     );
 }
 

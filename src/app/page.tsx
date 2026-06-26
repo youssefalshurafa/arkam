@@ -118,6 +118,7 @@ type TransactionForm = {
  currencyId: number | null;
  amount: string;
  type: string;
+ adjustmentDirection: 'debit' | 'credit';
  exchangeRateFrom: string;
  commissionFrom: string;
  exchangeRateTo: string;
@@ -216,6 +217,11 @@ type ClientAdjustment = {
  accountId: number;
  amount: number;
  direction: 'debit' | 'credit';
+ currencyId: number | null;
+ currencyCode: string;
+ currencySymbol: string;
+ exchangeRate: number;
+ exchangeRateReversed: boolean;
  description: string;
  createdAt: string;
 };
@@ -255,6 +261,7 @@ type PendingImportData = {
 };
 
 type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
+type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'charges' | 'commission';
 
 const defaultLedgerColumnOrder: LedgerColumnKey[] = [
  'created',
@@ -272,8 +279,16 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
 const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
 const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
+const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
 
 type PdfColVisibility = Record<LedgerColumnKey, boolean>;
+type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
+
+type TransactionTableSettings = {
+ columns: TransactionColumnVisibility;
+ showExchangeRate: boolean;
+ dateFormat: PdfSettings['dateFormat'];
+};
 
 const defaultPdfColVisibility: PdfColVisibility = {
  created: true,
@@ -286,6 +301,22 @@ const defaultPdfColVisibility: PdfColVisibility = {
  netChange: true,
  runningBalance: true,
  description: true,
+};
+
+const defaultTransactionColumnVisibility: TransactionColumnVisibility = {
+ created: true,
+ description: true,
+ accountFrom: true,
+ accountTo: true,
+ amount: true,
+ charges: true,
+ commission: true,
+};
+
+const defaultTransactionTableSettings: TransactionTableSettings = {
+ columns: defaultTransactionColumnVisibility,
+ showExchangeRate: true,
+ dateFormat: 'full',
 };
 
 function getStoredPdfCols(accountId: number): PdfColVisibility {
@@ -302,6 +333,30 @@ function getStoredPdfCols(accountId: number): PdfColVisibility {
 function savePdfCols(accountId: number, cols: PdfColVisibility) {
  try {
   window.localStorage.setItem(pdfColsStorageKeyPrefix + accountId, JSON.stringify(cols));
+ } catch {
+  /* ignore */
+ }
+}
+
+function getStoredTransactionTableSettings(): TransactionTableSettings {
+ if (typeof window === 'undefined') return defaultTransactionTableSettings;
+ try {
+  const raw = window.localStorage.getItem(transactionTableSettingsStorageKey);
+  if (!raw) return defaultTransactionTableSettings;
+  const parsed = JSON.parse(raw);
+  return {
+   ...defaultTransactionTableSettings,
+   ...parsed,
+   columns: { ...defaultTransactionColumnVisibility, ...(parsed?.columns ?? {}) },
+  };
+ } catch {
+  return defaultTransactionTableSettings;
+ }
+}
+
+function saveTransactionTableSettings(settings: TransactionTableSettings) {
+ try {
+  window.localStorage.setItem(transactionTableSettingsStorageKey, JSON.stringify(settings));
  } catch {
   /* ignore */
  }
@@ -616,6 +671,23 @@ function getCommissionAmount(baseAmount: number, commissionPercent: number) {
  return baseAmount * (commissionPercent / 100);
 }
 
+function formatDateValue(value: string, dateFormat: PdfSettings['dateFormat']) {
+ const iso = value.slice(0, 10);
+ const [y = '', m = '', d = ''] = iso.split('-');
+ switch (dateFormat) {
+  case 'day-month':
+   return `${d}/${m}`;
+  case 'month-year':
+   return `${m}/${y}`;
+  case 'day-month-year-2':
+   return `${d}/${m}/${y.slice(2)}`;
+  case 'month-day':
+   return `${m}/${d}`;
+  default:
+   return iso;
+ }
+}
+
 type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth';
 
 function renderIcon(icon: IconName, className = 'h-5 w-5') {
@@ -740,6 +812,7 @@ const emptyTransactionForm = (): TransactionForm => ({
  currencyId: null,
  amount: '',
  type: 'transfer',
+ adjustmentDirection: 'debit',
  exchangeRateFrom: '1.00',
  commissionFrom: '0.00',
  exchangeRateTo: '1.00',
@@ -777,6 +850,9 @@ function AuthenticatedHome() {
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
  const [transactionsPage, setTransactionsPage] = useState(1);
  const [transactionsPageSize, setTransactionsPageSize] = useState(100);
+ const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
+ const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
+ const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
  const [ledgerCommissionExpandedEntries, setLedgerCommissionExpandedEntries] = useState<Set<string>>(new Set());
@@ -815,6 +891,9 @@ function AuthenticatedHome() {
   editingId: number | null;
   amount: string;
   direction: 'debit' | 'credit';
+  currencyId: number | null;
+  exchangeRate: string;
+  exchangeRateReversed: boolean;
   description: string;
   date: string;
  } | null>(null);
@@ -1647,6 +1726,46 @@ function AuthenticatedHome() {
 
   const amount = parseFloat(transactionForm.amount);
 
+  if (isAdjustmentTransaction) {
+   if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
+    setError(t('adjustment_required'));
+    return;
+   }
+
+   const selectedCurrency = currencyMap.get(transactionForm.currencyId);
+   const account = clientAccountMap.get(transactionForm.accountFromId);
+
+   try {
+    await accountingApi.createClientAdjustment({
+     accountId: transactionForm.accountFromId,
+     amount,
+     direction: transactionForm.adjustmentDirection,
+     currencyId: transactionForm.currencyId,
+     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+     exchangeRate: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
+     exchangeRateReversed: txFromRateReversed,
+     description: transactionForm.description,
+    });
+
+    setTransactionForm(emptyTransactionForm());
+    setTxFromQuery('');
+    setTxFromOpen(false);
+    setTxToQuery('');
+    setTxToOpen(false);
+    setTxFromRateReversed(false);
+    setTxToRateReversed(false);
+    setIsNewTransactionSectionOpen(false);
+    setIsNewTransactionExpensesOpen(false);
+    setError('');
+    await loadData();
+   } catch (e) {
+    setError(e instanceof Error ? e.message : t('error_failed_save'));
+   }
+
+   return;
+  }
+
   if (!transactionForm.accountFromId || !transactionForm.accountToId || !transactionForm.currencyId || !amount) {
    setError(t('transaction_required'));
    return;
@@ -2020,12 +2139,16 @@ function AuthenticatedHome() {
  }
 
  function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
+  const account = clientAccounts.find((a) => a.id === accountId);
   if (existing) {
    setAdjustmentModal({
     accountId,
     editingId: existing.id,
     amount: String(existing.amount),
     direction: existing.direction,
+    currencyId: existing.currencyId ?? account?.currencyId ?? null,
+    exchangeRate: existing.exchangeRate && existing.exchangeRate !== 1 ? String(existing.exchangeRate) : '',
+    exchangeRateReversed: !!existing.exchangeRateReversed,
     description: existing.description,
     date: existing.createdAt.slice(0, 10),
    });
@@ -2035,6 +2158,9 @@ function AuthenticatedHome() {
     editingId: null,
     amount: '',
     direction: 'debit',
+    currencyId: account?.currencyId ?? null,
+    exchangeRate: '',
+    exchangeRateReversed: false,
     description: '',
     date: new Date().toISOString().slice(0, 10),
    });
@@ -2053,24 +2179,36 @@ function AuthenticatedHome() {
    return;
   }
 
+  const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
+  const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
+  const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+  const rawRate = parseFloat(adjustmentModal.exchangeRate) || 1;
+  const effectiveRate = needsRate ? (adjustmentModal.exchangeRateReversed ? 1 / rawRate : rawRate) : 1;
+
   const createdAt = `${adjustmentModal.date} 00:00:00`;
+
+  const payloadBase = {
+   amount,
+   direction: adjustmentModal.direction,
+   currencyId: adjustmentModal.currencyId,
+   currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+   currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+   exchangeRate: effectiveRate,
+   exchangeRateReversed: needsRate ? adjustmentModal.exchangeRateReversed : false,
+   description: adjustmentModal.description.trim(),
+   createdAt,
+  };
 
   try {
    if (adjustmentModal.editingId) {
     await accountingApi.updateClientAdjustment({
      id: adjustmentModal.editingId,
-     amount,
-     direction: adjustmentModal.direction,
-     description: adjustmentModal.description.trim(),
-     createdAt,
+     ...payloadBase,
     });
    } else {
     await accountingApi.createClientAdjustment({
      accountId: adjustmentModal.accountId,
-     amount,
-     direction: adjustmentModal.direction,
-     description: adjustmentModal.description.trim(),
-     createdAt,
+     ...payloadBase,
     });
    }
    setAdjustmentModal(null);
@@ -2319,7 +2457,17 @@ function AuthenticatedHome() {
     isNum: true,
     cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
-   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => (e.isAdjustment ? '—' : formatRateValue(e.exchangeRate)) },
+   {
+    key: 'exchangeRate',
+    header: t('exchange_rate'),
+    isNum: true,
+    cell: (e) => {
+     if (e.isAdjustment) {
+      return e.exchangeRate && e.exchangeRate !== 1 ? formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : '—';
+     }
+     return formatRateValue(e.exchangeRate);
+    },
+   },
    { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '—' : e.commission.toFixed(pdfSettings.decimals)) },
    {
     key: 'netChange',
@@ -2508,6 +2656,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   [clients, selectedOrganizationForClients],
  );
 
+ const isAdjustmentTransaction = transactionForm.type === 'adjustment';
  const transactionSelectedCurrencyCode = transactionForm.currencyId ? currencyMap.get(transactionForm.currencyId)?.code : undefined;
  const transactionAccountFromCurrencyCode = transactionForm.accountFromId ? clientAccountMap.get(transactionForm.accountFromId)?.currencyCode : undefined;
  const transactionAccountToCurrencyCode = transactionForm.accountToId ? clientAccountMap.get(transactionForm.accountToId)?.currencyCode : undefined;
@@ -2518,6 +2667,32 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const chargesPayerAccountCurrencyCode =
   transactionForm.chargesPayer === 'from' ? transactionAccountFromCurrencyCode : transactionForm.chargesPayer === 'to' ? transactionAccountToCurrencyCode : undefined;
  const showChargesExchangeRate = !!(chargesCurrencyCode && chargesPayerAccountCurrencyCode && chargesCurrencyCode !== chargesPayerAccountCurrencyCode);
+
+ const updateTransactionTableSettings = (updater: (current: TransactionTableSettings) => TransactionTableSettings) => {
+  setTransactionTableSettings((current) => {
+   const next = updater(current);
+   saveTransactionTableSettings(next);
+   return next;
+  });
+ };
+
+ const openTransactionTableSettingsModal = () => {
+  setTransactionTableSettingsDraft(transactionTableSettings);
+  setShowTransactionTableSettingsModal(true);
+ };
+
+ const closeTransactionTableSettingsModal = () => {
+  setTransactionTableSettingsDraft(transactionTableSettings);
+  setShowTransactionTableSettingsModal(false);
+ };
+
+ const saveTransactionTableSettingsModal = () => {
+  setTransactionTableSettings(transactionTableSettingsDraft);
+  saveTransactionTableSettings(transactionTableSettingsDraft);
+  setShowTransactionTableSettingsModal(false);
+ };
+
+ const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + (isTransactionsEditMode ? 1 : 0);
 
  const overviewCards = [
   { label: t('overview_currencies'), value: enabledCurrencies.length },
@@ -2612,12 +2787,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         direction: (adj.direction === 'credit' ? 'outgoing' : 'incoming') as 'incoming' | 'outgoing',
         type: 'adjustment',
         amount: adj.amount,
-        currencyCode: account.currencyCode,
-        currencySymbol: account.currencySymbol,
-        exchangeRate: 1,
-        exchangeRateReversed: false,
+        currencyCode: adj.currencyCode || account.currencyCode,
+        currencySymbol: adj.currencySymbol || account.currencySymbol,
+        exchangeRate: adj.exchangeRate || 1,
+        exchangeRateReversed: !!adj.exchangeRateReversed,
         commission: 0,
-        netChange: adj.direction === 'credit' ? adj.amount : -adj.amount,
+        // amount is in the adjustment's own currency; convert to account currency via exchangeRate
+        netChange: (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
         runningBalance: 0,
         description: adj.description,
         charges: 0,
@@ -4898,7 +5074,17 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           className="px-4 py-3 text-slate-600"
                          >
                           {entry.isAdjustment ? (
-                           <span className="text-slate-400">—</span>
+                           entry.exchangeRate && entry.exchangeRate !== 1 && entry.currencyCode !== ledger.currencyCode ? (
+                            (() => {
+                             const txCurr = entry.currencyCode;
+                             const accCurr = ledger.currencyCode;
+                             const rateNumber = entry.exchangeRateReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                             const rateLabel = `\u202A${entry.exchangeRateReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                             return <span title={rateLabel}>{rateNumber}</span>;
+                            })()
+                           ) : (
+                            <span className="text-slate-400">—</span>
+                           )
                           ) : isClientLedgerEditMode && draft ? (
                            (() => {
                             const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
@@ -5429,67 +5615,106 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              )}
             </div>
 
-            <label className="mt-4 block text-sm font-medium">
-             {t('transaction_account_to')} <span className="text-red-500">*</span>
-            </label>
-            <div className="relative mt-2">
-             <input
-              type="text"
-              value={
-               txToOpen
-                ? txToQuery
-                : transactionForm.accountToId
-                  ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
-                    ' — ' +
-                    (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
-                  : ''
-              }
-              onChange={(event) => {
-               setTxToQuery(event.target.value);
-               setTxToOpen(true);
-              }}
-              onFocus={() => {
-               setTxToQuery('');
-               setTxToOpen(true);
-              }}
-              onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
-              placeholder={t('transaction_account_placeholder')}
-              className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-              autoComplete="off"
-             />
-             {txToOpen && (
-              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-               {clientAccounts
-                .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
-                .map((account) => (
-                 <li
-                  key={account.id}
-                  onMouseDown={() => {
-                   setTransactionForm((current) => ({ ...current, accountToId: account.id }));
-                   setTxToQuery('');
-                   setTxToOpen(false);
-                  }}
-                  className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-                 >
-                  {account.clientName} — {account.currencyCode}
-                 </li>
-                ))}
-               {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
-                <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
-               )}
-              </ul>
-             )}
-            </div>
-
             <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
             <select
              value={transactionForm.type}
-             onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
+             onChange={(event) =>
+              setTransactionForm((current) => ({
+               ...current,
+               type: event.target.value,
+               chargesPayer: event.target.value === 'adjustment' ? '' : current.chargesPayer,
+              }))
+             }
              className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
             >
              <option value="exchange">{t('transaction_type_exchange')}</option>
              <option value="transfer">{t('transaction_type_transfer')}</option>
+             <option value="adjustment">{t('transaction_type_adjustment')}</option>
             </select>
+
+            {isAdjustmentTransaction ? (
+             <div className="mt-4">
+              <label className="block text-sm font-medium">{t('adjustment_direction')}</label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+               <button
+                type="button"
+                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'debit' }))}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                 transactionForm.adjustmentDirection === 'debit'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+               >
+                {t('adjustment_direction_debit')}
+               </button>
+               <button
+                type="button"
+                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'credit' }))}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                 transactionForm.adjustmentDirection === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+               >
+                {t('adjustment_direction_credit')}
+               </button>
+              </div>
+             </div>
+            ) : null}
+
+            {!isAdjustmentTransaction ? (
+             <>
+              <label className="mt-4 block text-sm font-medium">
+               {t('transaction_account_to')} <span className="text-red-500">*</span>
+              </label>
+              <div className="relative mt-2">
+               <input
+                type="text"
+                value={
+                 txToOpen
+                  ? txToQuery
+                  : transactionForm.accountToId
+                    ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
+                      ' — ' +
+                      (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
+                    : ''
+                }
+                onChange={(event) => {
+                 setTxToQuery(event.target.value);
+                 setTxToOpen(true);
+                }}
+                onFocus={() => {
+                 setTxToQuery('');
+                 setTxToOpen(true);
+                }}
+                onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
+                placeholder={t('transaction_account_placeholder')}
+                className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+                autoComplete="off"
+               />
+               {txToOpen && (
+                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+                 {clientAccounts
+                  .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
+                  .map((account) => (
+                   <li
+                    key={account.id}
+                    onMouseDown={() => {
+                     setTransactionForm((current) => ({ ...current, accountToId: account.id }));
+                     setTxToQuery('');
+                     setTxToOpen(false);
+                    }}
+                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                   >
+                    {account.clientName} — {account.currencyCode}
+                   </li>
+                  ))}
+                 {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
+                  <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+                 )}
+                </ul>
+               )}
+              </div>
+             </>
+            ) : null}
 
             <label className="mt-4 block text-sm font-medium">
              {t('transaction_amount')} <span className="text-red-500">*</span>
@@ -5530,7 +5755,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
             <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
              <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
-             <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
+             <div className={`mt-2 grid gap-2 ${showExchangeRateFrom && !isAdjustmentTransaction ? 'sm:grid-cols-2' : ''}`}>
               {showExchangeRateFrom && (
                <div>
                 <div className="flex items-center justify-between">
@@ -5580,169 +5805,175 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 />
                </div>
               )}
-              <div>
-               <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
-               <input
-                type="text"
-                inputMode="decimal"
-                dir="ltr"
-                value={transactionForm.commissionFrom}
-                onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                placeholder="0"
-               />
-              </div>
-             </div>
-            </div>
-
-            <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
-             <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
-             <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
-              {showExchangeRateTo && (
+              {!isAdjustmentTransaction ? (
                <div>
-                <div className="flex items-center justify-between">
-                 <label className="block text-xs font-medium text-slate-500">
-                  {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
-                   ? txToRateReversed
-                     ? `1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
-                     : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`
-                   : t('transaction_exchange_rate_to')}
-                 </label>
-                 {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
-                  <button
-                   type="button"
-                   title="Reverse rate direction"
-                   onClick={() => {
-                    const val = parseFloat(transactionForm.exchangeRateTo) || 1;
-                    setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
-                    setTxToRateReversed((r) => !r);
-                   }}
-                   className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                  >
-                   <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                   >
-                    <path d="M7 4 3 8l4 4M3 8h13.5" />
-                    <path d="M17 20l4-4-4-4m4 4H7.5" />
-                   </svg>
-                  </button>
-                 )}
-                </div>
+                <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
                 <input
                  type="text"
                  inputMode="decimal"
                  dir="ltr"
-                 value={transactionForm.exchangeRateTo}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+                 value={transactionForm.commissionFrom}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder="1"
-                />
-               </div>
-              )}
-              <div>
-               <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
-               <input
-                type="text"
-                inputMode="decimal"
-                dir="ltr"
-                value={transactionForm.commissionTo}
-                onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                placeholder="0"
-               />
-              </div>
-             </div>
-            </div>
-
-            <div className="mt-4">
-             <button
-              type="button"
-              onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
-              className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
-             >
-              <span>{isNewTransactionExpensesOpen ? '▾' : '▸'}</span>
-              {t('extra_expenses')}
-             </button>
-             {isNewTransactionExpensesOpen && (
-              <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
-               <div className="grid gap-2 sm:grid-cols-3">
-                <input
-                 type="text"
-                 inputMode="decimal"
-                 dir="ltr"
-                 value={transactionForm.charges}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
-                 className="rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
                  placeholder="0"
                 />
-                <select
-                 value={transactionForm.chargesCurrencyId ?? ''}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesCurrencyId: event.target.value ? Number(event.target.value) : null }))}
-                 className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                >
-                 <option value="">{t('currency')}</option>
-                 {enabledCurrencies.map((cur) => (
-                  <option
-                   key={cur.id}
-                   value={cur.id}
-                  >
-                   {cur.code}
-                  </option>
-                 ))}
-                </select>
-                <select
-                 value={transactionForm.chargesPayer}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesPayer: event.target.value }))}
-                 className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                >
-                 <option value="">{t('charges_payer_placeholder')}</option>
-                 <option value="from">
-                  {transactionForm.accountFromId
-                   ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
-                   : t('transaction_account_from')}
-                 </option>
-                 <option value="to">
-                  {transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
-                 </option>
-                </select>
                </div>
-               {showChargesExchangeRate && (
-                <div className="mt-2">
-                 <label className="block text-xs font-medium text-slate-500">
-                  {t('charges_exchange_rate')} ({chargesCurrencyCode} â†’ {chargesPayerAccountCurrencyCode})
-                 </label>
+              ) : null}
+             </div>
+            </div>
+
+            {!isAdjustmentTransaction ? (
+             <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
+              <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
+               {showExchangeRateTo && (
+                <div>
+                 <div className="flex items-center justify-between">
+                  <label className="block text-xs font-medium text-slate-500">
+                   {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
+                    ? txToRateReversed
+                      ? `1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
+                      : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`
+                    : t('transaction_exchange_rate_to')}
+                  </label>
+                  {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
+                   <button
+                    type="button"
+                    title="Reverse rate direction"
+                    onClick={() => {
+                     const val = parseFloat(transactionForm.exchangeRateTo) || 1;
+                     setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
+                     setTxToRateReversed((r) => !r);
+                    }}
+                    className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                   >
+                    <svg
+                     width="14"
+                     height="14"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="1.8"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="M7 4 3 8l4 4M3 8h13.5" />
+                     <path d="M17 20l4-4-4-4m4 4H7.5" />
+                    </svg>
+                   </button>
+                  )}
+                 </div>
                  <input
                   type="text"
                   inputMode="decimal"
                   dir="ltr"
-                  value={transactionForm.chargesExchangeRate}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizeDecimalInput(event.target.value) }))}
-                  className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                  value={transactionForm.exchangeRateTo}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder="1"
                  />
                 </div>
                )}
-               <div className="mt-2">
-                <label className="block text-xs font-medium text-slate-500">{t('charges_description')}</label>
+               <div>
+                <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
                 <input
                  type="text"
-                 value={transactionForm.chargesDescription}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
-                 className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder={t('charges_description_placeholder')}
+                 inputMode="decimal"
+                 dir="ltr"
+                 value={transactionForm.commissionTo}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
+                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 placeholder="0"
                 />
                </div>
               </div>
-             )}
-            </div>
+             </div>
+            ) : null}
+
+            {!isAdjustmentTransaction ? (
+             <div className="mt-4">
+              <button
+               type="button"
+               onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
+               className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+              >
+               <span>{isNewTransactionExpensesOpen ? '▾' : '▸'}</span>
+               {t('extra_expenses')}
+              </button>
+              {isNewTransactionExpensesOpen && (
+               <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
+                <div className="grid gap-2 sm:grid-cols-3">
+                 <input
+                  type="text"
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={transactionForm.charges}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
+                  className="rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                  placeholder="0"
+                 />
+                 <select
+                  value={transactionForm.chargesCurrencyId ?? ''}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesCurrencyId: event.target.value ? Number(event.target.value) : null }))}
+                  className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 >
+                  <option value="">{t('currency')}</option>
+                  {enabledCurrencies.map((cur) => (
+                   <option
+                    key={cur.id}
+                    value={cur.id}
+                   >
+                    {cur.code}
+                   </option>
+                  ))}
+                 </select>
+                 <select
+                  value={transactionForm.chargesPayer}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesPayer: event.target.value }))}
+                  className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 >
+                  <option value="">{t('charges_payer_placeholder')}</option>
+                  <option value="from">
+                   {transactionForm.accountFromId
+                    ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
+                    : t('transaction_account_from')}
+                  </option>
+                  <option value="to">
+                   {transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
+                  </option>
+                 </select>
+                </div>
+                {showChargesExchangeRate && (
+                 <div className="mt-2">
+                  <label className="block text-xs font-medium text-slate-500">
+                   {t('charges_exchange_rate')} ({chargesCurrencyCode} â†’ {chargesPayerAccountCurrencyCode})
+                  </label>
+                  <input
+                   type="text"
+                   inputMode="decimal"
+                   dir="ltr"
+                   value={transactionForm.chargesExchangeRate}
+                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizeDecimalInput(event.target.value) }))}
+                   className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                   placeholder="1"
+                  />
+                 </div>
+                )}
+                <div className="mt-2">
+                 <label className="block text-xs font-medium text-slate-500">{t('charges_description')}</label>
+                 <input
+                  type="text"
+                  value={transactionForm.chargesDescription}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
+                  className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  placeholder={t('charges_description_placeholder')}
+                 />
+                </div>
+               </div>
+              )}
+             </div>
+            ) : null}
 
             <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
             <textarea
@@ -5756,7 +5987,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              type="submit"
              className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
             >
-             {t('save_transaction')}
+             {isAdjustmentTransaction ? t('adjustment_add') : t('save_transaction')}
             </button>
            </form>
           </div>
@@ -5783,6 +6014,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             </button>
             {isTransactionsEditMode ? (
              <>
+              <button
+               type="button"
+               onClick={openTransactionTableSettingsModal}
+               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+               {t('transactions_more_settings')}
+              </button>
               <button
                type="button"
                onClick={() => void onSaveAllTransactionDrafts()}
@@ -5857,13 +6095,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            <table className="w-full text-sm">
             <colgroup>
              {isTransactionsEditMode ? <col className="w-[5%]" /> : null}
-             <col className="w-[10%]" />
-             <col className="w-[15%]" />
-             <col className="w-[17%]" />
-             <col className="w-[17%]" />
-             <col className="w-[13%]" />
-             <col className="w-[13%]" />
-             <col className="w-[15%]" />
+             {transactionTableSettings.columns.created ? <col className="w-[10%]" /> : null}
+             {transactionTableSettings.columns.description ? <col className="w-[15%]" /> : null}
+             {transactionTableSettings.columns.accountFrom ? <col className="w-[17%]" /> : null}
+             {transactionTableSettings.columns.accountTo ? <col className="w-[17%]" /> : null}
+             {transactionTableSettings.columns.amount ? <col className="w-[13%]" /> : null}
+             {transactionTableSettings.columns.charges ? <col className="w-[13%]" /> : null}
+             {transactionTableSettings.columns.commission ? <col className="w-[15%]" /> : null}
             </colgroup>
             <thead className="bg-slate-100 text-slate-700">
              <tr>
@@ -5878,13 +6116,19 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 />
                </th>
               ) : null}
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
+              {transactionTableSettings.columns.created ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th> : null}
+              {transactionTableSettings.columns.description ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
+              ) : null}
+              {transactionTableSettings.columns.accountFrom ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
+              ) : null}
+              {transactionTableSettings.columns.accountTo ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
+              ) : null}
+              {transactionTableSettings.columns.amount ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th> : null}
+              {transactionTableSettings.columns.charges ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th> : null}
+              {transactionTableSettings.columns.commission ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th> : null}
              </tr>
             </thead>
             <tbody>
@@ -5909,457 +6153,475 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     />
                    </td>
                   ) : null}
-                  <td className="px-4 py-3 text-slate-500">
-                   {isTransactionsEditMode && draft ? (
-                    <input
-                     type="date"
-                     value={draft.createdDate}
-                     onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
-                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                    />
-                   ) : (
-                    new Date(txn.createdAt).toLocaleDateString(language)
-                   )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                   {isTransactionsEditMode && draft ? (
-                    <input
-                     type="text"
-                     value={draft.description}
-                     onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
-                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     placeholder={t('transaction_description_placeholder')}
-                    />
-                   ) : (
-                    txn.description || <span className="text-slate-400">—</span>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-900">
-                   {isTransactionsEditMode && draft ? (
-                    <div className="space-y-2">
-                     <select
-                      value={draft.accountFromId ?? ''}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { accountFromId: event.target.value ? Number(event.target.value) : null })}
-                      className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     >
-                      <option value="">{t('transaction_account_placeholder')}</option>
-                      {clientAccounts.map((account) => (
-                       <option
-                        key={account.id}
-                        value={account.id}
-                       >
-                        {account.clientName} - {account.currencySymbol || account.currencyCode}
-                       </option>
-                      ))}
-                     </select>
-                     {txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
-                      <div className="flex items-center justify-between">
-                       <span className="text-xs text-slate-400">
-                        {tableRateFromReversed[txn.id] ? `1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`}
-                       </span>
-                       <button
-                        type="button"
-                        title="Reverse rate direction"
-                        onClick={() => {
-                         const val = parseFloat(draft.exchangeRateFrom) || 1;
-                         updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                         setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
-                        }}
-                        className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                       >
-                        <svg
-                         width="14"
-                         height="14"
-                         viewBox="0 0 24 24"
-                         fill="none"
-                         stroke="currentColor"
-                         strokeWidth="1.8"
-                         strokeLinecap="round"
-                         strokeLinejoin="round"
-                         aria-hidden
-                        >
-                         <path d="M7 4 3 8l4 4M3 8h13.5" />
-                         <path d="M17 20l4-4-4-4m4 4H7.5" />
-                        </svg>
-                       </button>
-                      </div>
-                     )}
+                  {transactionTableSettings.columns.created ? (
+                   <td className="px-4 py-3 text-slate-500">
+                    {isTransactionsEditMode && draft ? (
                      <input
-                      type="text"
-                      inputMode="decimal"
-                      dir="ltr"
-                      value={draft.exchangeRateFrom}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
+                      type="date"
+                      value={draft.createdDate}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
                       className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                      placeholder={t('transaction_exchange_rate')}
                      />
-                    </div>
-                   ) : (
-                    <>
-                     {(() => {
-                      const fromAccount = clientAccountMap.get(txn.accountFromId);
-                      const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
-
-                      return fromClient ? (
-                       <button
-                        type="button"
-                        onClick={() => openClientLedger(fromClient, 'clients')}
-                        className="cursor-pointer text-left hover:text-blue-700 hover:underline"
-                       >
-                        {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                       </button>
-                      ) : (
-                       <div>
-                        {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                       </div>
-                      );
-                     })()}
-                     {txn.exchangeRateFrom !== 1 ? (
-                      <div className="text-xs text-slate-500">
-                       {t('transaction_exchange_rate')}:{' '}
-                       {txn.exchangeRateFromReversed
-                        ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
-                        : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
-                      </div>
-                     ) : null}
-                    </>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-900">
-                   {isTransactionsEditMode && draft ? (
-                    <div className="space-y-2">
-                     <select
-                      value={draft.accountToId ?? ''}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { accountToId: event.target.value ? Number(event.target.value) : null })}
-                      className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     >
-                      <option value="">{t('transaction_account_placeholder')}</option>
-                      {clientAccounts.map((account) => (
-                       <option
-                        key={account.id}
-                        value={account.id}
-                       >
-                        {account.clientName} - {account.currencySymbol || account.currencyCode}
-                       </option>
-                      ))}
-                     </select>
-                     {txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
-                      <div className="flex items-center justify-between">
-                       <span className="text-xs text-slate-400">
-                        {tableRateToReversed[txn.id] ? `1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`}
-                       </span>
-                       <button
-                        type="button"
-                        title="Reverse rate direction"
-                        onClick={() => {
-                         const val = parseFloat(draft.exchangeRateTo) || 1;
-                         updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                         setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
-                        }}
-                        className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                       >
-                        <svg
-                         width="14"
-                         height="14"
-                         viewBox="0 0 24 24"
-                         fill="none"
-                         stroke="currentColor"
-                         strokeWidth="1.8"
-                         strokeLinecap="round"
-                         strokeLinejoin="round"
-                         aria-hidden
-                        >
-                         <path d="M7 4 3 8l4 4M3 8h13.5" />
-                         <path d="M17 20l4-4-4-4m4 4H7.5" />
-                        </svg>
-                       </button>
-                      </div>
-                     )}
+                    ) : (
+                     formatDateValue(txn.createdAt, transactionTableSettings.dateFormat)
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.description ? (
+                   <td className="px-4 py-3 text-slate-600">
+                    {isTransactionsEditMode && draft ? (
                      <input
                       type="text"
-                      inputMode="decimal"
-                      dir="ltr"
-                      value={draft.exchangeRateTo}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
+                      value={draft.description}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
                       className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                      placeholder={t('transaction_exchange_rate')}
+                      placeholder={t('transaction_description_placeholder')}
                      />
-                    </div>
-                   ) : (
-                    <>
-                     {(() => {
-                      const toAccount = clientAccountMap.get(txn.accountToId);
-                      const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
-
-                      return toClient ? (
-                       <button
-                        type="button"
-                        onClick={() => openClientLedger(toClient, 'clients')}
-                        className="cursor-pointer text-left hover:text-blue-700 hover:underline"
-                       >
-                        {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
-                       </button>
-                      ) : (
-                       <div>
-                        {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                    ) : (
+                     txn.description || <span className="text-slate-400">—</span>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.accountFrom ? (
+                   <td className="px-4 py-3 font-medium text-slate-900">
+                    {isTransactionsEditMode && draft ? (
+                     <div className="space-y-2">
+                      <select
+                       value={draft.accountFromId ?? ''}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { accountFromId: event.target.value ? Number(event.target.value) : null })}
+                       className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      >
+                       <option value="">{t('transaction_account_placeholder')}</option>
+                       {clientAccounts.map((account) => (
+                        <option
+                         key={account.id}
+                         value={account.id}
+                        >
+                         {account.clientName} - {account.currencySymbol || account.currencyCode}
+                        </option>
+                       ))}
+                      </select>
+                      {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
+                       <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-400">
+                         {tableRateFromReversed[txn.id] ? `1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`}
+                        </span>
+                        <button
+                         type="button"
+                         title="Reverse rate direction"
+                         onClick={() => {
+                          const val = parseFloat(draft.exchangeRateFrom) || 1;
+                          updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                          setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                         }}
+                         className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                        >
+                         <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                         >
+                          <path d="M7 4 3 8l4 4M3 8h13.5" />
+                          <path d="M17 20l4-4-4-4m4 4H7.5" />
+                         </svg>
+                        </button>
                        </div>
-                      );
-                     })()}
-                     {txn.exchangeRateTo !== 1 ? (
-                      <div className="text-xs text-slate-500">
-                       {t('transaction_exchange_rate')}:{' '}
-                       {txn.exchangeRateToReversed
-                        ? `1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`
-                        : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`}
-                      </div>
-                     ) : null}
-                    </>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">
-                   {isTransactionsEditMode && draft ? (
-                    <div className="flex gap-2">
-                     <input
-                      type="text"
-                      inputMode="decimal"
-                      dir="ltr"
-                      value={draft.amount}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
-                      className="min-w-0 w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     />
-                     <select
-                      value={draft.currencyId ?? ''}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { currencyId: event.target.value ? Number(event.target.value) : null })}
-                      className="w-20 rounded border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     >
-                      <option value="">{t('transaction_currency_placeholder')}</option>
-                      {enabledCurrencies.map((currency) => (
-                       <option
-                        key={currency.id}
-                        value={currency.id}
-                       >
-                        {currency.code}
-                       </option>
-                      ))}
-                     </select>
-                    </div>
-                   ) : (
-                    <>
-                     <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
-                    </>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">
-                   {isTransactionsEditMode && draft ? (
-                    (() => {
-                     const isZero = parseFloat(draft.charges) === 0;
-                     const expanded = expensesExpandedTxns.has(txn.id);
-                     if (isZero && !expanded) {
-                      return (
-                       <button
-                        type="button"
-                        onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                        className="text-sm text-blue-600 hover:underline"
-                       >
-                        + {t('add_expenses')}
-                       </button>
-                      );
-                     }
-                     return (
-                      <div className="space-y-1">
+                      )}
+                      {transactionTableSettings.showExchangeRate ? (
                        <input
                         type="text"
                         inputMode="decimal"
                         dir="ltr"
-                        value={draft.charges}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
+                        value={draft.exchangeRateFrom}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
                         className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                        placeholder="0"
+                        placeholder={t('transaction_exchange_rate')}
                        />
-                       <select
-                        value={draft.chargesCurrencyId ?? ''}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                       >
-                        <option value="">{t('currency')}</option>
-                        {enabledCurrencies.map((cur) => (
-                         <option
-                          key={cur.id}
-                          value={cur.id}
-                         >
-                          {cur.code}
-                         </option>
-                        ))}
-                       </select>
-                       <select
-                        value={draft.chargesPayer}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { chargesPayer: event.target.value })}
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                       >
-                        <option value="">{t('charges_payer_placeholder')}</option>
-                        <option value="from">{txn.clientFromName}</option>
-                        <option value="to">{txn.clientToName}</option>
-                       </select>
-                       {(() => {
-                        const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
-                        const draftPayerAccountCurrencyCode =
-                         draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
-                        if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
-                        return (
-                         <div>
-                          <span className="text-xs text-slate-500">
-                           {draftChargesCurrencyCode} â†’ {draftPayerAccountCurrencyCode}
-                          </span>
-                          <input
-                           type="text"
-                           inputMode="decimal"
-                           dir="ltr"
-                           value={draft.chargesExchangeRate}
-                           onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
-                           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                           placeholder="1"
-                          />
-                         </div>
-                        );
-                       })()}
-                       <div className="mt-1">
-                        <input
-                         type="text"
-                         value={draft.chargesDescription}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
-                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                         placeholder={t('charges_description_placeholder')}
-                        />
-                       </div>
-                      </div>
-                     );
-                    })()
-                   ) : txn.charges ? (
-                    <div>
-                     <span>{txn.charges.toLocaleString()}</span>
-                     {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
-                     {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
-                     {txn.chargesPayer && (
-                      <div className="text-xs text-slate-500">{txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : ''}</div>
-                     )}
-                     {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
-                    </div>
-                   ) : (
-                    <span className="text-slate-400">—</span>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                   {isTransactionsEditMode && draft
-                    ? (() => {
-                       const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
-                       const expanded = commissionExpandedTxns.has(txn.id);
-                       if (bothZero && !expanded) {
-                        return (
-                         <div className="flex items-center gap-2">
-                          <button
-                           type="button"
-                           onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                           className="text-sm text-blue-600 hover:underline"
-                          >
-                           + {t('add_commission')}
-                          </button>
-                          <button
-                           type="button"
-                           onClick={() => onDeleteTransaction(txn.id)}
-                           className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                           title={t('delete')}
-                          >
-                           <svg
-                            className="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={1.8}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden
-                           >
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14H6L5 6" />
-                            <path d="M10 11v6M14 11v6" />
-                            <path d="M9 6V4h6v2" />
-                           </svg>
-                           <span className="text-xs font-semibold">{t('delete')}</span>
-                          </button>
-                         </div>
-                        );
-                       }
-                       return (
-                        <div className="space-y-2">
-                         <div className="flex items-center gap-2">
-                          <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
-                          <input
-                           type="text"
-                           inputMode="decimal"
-                           dir="ltr"
-                           value={draft.commissionFrom}
-                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
-                           className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                           placeholder="0"
-                          />
-                          <span className="text-xs text-slate-400">%</span>
-                         </div>
-                         <div className="flex items-center gap-2">
-                          <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
-                          <input
-                           type="text"
-                           inputMode="decimal"
-                           dir="ltr"
-                           value={draft.commissionTo}
-                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
-                           className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                           placeholder="0"
-                          />
-                          <span className="text-xs text-slate-400">%</span>
-                         </div>
-                         <div className="flex items-center gap-2">
-                          <button
-                           type="button"
-                           onClick={() => onDeleteTransaction(txn.id)}
-                           className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                           title={t('delete')}
-                          >
-                           <svg
-                            className="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={1.8}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden
-                           >
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14H6L5 6" />
-                            <path d="M10 11v6M14 11v6" />
-                            <path d="M9 6V4h6v2" />
-                           </svg>
-                           <span className="text-xs font-semibold">{t('delete')}</span>
-                          </button>
-                         </div>
-                        </div>
-                       );
-                      })()
-                    : (() => {
-                       const parts: string[] = [];
-                       if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
-                       if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
-                       return parts.length > 0 ? (
-                        <div className="space-y-0.5 text-xs">
-                         {parts.map((p, i) => (
-                          <div key={i}>{p}</div>
-                         ))}
-                        </div>
+                      ) : null}
+                     </div>
+                    ) : (
+                     <>
+                      {(() => {
+                       const fromAccount = clientAccountMap.get(txn.accountFromId);
+                       const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
+
+                       return fromClient ? (
+                        <button
+                         type="button"
+                         onClick={() => openClientLedger(fromClient, 'clients')}
+                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                        >
+                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </button>
                        ) : (
-                        <span className="text-slate-400">—</span>
+                        <div>
+                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </div>
                        );
                       })()}
-                  </td>
+                      {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 ? (
+                       <div className="text-xs text-slate-500">
+                        {t('transaction_exchange_rate')}:{' '}
+                        {txn.exchangeRateFromReversed
+                         ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
+                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
+                       </div>
+                      ) : null}
+                     </>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.accountTo ? (
+                   <td className="px-4 py-3 font-medium text-slate-900">
+                    {isTransactionsEditMode && draft ? (
+                     <div className="space-y-2">
+                      <select
+                       value={draft.accountToId ?? ''}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { accountToId: event.target.value ? Number(event.target.value) : null })}
+                       className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      >
+                       <option value="">{t('transaction_account_placeholder')}</option>
+                       {clientAccounts.map((account) => (
+                        <option
+                         key={account.id}
+                         value={account.id}
+                        >
+                         {account.clientName} - {account.currencySymbol || account.currencyCode}
+                        </option>
+                       ))}
+                      </select>
+                      {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
+                       <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-400">
+                         {tableRateToReversed[txn.id] ? `1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`}
+                        </span>
+                        <button
+                         type="button"
+                         title="Reverse rate direction"
+                         onClick={() => {
+                          const val = parseFloat(draft.exchangeRateTo) || 1;
+                          updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                          setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                         }}
+                         className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                        >
+                         <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                         >
+                          <path d="M7 4 3 8l4 4M3 8h13.5" />
+                          <path d="M17 20l4-4-4-4m4 4H7.5" />
+                         </svg>
+                        </button>
+                       </div>
+                      )}
+                      {transactionTableSettings.showExchangeRate ? (
+                       <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        value={draft.exchangeRateTo}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
+                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        placeholder={t('transaction_exchange_rate')}
+                       />
+                      ) : null}
+                     </div>
+                    ) : (
+                     <>
+                      {(() => {
+                       const toAccount = clientAccountMap.get(txn.accountToId);
+                       const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
+
+                       return toClient ? (
+                        <button
+                         type="button"
+                         onClick={() => openClientLedger(toClient, 'clients')}
+                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                        >
+                         {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                        </button>
+                       ) : (
+                        <div>
+                         {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                        </div>
+                       );
+                      })()}
+                      {transactionTableSettings.showExchangeRate && txn.exchangeRateTo !== 1 ? (
+                       <div className="text-xs text-slate-500">
+                        {t('transaction_exchange_rate')}:{' '}
+                        {txn.exchangeRateToReversed
+                         ? `1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`
+                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`}
+                       </div>
+                      ) : null}
+                     </>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.amount ? (
+                   <td className="px-4 py-3 text-slate-700">
+                    {isTransactionsEditMode && draft ? (
+                     <div className="flex gap-2">
+                      <input
+                       type="text"
+                       inputMode="decimal"
+                       dir="ltr"
+                       value={draft.amount}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
+                       className="min-w-0 w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      />
+                      <select
+                       value={draft.currencyId ?? ''}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { currencyId: event.target.value ? Number(event.target.value) : null })}
+                       className="w-20 rounded border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      >
+                       <option value="">{t('transaction_currency_placeholder')}</option>
+                       {enabledCurrencies.map((currency) => (
+                        <option
+                         key={currency.id}
+                         value={currency.id}
+                        >
+                         {currency.code}
+                        </option>
+                       ))}
+                      </select>
+                     </div>
+                    ) : (
+                     <>
+                      <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
+                     </>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.charges ? (
+                   <td className="px-4 py-3 text-slate-700">
+                    {isTransactionsEditMode && draft ? (
+                     (() => {
+                      const isZero = parseFloat(draft.charges) === 0;
+                      const expanded = expensesExpandedTxns.has(txn.id);
+                      if (isZero && !expanded) {
+                       return (
+                        <button
+                         type="button"
+                         onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                         className="text-sm text-blue-600 hover:underline"
+                        >
+                         + {t('add_expenses')}
+                        </button>
+                       );
+                      }
+                      return (
+                       <div className="space-y-1">
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.charges}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
+                         className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         placeholder="0"
+                        />
+                        <select
+                         value={draft.chargesCurrencyId ?? ''}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
+                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                        >
+                         <option value="">{t('currency')}</option>
+                         {enabledCurrencies.map((cur) => (
+                          <option
+                           key={cur.id}
+                           value={cur.id}
+                          >
+                           {cur.code}
+                          </option>
+                         ))}
+                        </select>
+                        <select
+                         value={draft.chargesPayer}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesPayer: event.target.value })}
+                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                        >
+                         <option value="">{t('charges_payer_placeholder')}</option>
+                         <option value="from">{txn.clientFromName}</option>
+                         <option value="to">{txn.clientToName}</option>
+                        </select>
+                        {(() => {
+                         const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
+                         const draftPayerAccountCurrencyCode =
+                          draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
+                         if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
+                         return (
+                          <div>
+                           <span className="text-xs text-slate-500">
+                            {draftChargesCurrencyCode} â†’ {draftPayerAccountCurrencyCode}
+                           </span>
+                           <input
+                            type="text"
+                            inputMode="decimal"
+                            dir="ltr"
+                            value={draft.chargesExchangeRate}
+                            onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
+                            className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                            placeholder="1"
+                           />
+                          </div>
+                         );
+                        })()}
+                        <div className="mt-1">
+                         <input
+                          type="text"
+                          value={draft.chargesDescription}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          placeholder={t('charges_description_placeholder')}
+                         />
+                        </div>
+                       </div>
+                      );
+                     })()
+                    ) : txn.charges ? (
+                     <div>
+                      <span>{txn.charges.toLocaleString()}</span>
+                      {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
+                      {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
+                      {txn.chargesPayer && (
+                       <div className="text-xs text-slate-500">{txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : ''}</div>
+                      )}
+                      {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
+                     </div>
+                    ) : (
+                     <span className="text-slate-400">—</span>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.commission ? (
+                   <td className="px-4 py-3 text-slate-600">
+                    {isTransactionsEditMode && draft
+                     ? (() => {
+                        const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
+                        const expanded = commissionExpandedTxns.has(txn.id);
+                        if (bothZero && !expanded) {
+                         return (
+                          <div className="flex items-center gap-2">
+                           <button
+                            type="button"
+                            onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                            className="text-sm text-blue-600 hover:underline"
+                           >
+                            + {t('add_commission')}
+                           </button>
+                           <button
+                            type="button"
+                            onClick={() => onDeleteTransaction(txn.id)}
+                            className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
+                            title={t('delete')}
+                           >
+                            <svg
+                             className="h-4 w-4"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             strokeWidth={1.8}
+                             strokeLinecap="round"
+                             strokeLinejoin="round"
+                             aria-hidden
+                            >
+                             <polyline points="3 6 5 6 21 6" />
+                             <path d="M19 6l-1 14H6L5 6" />
+                             <path d="M10 11v6M14 11v6" />
+                             <path d="M9 6V4h6v2" />
+                            </svg>
+                            <span className="text-xs font-semibold">{t('delete')}</span>
+                           </button>
+                          </div>
+                         );
+                        }
+                        return (
+                         <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                           <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
+                           <input
+                            type="text"
+                            inputMode="decimal"
+                            dir="ltr"
+                            value={draft.commissionFrom}
+                            onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
+                            className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                            placeholder="0"
+                           />
+                           <span className="text-xs text-slate-400">%</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                           <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
+                           <input
+                            type="text"
+                            inputMode="decimal"
+                            dir="ltr"
+                            value={draft.commissionTo}
+                            onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
+                            className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                            placeholder="0"
+                           />
+                           <span className="text-xs text-slate-400">%</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                           <button
+                            type="button"
+                            onClick={() => onDeleteTransaction(txn.id)}
+                            className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
+                            title={t('delete')}
+                           >
+                            <svg
+                             className="h-4 w-4"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             strokeWidth={1.8}
+                             strokeLinecap="round"
+                             strokeLinejoin="round"
+                             aria-hidden
+                            >
+                             <polyline points="3 6 5 6 21 6" />
+                             <path d="M19 6l-1 14H6L5 6" />
+                             <path d="M10 11v6M14 11v6" />
+                             <path d="M9 6V4h6v2" />
+                            </svg>
+                            <span className="text-xs font-semibold">{t('delete')}</span>
+                           </button>
+                          </div>
+                         </div>
+                        );
+                       })()
+                     : (() => {
+                        const parts: string[] = [];
+                        if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
+                        if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
+                        return parts.length > 0 ? (
+                         <div className="space-y-0.5 text-xs">
+                          {parts.map((p, i) => (
+                           <div key={i}>{p}</div>
+                          ))}
+                         </div>
+                        ) : (
+                         <span className="text-slate-400">—</span>
+                        );
+                       })()}
+                   </td>
+                  ) : null}
                  </>
                 );
                })()}
@@ -6369,7 +6631,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               <tr>
                <td
                 className="px-4 py-6 text-slate-500"
-                colSpan={isTransactionsEditMode ? 8 : 7}
+                colSpan={visibleTransactionColumnCount}
                >
                 {t('no_transactions')}
                </td>
@@ -6387,9 +6649,115 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     </div>
    </main>
 
+   {showTransactionTableSettingsModal ? (
+    <div
+     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onClick={closeTransactionTableSettingsModal}
+    >
+     <div
+      className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      onClick={(event) => event.stopPropagation()}
+     >
+      <h2 className="text-lg font-semibold text-slate-900">{t('transactions_table_settings_title')}</h2>
+      <div className="mt-5 space-y-5">
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+         {(
+          [
+           { key: 'created', label: t('date') },
+           { key: 'description', label: t('transaction_description') },
+           { key: 'accountFrom', label: t('transaction_account_from') },
+           { key: 'accountTo', label: t('transaction_account_to') },
+           { key: 'amount', label: t('transaction_amount') },
+           { key: 'charges', label: t('charges') },
+           { key: 'commission', label: t('commission') },
+          ] as Array<{ key: TransactionColumnKey; label: string }>
+         ).map((column) => {
+          const isVisible = transactionTableSettingsDraft.columns[column.key];
+          return (
+           <button
+            key={column.key}
+            type="button"
+            onClick={() =>
+             setTransactionTableSettingsDraft((current) => ({
+              ...current,
+              columns: { ...current.columns, [column.key]: !current.columns[column.key] },
+             }))
+            }
+            className={`rounded border px-3 py-1.5 text-xs font-semibold transition ${
+             isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+           >
+            {column.label}
+           </button>
+          );
+         })}
+        </div>
+       </div>
+
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_more_settings')}</p>
+        <div className="mt-2 space-y-4">
+         <label className="flex items-center justify-between gap-3 rounded border border-slate-200 px-4 py-3 text-sm text-slate-700">
+          <span>{t('transactions_show_exchange_rate')}</span>
+          <input
+           type="checkbox"
+           checked={transactionTableSettingsDraft.showExchangeRate}
+           onChange={() => setTransactionTableSettingsDraft((current) => ({ ...current, showExchangeRate: !current.showExchangeRate }))}
+           className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+          />
+         </label>
+
+         <div>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_date_format_label')}</label>
+          <select
+           value={transactionTableSettingsDraft.dateFormat}
+           onChange={(event) => setTransactionTableSettingsDraft((current) => ({ ...current, dateFormat: event.target.value as TransactionTableSettings['dateFormat'] }))}
+           className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          >
+           <option value="full">YYYY-MM-DD</option>
+           <option value="day-month">DD/MM</option>
+           <option value="month-year">MM/YYYY</option>
+           <option value="day-month-year-2">DD/MM/YY</option>
+           <option value="month-day">MM/DD</option>
+          </select>
+         </div>
+        </div>
+       </div>
+      </div>
+
+      <div className="mt-6 flex justify-end gap-2">
+       <button
+        type="button"
+        onClick={closeTransactionTableSettingsModal}
+        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+       >
+        {t('cancel')}
+       </button>
+       <button
+        type="button"
+        onClick={saveTransactionTableSettingsModal}
+        className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+       >
+        {t('save_changes')}
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
+
    {adjustmentModal
     ? (() => {
        const ledger = selectedClientLedgers.find((l) => l.accountId === adjustmentModal.accountId);
+       const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
+       const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
+       const accountCurrencyCode = account?.currencyCode ?? ledger?.currencyCode ?? '';
+       const needsRate = !!(selectedCurrency && accountCurrencyCode && selectedCurrency.code !== accountCurrencyCode);
+       const rawRate = parseFloat(adjustmentModal.exchangeRate) || 0;
+       const effectiveRate = adjustmentModal.exchangeRateReversed ? (rawRate ? 1 / rawRate : 0) : rawRate;
+       const amountValue = parseFloat(adjustmentModal.amount) || 0;
+       const convertedAmount = needsRate ? amountValue * (effectiveRate || 0) : amountValue;
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
          <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
@@ -6441,6 +6809,88 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            </div>
 
            <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('currency')}</label>
+            <select
+             value={adjustmentModal.currencyId ?? ''}
+             onChange={(e) =>
+              setAdjustmentModal((prev) => (prev ? { ...prev, currencyId: e.target.value ? Number(e.target.value) : null, exchangeRate: '', exchangeRateReversed: false } : prev))
+             }
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             {(adjustmentModal.currencyId && !enabledCurrencies.some((c) => c.id === adjustmentModal.currencyId)
+              ? [...enabledCurrencies, ...localizedCurrencies.filter((c) => c.id === adjustmentModal.currencyId)]
+              : enabledCurrencies
+             ).map((currency) => (
+              <option
+               key={currency.id}
+               value={currency.id}
+              >
+               {currency.code} {currency.symbol ? `(${currency.symbol})` : ''} — {currency.name}
+              </option>
+             ))}
+            </select>
+           </div>
+
+           {needsRate ? (
+            <div className="flex flex-col gap-1">
+             <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('exchange_rate')}</label>
+              <button
+               type="button"
+               title={t('reverse_rate')}
+               onClick={() =>
+                setAdjustmentModal((prev) => {
+                 if (!prev) return prev;
+                 const val = parseFloat(prev.exchangeRate) || 0;
+                 return {
+                  ...prev,
+                  exchangeRate: val ? String(Number((1 / val).toFixed(6))) : prev.exchangeRate,
+                  exchangeRateReversed: !prev.exchangeRateReversed,
+                 };
+                })
+               }
+               className="inline-flex items-center gap-1 rounded p-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+              >
+               <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <path d="M7 4 3 8l4 4M3 8h13.5" />
+                <path d="M17 20l4-4-4-4m4 4H7.5" />
+               </svg>
+               {adjustmentModal.exchangeRateReversed ? t('rate_division') : t('rate_multiplication')}
+              </button>
+             </div>
+             <span className="text-xs text-slate-400">
+              {adjustmentModal.exchangeRateReversed
+               ? `1 ${accountCurrencyCode} = ? ${selectedCurrency?.code ?? ''}`
+               : `1 ${selectedCurrency?.code ?? ''} = ? ${accountCurrencyCode}`}
+             </span>
+             <input
+              type="text"
+              inputMode="decimal"
+              dir="ltr"
+              value={adjustmentModal.exchangeRate}
+              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, exchangeRate: normalizeDecimalInput(e.target.value) } : prev))}
+              placeholder="0"
+              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             />
+             {amountValue > 0 && effectiveRate > 0 ? (
+              <span className="text-xs text-slate-500">
+               = {convertedAmount.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })} {accountCurrencyCode}
+              </span>
+             ) : null}
+            </div>
+           ) : null}
+
+           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_description')}</label>
             <input
              type="text"
@@ -6473,7 +6923,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            <button
             type="button"
             onClick={() => void onSubmitAdjustment()}
-            disabled={!adjustmentModal.amount || parseFloat(adjustmentModal.amount) <= 0}
+            disabled={!adjustmentModal.amount || parseFloat(adjustmentModal.amount) <= 0 || (needsRate && !(effectiveRate > 0))}
             className="rounded bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
             {adjustmentModal.editingId ? t('save_changes') : t('adjustment_add')}
