@@ -858,6 +858,11 @@ function AuthenticatedHome() {
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
  const [editingRowIds, setEditingRowIds] = useState<Set<number>>(new Set());
+ const [dragRowId, setDragRowId] = useState<number | null>(null);
+ const [dragOverRowId, setDragOverRowId] = useState<number | null>(null);
+ const [dragOverHalf, setDragOverHalf] = useState<'top' | 'bottom'>('bottom');
+ const [manualRowOrder, setManualRowOrder] = useState<number[] | null>(null);
+ const dragFromHandle = useRef(false);
  const [transactionsPage, setTransactionsPage] = useState(1);
  const [transactionsPageSize, setTransactionsPageSize] = useState(100);
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
@@ -1058,13 +1063,32 @@ function AuthenticatedHome() {
  useEffect(() => {
   const transactionIds = new Set(transactionTableRows.map((transaction) => transaction.id));
   setSelectedTransactionIds((current) => new Set([...current].filter((id) => transactionIds.has(id))));
+  // Keep manualRowOrder in sync: add newly created rows at top, drop deleted rows
+  setManualRowOrder((currentOrder) => {
+   if (!currentOrder) return null;
+   const newIds = transactionTableRows.map((r) => r.id);
+   const currentSet = new Set(currentOrder);
+   const added = newIds.filter((id) => !currentSet.has(id));
+   const kept = currentOrder.filter((id) => transactionIds.has(id));
+   return [...added, ...kept];
+  });
  }, [transactionTableRows]);
 
- const totalTransactionPages = Math.max(1, Math.ceil(transactionTableRows.length / transactionsPageSize));
+ // Rows in user-defined order (if any), otherwise natural sort order
+ const displayedTransactionRows = useMemo<TransactionTableRow[]>(() => {
+  if (!manualRowOrder) return transactionTableRows;
+  const rowMap = new Map(transactionTableRows.map((r) => [r.id, r]));
+  return manualRowOrder.flatMap((id) => {
+   const row = rowMap.get(id);
+   return row ? [row] : [];
+  });
+ }, [transactionTableRows, manualRowOrder]);
+
+ const totalTransactionPages = Math.max(1, Math.ceil(displayedTransactionRows.length / transactionsPageSize));
  const paginatedTransactions = useMemo(() => {
   const start = (transactionsPage - 1) * transactionsPageSize;
-  return transactionTableRows.slice(start, start + transactionsPageSize);
- }, [transactionTableRows, transactionsPage, transactionsPageSize]);
+  return displayedTransactionRows.slice(start, start + transactionsPageSize);
+ }, [displayedTransactionRows, transactionsPage, transactionsPageSize]);
 
  useEffect(() => {
   setTransactionsPage((current) => Math.min(current, totalTransactionPages));
@@ -2402,6 +2426,91 @@ function AuthenticatedHome() {
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ async function onTransactionRowDrop(draggedId: number, targetId: number, dropHalf: 'top' | 'bottom') {
+  if (draggedId === targetId) return;
+
+  const currentOrder = manualRowOrder ?? displayedTransactionRows.map((r) => r.id);
+  const fromIdx = currentOrder.indexOf(draggedId);
+  const toIdx = currentOrder.indexOf(targetId);
+  if (fromIdx === -1 || toIdx === -1) return;
+
+  // Build the new order: remove dragged row, insert before or after target
+  const next = [...currentOrder];
+  next.splice(fromIdx, 1);
+  // After removing, find target again
+  const insertIdx = next.indexOf(targetId);
+  next.splice(dropHalf === 'top' ? insertIdx : insertIdx + 1, 0, draggedId);
+
+  setManualRowOrder(next);
+
+  // Determine which date zone the dragged row just entered
+  const rowMap = new Map(displayedTransactionRows.map((r) => [r.id, r]));
+  const draggedRow = rowMap.get(draggedId);
+  if (!draggedRow || !accountingApi) return;
+
+  const newPos = next.indexOf(draggedId);
+  const neighborAbove = newPos > 0 ? rowMap.get(next[newPos - 1]) : undefined;
+  const neighborBelow = newPos < next.length - 1 ? rowMap.get(next[newPos + 1]) : undefined;
+  const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
+  const draggedDate = draggedRow.createdAt.slice(0, 10);
+
+  if (!zoneDate || zoneDate === draggedDate) return;
+
+  // Date zone changed — save the new date to the DB
+  const newCreatedAt = zoneDate + draggedRow.createdAt.slice(10);
+
+  try {
+   if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
+    const account = clientAccountMap.get(draggedRow.accountFromId);
+    const selectedCurrency = currencyMap.get(draggedRow.currencyId);
+    await accountingApi.updateClientAdjustment({
+     id: draggedRow.adjustmentId,
+     accountId: draggedRow.accountFromId,
+     amount: draggedRow.amount,
+     direction: draggedRow.adjustmentDirection ?? 'debit',
+     currencyId: draggedRow.currencyId,
+     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+     exchangeRate: draggedRow.exchangeRateFrom,
+     exchangeRateReversed: !!draggedRow.exchangeRateFromReversed,
+     description: draggedRow.description,
+     createdAt: newCreatedAt,
+    });
+   } else {
+    await accountingApi.updateTransaction({
+     id: draggedRow.id,
+     accountFromId: draggedRow.accountFromId,
+     accountToId: draggedRow.accountToId,
+     currencyId: draggedRow.currencyId,
+     amount: draggedRow.amount,
+     type: draggedRow.type,
+     exchangeRateFrom: draggedRow.exchangeRateFrom,
+     commissionFrom: draggedRow.commissionFrom,
+     exchangeRateTo: draggedRow.exchangeRateTo,
+     commissionTo: draggedRow.commissionTo,
+     exchangeRateFromReversed: draggedRow.exchangeRateFromReversed,
+     exchangeRateToReversed: draggedRow.exchangeRateToReversed,
+     charges: draggedRow.charges,
+     chargesCurrencyId: draggedRow.chargesCurrencyId,
+     chargesPayer: draggedRow.chargesPayer,
+     chargesExchangeRate: draggedRow.chargesExchangeRate,
+     chargesDescription: draggedRow.chargesDescription,
+     description: draggedRow.description,
+     createdAt: newCreatedAt,
+    });
+   }
+   setError('');
+   // Preserve manual order across reload
+   const orderToKeep = next;
+   await loadData();
+   setManualRowOrder(orderToKeep);
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+   // Revert
+   setManualRowOrder(currentOrder);
   }
  }
 
@@ -6205,7 +6314,32 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              {paginatedTransactions.map((txn) => (
               <tr
                key={txn.id}
-               className="border-t border-slate-200 align-top"
+               draggable={true}
+               onDragStart={(e) => {
+                if (!dragFromHandle.current) {
+                 e.preventDefault();
+                 return;
+                }
+                setDragRowId(txn.id);
+               }}
+               onDragEnd={() => {
+                dragFromHandle.current = false;
+                if (dragRowId !== null && dragOverRowId !== null && dragRowId !== dragOverRowId) {
+                 void onTransactionRowDrop(dragRowId, dragOverRowId, dragOverHalf);
+                }
+                setDragRowId(null);
+                setDragOverRowId(null);
+               }}
+               onDragOver={(e) => {
+                e.preventDefault();
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setDragOverHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
+                setDragOverRowId(txn.id);
+               }}
+               onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
+               className={`border-t border-slate-200 align-top transition-colors ${dragRowId === txn.id ? 'opacity-40' : ''} ${
+                dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''
+               } ${dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
               >
                {(() => {
                 const isEditingRow = editingRowIds.has(txn.id);
@@ -6214,70 +6348,143 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 return (
                  <>
                   <td className="px-2 py-3 align-top">
-                   {isEditingRow ? (
-                    <div className="flex flex-col gap-1">
-                     <button
-                      type="button"
-                      title={t('save_changes')}
-                      onClick={() => void onSaveTransactionTableRow(txn.id)}
-                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                   <div className="flex flex-col items-center gap-1">
+                    {/* drag handle — always visible */}
+                    <span
+                     className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                     title="Drag to reorder"
+                     onMouseDown={() => {
+                      dragFromHandle.current = true;
+                     }}
+                    >
+                     <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden
                      >
-                      <svg
-                       width="14"
-                       height="14"
-                       viewBox="0 0 24 24"
-                       fill="none"
-                       stroke="currentColor"
-                       strokeWidth="2"
-                       strokeLinecap="round"
-                       strokeLinejoin="round"
-                       aria-hidden
+                      <circle
+                       cx="9"
+                       cy="5"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="15"
+                       cy="5"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="9"
+                       cy="12"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="15"
+                       cy="12"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="9"
+                       cy="19"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="15"
+                       cy="19"
+                       r="1.5"
+                      />
+                     </svg>
+                    </span>
+                    {isEditingRow ? (
+                     <>
+                      <button
+                       type="button"
+                       title={t('save_changes')}
+                       onClick={() => void onSaveTransactionTableRow(txn.id)}
+                       className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
                       >
-                       <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                     </button>
+                       <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                       >
+                        <polyline points="20 6 9 17 4 12" />
+                       </svg>
+                      </button>
+                      <button
+                       type="button"
+                       title={t('cancel')}
+                       onClick={() =>
+                        setEditingRowIds((prev) => {
+                         const next = new Set(prev);
+                         next.delete(txn.id);
+                         return next;
+                        })
+                       }
+                       className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                      >
+                       <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                       >
+                        <line
+                         x1="18"
+                         y1="6"
+                         x2="6"
+                         y2="18"
+                        />
+                        <line
+                         x1="6"
+                         y1="6"
+                         x2="18"
+                         y2="18"
+                        />
+                       </svg>
+                      </button>
+                      <button
+                       type="button"
+                       title={t('delete')}
+                       onClick={() => void onDeleteTransactionTableRow(txn)}
+                       className="rounded p-1 text-red-500 hover:bg-red-50"
+                      >
+                       <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                       >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                        <path d="M9 6V4h6v2" />
+                       </svg>
+                      </button>
+                     </>
+                    ) : (
                      <button
                       type="button"
-                      title={t('cancel')}
-                      onClick={() =>
-                       setEditingRowIds((prev) => {
-                        const next = new Set(prev);
-                        next.delete(txn.id);
-                        return next;
-                       })
-                      }
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
-                     >
-                      <svg
-                       width="14"
-                       height="14"
-                       viewBox="0 0 24 24"
-                       fill="none"
-                       stroke="currentColor"
-                       strokeWidth="2"
-                       strokeLinecap="round"
-                       strokeLinejoin="round"
-                       aria-hidden
-                      >
-                       <line
-                        x1="18"
-                        y1="6"
-                        x2="6"
-                        y2="18"
-                       />
-                       <line
-                        x1="6"
-                        y1="6"
-                        x2="18"
-                        y2="18"
-                       />
-                      </svg>
-                     </button>
-                     <button
-                      type="button"
-                      title={t('delete')}
-                      onClick={() => void onDeleteTransactionTableRow(txn)}
-                      className="rounded p-1 text-red-500 hover:bg-red-50"
+                      title={t('edit')}
+                      onClick={() => setEditingRowIds((prev) => new Set([...prev, txn.id]))}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
                      >
                       <svg
                        width="14"
@@ -6290,36 +6497,12 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        strokeLinejoin="round"
                        aria-hidden
                       >
-                       <polyline points="3 6 5 6 21 6" />
-                       <path d="M19 6l-1 14H6L5 6" />
-                       <path d="M10 11v6M14 11v6" />
-                       <path d="M9 6V4h6v2" />
+                       <path d="M12 20h9" />
+                       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
                       </svg>
                      </button>
-                    </div>
-                   ) : (
-                    <button
-                     type="button"
-                     title={t('edit')}
-                     onClick={() => setEditingRowIds((prev) => new Set([...prev, txn.id]))}
-                     className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
-                    >
-                     <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                     >
-                      <path d="M12 20h9" />
-                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                     </svg>
-                    </button>
-                   )}
+                    )}
+                   </div>
                   </td>
                   {transactionTableSettings.columns.created ? (
                    <td className="px-4 py-3 text-slate-500">
