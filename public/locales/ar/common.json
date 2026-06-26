@@ -225,6 +225,8 @@
  "pdf_font_family_hint": "نوع الخط المستخدم في PDF.",
  "pdf_font_size_label": "حجم الخط",
  "pdf_font_size_hint": "حجم الخط الأساسي في PDF.",
+ "pdf_date_format_label": "تنسيق التاريخ",
+ "pdf_date_format_hint": "اختر كيفية عرض التواريخ في عمود التاريخ بالملف PDF.",
  "pdf_sections_label": "الأقسام",
  "pdf_sections_hint": "تحكم في الأقسام التي تظهر في PDF المُصدَّر.",
  "pdf_show_pre_balance": "رصيد أول المدة",

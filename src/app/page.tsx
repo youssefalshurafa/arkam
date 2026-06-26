@@ -300,6 +300,7 @@ type PdfSettings = {
  decimals: number;
  fontFamily: string;
  fontSize: number;
+ dateFormat: 'full' | 'day-month' | 'month-year' | 'day-month-year-2' | 'month-day';
  showPreBalance: boolean;
  showMetaClient: boolean;
  showMetaCurrency: boolean;
@@ -312,6 +313,7 @@ const defaultPdfSettings: PdfSettings = {
  decimals: 2,
  fontFamily: 'Arial, Helvetica, sans-serif',
  fontSize: 12,
+ dateFormat: 'full',
  showPreBalance: true,
  showMetaClient: true,
  showMetaCurrency: true,
@@ -2169,7 +2171,26 @@ function AuthenticatedHome() {
   // Build column definitions respecting user visibility; running_balance is always included
   type ColDef = { key: LedgerColumnKey; header: string; isNum?: boolean; cell: (e: ClientLedgerEntry, runBal: number) => string };
   const allCols: ColDef[] = [
-   { key: 'created', header: t('date'), cell: (e) => e.createdAt.slice(0, 10) },
+   {
+    key: 'created',
+    header: t('date'),
+    cell: (e) => {
+     const iso = e.createdAt.slice(0, 10); // yyyy-mm-dd
+     const [y, m, d] = iso.split('-');
+     switch (pdfSettings.dateFormat) {
+      case 'day-month':
+       return `${d}/${m}`;
+      case 'month-year':
+       return `${m}/${y}`;
+      case 'day-month-year-2':
+       return `${d}/${m}/${y.slice(2)}`;
+      case 'month-day':
+       return `${m}/${d}`;
+      default:
+       return iso; // full yyyy-mm-dd
+     }
+    },
+   },
    { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
    { key: 'direction', header: t('direction'), cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming') },
    { key: 'type', header: t('transaction_type'), cell: (e) => t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange') },
@@ -2235,28 +2256,28 @@ function AuthenticatedHome() {
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
- .header-left h1 { font-size: 20px; font-weight: bold; }
- .header-left p { font-size: 11px; color: #64748b; margin-top: 2px; }
- .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: 11px; color: #64748b; }
+ .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
+ .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
  .meta { display: grid; grid-template-columns: repeat(${metaColCount || 1}, 1fr); gap: 12px; margin-bottom: 20px; }
  .meta-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; background: #f8fafc; }
- .meta-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
- .meta-card .value { font-size: 14px; font-weight: bold; margin-top: 4px; }
+ .meta-card .label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
+ .meta-card .value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: bold; margin-top: 4px; }
  .pos { color: #059669; }
  .neg { color: #dc2626; }
  .pre-balance { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
- .pre-balance .pb-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; font-weight: 600; }
- .pre-balance .pb-value { font-size: 14px; font-weight: bold; font-variant-numeric: tabular-nums; }
+ .pre-balance .pb-label { font-size: calc(${pdfSettings.fontSize}px - 1px); text-transform: uppercase; letter-spacing: 0.05em; color: #475569; font-weight: 600; }
+ .pre-balance .pb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: bold; font-variant-numeric: tabular-nums; }
  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
  thead tr { background: #e2e8f0; }
- th { padding: 8px 10px; font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: ${isRTL ? 'right' : 'left'}; border-bottom: 2px solid #94a3b8; }
- td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; }
+ th { padding: 8px 10px; font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
+ td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
  tbody tr:nth-child(odd) { background: #f8fafc; }
  tbody tr:nth-child(even) { background: #ffffff; }
- td.num { text-align: ${isRTL ? 'left' : 'right'}; font-variant-numeric: tabular-nums; }
- th.num { text-align: ${isRTL ? 'left' : 'right'}; }
+ td.num { font-variant-numeric: tabular-nums; }
+ th.num { }
  tr:last-child td { border-bottom: none; }
- .footer { margin-top: 24px; font-size: 10px; color: #94a3b8; text-align: center; }
+ .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
 </style>
 </head>
 <body>
@@ -2828,6 +2849,23 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        ))}
       </select>
      </div>
+    </div>
+
+    {/* Date format */}
+    <div className="mt-6">
+     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_date_format_label')}</h3>
+     <p className="mt-1 text-xs text-slate-500">{t('pdf_date_format_hint')}</p>
+     <select
+      value={pdfSettings.dateFormat}
+      onChange={(e) => updatePdfSettings({ dateFormat: e.target.value as PdfSettings['dateFormat'] })}
+      className="mt-3 w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+     >
+      <option value="full">2026-06-26 (YYYY-MM-DD)</option>
+      <option value="day-month">26/06 (DD/MM)</option>
+      <option value="month-day">06/26 (MM/DD)</option>
+      <option value="day-month-year-2">26/06/26 (DD/MM/YY)</option>
+      <option value="month-year">06/2026 (MM/YYYY)</option>
+     </select>
     </div>
 
     {/* Decimal places */}
