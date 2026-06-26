@@ -2421,87 +2421,95 @@ function AuthenticatedHome() {
   }
  }
 
- async function onTransactionRowDrop(draggedId: number, targetId: number, dropHalf: 'top' | 'bottom') {
-  if (draggedId === targetId) return;
+ async function onTransactionRowDrop(draggedIds: number[], targetId: number, dropHalf: 'top' | 'bottom') {
+  const dragSet = new Set(draggedIds);
+  if (dragSet.has(targetId)) return;
 
   const currentOrder = manualRowOrder ?? displayedTransactionRows.map((r) => r.id);
-  const fromIdx = currentOrder.indexOf(draggedId);
-  const toIdx = currentOrder.indexOf(targetId);
-  if (fromIdx === -1 || toIdx === -1) return;
+  if (!currentOrder.includes(targetId)) return;
 
-  // Build the new order: remove dragged row, insert before or after target
-  const next = [...currentOrder];
-  next.splice(fromIdx, 1);
-  // After removing, find target again
-  const insertIdx = next.indexOf(targetId);
-  next.splice(dropHalf === 'top' ? insertIdx : insertIdx + 1, 0, draggedId);
+  // Remove all dragged rows from the order, then insert them as a block at the target position
+  const without = currentOrder.filter((id) => !dragSet.has(id));
+  const insertIdx = without.indexOf(targetId);
+  if (insertIdx === -1) return;
+  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
+  const next = [...without.slice(0, insertAt), ...draggedIds, ...without.slice(insertAt)];
 
   setManualRowOrder(next);
 
-  // Determine which date zone the dragged row just entered
+  // Determine date-zone changes for each dragged row
   const rowMap = new Map(displayedTransactionRows.map((r) => [r.id, r]));
-  const draggedRow = rowMap.get(draggedId);
-  if (!draggedRow || !accountingApi) return;
-
-  const newPos = next.indexOf(draggedId);
-  const neighborAbove = newPos > 0 ? rowMap.get(next[newPos - 1]) : undefined;
-  const neighborBelow = newPos < next.length - 1 ? rowMap.get(next[newPos + 1]) : undefined;
-  const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
-  const draggedDate = draggedRow.createdAt.slice(0, 10);
-
-  if (!zoneDate || zoneDate === draggedDate) return;
-
-  // Date zone changed — save the new date to the DB
-  const newCreatedAt = zoneDate + draggedRow.createdAt.slice(10);
+  if (!accountingApi) return;
 
   try {
-   if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
-    const account = clientAccountMap.get(draggedRow.accountFromId);
-    const selectedCurrency = currencyMap.get(draggedRow.currencyId);
-    await accountingApi.updateClientAdjustment({
-     id: draggedRow.adjustmentId,
-     accountId: draggedRow.accountFromId,
-     amount: draggedRow.amount,
-     direction: draggedRow.adjustmentDirection ?? 'debit',
-     currencyId: draggedRow.currencyId,
-     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-     exchangeRate: draggedRow.exchangeRateFrom,
-     exchangeRateReversed: !!draggedRow.exchangeRateFromReversed,
-     description: draggedRow.description,
-     createdAt: newCreatedAt,
-    });
-   } else {
-    await accountingApi.updateTransaction({
-     id: draggedRow.id,
-     accountFromId: draggedRow.accountFromId,
-     accountToId: draggedRow.accountToId,
-     currencyId: draggedRow.currencyId,
-     amount: draggedRow.amount,
-     type: draggedRow.type,
-     exchangeRateFrom: draggedRow.exchangeRateFrom,
-     commissionFrom: draggedRow.commissionFrom,
-     exchangeRateTo: draggedRow.exchangeRateTo,
-     commissionTo: draggedRow.commissionTo,
-     exchangeRateFromReversed: draggedRow.exchangeRateFromReversed,
-     exchangeRateToReversed: draggedRow.exchangeRateToReversed,
-     charges: draggedRow.charges,
-     chargesCurrencyId: draggedRow.chargesCurrencyId,
-     chargesPayer: draggedRow.chargesPayer,
-     chargesExchangeRate: draggedRow.chargesExchangeRate,
-     chargesDescription: draggedRow.chargesDescription,
-     description: draggedRow.description,
-     createdAt: newCreatedAt,
-    });
+   for (const draggedId of draggedIds) {
+    const draggedRow = rowMap.get(draggedId);
+    if (!draggedRow) continue;
+
+    const pos = next.indexOf(draggedId);
+    // Find nearest non-group neighbor to determine the target date zone
+    const neighborAbove = (() => {
+     for (let i = pos - 1; i >= 0; i--) {
+      if (!dragSet.has(next[i])) return rowMap.get(next[i]);
+     }
+    })();
+    const neighborBelow = (() => {
+     for (let i = pos + 1; i < next.length; i++) {
+      if (!dragSet.has(next[i])) return rowMap.get(next[i]);
+     }
+    })();
+    const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
+    const draggedDate = draggedRow.createdAt.slice(0, 10);
+    if (!zoneDate || zoneDate === draggedDate) continue;
+
+    const newCreatedAt = zoneDate + draggedRow.createdAt.slice(10);
+
+    if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
+     const account = clientAccountMap.get(draggedRow.accountFromId);
+     const selectedCurrency = currencyMap.get(draggedRow.currencyId);
+     await accountingApi.updateClientAdjustment({
+      id: draggedRow.adjustmentId,
+      accountId: draggedRow.accountFromId,
+      amount: draggedRow.amount,
+      direction: draggedRow.adjustmentDirection ?? 'debit',
+      currencyId: draggedRow.currencyId,
+      currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+      currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+      exchangeRate: draggedRow.exchangeRateFrom,
+      exchangeRateReversed: !!draggedRow.exchangeRateFromReversed,
+      description: draggedRow.description,
+      createdAt: newCreatedAt,
+     });
+    } else {
+     await accountingApi.updateTransaction({
+      id: draggedRow.id,
+      accountFromId: draggedRow.accountFromId,
+      accountToId: draggedRow.accountToId,
+      currencyId: draggedRow.currencyId,
+      amount: draggedRow.amount,
+      type: draggedRow.type,
+      exchangeRateFrom: draggedRow.exchangeRateFrom,
+      commissionFrom: draggedRow.commissionFrom,
+      exchangeRateTo: draggedRow.exchangeRateTo,
+      commissionTo: draggedRow.commissionTo,
+      exchangeRateFromReversed: draggedRow.exchangeRateFromReversed,
+      exchangeRateToReversed: draggedRow.exchangeRateToReversed,
+      charges: draggedRow.charges,
+      chargesCurrencyId: draggedRow.chargesCurrencyId,
+      chargesPayer: draggedRow.chargesPayer,
+      chargesExchangeRate: draggedRow.chargesExchangeRate,
+      chargesDescription: draggedRow.chargesDescription,
+      description: draggedRow.description,
+      createdAt: newCreatedAt,
+     });
+    }
    }
    setError('');
-   // Preserve manual order across reload
    const orderToKeep = next;
    await loadData();
    setManualRowOrder(orderToKeep);
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
-   // Revert
    setManualRowOrder(currentOrder);
   }
  }
@@ -2527,7 +2535,17 @@ function AuthenticatedHome() {
   const draft = transactionTableDrafts[transactionId];
   const transaction = transactionTableRowMap.get(transactionId);
 
-  if (!draft || !transaction) {
+  if (!transaction) {
+   return;
+  }
+
+  // No changes were made — just exit edit mode like cancel
+  if (!draft) {
+   setEditingRowIds((prev) => {
+    const next = new Set(prev);
+    next.delete(transactionId);
+    return next;
+   });
    return;
   }
 
@@ -6354,7 +6372,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                onDragEnd={() => {
                 dragFromHandle.current = false;
                 if (dragRowId !== null && dragOverRowId !== null && dragRowId !== dragOverRowId) {
-                 void onTransactionRowDrop(dragRowId, dragOverRowId, dragOverHalf);
+                 // If the dragged row is part of the selection, drag the whole selection; otherwise just this row
+                 const idsToMove = selectedTransactionIds.has(dragRowId) && selectedTransactionIds.size > 1 ? [...selectedTransactionIds] : [dragRowId];
+                 void onTransactionRowDrop(idsToMove, dragOverRowId, dragOverHalf);
                 }
                 setDragRowId(null);
                 setDragOverRowId(null);
@@ -6366,9 +6386,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 setDragOverRowId(txn.id);
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
-               className={`border-t border-slate-200 align-top transition-colors ${dragRowId === txn.id ? 'opacity-40' : ''} ${
-                dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''
-               } ${dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+               className={`border-t border-slate-200 align-top transition-colors ${
+                dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
+               } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
+                dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
+               }`}
               >
                {(() => {
                 const isEditingRow = editingRowIds.has(txn.id);
