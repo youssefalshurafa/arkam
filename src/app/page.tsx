@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -566,12 +566,12 @@ function normalizeClientNameForCurrencySuffix(name: string, currency: Currency) 
  }
 
  const currencyAliasesByCode: Record<string, string[]> = {
-  EUR: ['euro', 'euros', 'ÙŠÙˆØ±Ùˆ'],
-  USD: ['dollar', 'dollars', 'usd', 'Ø¯ÙˆÙ„Ø§Ø±'],
-  TRY: ['turk', 'turkish', 'lira', 'try', 'Ù„ÙŠØ±Ø©', 'ØªØ±ÙƒÙŠ'],
-  GBP: ['pound', 'sterling', 'gbp', 'Ø¬Ù†ÙŠÙ‡'],
-  AED: ['aed', 'dirham', 'Ø¯Ø±Ù‡Ù…'],
-  SAR: ['sar', 'riyal', 'Ø±ÙŠØ§Ù„'],
+  EUR: ['euro', 'euros', 'يورو'],
+  USD: ['dollar', 'dollars', 'usd', 'دولار'],
+  TRY: ['turk', 'turkish', 'lira', 'try', 'ليرة', 'تركي'],
+  GBP: ['pound', 'sterling', 'gbp', 'جنيه'],
+  AED: ['aed', 'dirham', 'درهم'],
+  SAR: ['sar', 'riyal', 'ريال'],
  };
 
  const aliases = [currency.code, currency.name, currency.symbol, ...(currencyAliasesByCode[currency.code] || [])]
@@ -857,6 +857,7 @@ function AuthenticatedHome() {
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
+ const [editingRowIds, setEditingRowIds] = useState<Set<number>>(new Set());
  const [transactionsPage, setTransactionsPage] = useState(1);
  const [transactionsPageSize, setTransactionsPageSize] = useState(100);
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
@@ -1044,7 +1045,14 @@ function AuthenticatedHome() {
    };
   });
 
-  return [...transactions, ...adjustmentRows].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  return ([...transactions, ...adjustmentRows] as TransactionTableRow[]).sort((left, right) => {
+   const dateDiff = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+   if (dateDiff !== 0) return dateDiff;
+   // Stable tiebreaker: higher DB id = inserted later = shown first within the same date
+   const leftId = left.isAdjustment ? (left.adjustmentId ?? 0) : left.id;
+   const rightId = right.isAdjustment ? (right.adjustmentId ?? 0) : right.id;
+   return rightId - leftId;
+  });
  }, [adjustments, clientAccounts, transactions]);
 
  useEffect(() => {
@@ -1902,11 +1910,11 @@ function AuthenticatedHome() {
    }
 
    const headerAliases = {
-    from: ['Ø¹Ù„ÙŠÙ‡', 'from', 'accountfrom', 'sender', 'debtor'],
-    to: ['Ù„Ù‡', 'to', 'accountto', 'receiver', 'creditor'],
-    amount: ['Ø§Ù„Ù‚ÙŠÙ…Ø©', 'Ø§Ù„Ù…Ø¨Ù„Øº', 'amount', 'value'],
-    date: ['Ø§Ù„ØªØ§Ø±ÙŠØ®', 'date', 'createdat'],
-    description: ['Ø§Ù„ÙˆØµÙ', 'Ø§Ù„Ø¨ÙŠØ§Ù†', 'Ù…Ù„Ø§Ø­Ø¸Ø©', 'description', 'note', 'details'],
+    from: ['عليه', 'from', 'accountfrom', 'sender', 'debtor'],
+    to: ['له', 'to', 'accountto', 'receiver', 'creditor'],
+    amount: ['القيمة', 'المبلغ', 'amount', 'value'],
+    date: ['التاريخ', 'date', 'createdat'],
+    description: ['الوصف', 'البيان', 'ملاحظة', 'description', 'note', 'details'],
    };
 
    const detectColumnByAliases = (aliases: string[]) => {
@@ -2397,6 +2405,18 @@ function AuthenticatedHome() {
   }
  }
 
+ function resolveCreatedAt(draftDate: string, originalCreatedAt: string): string {
+  const originalDate = originalCreatedAt.slice(0, 10);
+  if (draftDate === originalDate) {
+   // Date unchanged — preserve the exact original timestamp so sort order never changes
+   return originalCreatedAt;
+  }
+  // User changed the date — keep the original time component
+  const sep = originalCreatedAt.includes('T') ? 'T' : ' ';
+  const timePart = originalCreatedAt.includes(sep) ? originalCreatedAt.split(sep)[1] : '00:00:00';
+  return `${draftDate} ${timePart}`;
+ }
+
  async function onSaveTransactionTableRow(transactionId: number) {
   if (!accountingApi) {
    setError(t('error_bridge'));
@@ -2418,7 +2438,6 @@ function AuthenticatedHome() {
     return;
    }
 
-   const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
    const selectedCurrency = currencyMap.get(draft.currencyId);
    const account = clientAccountMap.get(draft.accountFromId);
 
@@ -2434,10 +2453,15 @@ function AuthenticatedHome() {
      exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
      exchangeRateReversed: !!tableRateFromReversed[transactionId],
      description: draft.description,
-     createdAt: `${draft.createdDate} ${currentTime}`,
+     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
     });
     setError('');
     await loadData();
+    setEditingRowIds((prev) => {
+     const next = new Set(prev);
+     next.delete(transactionId);
+     return next;
+    });
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
    }
@@ -2450,8 +2474,6 @@ function AuthenticatedHome() {
    setError(t('transaction_required'));
    return;
   }
-
-  const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
 
   try {
    await accountingApi.updateTransaction({
@@ -2473,10 +2495,15 @@ function AuthenticatedHome() {
     chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
     chargesDescription: draft.chargesDescription,
     description: draft.description,
-    createdAt: `${draft.createdDate} ${currentTime}`,
+    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    });
    setError('');
    await loadData();
+   setEditingRowIds((prev) => {
+    const next = new Set(prev);
+    next.delete(transactionId);
+    return next;
+   });
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -2590,12 +2617,12 @@ function AuthenticatedHome() {
     isNum: true,
     cell: (e) => {
      if (e.isAdjustment) {
-      return e.exchangeRate && e.exchangeRate !== 1 ? formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : '—';
+      return e.exchangeRate && e.exchangeRate !== 1 ? formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : '�';
      }
      return formatRateValue(e.exchangeRate);
     },
    },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '—' : e.commission.toFixed(pdfSettings.decimals)) },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '�' : e.commission.toFixed(pdfSettings.decimals)) },
    {
     key: 'netChange',
     header: t('net_change'),
@@ -2820,7 +2847,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   setShowTransactionTableSettingsModal(false);
  };
 
- const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + (isTransactionsEditMode ? 1 : 0);
+ const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 1; // +1 for the actions column
 
  const overviewCards = [
   { label: t('overview_currencies'), value: enabledCurrencies.length },
@@ -2910,8 +2937,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         createdAt: adj.createdAt,
         counterpartyName: '',
         counterpartyClientId: null,
-        // debit: client owes us (e.g. gas money) → balance moves in our favor (negative)
-        // credit: we owe the client (e.g. iPhone) → balance moves in their favor (positive)
+        // debit: client owes us (e.g. gas money) ? balance moves in our favor (negative)
+        // credit: we owe the client (e.g. iPhone) ? balance moves in their favor (positive)
         direction: (adj.direction === 'credit' ? 'outgoing' : 'incoming') as 'incoming' | 'outgoing',
         type: 'adjustment',
         amount: adj.amount,
@@ -3356,7 +3383,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
        disabled={pdfSettings.decimals === 0}
       >
-       −
+       -
       </button>
       <span className="min-w-8 px-2 py-1.5 text-center text-sm font-semibold text-slate-800 border-x border-slate-300">{pdfSettings.decimals}</span>
       <button
@@ -3788,7 +3815,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            key={account.id}
            className="rounded border border-slate-200 bg-white"
           >
-           {/* Row — click to edit */}
+           {/* Row � click to edit */}
            <button
             type="button"
             className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
@@ -3845,7 +3872,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                  key={cur.id}
                  value={cur.id}
                 >
-                 {cur.code} — {cur.name}
+                 {cur.code} � {cur.name}
                 </option>
                ))}
               </select>
@@ -3941,7 +3968,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              key={cur.id}
              value={cur.id}
             >
-             {cur.code} — {cur.name}
+             {cur.code} � {cur.name}
             </option>
            ))}
          </select>
@@ -4091,7 +4118,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
           {currency.isMain === 1 ? (
            <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
           ) : (
-           <span className="text-slate-400">—</span>
+           <span className="text-slate-400">�</span>
           )}
          </td>
          <td className="px-4 py-3">
@@ -4329,7 +4356,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          {currency.isMain === 1 ? (
           <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
          ) : (
-          <span className="text-slate-400">—</span>
+          <span className="text-slate-400">�</span>
          )}
         </td>
        </tr>
@@ -4540,14 +4567,14 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          className="rounded border border-white/20 bg-white/10 px-1.5 py-1 text-xs text-blue-100 outline-none"
         >
          <option value="en">EN</option>
-         <option value="ar">Ø¹Ø±</option>
+         <option value="ar">عر</option>
          <option value="fr">FR</option>
         </select>
        </div>
       </div>
      </div>
 
-     {/* Page title bar — hidden when in settings (settings has its own header) */}
+     {/* Page title bar � hidden when in settings (settings has its own header) */}
      {section !== 'client-ledger' && section !== 'settings' ? (
       <div className="border-b border-gray-200 bg-white px-5 py-3">
        <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5094,7 +5121,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           className="px-4 py-3 font-medium text-slate-900"
                          >
                           {entry.isAdjustment ? (
-                           <span className="text-slate-400">—</span>
+                           <span className="text-slate-400">�</span>
                           ) : isClientLedgerEditMode && draft ? (
                            <select
                             value={draft.counterpartyAccountId ?? ''}
@@ -5222,7 +5249,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                              return <span title={rateLabel}>{rateNumber}</span>;
                             })()
                            ) : (
-                            <span className="text-slate-400">—</span>
+                            <span className="text-slate-400">�</span>
                            )
                           ) : isClientLedgerEditMode && draft ? (
                            (() => {
@@ -5354,7 +5381,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           ) : entry.commission ? (
                            <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%</>
                           ) : (
-                           <span className="text-slate-400">—</span>
+                           <span className="text-slate-400">�</span>
                           )}
                          </td>
                         );
@@ -5422,7 +5449,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        )}
                        {entry.chargesPayer && (
                         <span className="text-slate-500">
-                         — {t('charges_payer_placeholder')}:{' '}
+                         � {t('charges_payer_placeholder')}:{' '}
                          {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
                         </span>
                        )}
@@ -5447,7 +5474,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                  disabled={ledgerDecimals === 0}
                  className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
                 >
-                 −
+                 -
                 </button>
                 <span className="border-x border-slate-200 px-3 py-1.5 text-center text-sm font-semibold text-slate-800">{ledgerDecimals}</span>
                 <button
@@ -5708,7 +5735,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 ? txFromQuery
                 : transactionForm.accountFromId
                   ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
-                    ' — ' +
+                    ' � ' +
                     (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
                   : ''
               }
@@ -5739,7 +5766,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   }}
                   className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
                  >
-                  {account.clientName} — {account.currencyCode}
+                  {account.clientName} � {account.currencyCode}
                  </li>
                 ))}
                {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
@@ -5762,7 +5789,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ? txToQuery
                   : transactionForm.accountToId
                     ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
-                      ' — ' +
+                      ' � ' +
                       (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
                     : ''
                 }
@@ -5793,7 +5820,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     }}
                     className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
                    >
-                    {account.clientName} — {account.currencyCode}
+                    {account.clientName} � {account.currencyCode}
                    </li>
                   ))}
                  {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
@@ -5987,7 +6014,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
                className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
               >
-               <span>{isNewTransactionExpensesOpen ? '▾' : '▸'}</span>
+               <span>{isNewTransactionExpensesOpen ? '?' : '?'}</span>
                {t('extra_expenses')}
               </button>
               {isNewTransactionExpensesOpen && (
@@ -6036,7 +6063,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 {showChargesExchangeRate && (
                  <div className="mt-2">
                   <label className="block text-xs font-medium text-slate-500">
-                   {t('charges_exchange_rate')} ({chargesCurrencyCode} â†’ {chargesPayerAccountCurrencyCode})
+                   {t('charges_exchange_rate')} ({chargesCurrencyCode} → {chargesPayerAccountCurrencyCode})
                   </label>
                   <input
                    type="text"
@@ -6101,49 +6128,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             >
              {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
             </button>
-            {isTransactionsEditMode ? (
-             <>
-              <button
-               type="button"
-               onClick={openTransactionTableSettingsModal}
-               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-               {t('transactions_more_settings')}
-              </button>
-              <button
-               type="button"
-               onClick={() => void onSaveAllTransactionDrafts()}
-               className="cursor-pointer rounded border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-              >
-               {t('save_changes')}
-              </button>
-              <button
-               type="button"
-               onClick={cancelTransactionsEditMode}
-               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-               {t('cancel')}
-              </button>
-             </>
-            ) : null}
             <button
              type="button"
-             onClick={() => (isTransactionsEditMode ? cancelTransactionsEditMode() : beginTransactionsEditMode())}
-             className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
-              isTransactionsEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-             }`}
+             onClick={openTransactionTableSettingsModal}
+             className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-             {isTransactionsEditMode ? t('transactions_done_editing') : t('transactions_edit_mode')}
+             {t('transactions_more_settings')}
             </button>
-            {isTransactionsEditMode ? (
-             <button
-              type="button"
-              onClick={() => void onDeleteSelectedTransactions()}
-              className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-             >
-              Delete Selected
-             </button>
-            ) : null}
             <button
              type="button"
              onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
@@ -6183,7 +6174,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
           <div className={tableWrapClassName}>
            <table className="w-full text-sm">
             <colgroup>
-             {isTransactionsEditMode ? <col className="w-[5%]" /> : null}
+             <col className="w-10" />
              {transactionTableSettings.columns.created ? <col className="w-[10%]" /> : null}
              {transactionTableSettings.columns.description ? <col className="w-[15%]" /> : null}
              {transactionTableSettings.columns.accountFrom ? <col className="w-[17%]" /> : null}
@@ -6194,17 +6185,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             </colgroup>
             <thead className="bg-slate-100 text-slate-700">
              <tr>
-              {isTransactionsEditMode ? (
-               <th className="px-4 py-3">
-                <input
-                 type="checkbox"
-                 checked={paginatedTransactions.length > 0 && paginatedTransactions.every((transaction) => selectedTransactionIds.has(transaction.id))}
-                 onChange={onToggleSelectAllTransactions}
-                 aria-label="Select all transactions"
-                 className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
-                />
-               </th>
-              ) : null}
+              <th className="px-2 py-3 w-10" />
               {transactionTableSettings.columns.created ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th> : null}
               {transactionTableSettings.columns.description ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
@@ -6227,24 +6208,122 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                className="border-t border-slate-200 align-top"
               >
                {(() => {
-                const draft = isTransactionsEditMode ? getTransactionTableDraft(txn.id) : null;
+                const isEditingRow = editingRowIds.has(txn.id);
+                const draft = isEditingRow ? getTransactionTableDraft(txn.id) : null;
 
                 return (
                  <>
-                  {isTransactionsEditMode ? (
-                   <td className="px-4 py-3 align-top">
-                    <input
-                     type="checkbox"
-                     checked={selectedTransactionIds.has(txn.id)}
-                     onChange={() => onToggleTransactionSelection(txn.id)}
-                     aria-label={`Select transaction ${txn.id}`}
-                     className="mt-1 h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
-                    />
-                   </td>
-                  ) : null}
+                  <td className="px-2 py-3 align-top">
+                   {isEditingRow ? (
+                    <div className="flex flex-col gap-1">
+                     <button
+                      type="button"
+                      title={t('save_changes')}
+                      onClick={() => void onSaveTransactionTableRow(txn.id)}
+                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="2"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                     </button>
+                     <button
+                      type="button"
+                      title={t('cancel')}
+                      onClick={() =>
+                       setEditingRowIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(txn.id);
+                        return next;
+                       })
+                      }
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="2"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <line
+                        x1="18"
+                        y1="6"
+                        x2="6"
+                        y2="18"
+                       />
+                       <line
+                        x1="6"
+                        y1="6"
+                        x2="18"
+                        y2="18"
+                       />
+                      </svg>
+                     </button>
+                     <button
+                      type="button"
+                      title={t('delete')}
+                      onClick={() => void onDeleteTransactionTableRow(txn)}
+                      className="rounded p-1 text-red-500 hover:bg-red-50"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="1.8"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <polyline points="3 6 5 6 21 6" />
+                       <path d="M19 6l-1 14H6L5 6" />
+                       <path d="M10 11v6M14 11v6" />
+                       <path d="M9 6V4h6v2" />
+                      </svg>
+                     </button>
+                    </div>
+                   ) : (
+                    <button
+                     type="button"
+                     title={t('edit')}
+                     onClick={() => setEditingRowIds((prev) => new Set([...prev, txn.id]))}
+                     className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                    >
+                     <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                     >
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                     </svg>
+                    </button>
+                   )}
+                  </td>
                   {transactionTableSettings.columns.created ? (
                    <td className="px-4 py-3 text-slate-500">
-                    {isTransactionsEditMode && draft ? (
+                    {isEditingRow && draft ? (
                      <input
                       type="date"
                       value={draft.createdDate}
@@ -6258,7 +6337,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ) : null}
                   {transactionTableSettings.columns.description ? (
                    <td className="px-4 py-3 text-slate-600">
-                    {isTransactionsEditMode && draft ? (
+                    {isEditingRow && draft ? (
                      <input
                       type="text"
                       value={draft.description}
@@ -6267,13 +6346,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                       placeholder={t('transaction_description_placeholder')}
                      />
                     ) : (
-                     txn.description || <span className="text-slate-400">—</span>
+                     txn.description || <span className="text-slate-400">�</span>
                     )}
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountFrom ? (
                    <td className="px-4 py-3 font-medium text-slate-900">
-                    {isTransactionsEditMode && draft ? (
+                    {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <select
                        value={draft.accountFromId ?? ''}
@@ -6397,7 +6476,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ) : null}
                   {transactionTableSettings.columns.accountTo ? (
                    <td className="px-4 py-3 font-medium text-slate-900">
-                    {isTransactionsEditMode && draft && txn.isAdjustment ? (
+                    {isEditingRow && draft && txn.isAdjustment ? (
                      <div className="grid grid-cols-2 gap-2">
                       <button
                        type="button"
@@ -6418,7 +6497,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        {t('adjustment_direction_credit_short')}
                       </button>
                      </div>
-                    ) : isTransactionsEditMode && draft ? (
+                    ) : isEditingRow && draft ? (
                      <div className="space-y-2">
                       <select
                        value={draft.accountToId ?? ''}
@@ -6515,7 +6594,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ) : null}
                   {transactionTableSettings.columns.amount ? (
                    <td className="px-4 py-3 text-slate-700">
-                    {isTransactionsEditMode && draft ? (
+                    {isEditingRow && draft ? (
                      <div className="flex gap-2">
                       <input
                        type="text"
@@ -6551,8 +6630,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   {transactionTableSettings.columns.charges ? (
                    <td className="px-4 py-3 text-slate-700">
                     {txn.isAdjustment ? (
-                     <span className="text-slate-400">—</span>
-                    ) : isTransactionsEditMode && draft ? (
+                     <span className="text-slate-400">�</span>
+                    ) : isEditingRow && draft ? (
                      (() => {
                       const isZero = parseFloat(draft.charges) === 0;
                       const expanded = expensesExpandedTxns.has(txn.id);
@@ -6610,7 +6689,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                          return (
                           <div>
                            <span className="text-xs text-slate-500">
-                            {draftChargesCurrencyCode} â†’ {draftPayerAccountCurrencyCode}
+                            {draftChargesCurrencyCode} → {draftPayerAccountCurrencyCode}
                            </span>
                            <input
                             type="text"
@@ -6647,73 +6726,27 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                       {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
                      </div>
                     ) : (
-                     <span className="text-slate-400">—</span>
+                     <span className="text-slate-400">�</span>
                     )}
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.commission ? (
                    <td className="px-4 py-3 text-slate-600">
-                    {isTransactionsEditMode && txn.isAdjustment ? (
-                     <button
-                      type="button"
-                      onClick={() => void onDeleteTransactionTableRow(txn)}
-                      className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                      title={t('delete')}
-                     >
-                      <svg
-                       className="h-4 w-4"
-                       viewBox="0 0 24 24"
-                       fill="none"
-                       stroke="currentColor"
-                       strokeWidth={1.8}
-                       strokeLinecap="round"
-                       strokeLinejoin="round"
-                       aria-hidden
-                      >
-                       <polyline points="3 6 5 6 21 6" />
-                       <path d="M19 6l-1 14H6L5 6" />
-                       <path d="M10 11v6M14 11v6" />
-                       <path d="M9 6V4h6v2" />
-                      </svg>
-                     </button>
-                    ) : isTransactionsEditMode && draft ? (
+                    {txn.isAdjustment ? (
+                     <span className="text-slate-400">—</span>
+                    ) : isEditingRow && draft ? (
                      (() => {
                       const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
                       const expanded = commissionExpandedTxns.has(txn.id);
                       if (bothZero && !expanded) {
                        return (
-                        <div className="flex items-center gap-2">
-                         <button
-                          type="button"
-                          onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                          className="text-sm text-blue-600 hover:underline"
-                         >
-                          + {t('add_commission')}
-                         </button>
-                         <button
-                          type="button"
-                          onClick={() => void onDeleteTransactionTableRow(txn)}
-                          className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                          title={t('delete')}
-                         >
-                          <svg
-                           className="h-4 w-4"
-                           viewBox="0 0 24 24"
-                           fill="none"
-                           stroke="currentColor"
-                           strokeWidth={1.8}
-                           strokeLinecap="round"
-                           strokeLinejoin="round"
-                           aria-hidden
-                          >
-                           <polyline points="3 6 5 6 21 6" />
-                           <path d="M19 6l-1 14H6L5 6" />
-                           <path d="M10 11v6M14 11v6" />
-                           <path d="M9 6V4h6v2" />
-                          </svg>
-                          <span className="text-xs font-semibold">{t('delete')}</span>
-                         </button>
-                        </div>
+                        <button
+                         type="button"
+                         onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                         className="text-sm text-blue-600 hover:underline"
+                        >
+                         + {t('add_commission')}
+                        </button>
                        );
                       }
                       return (
@@ -6744,31 +6777,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                          />
                          <span className="text-xs text-slate-400">%</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                         <button
-                          type="button"
-                          onClick={() => void onDeleteTransactionTableRow(txn)}
-                          className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                          title={t('delete')}
-                         >
-                          <svg
-                           className="h-4 w-4"
-                           viewBox="0 0 24 24"
-                           fill="none"
-                           stroke="currentColor"
-                           strokeWidth={1.8}
-                           strokeLinecap="round"
-                           strokeLinejoin="round"
-                           aria-hidden
-                          >
-                           <polyline points="3 6 5 6 21 6" />
-                           <path d="M19 6l-1 14H6L5 6" />
-                           <path d="M10 11v6M14 11v6" />
-                           <path d="M9 6V4h6v2" />
-                          </svg>
-                          <span className="text-xs font-semibold">{t('delete')}</span>
-                         </button>
-                        </div>
                        </div>
                       );
                      })()
@@ -6784,7 +6792,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         ))}
                        </div>
                       ) : (
-                       <span className="text-slate-400">—</span>
+                       <span className="text-slate-400">�</span>
                       );
                      })()
                     )}
@@ -6993,7 +7001,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                key={currency.id}
                value={currency.id}
               >
-               {currency.code} {currency.symbol ? `(${currency.symbol})` : ''} — {currency.name}
+               {currency.code} {currency.symbol ? `(${currency.symbol})` : ''} � {currency.name}
               </option>
              ))}
             </select>
