@@ -8,7 +8,16 @@ const authDb = require('@/server/auth-db');
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const readOnlyActions = new Set(['getDbInfo', 'listOrganizations', 'listClients', 'listAllClientAccounts', 'listClientAccounts', 'listCurrencies', 'listTransactions']);
+const readOnlyActions = new Set([
+ 'getDbInfo',
+ 'listOrganizations',
+ 'listClients',
+ 'listAllClientAccounts',
+ 'listClientAccounts',
+ 'listCurrencies',
+ 'listTransactions',
+ 'listClientAdjustments',
+]);
 
 const writeActions = new Set([
  'setDbDirectory',
@@ -21,6 +30,7 @@ const writeActions = new Set([
  'deleteAllClients',
  'createClientAccount',
  'updateClientAccountStartingBalance',
+ 'updateClientAccount',
  'deleteClientAccount',
  'createCurrency',
  'updateCurrency',
@@ -34,6 +44,9 @@ const writeActions = new Set([
  'updateTransaction',
  'deleteTransaction',
  'deleteAllTransactions',
+ 'createClientAdjustment',
+ 'updateClientAdjustment',
+ 'deleteClientAdjustment',
 ]);
 
 type Body = {
@@ -197,6 +210,9 @@ export async function POST(request: NextRequest) {
    case 'updateClientAccountStartingBalance':
     await db.updateClientAccountStartingBalance(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'updateClientAccount':
+    await db.updateClientAccount(appLike, payload);
+    return NextResponse.json({ ok: true });
    case 'deleteClientAccount':
     await db.deleteClientAccount(appLike, payload);
     return NextResponse.json({ ok: true });
@@ -239,6 +255,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
    case 'deleteAllTransactions':
     await db.deleteAllTransactions(appLike);
+    return NextResponse.json({ ok: true });
+   case 'listClientAdjustments':
+    return NextResponse.json(await db.listClientAdjustments(appLike));
+   case 'createClientAdjustment':
+    return NextResponse.json(await db.createClientAdjustment(appLike, payload));
+   case 'updateClientAdjustment':
+    await db.updateClientAdjustment(appLike, payload);
+    return NextResponse.json({ ok: true });
+   case 'deleteClientAdjustment':
+    await db.deleteClientAdjustment(appLike, payload);
     return NextResponse.json({ ok: true });
    default:
     return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });

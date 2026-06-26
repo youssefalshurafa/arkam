@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { sendPasswordResetEmail } = require('@/server/mailer');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,15 +21,22 @@ export async function POST(request: NextRequest) {
   }
 
   const result = await authDb.requestPasswordReset(email);
-  const resetUrl = result.resetToken ? `${request.nextUrl.origin}/reset-password/${result.resetToken}` : null;
 
-  return NextResponse.json({
-   ok: true,
-   message: 'If this email exists, a reset link has been generated.',
-   resetUrl,
-   expiresAt: result.expiresAt,
-  });
+  if (result.resetToken) {
+   const resetUrl = `${request.nextUrl.origin}/reset-password/${result.resetToken}`;
+   // Fetch user name for the email
+   const user = await authDb.getUserByEmail(email);
+   await sendPasswordResetEmail({
+    to: email,
+    name: user?.name || email,
+    resetUrl,
+   });
+  }
+
+  // Always return the same response (anti-enumeration)
+  return NextResponse.json({ ok: true });
  } catch (error) {
+  console.error('[forgot-password] Error:', error);
   const message = error instanceof Error ? error.message : 'Failed to request password reset.';
   return NextResponse.json({ error: message }, { status: 400 });
  }

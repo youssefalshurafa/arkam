@@ -56,6 +56,7 @@ type ClientForm = {
 type NewClientAccountDraft = {
  currencyId: number | null;
  startingBalance: string;
+ balanceType: 'debit' | 'credit';
 };
 
 type ClientAccount = {
@@ -111,12 +112,19 @@ type Transaction = {
  createdAt: string;
 };
 
+type TransactionTableRow = Transaction & {
+ adjustmentId?: number;
+ isAdjustment?: boolean;
+ adjustmentDirection?: 'debit' | 'credit';
+};
+
 type TransactionForm = {
  accountFromId: number | null;
  accountToId: number | null;
  currencyId: number | null;
  amount: string;
  type: string;
+ adjustmentDirection: 'debit' | 'credit';
  exchangeRateFrom: string;
  commissionFrom: string;
  exchangeRateTo: string;
@@ -153,10 +161,13 @@ type TransactionUpdateInput = {
 
 type TransactionTableDraft = {
  transactionId: number;
+ adjustmentId?: number;
+ isAdjustment?: boolean;
  accountFromId: number | null;
  accountToId: number | null;
  currencyId: number | null;
  type: string;
+ adjustmentDirection?: 'debit' | 'credit';
  amount: string;
  exchangeRateFrom: string;
  commissionFrom: string;
@@ -186,6 +197,8 @@ type LedgerTransactionDraft = {
 
 type ClientLedgerEntry = {
  transactionId: number;
+ adjustmentId?: number;
+ isAdjustment?: boolean;
  createdAt: string;
  counterpartyName: string;
  counterpartyClientId: number | null;
@@ -206,6 +219,20 @@ type ClientLedgerEntry = {
  chargesExchangeRate: number;
  chargesDescription: string;
  isChargesPayerThisAccount: boolean;
+};
+
+type ClientAdjustment = {
+ id: number;
+ accountId: number;
+ amount: number;
+ direction: 'debit' | 'credit';
+ currencyId: number | null;
+ currencyCode: string;
+ currencySymbol: string;
+ exchangeRate: number;
+ exchangeRateReversed: boolean;
+ description: string;
+ createdAt: string;
 };
 
 type ClientAccountLedger = {
@@ -243,6 +270,7 @@ type PendingImportData = {
 };
 
 type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
+type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'charges' | 'commission';
 
 const defaultLedgerColumnOrder: LedgerColumnKey[] = [
  'created',
@@ -258,8 +286,130 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
 ];
 
 const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
+const pdfSettingsStorageKey = 'arkam:pdf-settings';
+const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
+const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
 
-type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger';
+type PdfColVisibility = Record<LedgerColumnKey, boolean>;
+type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
+
+type TransactionTableSettings = {
+ columns: TransactionColumnVisibility;
+ showExchangeRate: boolean;
+ dateFormat: PdfSettings['dateFormat'];
+};
+
+const defaultPdfColVisibility: PdfColVisibility = {
+ created: true,
+ counterparty: false,
+ direction: false,
+ type: false,
+ amount: true,
+ exchangeRate: true,
+ commission: true,
+ netChange: true,
+ runningBalance: true,
+ description: true,
+};
+
+const defaultTransactionColumnVisibility: TransactionColumnVisibility = {
+ created: true,
+ description: true,
+ accountFrom: true,
+ accountTo: true,
+ amount: true,
+ charges: true,
+ commission: true,
+};
+
+const defaultTransactionTableSettings: TransactionTableSettings = {
+ columns: defaultTransactionColumnVisibility,
+ showExchangeRate: true,
+ dateFormat: 'full',
+};
+
+function getStoredPdfCols(accountId: number): PdfColVisibility {
+ if (typeof window === 'undefined') return defaultPdfColVisibility;
+ try {
+  const raw = window.localStorage.getItem(pdfColsStorageKeyPrefix + accountId);
+  if (!raw) return defaultPdfColVisibility;
+  return { ...defaultPdfColVisibility, ...JSON.parse(raw) };
+ } catch {
+  return defaultPdfColVisibility;
+ }
+}
+
+function savePdfCols(accountId: number, cols: PdfColVisibility) {
+ try {
+  window.localStorage.setItem(pdfColsStorageKeyPrefix + accountId, JSON.stringify(cols));
+ } catch {
+  /* ignore */
+ }
+}
+
+function getStoredTransactionTableSettings(): TransactionTableSettings {
+ if (typeof window === 'undefined') return defaultTransactionTableSettings;
+ try {
+  const raw = window.localStorage.getItem(transactionTableSettingsStorageKey);
+  if (!raw) return defaultTransactionTableSettings;
+  const parsed = JSON.parse(raw);
+  return {
+   ...defaultTransactionTableSettings,
+   ...parsed,
+   columns: { ...defaultTransactionColumnVisibility, ...(parsed?.columns ?? {}) },
+  };
+ } catch {
+  return defaultTransactionTableSettings;
+ }
+}
+
+function saveTransactionTableSettings(settings: TransactionTableSettings) {
+ try {
+  window.localStorage.setItem(transactionTableSettingsStorageKey, JSON.stringify(settings));
+ } catch {
+  /* ignore */
+ }
+}
+
+type PdfSettings = {
+ decimals: number;
+ fontFamily: string;
+ fontSize: number;
+ dateFormat: 'full' | 'day-month' | 'month-year' | 'day-month-year-2' | 'month-day';
+ showPreBalance: boolean;
+ showMetaClient: boolean;
+ showMetaCurrency: boolean;
+ showMetaPeriod: boolean;
+ showFooter: boolean;
+ showGeneratedOn: boolean;
+};
+
+const defaultPdfSettings: PdfSettings = {
+ decimals: 2,
+ fontFamily: 'Arial, Helvetica, sans-serif',
+ fontSize: 12,
+ dateFormat: 'full',
+ showPreBalance: true,
+ showMetaClient: true,
+ showMetaCurrency: true,
+ showMetaPeriod: true,
+ showFooter: true,
+ showGeneratedOn: true,
+};
+
+function getStoredPdfSettings(): PdfSettings {
+ if (typeof window === 'undefined') return defaultPdfSettings;
+ try {
+  const raw = window.localStorage.getItem(pdfSettingsStorageKey);
+  if (!raw) return defaultPdfSettings;
+  const parsed = JSON.parse(raw);
+  return { ...defaultPdfSettings, ...parsed };
+ } catch {
+  return defaultPdfSettings;
+ }
+}
+
+type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions';
 
@@ -416,12 +566,12 @@ function normalizeClientNameForCurrencySuffix(name: string, currency: Currency) 
  }
 
  const currencyAliasesByCode: Record<string, string[]> = {
-  EUR: ['euro', 'euros', 'ÙŠÙˆØ±Ùˆ'],
-  USD: ['dollar', 'dollars', 'usd', 'Ø¯ÙˆÙ„Ø§Ø±'],
-  TRY: ['turk', 'turkish', 'lira', 'try', 'Ù„ÙŠØ±Ø©', 'ØªØ±ÙƒÙŠ'],
-  GBP: ['pound', 'sterling', 'gbp', 'Ø¬Ù†ÙŠÙ‡'],
-  AED: ['aed', 'dirham', 'Ø¯Ø±Ù‡Ù…'],
-  SAR: ['sar', 'riyal', 'Ø±ÙŠØ§Ù„'],
+  EUR: ['euro', 'euros', 'يورو'],
+  USD: ['dollar', 'dollars', 'usd', 'دولار'],
+  TRY: ['turk', 'turkish', 'lira', 'try', 'ليرة', 'تركي'],
+  GBP: ['pound', 'sterling', 'gbp', 'جنيه'],
+  AED: ['aed', 'dirham', 'درهم'],
+  SAR: ['sar', 'riyal', 'ريال'],
  };
 
  const aliases = [currency.code, currency.name, currency.symbol, ...(currencyAliasesByCode[currency.code] || [])]
@@ -528,6 +678,23 @@ function getStoredLedgerColumnOrder() {
 
 function getCommissionAmount(baseAmount: number, commissionPercent: number) {
  return baseAmount * (commissionPercent / 100);
+}
+
+function formatDateValue(value: string, dateFormat: PdfSettings['dateFormat']) {
+ const iso = value.slice(0, 10);
+ const [y = '', m = '', d = ''] = iso.split('-');
+ switch (dateFormat) {
+  case 'day-month':
+   return `${d}/${m}`;
+  case 'month-year':
+   return `${m}/${y}`;
+  case 'day-month-year-2':
+   return `${d}/${m}/${y.slice(2)}`;
+  case 'month-day':
+   return `${m}/${d}`;
+  default:
+   return iso;
+ }
 }
 
 type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth';
@@ -645,6 +812,7 @@ const emptyClientForm = (): ClientForm => ({
 const createNewClientAccountDraft = (): NewClientAccountDraft => ({
  currencyId: null,
  startingBalance: '0',
+ balanceType: 'debit',
 });
 
 const emptyTransactionForm = (): TransactionForm => ({
@@ -653,6 +821,7 @@ const emptyTransactionForm = (): TransactionForm => ({
  currencyId: null,
  amount: '',
  type: 'transfer',
+ adjustmentDirection: 'debit',
  exchangeRateFrom: '1.00',
  commissionFrom: '0.00',
  exchangeRateTo: '1.00',
@@ -677,17 +846,30 @@ function AuthenticatedHome() {
  const [clients, setClients] = useState<Client[]>([]);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
+ const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
  const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>([]);
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
- const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
+ const [editingLedgerRowKeys, setEditingLedgerRowKeys] = useState<Set<string>>(new Set());
+ const [selectedLedgerEntryKeys, setSelectedLedgerEntryKeys] = useState<Set<string>>(new Set());
+ const [showLedgerSettingsModal, setShowLedgerSettingsModal] = useState(false);
+ const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
+ const [editingRowIds, setEditingRowIds] = useState<Set<number>>(new Set());
+ const [dragRowId, setDragRowId] = useState<number | null>(null);
+ const [dragOverRowId, setDragOverRowId] = useState<number | null>(null);
+ const [dragOverHalf, setDragOverHalf] = useState<'top' | 'bottom'>('bottom');
+ const [manualRowOrder, setManualRowOrder] = useState<number[] | null>(null);
+ const dragFromHandle = useRef(false);
  const [transactionsPage, setTransactionsPage] = useState(1);
  const [transactionsPageSize, setTransactionsPageSize] = useState(100);
+ const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
+ const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
+ const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
  const [ledgerCommissionExpandedEntries, setLedgerCommissionExpandedEntries] = useState<Set<string>>(new Set());
@@ -695,6 +877,11 @@ function AuthenticatedHome() {
  const [isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen] = useState(false);
  const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
+ const [dragLedgerRowKey, setDragLedgerRowKey] = useState<string | null>(null);
+ const [dragOverLedgerRowKey, setDragOverLedgerRowKey] = useState<string | null>(null);
+ const [dragOverLedgerHalf, setDragOverLedgerHalf] = useState<'top' | 'bottom'>('bottom');
+ const dragLedgerFromHandle = useRef(false);
+ const [manualLedgerRowOrder, setManualLedgerRowOrder] = useState<Record<number, string[]>>({});
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({
   created: true,
@@ -713,7 +900,26 @@ function AuthenticatedHome() {
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
- const [pdfExportModal, setPdfExportModal] = useState<{ accountId: number; fromDate: string; toDate: string } | null>(null);
+ const [newAccountBalanceType, setNewAccountBalanceType] = useState<'debit' | 'credit'>('debit');
+ const [showAddAccountForm, setShowAddAccountForm] = useState(false);
+ const [showCreateOrgDialog, setShowCreateOrgDialog] = useState(false);
+ const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+ const [editingAccountCurrencyId, setEditingAccountCurrencyId] = useState<number | null>(null);
+ const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
+ const [editingAccountBalanceType, setEditingAccountBalanceType] = useState<'debit' | 'credit'>('debit');
+ const [pdfExportModal, setPdfExportModal] = useState<{ accountId: number; fromDate: string; toDate: string; cols: PdfColVisibility } | null>(null);
+ const [adjustmentModal, setAdjustmentModal] = useState<{
+  accountId: number;
+  editingId: number | null;
+  amount: string;
+  direction: 'debit' | 'credit';
+  currencyId: number | null;
+  exchangeRate: string;
+  exchangeRateReversed: boolean;
+  description: string;
+  date: string;
+ } | null>(null);
+ const [pdfSettings, setPdfSettings] = useState<PdfSettings>(() => getStoredPdfSettings());
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
@@ -752,14 +958,15 @@ function AuthenticatedHome() {
   }
 
   try {
-   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows] = (await Promise.all([
+   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows] = (await Promise.all([
     accountingApi.getDbInfo(),
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
     accountingApi.listTransactions(),
     accountingApi.listAllClientAccounts(),
-   ])) as [DbInfo, Organization[], Client[], Currency[], Transaction[], ClientAccount[]];
+    accountingApi.listClientAdjustments(),
+   ])) as [DbInfo, Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[]];
 
    let nextCurrencies = currencyRows;
    if (!nextCurrencies.length) {
@@ -772,6 +979,7 @@ function AuthenticatedHome() {
    setClients(clientRows);
    setCurrencies(nextCurrencies);
    setTransactions(transactionRows);
+   setAdjustments(adjustmentRows);
    setClientAccounts(clientAccountRows);
    setSelectedOrganizationForClients((current) => (current ? (organizationRows.find((organization) => organization.id === current.id) ?? null) : null));
    setSelectedClientForAccounts((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
@@ -809,16 +1017,85 @@ function AuthenticatedHome() {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
  }, [ledgerColumnOrder]);
 
- useEffect(() => {
-  const transactionIds = new Set(transactions.map((transaction) => transaction.id));
-  setSelectedTransactionIds((current) => new Set([...current].filter((id) => transactionIds.has(id))));
- }, [transactions]);
+ const transactionTableRows = useMemo<TransactionTableRow[]>(() => {
+  const adjustmentRows = adjustments.map((adjustment) => {
+   const account = clientAccounts.find((currentAccount) => currentAccount.id === adjustment.accountId);
 
- const totalTransactionPages = Math.max(1, Math.ceil(transactions.length / transactionsPageSize));
+   return {
+    id: -adjustment.id,
+    adjustmentId: adjustment.id,
+    isAdjustment: true,
+    adjustmentDirection: adjustment.direction,
+    accountFromId: adjustment.accountId,
+    clientFromName: account?.clientName || '',
+    accountFromCurrencyCode: account?.currencyCode || '',
+    accountFromCurrencySymbol: account?.currencySymbol || '',
+    accountToId: 0,
+    clientToName: '',
+    accountToCurrencyCode: '',
+    accountToCurrencySymbol: '',
+    currencyId: adjustment.currencyId ?? account?.currencyId ?? 0,
+    currencyCode: adjustment.currencyCode || account?.currencyCode || '',
+    currencySymbol: adjustment.currencySymbol || account?.currencySymbol || '',
+    amount: adjustment.amount,
+    type: 'adjustment',
+    exchangeRateFrom: adjustment.exchangeRate || 1,
+    commissionFrom: 0,
+    exchangeRateTo: 1,
+    commissionTo: 0,
+    exchangeRateFromReversed: adjustment.exchangeRateReversed ? 1 : 0,
+    exchangeRateToReversed: 0,
+    charges: 0,
+    chargesCurrencyId: null,
+    chargesCurrencyCode: null,
+    chargesCurrencySymbol: null,
+    chargesPayer: '',
+    chargesExchangeRate: 1,
+    chargesDescription: '',
+    description: adjustment.description,
+    createdAt: adjustment.createdAt,
+   };
+  });
+
+  return ([...transactions, ...adjustmentRows] as TransactionTableRow[]).sort((left, right) => {
+   const dateDiff = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+   if (dateDiff !== 0) return dateDiff;
+   // Stable tiebreaker: higher DB id = inserted later = shown first within the same date
+   const leftId = left.isAdjustment ? (left.adjustmentId ?? 0) : left.id;
+   const rightId = right.isAdjustment ? (right.adjustmentId ?? 0) : right.id;
+   return rightId - leftId;
+  });
+ }, [adjustments, clientAccounts, transactions]);
+
+ useEffect(() => {
+  const transactionIds = new Set(transactionTableRows.map((transaction) => transaction.id));
+  setSelectedTransactionIds((current) => new Set([...current].filter((id) => transactionIds.has(id))));
+  // Keep manualRowOrder in sync: add newly created rows at top, drop deleted rows
+  setManualRowOrder((currentOrder) => {
+   if (!currentOrder) return null;
+   const newIds = transactionTableRows.map((r) => r.id);
+   const currentSet = new Set(currentOrder);
+   const added = newIds.filter((id) => !currentSet.has(id));
+   const kept = currentOrder.filter((id) => transactionIds.has(id));
+   return [...added, ...kept];
+  });
+ }, [transactionTableRows]);
+
+ // Rows in user-defined order (if any), otherwise natural sort order
+ const displayedTransactionRows = useMemo<TransactionTableRow[]>(() => {
+  if (!manualRowOrder) return transactionTableRows;
+  const rowMap = new Map(transactionTableRows.map((r) => [r.id, r]));
+  return manualRowOrder.flatMap((id) => {
+   const row = rowMap.get(id);
+   return row ? [row] : [];
+  });
+ }, [transactionTableRows, manualRowOrder]);
+
+ const totalTransactionPages = Math.max(1, Math.ceil(displayedTransactionRows.length / transactionsPageSize));
  const paginatedTransactions = useMemo(() => {
   const start = (transactionsPage - 1) * transactionsPageSize;
-  return transactions.slice(start, start + transactionsPageSize);
- }, [transactions, transactionsPage, transactionsPageSize]);
+  return displayedTransactionRows.slice(start, start + transactionsPageSize);
+ }, [displayedTransactionRows, transactionsPage, transactionsPageSize]);
 
  useEffect(() => {
   setTransactionsPage((current) => Math.min(current, totalTransactionPages));
@@ -864,7 +1141,6 @@ function AuthenticatedHome() {
 
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients') {
   setClientLedgerBackSection(origin);
-  setIsClientLedgerEditMode(false);
   setLedgerTransactionDrafts({});
   setSelectedClientForLedger(client);
   const firstAccount = clientAccounts.find((account) => account.clientId === client.id);
@@ -910,9 +1186,16 @@ function AuthenticatedHome() {
 
  function formatRateValue(value: number): string {
   if (!Number.isFinite(value)) {
-   return '1';
+   return '1.00';
   }
-  return parseFloat(value.toFixed(6)).toString();
+  const trimmed = parseFloat(value.toFixed(6));
+  // Always show at least 2 decimal places
+  const str = trimmed.toString();
+  const dotIdx = str.indexOf('.');
+  if (dotIdx === -1) return str + '.00';
+  const decimals = str.length - dotIdx - 1;
+  if (decimals < 2) return str + '0'.repeat(2 - decimals);
+  return str;
  }
 
  function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: number): LedgerTransactionDraft {
@@ -933,24 +1216,28 @@ function AuthenticatedHome() {
   };
  }
 
- function buildTransactionTableDraft(transaction: Transaction): TransactionTableDraft {
+ function buildTransactionTableDraft(transaction: TransactionTableRow): TransactionTableDraft {
+  const isAdjustment = !!transaction.isAdjustment;
   const fromReversed = !!transaction.exchangeRateFromReversed;
   const toReversed = !!transaction.exchangeRateToReversed;
   return {
    transactionId: transaction.id,
+   adjustmentId: transaction.adjustmentId,
+   isAdjustment,
    accountFromId: transaction.accountFromId,
-   accountToId: transaction.accountToId,
+   accountToId: isAdjustment ? null : transaction.accountToId,
    currencyId: transaction.currencyId,
    type: transaction.type,
+   adjustmentDirection: transaction.adjustmentDirection,
    amount: String(transaction.amount),
    exchangeRateFrom: fromReversed ? formatRateValue(1 / transaction.exchangeRateFrom) : transaction.exchangeRateFrom.toFixed(2),
    commissionFrom: transaction.commissionFrom.toFixed(2),
-   exchangeRateTo: toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : transaction.exchangeRateTo.toFixed(2),
+   exchangeRateTo: isAdjustment ? '1.00' : toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : transaction.exchangeRateTo.toFixed(2),
    commissionTo: transaction.commissionTo.toFixed(2),
    charges: String(transaction.charges),
-   chargesCurrencyId: transaction.chargesCurrencyId,
-   chargesPayer: transaction.chargesPayer,
-   chargesExchangeRate: transaction.chargesExchangeRate.toFixed(2),
+   chargesCurrencyId: isAdjustment ? null : transaction.chargesCurrencyId,
+   chargesPayer: isAdjustment ? '' : transaction.chargesPayer,
+   chargesExchangeRate: isAdjustment ? '1.00' : transaction.chargesExchangeRate.toFixed(2),
    chargesDescription: transaction.chargesDescription,
    description: transaction.description,
    createdDate: transaction.createdAt.slice(0, 10),
@@ -979,50 +1266,14 @@ function AuthenticatedHome() {
   });
  }
 
- function beginClientLedgerEditMode() {
-  const nextDrafts: Record<string, LedgerTransactionDraft> = {};
-  const nextReversed: Record<string, boolean> = {};
-
-  selectedClientLedgers.forEach((ledger) => {
-   ledger.entries.forEach((entry) => {
-    const transaction = transactions.find((currentTransaction) => currentTransaction.id === entry.transactionId);
-    const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-    if (!transaction || nextDrafts[draftKey]) {
-     return;
-    }
-
-    nextDrafts[draftKey] = buildLedgerTransactionDraft(transaction, ledger.accountId);
-    const isOutgoing = transaction.accountFromId === ledger.accountId;
-    const reversed = isOutgoing ? transaction.exchangeRateFromReversed : transaction.exchangeRateToReversed;
-    if (reversed) {
-     nextReversed[draftKey] = true;
-    }
-   });
-  });
-
-  setLedgerTransactionDrafts(nextDrafts);
-  setLedgerRateReversed(nextReversed);
-  setLedgerCommissionExpandedEntries(new Set());
-  setLedgerStartingBalanceDrafts({});
-  setIsClientLedgerEditMode(true);
- }
-
- function cancelClientLedgerEditMode() {
-  setLedgerTransactionDrafts({});
-  setLedgerCommissionExpandedEntries(new Set());
-  setLedgerStartingBalanceDrafts({});
-  setLedgerRateReversed({});
-  setIsClientLedgerEditMode(false);
- }
-
  function beginTransactionsEditMode() {
   const fromReversed: Record<number, boolean> = {};
   const toReversed: Record<number, boolean> = {};
-  transactions.forEach((transaction) => {
+  transactionTableRows.forEach((transaction) => {
    if (transaction.exchangeRateFromReversed) {
     fromReversed[transaction.id] = true;
    }
-   if (transaction.exchangeRateToReversed) {
+   if (!transaction.isAdjustment && transaction.exchangeRateToReversed) {
     toReversed[transaction.id] = true;
    }
   });
@@ -1051,7 +1302,7 @@ function AuthenticatedHome() {
    const existingDraft =
     current[transactionId] ??
     (() => {
-     const transaction = transactionMap.get(transactionId);
+     const transaction = transactionTableRowMap.get(transactionId);
      return transaction ? buildTransactionTableDraft(transaction) : null;
     })();
 
@@ -1075,12 +1326,12 @@ function AuthenticatedHome() {
    return existingDraft;
   }
 
-  const transaction = transactionMap.get(transactionId);
+  const transaction = transactionTableRowMap.get(transactionId);
   return transaction ? buildTransactionTableDraft(transaction) : null;
  }
 
  function onCancelTransactionTableRow(transactionId: number) {
-  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+  const transaction = transactionTableRowMap.get(transactionId);
   if (!transaction) {
    return;
   }
@@ -1173,65 +1424,54 @@ function AuthenticatedHome() {
   }));
  }
 
- async function onSaveAllLedgerTransactions() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
+ async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
+  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
+  if (!ledgerTransactionDrafts[draftKey]) {
+   setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(draftKey); return n; });
    return;
   }
+  await onSaveLedgerTransaction(transactionId, ledgerAccountId);
+  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(draftKey); return n; });
+  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; delete n[draftKey]; return n; });
+ }
 
-  try {
-   for (const [accountId, value] of Object.entries(ledgerStartingBalanceDrafts)) {
-    await accountingApi.updateClientAccountStartingBalance({ accountId: Number(accountId), startingBalance: parseFloat(value) || 0 });
-   }
-
-   for (const draftKey of Object.keys(ledgerTransactionDrafts)) {
-    const draft = ledgerTransactionDrafts[draftKey];
-    const transaction = transactions.find((currentTransaction) => currentTransaction.id === draft.transactionId);
-    if (!draft || !transaction) continue;
-
-    const amount = parseFloat(draft.amount);
-    const rawBulkRate = parseFloat(draft.exchangeRate) || 1;
-    const exchangeRate = ledgerRateReversed[draftKey] ? 1 / rawBulkRate : rawBulkRate;
-    const commission = parseFloat(draft.commission) || 0;
-
-    if (!draft.counterpartyAccountId || !amount) {
-     setError(t('transaction_required'));
-     return;
-    }
-
-    const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
-    const createdAt = `${draft.createdDate} ${currentTime}`;
-    const payload: TransactionUpdateInput = {
-     id: transaction.id,
-     accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
-     accountToId: draft.direction === 'outgoing' ? draft.counterpartyAccountId : draft.ledgerAccountId,
-     currencyId: transaction.currencyId,
-     amount,
-     type: draft.type,
-     exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
-     commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
-     exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
-     commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
-     exchangeRateFromReversed: draft.direction === 'outgoing' ? (ledgerRateReversed[draftKey] ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
-     exchangeRateToReversed: draft.direction === 'incoming' ? (ledgerRateReversed[draftKey] ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
-     charges: transaction.charges,
-     chargesCurrencyId: transaction.chargesCurrencyId,
-     chargesPayer: transaction.chargesPayer,
-     chargesExchangeRate: transaction.chargesExchangeRate,
-     chargesDescription: transaction.chargesDescription,
-     description: draft.description,
-     createdAt,
-    };
-
-    await accountingApi.updateTransaction(payload);
-   }
-
-   setError('');
-   cancelClientLedgerEditMode();
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
+ async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
+  const key = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
+  if (entry.isAdjustment && entry.adjustmentId) {
+   await onDeleteAdjustment(entry.adjustmentId);
+  } else {
+   await onDeleteTransaction(entry.transactionId);
   }
+  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
+  setSelectedLedgerEntryKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
+ }
+
+ function onToggleLedgerEntrySelection(key: string) {
+  setSelectedLedgerEntryKeys((prev) => {
+   const next = new Set(prev);
+   if (next.has(key)) next.delete(key); else next.add(key);
+   return next;
+  });
+ }
+
+ async function onDeleteSelectedLedgerEntries() {
+  const keys = [...selectedLedgerEntryKeys];
+  for (const key of keys) {
+   const [txIdStr, accIdStr] = key.split(':');
+   const txId = Number(txIdStr);
+   const accId = Number(accIdStr);
+   const ledger = selectedClientLedgers.find((l) => l.accountId === accId);
+   const entry = ledger?.entries.find((e) => e.transactionId === txId);
+   if (!entry) continue;
+   if (entry.isAdjustment && entry.adjustmentId) {
+    await onDeleteAdjustment(entry.adjustmentId);
+   } else {
+    await onDeleteTransaction(entry.transactionId);
+   }
+  }
+  setSelectedLedgerEntryKeys(new Set());
+  setError('');
+  await loadData();
  }
 
  async function onOrganizationSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1258,6 +1498,30 @@ function AuthenticatedHome() {
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ }
+
+ async function onCreateOrgFromDialog(event: FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  if (!accountingApi || !organizationForm.name.trim()) {
+   setError(t('organization_required'));
+   return;
+  }
+  const newName = organizationForm.name.trim();
+  try {
+   await accountingApi.createOrganization(organizationForm);
+   await loadData();
+   // Auto-select the newly created org in the client form
+   setOrganizations((freshOrgs) => {
+    const newOrg = freshOrgs.find((o) => o.name === newName);
+    if (newOrg) setClientForm((current) => ({ ...current, organizationId: newOrg.id }));
+    return freshOrgs;
+   });
+   setOrganizationForm(emptyOrganizationForm());
+   setShowCreateOrgDialog(false);
+   setError('');
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
  }
 
@@ -1300,7 +1564,10 @@ function AuthenticatedHome() {
       await accountingApi.createClientAccount({
        clientId: created.clientId,
        currencyId: draft.currencyId,
-       startingBalance: parseFloat(draft.startingBalance) || 0,
+       startingBalance: (() => {
+        const abs = Math.abs(parseFloat(draft.startingBalance.replace(/,/g, '')) || 0);
+        return draft.balanceType === 'debit' ? -abs : abs;
+       })(),
       });
      }
     }
@@ -1506,6 +1773,46 @@ function AuthenticatedHome() {
 
   const amount = parseFloat(transactionForm.amount);
 
+  if (isAdjustmentTransaction) {
+   if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
+    setError(t('adjustment_required'));
+    return;
+   }
+
+   const selectedCurrency = currencyMap.get(transactionForm.currencyId);
+   const account = clientAccountMap.get(transactionForm.accountFromId);
+
+   try {
+    await accountingApi.createClientAdjustment({
+     accountId: transactionForm.accountFromId,
+     amount,
+     direction: transactionForm.adjustmentDirection,
+     currencyId: transactionForm.currencyId,
+     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+     exchangeRate: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
+     exchangeRateReversed: txFromRateReversed,
+     description: transactionForm.description,
+    });
+
+    setTransactionForm(emptyTransactionForm());
+    setTxFromQuery('');
+    setTxFromOpen(false);
+    setTxToQuery('');
+    setTxToOpen(false);
+    setTxFromRateReversed(false);
+    setTxToRateReversed(false);
+    setIsNewTransactionSectionOpen(false);
+    setIsNewTransactionExpensesOpen(false);
+    setError('');
+    await loadData();
+   } catch (e) {
+    setError(e instanceof Error ? e.message : t('error_failed_save'));
+   }
+
+   return;
+  }
+
   if (!transactionForm.accountFromId || !transactionForm.accountToId || !transactionForm.currencyId || !amount) {
    setError(t('transaction_required'));
    return;
@@ -1586,11 +1893,11 @@ function AuthenticatedHome() {
    }
 
    const headerAliases = {
-    from: ['Ø¹Ù„ÙŠÙ‡', 'from', 'accountfrom', 'sender', 'debtor'],
-    to: ['Ù„Ù‡', 'to', 'accountto', 'receiver', 'creditor'],
-    amount: ['Ø§Ù„Ù‚ÙŠÙ…Ø©', 'Ø§Ù„Ù…Ø¨Ù„Øº', 'amount', 'value'],
-    date: ['Ø§Ù„ØªØ§Ø±ÙŠØ®', 'date', 'createdat'],
-    description: ['Ø§Ù„ÙˆØµÙ', 'Ø§Ù„Ø¨ÙŠØ§Ù†', 'Ù…Ù„Ø§Ø­Ø¸Ø©', 'description', 'note', 'details'],
+    from: ['عليه', 'from', 'accountfrom', 'sender', 'debtor'],
+    to: ['له', 'to', 'accountto', 'receiver', 'creditor'],
+    amount: ['القيمة', 'المبلغ', 'amount', 'value'],
+    date: ['التاريخ', 'date', 'createdat'],
+    description: ['الوصف', 'البيان', 'ملاحظة', 'description', 'note', 'details'],
    };
 
    const detectColumnByAliases = (aliases: string[]) => {
@@ -1816,8 +2123,32 @@ function AuthenticatedHome() {
   try {
    for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
     const draft = transactionTableDrafts[transactionId];
-    const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+    const transaction = transactionTableRowMap.get(transactionId);
     if (!draft || !transaction) continue;
+    if (draft.isAdjustment && draft.adjustmentId) {
+     const amount = parseFloat(draft.amount);
+     if (!draft.accountFromId || !draft.currencyId || !amount) {
+      setError(t('transaction_required'));
+      return;
+     }
+     const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
+     const selectedCurrency = currencyMap.get(draft.currencyId);
+     const account = clientAccountMap.get(draft.accountFromId);
+     await accountingApi.updateClientAdjustment({
+      id: draft.adjustmentId,
+      accountId: draft.accountFromId,
+      amount,
+      direction: draft.adjustmentDirection ?? 'debit',
+      currencyId: draft.currencyId,
+      currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+      currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+      exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+      exchangeRateReversed: !!tableRateFromReversed[transactionId],
+      description: draft.description,
+      createdAt: `${draft.createdDate} ${currentTime}`,
+     });
+     continue;
+    }
     const amount = parseFloat(draft.amount);
     if (!draft.accountFromId || !draft.accountToId || !draft.currencyId || !amount) {
      setError(t('transaction_required'));
@@ -1878,11 +2209,116 @@ function AuthenticatedHome() {
   }
  }
 
- function onToggleTransactionSelection(transactionId: number) {
-  if (!isTransactionsEditMode) {
+ function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
+  const account = clientAccounts.find((a) => a.id === accountId);
+  if (existing) {
+   setAdjustmentModal({
+    accountId,
+    editingId: existing.id,
+    amount: String(existing.amount),
+    direction: existing.direction,
+    currencyId: existing.currencyId ?? account?.currencyId ?? null,
+    exchangeRate: existing.exchangeRate && existing.exchangeRate !== 1 ? String(existing.exchangeRate) : '',
+    exchangeRateReversed: !!existing.exchangeRateReversed,
+    description: existing.description,
+    date: existing.createdAt.slice(0, 10),
+   });
+  } else {
+   setAdjustmentModal({
+    accountId,
+    editingId: null,
+    amount: '',
+    direction: 'debit',
+    currencyId: account?.currencyId ?? null,
+    exchangeRate: '',
+    exchangeRateReversed: false,
+    description: '',
+    date: new Date().toISOString().slice(0, 10),
+   });
+  }
+ }
+
+ async function onSubmitAdjustment() {
+  if (!accountingApi || !adjustmentModal) {
+   setError(t('error_bridge'));
    return;
   }
 
+  const amount = parseFloat(adjustmentModal.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+   setError(t('adjustment_amount_required'));
+   return;
+  }
+
+  const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
+  const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
+  const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+  const rawRate = parseFloat(adjustmentModal.exchangeRate) || 1;
+  const effectiveRate = needsRate ? (adjustmentModal.exchangeRateReversed ? 1 / rawRate : rawRate) : 1;
+
+  const createdAt = `${adjustmentModal.date} 00:00:00`;
+
+  const payloadBase = {
+   amount,
+   direction: adjustmentModal.direction,
+   currencyId: adjustmentModal.currencyId,
+   currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+   currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+   exchangeRate: effectiveRate,
+   exchangeRateReversed: needsRate ? adjustmentModal.exchangeRateReversed : false,
+   description: adjustmentModal.description.trim(),
+   createdAt,
+  };
+
+  try {
+   if (adjustmentModal.editingId) {
+    await accountingApi.updateClientAdjustment({
+     id: adjustmentModal.editingId,
+     ...payloadBase,
+    });
+   } else {
+    await accountingApi.createClientAdjustment({
+     accountId: adjustmentModal.accountId,
+     ...payloadBase,
+    });
+   }
+   setAdjustmentModal(null);
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onDeleteAdjustment(id: number) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  if (!window.confirm(t('adjustment_delete_confirm'))) {
+   return;
+  }
+
+  try {
+   await accountingApi.deleteClientAdjustment(id);
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ async function onDeleteTransactionTableRow(row: TransactionTableRow) {
+  if (row.isAdjustment && row.adjustmentId) {
+   await onDeleteAdjustment(row.adjustmentId);
+   return;
+  }
+
+  await onDeleteTransaction(row.id);
+ }
+
+ function onToggleTransactionSelection(transactionId: number) {
   setSelectedTransactionIds((current) => {
    const next = new Set(current);
    if (next.has(transactionId)) {
@@ -1895,10 +2331,6 @@ function AuthenticatedHome() {
  }
 
  function onToggleSelectAllTransactions() {
-  if (!isTransactionsEditMode) {
-   return;
-  }
-
   setSelectedTransactionIds((current) => {
    const visibleIds = paginatedTransactions.map((transaction) => transaction.id);
    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => current.has(id));
@@ -1934,7 +2366,11 @@ function AuthenticatedHome() {
 
   try {
    for (const transactionId of idsToDelete) {
-    await accountingApi.deleteTransaction(transactionId);
+    if (transactionId < 0) {
+     await accountingApi.deleteClientAdjustment(-transactionId);
+    } else {
+     await accountingApi.deleteTransaction(transactionId);
+    }
    }
    setSelectedTransactionIds(new Set());
    setError('');
@@ -1944,6 +2380,171 @@ function AuthenticatedHome() {
   }
  }
 
+ async function onTransactionRowDrop(draggedIds: number[], targetId: number, dropHalf: 'top' | 'bottom') {
+  const dragSet = new Set(draggedIds);
+  if (dragSet.has(targetId)) return;
+
+  const currentOrder = manualRowOrder ?? displayedTransactionRows.map((r) => r.id);
+  if (!currentOrder.includes(targetId)) return;
+
+  // Remove all dragged rows from the order, then insert them as a block at the target position
+  const without = currentOrder.filter((id) => !dragSet.has(id));
+  const insertIdx = without.indexOf(targetId);
+  if (insertIdx === -1) return;
+  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
+  const next = [...without.slice(0, insertAt), ...draggedIds, ...without.slice(insertAt)];
+
+  setManualRowOrder(next);
+
+  // Determine date-zone changes for each dragged row
+  const rowMap = new Map(displayedTransactionRows.map((r) => [r.id, r]));
+  if (!accountingApi) return;
+
+  try {
+   for (const draggedId of draggedIds) {
+    const draggedRow = rowMap.get(draggedId);
+    if (!draggedRow) continue;
+
+    const pos = next.indexOf(draggedId);
+    // Find nearest non-group neighbor to determine the target date zone
+    const neighborAbove = (() => {
+     for (let i = pos - 1; i >= 0; i--) {
+      if (!dragSet.has(next[i])) return rowMap.get(next[i]);
+     }
+    })();
+    const neighborBelow = (() => {
+     for (let i = pos + 1; i < next.length; i++) {
+      if (!dragSet.has(next[i])) return rowMap.get(next[i]);
+     }
+    })();
+    const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
+    const draggedDate = draggedRow.createdAt.slice(0, 10);
+    if (!zoneDate || zoneDate === draggedDate) continue;
+
+    const newCreatedAt = zoneDate + draggedRow.createdAt.slice(10);
+
+    if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
+     const account = clientAccountMap.get(draggedRow.accountFromId);
+     const selectedCurrency = currencyMap.get(draggedRow.currencyId);
+     await accountingApi.updateClientAdjustment({
+      id: draggedRow.adjustmentId,
+      accountId: draggedRow.accountFromId,
+      amount: draggedRow.amount,
+      direction: draggedRow.adjustmentDirection ?? 'debit',
+      currencyId: draggedRow.currencyId,
+      currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+      currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+      exchangeRate: draggedRow.exchangeRateFrom,
+      exchangeRateReversed: !!draggedRow.exchangeRateFromReversed,
+      description: draggedRow.description,
+      createdAt: newCreatedAt,
+     });
+    } else {
+     await accountingApi.updateTransaction({
+      id: draggedRow.id,
+      accountFromId: draggedRow.accountFromId,
+      accountToId: draggedRow.accountToId,
+      currencyId: draggedRow.currencyId,
+      amount: draggedRow.amount,
+      type: draggedRow.type,
+      exchangeRateFrom: draggedRow.exchangeRateFrom,
+      commissionFrom: draggedRow.commissionFrom,
+      exchangeRateTo: draggedRow.exchangeRateTo,
+      commissionTo: draggedRow.commissionTo,
+      exchangeRateFromReversed: draggedRow.exchangeRateFromReversed,
+      exchangeRateToReversed: draggedRow.exchangeRateToReversed,
+      charges: draggedRow.charges,
+      chargesCurrencyId: draggedRow.chargesCurrencyId,
+      chargesPayer: draggedRow.chargesPayer,
+      chargesExchangeRate: draggedRow.chargesExchangeRate,
+      chargesDescription: draggedRow.chargesDescription,
+      description: draggedRow.description,
+      createdAt: newCreatedAt,
+     });
+    }
+   }
+   setError('');
+   const orderToKeep = next;
+   await loadData();
+   setManualRowOrder(orderToKeep);
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+   setManualRowOrder(currentOrder);
+  }
+ }
+
+ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) {
+  const dragSet = new Set(draggedKeys);
+  if (dragSet.has(targetKey)) return;
+  const currentOrder = manualLedgerRowOrder[accountId] ?? selectedClientLedgers.find((l) => l.accountId === accountId)?.entries.map((e) => `${e.transactionId}:${accountId}`) ?? [];
+  if (!currentOrder.includes(targetKey)) return;
+  const without = currentOrder.filter((k) => !dragSet.has(k));
+  const insertIdx = without.indexOf(targetKey);
+  if (insertIdx === -1) return;
+  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
+  const next = [...without.slice(0, insertAt), ...draggedKeys, ...without.slice(insertAt)];
+  setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: next }));
+  const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
+  if (!ledger || !accountingApi) return;
+  const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
+  try {
+   for (const draggedKey of draggedKeys) {
+    const entry = entryMap.get(draggedKey);
+    if (!entry) continue;
+    const pos = next.indexOf(draggedKey);
+    const neighborAbove = (() => { for (let i = pos - 1; i >= 0; i--) { if (!dragSet.has(next[i])) return entryMap.get(next[i]); } })();
+    const neighborBelow = (() => { for (let i = pos + 1; i < next.length; i++) { if (!dragSet.has(next[i])) return entryMap.get(next[i]); } })();
+    const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
+    const draggedDate = entry.createdAt.slice(0, 10);
+    if (!zoneDate || zoneDate === draggedDate) continue;
+    const newCreatedAt = zoneDate + entry.createdAt.slice(10);
+    if (entry.isAdjustment && entry.adjustmentId) {
+     const adj = adjustments.find((a) => a.id === entry.adjustmentId);
+     if (!adj) continue;
+     await accountingApi.updateClientAdjustment({
+      id: adj.id, accountId, amount: adj.amount, direction: adj.direction,
+      currencyId: adj.currencyId ?? clientAccounts.find((a) => a.id === accountId)?.currencyId ?? 0,
+      currencyCode: adj.currencyCode, currencySymbol: adj.currencySymbol,
+      exchangeRate: adj.exchangeRate, exchangeRateReversed: adj.exchangeRateReversed,
+      description: adj.description, createdAt: newCreatedAt,
+     });
+    } else {
+     const tx = transactions.find((t) => t.id === entry.transactionId);
+     if (!tx) continue;
+     await accountingApi.updateTransaction({
+      id: tx.id, accountFromId: tx.accountFromId, accountToId: tx.accountToId,
+      currencyId: tx.currencyId, amount: tx.amount, type: tx.type,
+      exchangeRateFrom: tx.exchangeRateFrom, commissionFrom: tx.commissionFrom,
+      exchangeRateTo: tx.exchangeRateTo, commissionTo: tx.commissionTo,
+      exchangeRateFromReversed: tx.exchangeRateFromReversed, exchangeRateToReversed: tx.exchangeRateToReversed,
+      charges: tx.charges, chargesCurrencyId: tx.chargesCurrencyId, chargesPayer: tx.chargesPayer,
+      chargesExchangeRate: tx.chargesExchangeRate, chargesDescription: tx.chargesDescription,
+      description: tx.description, createdAt: newCreatedAt,
+     });
+    }
+   }
+   setError('');
+   const orderToKeep = next;
+   await loadData();
+   setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: orderToKeep }));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+   setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: currentOrder }));
+  }
+ }
+
+ function resolveCreatedAt(draftDate: string, originalCreatedAt: string): string {
+  const originalDate = originalCreatedAt.slice(0, 10);
+  if (draftDate === originalDate) {
+   // Date unchanged — preserve the exact original timestamp so sort order never changes
+   return originalCreatedAt;
+  }
+  // User changed the date — keep the original time component
+  const sep = originalCreatedAt.includes('T') ? 'T' : ' ';
+  const timePart = originalCreatedAt.includes(sep) ? originalCreatedAt.split(sep)[1] : '00:00:00';
+  return `${draftDate} ${timePart}`;
+ }
+
  async function onSaveTransactionTableRow(transactionId: number) {
   if (!accountingApi) {
    setError(t('error_bridge'));
@@ -1951,9 +2552,57 @@ function AuthenticatedHome() {
   }
 
   const draft = transactionTableDrafts[transactionId];
-  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+  const transaction = transactionTableRowMap.get(transactionId);
 
-  if (!draft || !transaction) {
+  if (!transaction) {
+   return;
+  }
+
+  // No changes were made — just exit edit mode like cancel
+  if (!draft) {
+   setEditingRowIds((prev) => {
+    const next = new Set(prev);
+    next.delete(transactionId);
+    return next;
+   });
+   return;
+  }
+
+  if (draft.isAdjustment && draft.adjustmentId) {
+   const amount = parseFloat(draft.amount);
+
+   if (!draft.accountFromId || !draft.currencyId || !amount) {
+    setError(t('transaction_required'));
+    return;
+   }
+
+   const selectedCurrency = currencyMap.get(draft.currencyId);
+   const account = clientAccountMap.get(draft.accountFromId);
+
+   try {
+    await accountingApi.updateClientAdjustment({
+     id: draft.adjustmentId,
+     accountId: draft.accountFromId,
+     amount,
+     direction: draft.adjustmentDirection ?? 'debit',
+     currencyId: draft.currencyId,
+     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+     exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+     exchangeRateReversed: !!tableRateFromReversed[transactionId],
+     description: draft.description,
+     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
+    });
+    setError('');
+    await loadData();
+    setEditingRowIds((prev) => {
+     const next = new Set(prev);
+     next.delete(transactionId);
+     return next;
+    });
+   } catch (e) {
+    setError(e instanceof Error ? e.message : t('error_failed_update'));
+   }
    return;
   }
 
@@ -1963,8 +2612,6 @@ function AuthenticatedHome() {
    setError(t('transaction_required'));
    return;
   }
-
-  const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
 
   try {
    await accountingApi.updateTransaction({
@@ -1986,10 +2633,15 @@ function AuthenticatedHome() {
     chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
     chargesDescription: draft.chargesDescription,
     description: draft.description,
-    createdAt: `${draft.createdDate} ${currentTime}`,
+    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    });
    setError('');
    await loadData();
+   setEditingRowIds((prev) => {
+    const next = new Set(prev);
+    next.delete(transactionId);
+    return next;
+   });
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -1998,11 +2650,29 @@ function AuthenticatedHome() {
  async function onAddClientAccount(clientId: number) {
   if (!accountingApi || !newAccountCurrencyId) return;
   try {
-   await accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId, startingBalance: parseFloat(newAccountStartingBalance) || 0 });
+   const abs = Math.abs(parseFloat(newAccountStartingBalance.replace(/,/g, '')) || 0);
+   const startingBalance = newAccountBalanceType === 'debit' ? -abs : abs;
+   await accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId, startingBalance });
    setNewAccountCurrencyId(null);
    setNewAccountStartingBalance('0');
+   setNewAccountBalanceType('debit');
+   setShowAddAccountForm(false);
    await loadData();
    // Re-sync selectedClientForAccounts with updated client data
+   setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onSaveEditAccount() {
+  if (!accountingApi || !editingAccountId || !editingAccountCurrencyId) return;
+  try {
+   const abs = Math.abs(parseFloat(editingAccountBalance.replace(/,/g, '')) || 0);
+   const startingBalance = editingAccountBalanceType === 'debit' ? -abs : abs;
+   await accountingApi.updateClientAccount({ accountId: editingAccountId, currencyId: editingAccountCurrencyId, startingBalance });
+   setEditingAccountId(null);
+   await loadData();
    setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -2030,7 +2700,7 @@ function AuthenticatedHome() {
   }
  }
 
- function generateLedgerHtml(ledger: ClientAccountLedger, fromDate: string, toDate: string): string {
+ function generateLedgerHtml(ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility): string {
   const filteredEntries = ledger.entries.filter((e) => {
    const d = e.createdAt.slice(0, 10);
    return d >= fromDate && d <= toDate;
@@ -2041,31 +2711,74 @@ function AuthenticatedHome() {
   // Build column definitions respecting user visibility; running_balance is always included
   type ColDef = { key: LedgerColumnKey; header: string; isNum?: boolean; cell: (e: ClientLedgerEntry, runBal: number) => string };
   const allCols: ColDef[] = [
-   { key: 'created', header: t('date'), cell: (e) => e.createdAt.slice(0, 10) },
+   {
+    key: 'created',
+    header: t('date'),
+    cell: (e) => {
+     const iso = e.createdAt.slice(0, 10); // yyyy-mm-dd
+     const [y, m, d] = iso.split('-');
+     switch (pdfSettings.dateFormat) {
+      case 'day-month':
+       return `${d}/${m}`;
+      case 'month-year':
+       return `${m}/${y}`;
+      case 'day-month-year-2':
+       return `${d}/${m}/${y.slice(2)}`;
+      case 'month-day':
+       return `${m}/${d}`;
+      default:
+       return iso; // full yyyy-mm-dd
+     }
+    },
+   },
    { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
-   { key: 'direction', header: t('direction'), cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming') },
-   { key: 'type', header: t('transaction_type'), cell: (e) => t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange') },
-   { key: 'amount', header: t('amount'), isNum: true, cell: (e) => e.amount.toLocaleString(language, { maximumFractionDigits: 2 }) },
-   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => e.exchangeRate.toFixed(2) },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => e.commission.toFixed(2) },
+   {
+    key: 'direction',
+    header: t('direction'),
+    cell: (e) =>
+     e.isAdjustment ? t(e.direction === 'outgoing' ? 'adjustment_direction_credit' : 'adjustment_direction_debit') : t(e.direction === 'outgoing' ? 'outgoing' : 'incoming'),
+   },
+   {
+    key: 'type',
+    header: t('transaction_type'),
+    cell: (e) => (e.isAdjustment ? t('adjustment_label') : t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')),
+   },
+   {
+    key: 'amount',
+    header: t('amount'),
+    isNum: true,
+    cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+   },
+   {
+    key: 'exchangeRate',
+    header: t('exchange_rate'),
+    isNum: true,
+    cell: (e) => {
+     if (e.isAdjustment) {
+      return e.exchangeRate && e.exchangeRate !== 1 ? formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : '-';
+     }
+     return formatRateValue(e.exchangeRate);
+    },
+   },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '-' : e.commission.toFixed(pdfSettings.decimals)) },
    {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}</span>`,
+    cell: (e) => `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    {
     key: 'runningBalance',
     header: t('running_balance'),
     isNum: true,
-    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: 2 })}</span>`,
+    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
   ];
   const visibleCols = ledgerColumnOrder
    .map((key) => allCols.find((col) => col.key === key))
    .filter((col): col is ColDef => Boolean(col))
-   .filter((col) => col.key === 'runningBalance' || ledgerColumnVisibility[col.key]);
+   .filter((col) => col.key === 'runningBalance' || colVisibility[col.key]);
   // Ensure runningBalance is always present (append if somehow missing from order)
   if (!visibleCols.some((col) => col.key === 'runningBalance')) {
    const rbCol = allCols.find((col) => col.key === 'runningBalance');
@@ -2088,32 +2801,50 @@ function AuthenticatedHome() {
   const clientName = selectedClientForLedger?.name ?? '';
   const exportDate = new Date().toLocaleDateString(language);
 
+  const metaCards = [
+   pdfSettings.showMetaClient ? `<div class="meta-card"><div class="label">${t('client')}</div><div class="value">${clientName}</div></div>` : '',
+   pdfSettings.showMetaCurrency
+    ? `<div class="meta-card"><div class="label">${t('currency')}</div><div class="value">${ledger.currencyName} (${ledger.currencyCode})</div></div>`
+    : '',
+   pdfSettings.showMetaPeriod
+    ? `<div class="meta-card"><div class="label">${t('export_period')}</div><div class="value" style="font-size:12px">${fromDate} &rarr; ${toDate}</div></div>`
+    : '',
+  ].filter(Boolean);
+  const metaColCount = metaCards.length;
+
   return `<!DOCTYPE html>
 <html lang="${language}" dir="${dir}">
 <head>
 <meta charset="UTF-8">
 <style>
  * { box-sizing: border-box; margin: 0; padding: 0; }
- body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #1e293b; padding: 32px; }
+ body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
- .header-left h1 { font-size: 20px; font-weight: bold; }
- .header-left p { font-size: 11px; color: #64748b; margin-top: 2px; }
- .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: 11px; color: #64748b; }
- .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+ .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
+ .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
+ .meta { display: grid; grid-template-columns: repeat(${metaColCount || 1}, 1fr); gap: 12px; margin-bottom: 20px; }
  .meta-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; background: #f8fafc; }
- .meta-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
- .meta-card .value { font-size: 14px; font-weight: bold; margin-top: 4px; }
+ .meta-card .label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
+ .meta-card .value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: bold; margin-top: 4px; }
  .pos { color: #059669; }
  .neg { color: #dc2626; }
+ .pre-balance { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
+ .pre-balance .pb-label { font-size: calc(${pdfSettings.fontSize}px - 1px); text-transform: uppercase; letter-spacing: 0.05em; color: #475569; font-weight: 600; }
+ .pre-balance .pb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: bold; font-variant-numeric: tabular-nums; }
  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
- thead tr { background: #f1f5f9; }
- th { padding: 8px 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; text-align: ${isRTL ? 'right' : 'left'}; border-bottom: 1px solid #cbd5e1; }
- td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; }
- td.num { text-align: ${isRTL ? 'left' : 'right'}; font-variant-numeric: tabular-nums; }
- th.num { text-align: ${isRTL ? 'left' : 'right'}; }
- tr.pre-row td { background: #eff6ff; font-weight: 600; }
+ thead tr { background: #e2e8f0; }
+ th { padding: 8px 10px; font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
+ td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+ tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(even) { background: #ffffff; }
+ td.num { font-variant-numeric: tabular-nums; }
+ th.num { }
  tr:last-child td { border-bottom: none; }
- .footer { margin-top: 24px; font-size: 10px; color: #94a3b8; text-align: center; }
+ .final-balance { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 16px; padding: 12px 20px; border: 2px solid #1e293b; border-radius: 6px; background: #f8fafc; }
+ .final-balance .fb-label { font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; color: #1e293b; }
+ .final-balance .fb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: 700; font-variant-numeric: tabular-nums; }
+ .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
 </style>
 </head>
 <body>
@@ -2122,45 +2853,31 @@ function AuthenticatedHome() {
   <h1>Arkam Exchange</h1>
   <p>${t('client_ledger_statement')}</p>
  </div>
- <div class="header-right">
-  <div>${t('export_generated_on')}: ${exportDate}</div>
- </div>
+ ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
-<div class="meta">
- <div class="meta-card">
-  <div class="label">${t('client')}</div>
-  <div class="value">${clientName}</div>
- </div>
- <div class="meta-card">
-  <div class="label">${t('currency')}</div>
-  <div class="value">${ledger.currencyName} (${ledger.currencyCode})</div>
- </div>
- <div class="meta-card">
-  <div class="label">${t('export_period')}</div>
-  <div class="value" style="font-size:12px">${fromDate} â†’ ${toDate}</div>
- </div>
-</div>
-<table>
+${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span></div>` : ''}
+<table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
  </thead>
  <tbody>
-  <tr class="pre-row">
-   <td colspan="${colCount - 1}">${t('export_pre_balance')}</td>
-   <td class="num ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
-  </tr>
   ${rows}
  </tbody>
 </table>
-<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>
+<div class="final-balance">
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencyCode}</span>
+ <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
+</div>
+${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
  }
 
- async function onExportLedgerPdf(ledger: ClientAccountLedger, fromDate: string, toDate: string) {
+ async function onExportLedgerPdf(ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility) {
   if (!accountingApi) return;
   try {
-   const html = generateLedgerHtml(ledger, fromDate, toDate);
+   const html = generateLedgerHtml(ledger, fromDate, toDate, colVisibility);
    const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^a-z0-9]/gi, '_');
    const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
    const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
@@ -2181,6 +2898,7 @@ function AuthenticatedHome() {
  const settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }> = [
   { key: 'database', label: t('settings_database_title'), icon: 'database' },
   { key: 'language', label: t('settings_language_title'), icon: 'settings' },
+  { key: 'pdf', label: t('settings_pdf_title'), icon: 'settings' },
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
@@ -2225,11 +2943,13 @@ function AuthenticatedHome() {
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
+ const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
  const selectedOrganizationClients = useMemo(
   () => (selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : []),
   [clients, selectedOrganizationForClients],
  );
 
+ const isAdjustmentTransaction = transactionForm.type === 'adjustment';
  const transactionSelectedCurrencyCode = transactionForm.currencyId ? currencyMap.get(transactionForm.currencyId)?.code : undefined;
  const transactionAccountFromCurrencyCode = transactionForm.accountFromId ? clientAccountMap.get(transactionForm.accountFromId)?.currencyCode : undefined;
  const transactionAccountToCurrencyCode = transactionForm.accountToId ? clientAccountMap.get(transactionForm.accountToId)?.currencyCode : undefined;
@@ -2241,11 +2961,37 @@ function AuthenticatedHome() {
   transactionForm.chargesPayer === 'from' ? transactionAccountFromCurrencyCode : transactionForm.chargesPayer === 'to' ? transactionAccountToCurrencyCode : undefined;
  const showChargesExchangeRate = !!(chargesCurrencyCode && chargesPayerAccountCurrencyCode && chargesCurrencyCode !== chargesPayerAccountCurrencyCode);
 
+ const updateTransactionTableSettings = (updater: (current: TransactionTableSettings) => TransactionTableSettings) => {
+  setTransactionTableSettings((current) => {
+   const next = updater(current);
+   saveTransactionTableSettings(next);
+   return next;
+  });
+ };
+
+ const openTransactionTableSettingsModal = () => {
+  setTransactionTableSettingsDraft(transactionTableSettings);
+  setShowTransactionTableSettingsModal(true);
+ };
+
+ const closeTransactionTableSettingsModal = () => {
+  setTransactionTableSettingsDraft(transactionTableSettings);
+  setShowTransactionTableSettingsModal(false);
+ };
+
+ const saveTransactionTableSettingsModal = () => {
+  setTransactionTableSettings(transactionTableSettingsDraft);
+  saveTransactionTableSettings(transactionTableSettingsDraft);
+  setShowTransactionTableSettingsModal(false);
+ };
+
+ const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 2; // +1 actions col, +1 checkbox col
+
  const overviewCards = [
   { label: t('overview_currencies'), value: enabledCurrencies.length },
   { label: t('overview_organizations'), value: organizations.length },
   { label: t('overview_clients'), value: clients.length },
-  { label: t('overview_transactions'), value: transactions.length },
+  { label: t('overview_transactions'), value: transactionTableRows.length },
  ];
 
  const selectedClientLedgers: ClientAccountLedger[] = useMemo(() => {
@@ -2319,7 +3065,45 @@ function AuthenticatedHome() {
 
       return [];
      })
-     .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+     .concat(
+      adjustments
+       .filter((adj) => adj.accountId === account.id)
+       .map((adj) => ({
+        transactionId: -adj.id,
+        adjustmentId: adj.id,
+        isAdjustment: true as const,
+        createdAt: adj.createdAt,
+        counterpartyName: '',
+        counterpartyClientId: null,
+        // debit: client owes us (e.g. gas money) ? balance moves in our favor (negative)
+        // credit: we owe the client (e.g. iPhone) ? balance moves in their favor (positive)
+        direction: (adj.direction === 'credit' ? 'outgoing' : 'incoming') as 'incoming' | 'outgoing',
+        type: 'adjustment',
+        amount: adj.amount,
+        currencyCode: adj.currencyCode || account.currencyCode,
+        currencySymbol: adj.currencySymbol || account.currencySymbol,
+        exchangeRate: adj.exchangeRate || 1,
+        exchangeRateReversed: !!adj.exchangeRateReversed,
+        commission: 0,
+        // amount is in the adjustment's own currency; convert to account currency via exchangeRate
+        netChange: (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
+        runningBalance: 0,
+        description: adj.description,
+        charges: 0,
+        chargesCurrencyCode: null,
+        chargesPayer: '',
+        chargesExchangeRate: 1,
+        chargesDescription: '',
+        isChargesPayerThisAccount: false,
+       })),
+     )
+     .sort((left, right) => {
+      const dateDiff = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      const leftId = left.isAdjustment ? (left.adjustmentId ?? 0) : left.transactionId;
+      const rightId = right.isAdjustment ? (right.adjustmentId ?? 0) : right.transactionId;
+      return leftId - rightId;
+     });
 
     let runningBalance = account.startingBalance ?? 0;
     const entriesWithBalance = entries.map((entry) => {
@@ -2342,7 +3126,33 @@ function AuthenticatedHome() {
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
- }, [clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
+ }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
+
+ useEffect(() => {
+  setManualLedgerRowOrder((current) => {
+   let changed = false;
+   const next = { ...current };
+   for (const ledger of selectedClientLedgers) {
+    const currentOrder = current[ledger.accountId];
+    if (!currentOrder) continue;
+    const newKeys = ledger.entries.map((e) => `${e.transactionId}:${ledger.accountId}`);
+    const newKeySet = new Set(newKeys);
+    const currentKeySet = new Set(currentOrder);
+    const kept = currentOrder.filter((k) => newKeySet.has(k));
+    const added = newKeys.filter((k) => !currentKeySet.has(k));
+    const merged = [...kept, ...added];
+    if (merged.join(',') !== currentOrder.join(',')) {
+     next[ledger.accountId] = merged;
+     changed = true;
+    }
+   }
+   const activeIds = new Set(selectedClientLedgers.map((l) => l.accountId));
+   for (const id of Object.keys(next).map(Number)) {
+    if (!activeIds.has(id)) { delete next[id]; changed = true; }
+   }
+   return changed ? next : current;
+  });
+ }, [selectedClientLedgers]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -2374,12 +3184,23 @@ function AuthenticatedHome() {
  const mutedPanelClassName = 'border border-gray-200 bg-gray-50 p-4';
  const tableWrapClassName = 'mt-3 overflow-x-auto border border-gray-200 bg-white';
  const transactionsPager =
-  transactions.length > 0 ? (
-   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-    <div className="text-sm text-slate-600">
-     Showing {(transactionsPage - 1) * transactionsPageSize + 1} - {Math.min(transactionsPage * transactionsPageSize, transactions.length)} of {transactions.length}
+  transactionTableRows.length > 0 ? (
+   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+    <div className="text-xs text-slate-600">
+     {(() => {
+      const from = (transactionsPage - 1) * transactionsPageSize + 1;
+      const to = Math.min(transactionsPage * transactionsPageSize, transactionTableRows.length);
+      if (language === 'ar') {
+       return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
+      }
+      if (language === 'fr') {
+       return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
+      }
+      return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
+     })()}
     </div>
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5">
+     <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
      <select
       value={transactionsPageSize}
       onChange={(event) => {
@@ -2387,30 +3208,30 @@ function AuthenticatedHome() {
        setTransactionsPageSize(nextSize);
        setTransactionsPage(1);
       }}
-      className="rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+      className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
      >
-      <option value={50}>50/page</option>
-      <option value={100}>100/page</option>
-      <option value={250}>250/page</option>
+      <option value={50}>50</option>
+      <option value={100}>100</option>
+      <option value={250}>250</option>
      </select>
      <button
       type="button"
       onClick={() => setTransactionsPage((current) => Math.max(1, current - 1))}
       disabled={transactionsPage <= 1}
-      className="rounded border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
-      Prev
+      {t('pagination_prev')}
      </button>
-     <span className="min-w-20 text-center text-sm font-semibold text-slate-700">
+     <span className="min-w-12 text-center text-xs font-semibold text-slate-700">
       {transactionsPage} / {totalTransactionPages}
      </span>
      <button
       type="button"
       onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, current + 1))}
       disabled={transactionsPage >= totalTransactionPages}
-      className="rounded border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
-      Next
+      {t('pagination_next')}
      </button>
     </div>
    </div>
@@ -2505,62 +3326,62 @@ function AuthenticatedHome() {
        isActive: false,
        onClick: () => navigateToSection('overview'),
       },
-      ...settingsTabs.map((item) => ({
-       id: `settings-${item.key}`,
-       label: item.label,
-       icon: item.icon,
-       isActive: settingsTab === item.key,
-       onClick: () => setSettingsTab(item.key),
+      ...settingsTabs.map((tab) => ({
+       id: tab.key,
+       label: tab.label,
+       icon: tab.icon,
+       isActive: settingsTab === tab.key,
+       onClick: () => {
+        navigateToSection('settings');
+        setSettingsTab(tab.key);
+       },
       })),
      ]
-   : navItems.map((item) => ({
-      id: item.key,
-      label: item.label,
-      icon: item.icon,
-      isActive: section === item.key || (section === 'organization-clients' && item.key === 'organizations') || (section === 'client-ledger' && item.key === 'clients'),
-      onClick: () => navigateToSection(item.key),
-     }));
-
- const activeSidebarItem = sidebarItems.find((item) => item.isActive) ?? sidebarItems[0];
+   : [
+      ...navItems.map((item) => ({
+       id: item.key,
+       label: item.label,
+       icon: item.icon,
+       isActive: section === item.key,
+       onClick: () => navigateToSection(item.key),
+      })),
+      {
+       id: 'settings',
+       label: t('settings_title'),
+       icon: 'settings',
+       isActive: false,
+       onClick: () => navigateToSection('settings'),
+      },
+     ];
 
  const organizationsSection = (
-  <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
-   <form
-    onSubmit={onOrganizationSubmit}
-    className={panelClassName}
-   >
-    <div className="flex items-center justify-between gap-3">
-     <div>
-      <h2 className="text-xl font-semibold">{organizationForm.id ? t('update_organization') : t('new_organization')}</h2>
-      <p className="mt-1 text-sm text-slate-600">{t('organizations_description')}</p>
-     </div>
-     {organizationForm.id ? (
-      <button
-       type="button"
-       onClick={() => setOrganizationForm(emptyOrganizationForm())}
-       className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      >
-       {t('cancel')}
-      </button>
-     ) : null}
-    </div>
+  <section className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+   <div className={panelClassName}>
+    <h2 className="text-xl font-semibold">{organizationForm.id ? t('update_organization') : t('new_organization')}</h2>
+    <p className="mt-1 text-sm text-slate-600">{t('organizations_description')}</p>
 
-    <label className="mt-5 block text-sm font-medium">{t('organization_name')}</label>
-    <input
-     value={organizationForm.name}
-     onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
-     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('organization_name_placeholder')}
-     required
-    />
-
-    <button
-     type="submit"
-     className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+    <form
+     onSubmit={(event) => void onOrganizationSubmit(event)}
+     className="mt-5"
     >
-     {organizationForm.id ? t('update_organization') : t('save_organization')}
-    </button>
-   </form>
+     <label className="block text-sm font-medium">{t('organization_name')}</label>
+     <input
+      type="text"
+      value={organizationForm.name}
+      onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
+      placeholder={t('organization_name_placeholder')}
+      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      required
+     />
+
+     <button
+      type="submit"
+      className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+     >
+      {organizationForm.id ? t('update_organization') : t('save_organization')}
+     </button>
+    </form>
+   </div>
 
    <div className={panelClassName}>
     <h2 className="text-xl font-semibold">{t('organizations_title')}</h2>
@@ -2631,6 +3452,153 @@ function AuthenticatedHome() {
        ) : null}
       </tbody>
      </table>
+    </div>
+   </div>
+  </section>
+ );
+
+ const pdfAllColumns: { key: LedgerColumnKey; label: string }[] = [
+  { key: 'created', label: t('date') },
+  { key: 'counterparty', label: t('counterparty') },
+  { key: 'direction', label: t('direction') },
+  { key: 'type', label: t('transaction_type') },
+  { key: 'amount', label: t('amount') },
+  { key: 'exchangeRate', label: t('exchange_rate') },
+  { key: 'commission', label: t('commission') },
+  { key: 'netChange', label: t('net_change') },
+  { key: 'runningBalance', label: t('running_balance') },
+  { key: 'description', label: t('transaction_description') },
+ ];
+
+ function updatePdfSettings(partial: Partial<PdfSettings>) {
+  const next = { ...pdfSettings, ...partial };
+  setPdfSettings(next);
+  try {
+   window.localStorage.setItem(pdfSettingsStorageKey, JSON.stringify(next));
+  } catch {
+   /* ignore */
+  }
+ }
+
+ const pdfSettingsSection = (
+  <section className="flex flex-col gap-6">
+   <div className={panelClassName}>
+    <h2 className="text-2xl font-semibold">{t('settings_pdf_title')}</h2>
+    <p className="mt-2 text-sm text-slate-600">{t('settings_pdf_description')}</p>
+
+    {/* Font */}
+    <div className="mt-6 grid gap-4 sm:grid-cols-2">
+     <div>
+      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_font_family_label')}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t('pdf_font_family_hint')}</p>
+      <select
+       value={pdfSettings.fontFamily}
+       onChange={(e) => updatePdfSettings({ fontFamily: e.target.value })}
+       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+       <option value="Arial, Helvetica, sans-serif">Arial</option>
+       <option value="'Times New Roman', Times, serif">Times New Roman</option>
+       <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+       <option value="Verdana, Geneva, sans-serif">Verdana</option>
+       <option value="Tahoma, Geneva, sans-serif">Tahoma</option>
+       <option value="Trebuchet MS, Helvetica, sans-serif">Trebuchet MS</option>
+       <option value="'Courier New', Courier, monospace">Courier New</option>
+      </select>
+     </div>
+     <div>
+      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_font_size_label')}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t('pdf_font_size_hint')}</p>
+      <select
+       value={pdfSettings.fontSize}
+       onChange={(e) => updatePdfSettings({ fontSize: Number(e.target.value) })}
+       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+       {[8, 9, 10, 11, 12, 13, 14, 16, 18].map((s) => (
+        <option
+         key={s}
+         value={s}
+        >
+         {s}px
+        </option>
+       ))}
+      </select>
+     </div>
+    </div>
+
+    {/* Date format */}
+    <div className="mt-6">
+     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_date_format_label')}</h3>
+     <p className="mt-1 text-xs text-slate-500">{t('pdf_date_format_hint')}</p>
+     <select
+      value={pdfSettings.dateFormat}
+      onChange={(e) => updatePdfSettings({ dateFormat: e.target.value as PdfSettings['dateFormat'] })}
+      className="mt-3 w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+     >
+      <option value="full">2026-06-26 (YYYY-MM-DD)</option>
+      <option value="day-month">26/06 (DD/MM)</option>
+      <option value="month-day">06/26 (MM/DD)</option>
+      <option value="day-month-year-2">26/06/26 (DD/MM/YY)</option>
+      <option value="month-year">06/2026 (MM/YYYY)</option>
+     </select>
+    </div>
+
+    {/* Decimal places */}
+    <div className="mt-6">
+     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_decimals_label')}</h3>
+     <p className="mt-1 text-xs text-slate-500">{t('pdf_decimals_hint')}</p>
+     <div className="mt-3 inline-flex items-center rounded border border-slate-300 bg-white overflow-hidden">
+      <button
+       type="button"
+       onClick={() => updatePdfSettings({ decimals: Math.max(0, pdfSettings.decimals - 1) })}
+       className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+       disabled={pdfSettings.decimals === 0}
+      >
+       -
+      </button>
+      <span className="min-w-8 px-2 py-1.5 text-center text-sm font-semibold text-slate-800 border-x border-slate-300">{pdfSettings.decimals}</span>
+      <button
+       type="button"
+       onClick={() => updatePdfSettings({ decimals: Math.min(6, pdfSettings.decimals + 1) })}
+       className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+       disabled={pdfSettings.decimals === 6}
+      >
+       +
+      </button>
+     </div>
+    </div>
+
+    {/* Section visibility */}
+    <div className="mt-6">
+     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_sections_label')}</h3>
+     <p className="mt-1 text-xs text-slate-500">{t('pdf_sections_hint')}</p>
+     <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      {(
+       [
+        { key: 'showPreBalance', labelKey: 'pdf_show_pre_balance', hintKey: 'pdf_show_pre_balance_hint' },
+        { key: 'showMetaClient', labelKey: 'pdf_show_meta_client', hintKey: 'pdf_show_meta_client_hint' },
+        { key: 'showMetaCurrency', labelKey: 'pdf_show_meta_currency', hintKey: 'pdf_show_meta_currency_hint' },
+        { key: 'showMetaPeriod', labelKey: 'pdf_show_meta_period', hintKey: 'pdf_show_meta_period_hint' },
+        { key: 'showGeneratedOn', labelKey: 'pdf_show_generated_on', hintKey: 'pdf_show_generated_on_hint' },
+        { key: 'showFooter', labelKey: 'pdf_show_footer', hintKey: 'pdf_show_footer_hint' },
+       ] as Array<{ key: keyof Omit<PdfSettings, 'decimals' | 'fontFamily' | 'fontSize'>; labelKey: string; hintKey: string }>
+      ).map(({ key, labelKey, hintKey }) => (
+       <label
+        key={key}
+        className="flex cursor-pointer items-start gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-slate-100"
+       >
+        <input
+         type="checkbox"
+         checked={pdfSettings[key] as boolean}
+         onChange={(e) => updatePdfSettings({ [key]: e.target.checked })}
+         className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 accent-blue-600"
+        />
+        <div>
+         <p className="text-sm font-medium text-slate-800">{t(labelKey)}</p>
+         <p className="text-xs text-slate-500">{t(hintKey)}</p>
+        </div>
+       </label>
+      ))}
+     </div>
     </div>
    </div>
   </section>
@@ -2744,12 +3712,17 @@ function AuthenticatedHome() {
     <label className="mt-4 block text-sm font-medium">{t('client_organization')}</label>
     <select
      value={clientForm.organizationId ?? ''}
-     onChange={(event) =>
+     onChange={(event) => {
+      if (event.target.value === '__create__') {
+       setOrganizationForm(emptyOrganizationForm());
+       setShowCreateOrgDialog(true);
+       return;
+      }
       setClientForm((current) => ({
        ...current,
        organizationId: event.target.value ? Number(event.target.value) : null,
-      }))
-     }
+      }));
+     }}
      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
     >
      <option value="">{t('client_organization_placeholder')}</option>
@@ -2761,6 +3734,7 @@ function AuthenticatedHome() {
        {organization.name}
       </option>
      ))}
+     <option value="__create__">{t('client_organization_create')}</option>
     </select>
 
     <label className="mt-4 block text-sm font-medium">{t('client_email')}</label>
@@ -2833,16 +3807,39 @@ function AuthenticatedHome() {
               </option>
              ))}
            </select>
-           <input
-            type="number"
-            value={draft.startingBalance}
-            onChange={(event) => {
-             const nextBalance = event.target.value;
-             setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
-            }}
-            placeholder={t('starting_balance')}
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring sm:w-40"
-           />
+          </div>
+          <div className="mt-2">
+           <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+           <div className="mt-1 flex items-center gap-2">
+            <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+             <button
+              type="button"
+              onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'debit' } : row)))}
+              className={`px-3 py-2 transition ${draft.balanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+             >
+              {t('balance_type_debit')}
+             </button>
+             <button
+              type="button"
+              onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'credit' } : row)))}
+              className={`px-3 py-2 transition ${draft.balanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+             >
+              {t('balance_type_credit')}
+             </button>
+            </div>
+            <input
+             type="text"
+             inputMode="decimal"
+             value={draft.startingBalance}
+             onChange={(event) => {
+              const nextBalance = event.target.value.replace(/,/g, '');
+              setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
+             }}
+             placeholder="0"
+             className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+           <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
           </div>
           {newClientAccountDrafts.length > 1 ? (
            <button
@@ -2967,7 +3964,11 @@ function AuthenticatedHome() {
        </h2>
        <button
         type="button"
-        onClick={() => setSelectedClientForAccounts(null)}
+        onClick={() => {
+         setSelectedClientForAccounts(null);
+         setEditingAccountId(null);
+         setShowAddAccountForm(false);
+        }}
         className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
        >
         {t('cancel')}
@@ -2977,60 +3978,225 @@ function AuthenticatedHome() {
       <div className="mt-4 space-y-2">
        {clientAccounts
         .filter((a) => a.clientId === selectedClientForAccounts.id)
-        .map((account) => (
-         <div
-          key={account.id}
-          className="flex items-center justify-between rounded border border-slate-200 px-4 py-3"
-         >
-          <span className="font-mono font-semibold text-slate-800">{account.currencySymbol || account.currencyCode}</span>
-          <button
-           type="button"
-           onClick={() => onDeleteClientAccount(account.id)}
-           className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+        .map((account) => {
+         const isEditing = editingAccountId === account.id;
+         return (
+          <div
+           key={account.id}
+           className="rounded border border-slate-200 bg-white"
           >
-           {t('delete')}
-          </button>
-         </div>
-        ))}
+           {/* Row · click to edit */}
+           <button
+            type="button"
+            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
+            onClick={() => {
+             if (isEditing) {
+              setEditingAccountId(null);
+             } else {
+              const absBalance = Math.abs(account.startingBalance ?? 0);
+              setEditingAccountId(account.id);
+              setEditingAccountCurrencyId(account.currencyId);
+              setEditingAccountBalance(String(absBalance));
+              setEditingAccountBalanceType((account.startingBalance ?? 0) >= 0 ? 'credit' : 'debit');
+              setShowAddAccountForm(false);
+             }
+            }}
+           >
+            <div className="flex items-center gap-3">
+             <span className="font-mono font-semibold text-slate-800">{account.currencyCode}</span>
+             <span className="text-sm text-slate-500">{account.currencySymbol || ''}</span>
+            </div>
+            <div className="flex items-center gap-3">
+             <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {(account.startingBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+             </span>
+             <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`text-slate-400 transition-transform ${isEditing ? 'rotate-180' : ''}`}
+             >
+              <path d="m6 9 6 6 6-6" />
+             </svg>
+            </div>
+           </button>
+
+           {/* Inline edit form */}
+           {isEditing && (
+            <div className="border-t border-slate-200 bg-slate-50 px-4 py-4">
+             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_edit')}</p>
+             <div className="flex flex-col gap-3">
+              <select
+               value={editingAccountCurrencyId ?? ''}
+               onChange={(event) => setEditingAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+               className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              >
+               <option value="">{t('client_account_currency_placeholder')}</option>
+               {enabledCurrencies.map((cur) => (
+                <option
+                 key={cur.id}
+                 value={cur.id}
+                >
+                 {cur.code} · {cur.name}
+                </option>
+               ))}
+              </select>
+              <div>
+               <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+               <div className="mt-1 flex items-center gap-2">
+                <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+                 <button
+                  type="button"
+                  onClick={() => setEditingAccountBalanceType('debit')}
+                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                 >
+                  {t('balance_type_debit')}
+                 </button>
+                 <button
+                  type="button"
+                  onClick={() => setEditingAccountBalanceType('credit')}
+                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                 >
+                  {t('balance_type_credit')}
+                 </button>
+                </div>
+                <input
+                 type="text"
+                 inputMode="decimal"
+                 value={editingAccountBalance}
+                 onChange={(event) => setEditingAccountBalance(event.target.value.replace(/,/g, ''))}
+                 placeholder="0"
+                 className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                />
+               </div>
+               <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+              </div>
+              <div className="flex gap-2">
+               <button
+                type="button"
+                onClick={() => void onSaveEditAccount()}
+                disabled={!editingAccountCurrencyId}
+                className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:opacity-40"
+               >
+                {t('client_account_save')}
+               </button>
+               <button
+                type="button"
+                onClick={() => onDeleteClientAccount(account.id)}
+                className="rounded border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 transition"
+               >
+                {t('delete')}
+               </button>
+               <button
+                type="button"
+                onClick={() => setEditingAccountId(null)}
+                className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
+               >
+                {t('cancel')}
+               </button>
+              </div>
+             </div>
+            </div>
+           )}
+          </div>
+         );
+        })}
        {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
       </div>
 
-      <div className="mt-4 flex flex-col gap-2">
-       <div className="flex gap-2">
-        <select
-         value={newAccountCurrencyId ?? ''}
-         onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-         className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-        >
-         <option value="">{t('client_account_currency_placeholder')}</option>
-         {enabledCurrencies
-          .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
-          .map((cur) => (
-           <option
-            key={cur.id}
-            value={cur.id}
-           >
-            {cur.code} â€“ {cur.name}
-           </option>
-          ))}
-        </select>
-        <input
-         type="number"
-         value={newAccountStartingBalance}
-         onChange={(event) => setNewAccountStartingBalance(event.target.value)}
-         placeholder={t('starting_balance')}
-         className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-        />
-       </div>
+      {/* Add account */}
+      {!showAddAccountForm ? (
        <button
         type="button"
-        onClick={() => onAddClientAccount(selectedClientForAccounts.id)}
-        disabled={!newAccountCurrencyId}
-        className="self-start rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+        onClick={() => {
+         setShowAddAccountForm(true);
+         setEditingAccountId(null);
+        }}
+        className="mt-4 rounded border border-dashed border-blue-400 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 transition"
        >
-        {t('client_account_open')}
+        {t('client_account_add_new')}
        </button>
-      </div>
+      ) : (
+       <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_add_new')}</p>
+        <div className="flex flex-col gap-3">
+         <select
+          value={newAccountCurrencyId ?? ''}
+          onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+          className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">{t('client_account_currency_placeholder')}</option>
+          {enabledCurrencies
+           .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
+           .map((cur) => (
+            <option
+             key={cur.id}
+             value={cur.id}
+            >
+             {cur.code} · {cur.name}
+            </option>
+           ))}
+         </select>
+         <div>
+          <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+          <div className="mt-1 flex items-center gap-2">
+           <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+            <button
+             type="button"
+             onClick={() => setNewAccountBalanceType('debit')}
+             className={`px-3 py-2 transition ${newAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+             {t('balance_type_debit')}
+            </button>
+            <button
+             type="button"
+             onClick={() => setNewAccountBalanceType('credit')}
+             className={`px-3 py-2 transition ${newAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+             {t('balance_type_credit')}
+            </button>
+           </div>
+           <input
+            type="text"
+            inputMode="decimal"
+            value={newAccountStartingBalance}
+            onChange={(event) => setNewAccountStartingBalance(event.target.value.replace(/,/g, ''))}
+            placeholder="0"
+            className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           />
+          </div>
+          <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+         </div>
+         <div className="flex gap-2">
+          <button
+           type="button"
+           onClick={() => void onAddClientAccount(selectedClientForAccounts.id)}
+           disabled={!newAccountCurrencyId}
+           className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+           {t('client_account_open')}
+          </button>
+          <button
+           type="button"
+           onClick={() => {
+            setShowAddAccountForm(false);
+            setNewAccountCurrencyId(null);
+            setNewAccountStartingBalance('0');
+            setNewAccountBalanceType('debit');
+           }}
+           className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
+          >
+           {t('cancel')}
+          </button>
+         </div>
+        </div>
+       </div>
+      )}
      </div>
     ) : null}
    </div>
@@ -3122,7 +4288,7 @@ function AuthenticatedHome() {
           {currency.isMain === 1 ? (
            <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
           ) : (
-           <span className="text-slate-400">â€”</span>
+           <span className="text-slate-400">-</span>
           )}
          </td>
          <td className="px-4 py-3">
@@ -3360,7 +4526,7 @@ function AuthenticatedHome() {
          {currency.isMain === 1 ? (
           <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
          ) : (
-          <span className="text-slate-400">â€”</span>
+          <span className="text-slate-400">-</span>
          )}
         </td>
        </tr>
@@ -3418,6 +4584,7 @@ function AuthenticatedHome() {
     {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
     {settingsTab === 'database' ? databaseSection : null}
     {settingsTab === 'language' ? languageSection : null}
+    {settingsTab === 'pdf' ? pdfSettingsSection : null}
     {settingsTab === 'danger' ? dangerSection : null}
     {settingsTab === 'clients' ? clientsSection : null}
     {settingsTab === 'organizations' ? organizationsSection : null}
@@ -3570,14 +4737,14 @@ function AuthenticatedHome() {
          className="rounded border border-white/20 bg-white/10 px-1.5 py-1 text-xs text-blue-100 outline-none"
         >
          <option value="en">EN</option>
-         <option value="ar">Ø¹Ø±</option>
+         <option value="ar">عر</option>
          <option value="fr">FR</option>
         </select>
        </div>
       </div>
      </div>
 
-     {/* Page title bar — hidden when in settings (settings has its own header) */}
+     {/* Page title bar · hidden when in settings (settings has its own header) */}
      {section !== 'client-ledger' && section !== 'settings' ? (
       <div className="border-b border-gray-200 bg-white px-5 py-3">
        <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3771,51 +4938,56 @@ function AuthenticatedHome() {
             : null}
            {selectedClientForLedger ? (
             <>
-             {isClientLedgerEditMode ? (
-              <>
-               <button
-                type="button"
-                onClick={() => void onSaveAllLedgerTransactions()}
-                className="cursor-pointer rounded border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-               >
-                {t('save_changes')}
-               </button>
-               <button
-                type="button"
-                onClick={cancelClientLedgerEditMode}
-                className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-               >
-                {t('cancel')}
-               </button>
-              </>
+             {selectedLedgerEntryKeys.size > 0 ? (
+              <button
+               type="button"
+               onClick={() => void onDeleteSelectedLedgerEntries()}
+               className="cursor-pointer rounded border border-red-500 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+              >
+               {t('delete')} ({selectedLedgerEntryKeys.size})
+              </button>
              ) : null}
              <button
               type="button"
-              onClick={() => (isClientLedgerEditMode ? cancelClientLedgerEditMode() : beginClientLedgerEditMode())}
-              className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
-               isClientLedgerEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-              }`}
+              onClick={() => {
+               const targetLedger =
+                selectedClientLedgers.length === 1
+                 ? selectedClientLedgers[0]
+                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+               if (!targetLedger) return;
+               const today = new Date().toISOString().slice(0, 10);
+               const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
+               setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, cols: getStoredPdfCols(targetLedger.accountId) });
+              }}
+              className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
              >
-              {isClientLedgerEditMode ? t('client_ledger_done_editing') : t('client_ledger_edit_mode')}
+              {t('export_pdf')}
              </button>
-             {!isClientLedgerEditMode ? (
-              <button
-               type="button"
-               onClick={() => {
-                const targetLedger =
-                 selectedClientLedgers.length === 1
-                  ? selectedClientLedgers[0]
-                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-                if (!targetLedger) return;
-                const today = new Date().toISOString().slice(0, 10);
-                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
-                setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today });
-               }}
-               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-               {t('export_pdf')}
-              </button>
-             ) : null}
+             <button
+              type="button"
+              onClick={() => {
+               const targetLedger =
+                selectedClientLedgers.length === 1
+                 ? selectedClientLedgers[0]
+                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+               if (!targetLedger) return;
+               openAdjustmentModal(targetLedger.accountId);
+              }}
+              className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
+             >
+              {t('adjustment_add')}
+             </button>
+             <button
+              type="button"
+              title={t('nav_settings')}
+              onClick={() => setShowLedgerSettingsModal(true)}
+              className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+             >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <circle cx="12" cy="12" r="3" />
+               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+             </button>
             </>
            ) : null}
           </div>
@@ -3842,25 +5014,31 @@ function AuthenticatedHome() {
               <div className="grid gap-3 sm:grid-cols-3">
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('starting_balance')}</p>
-                {isClientLedgerEditMode ? (
-                 <div className="mt-2">
-                  <input
-                   type="number"
-                   value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
-                   onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
-                   className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                  />
-                 </div>
-                ) : (
-                 <p className={`mt-2 text-xl font-bold ${ledger.startingBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {ledger.startingBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
-                 </p>
-                )}
+                <div className="mt-2">
+                 <input
+                  type="number"
+                  value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
+                  onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
+                  onBlur={async (event) => {
+                   if (!accountingApi) return;
+                   const value = parseFloat(event.target.value);
+                   if (!isNaN(value)) {
+                    try {
+                     await accountingApi.updateClientAccountStartingBalance({ accountId: ledger.accountId, startingBalance: value });
+                     await loadData();
+                    } catch (e) {
+                     setError(e instanceof Error ? e.message : t('error_failed_update'));
+                    }
+                   }
+                  }}
+                  className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                 />
+                </div>
                </div>
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
                 <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                 {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                 {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                 </p>
                </div>
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
@@ -3874,53 +5052,36 @@ function AuthenticatedHome() {
               <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
              ) : (
               <div className={tableWrapClassName}>
-               {isClientLedgerEditMode ? (
-                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</span>
-                  {orderedLedgerColumnOptions.map((column) => {
-                   const isVisible = ledgerColumnVisibility[column.key];
-
-                   return (
-                    <button
-                     key={column.key}
-                     type="button"
-                     onClick={() => toggleLedgerColumn(column.key)}
-                     aria-pressed={isVisible}
-                     className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-                      isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                     }`}
-                    >
-                     {column.label}
-                    </button>
-                   );
-                  })}
-                  <button
-                   type="button"
-                   onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
-                   aria-pressed={showLedgerCurrencySymbol}
-                   className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-                    showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                   }`}
-                  >
-                   {t('currency_symbol')}
-                  </button>
-                 </div>
-                </div>
-               ) : null}
                <table className="w-full text-sm">
                 <thead className="bg-slate-100 text-slate-700">
                  <tr>
+                  <th className="w-8 px-2 py-3">
+                   <input
+                    type="checkbox"
+                    checked={ledger.entries.length > 0 && ledger.entries.every((e) => selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)))}
+                    onChange={() => {
+                     const allKeys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+                     const allSelected = allKeys.every((k) => selectedLedgerEntryKeys.has(k));
+                     setSelectedLedgerEntryKeys(allSelected ? new Set() : new Set(allKeys));
+                    }}
+                    className="cursor-pointer"
+                   />
+                  </th>
+                  <th className="w-10 px-2 py-3"></th>
                   {orderedLedgerColumnOptions.map((column) => {
                    if (!ledgerColumnVisibility[column.key]) {
                     return null;
                    }
 
-                   const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} ${isClientLedgerEditMode ? 'cursor-move select-none' : ''}`;
+                   const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} cursor-move select-none`;
 
                    const headerContent = (
-                    <span className="inline-flex items-center gap-2">
-                     {isClientLedgerEditMode ? <span className={`text-[10px] ${draggedLedgerColumn === column.key ? 'opacity-60' : 'opacity-80'}`}>::</span> : null}
+                    <span className="inline-flex items-center gap-1.5">
+                     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden className={`shrink-0 text-slate-400 ${draggedLedgerColumn === column.key ? 'opacity-50' : 'opacity-70'}`}>
+                      <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
+                      <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                      <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
+                     </svg>
                      <span>{column.label}</span>
                     </span>
                    );
@@ -3930,11 +5091,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -3944,11 +5105,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -3958,11 +5119,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -3972,11 +5133,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -3986,11 +5147,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -4000,11 +5161,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -4014,11 +5175,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -4028,11 +5189,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -4042,11 +5203,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -4056,11 +5217,11 @@ function AuthenticatedHome() {
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -4071,25 +5232,128 @@ function AuthenticatedHome() {
                  </tr>
                 </thead>
                 <tbody>
-                 {ledger.entries.map((entry) => (
+                 {((() => {
+                   const order = manualLedgerRowOrder[ledger.accountId];
+                   if (!order) return ledger.entries;
+                   const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
+                   return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
+                  })()).map((entry) => (
                   <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
-                   <tr className="border-t border-slate-200 align-top">
+                   <tr
+                    draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                    onDragStart={(e) => {
+                     if (!dragLedgerFromHandle.current) { e.preventDefault(); return; }
+                     setDragLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                    }}
+                    onDragEnd={() => {
+                     dragLedgerFromHandle.current = false;
+                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     if (dragLedgerRowKey !== null && dragOverLedgerRowKey !== null && dragLedgerRowKey !== dragOverLedgerRowKey) {
+                      const keysToMove = selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.size > 1
+                       ? [...selectedLedgerEntryKeys].filter((k) => k.endsWith(`:${ledger.accountId}`))
+                       : [dragLedgerRowKey];
+                      void onLedgerRowDrop(keysToMove, dragOverLedgerRowKey, dragOverLedgerHalf, ledger.accountId);
+                     }
+                     setDragLedgerRowKey(null);
+                     setDragOverLedgerRowKey(null);
+                    }}
+                    onDragOver={(e) => {
+                     e.preventDefault();
+                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                     setDragOverLedgerHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
+                     setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                    }}
+                    onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
+                    className={`border-t border-slate-200 align-top transition-colors ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                   >
                     {(() => {
-                     const draft = isClientLedgerEditMode ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     const isEditingRow = editingLedgerRowKeys.has(rowKey);
+                     const draft = isEditingRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
 
-                     return orderedLedgerColumnOptions.map((column) => {
-                      if (!ledgerColumnVisibility[column.key]) {
-                       return null;
-                      }
+                     return (
+                      <>
+                       {/* checkbox */}
+                       <td className="px-2 py-3 align-middle w-8">
+                        <input
+                         type="checkbox"
+                         checked={selectedLedgerEntryKeys.has(rowKey)}
+                         onChange={() => onToggleLedgerEntrySelection(rowKey)}
+                         className="cursor-pointer"
+                        />
+                       </td>
+                       {/* actions */}
+                       <td className="px-2 py-3 align-top w-10">
+                        {isEditingRow ? (
+                         <div className="flex flex-col items-center gap-1">
+                          <button type="button" title={t('save_changes')}
+                           onClick={() => void onSaveLedgerRow(entry.transactionId, ledger.accountId)}
+                           className="rounded p-1 text-emerald-600 hover:bg-emerald-50">
+                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                          </button>
+                          <button type="button" title={t('cancel')}
+                           onClick={() => {
+                            setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(rowKey); return n; });
+                            setLedgerTransactionDrafts((prev) => { const n = { ...prev }; delete n[rowKey]; return n; });
+                           }}
+                           className="rounded p-1 text-slate-400 hover:bg-slate-100">
+                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                          </button>
+                          <button type="button" title={t('delete')}
+                           onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
+                           className="rounded p-1 text-red-500 hover:bg-red-50">
+                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
+                          </button>
+                         </div>
+                        ) : (
+                         <div className="flex items-center gap-0.5">
+                          <span
+                           className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                           title="Drag to reorder"
+                           onMouseDown={() => { dragLedgerFromHandle.current = true; }}
+                          >
+                           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                            <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
+                            <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                            <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
+                           </svg>
+                          </span>
+                          <button type="button" title={t('edit')}
+                           onClick={() => {
+                            const draftKey = rowKey;
+                            const transaction = transactions.find((tx) => tx.id === entry.transactionId);
+                           if (transaction && !ledgerTransactionDrafts[draftKey]) {
+                            const isOutgoing = transaction.accountFromId === ledger.accountId;
+                            setLedgerRateReversed((prev) => ({
+                             ...prev,
+                             ...(isOutgoing ? (transaction.exchangeRateFromReversed ? { [draftKey]: true } : {}) : (transaction.exchangeRateToReversed ? { [draftKey]: true } : {})),
+                            }));
+                            setLedgerTransactionDrafts((prev) => ({
+                             ...prev,
+                             [draftKey]: buildLedgerTransactionDraft(transaction, ledger.accountId),
+                            }));
+                           }
+                           setEditingLedgerRowKeys((prev) => new Set([...prev, draftKey]));
+                          }}
+                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                          </button>
+                         </div>
+                        )}
+                       </td>
+                       {orderedLedgerColumnOptions.map((column) => {
+                        if (!ledgerColumnVisibility[column.key]) {
+                         return null;
+                        }
 
-                      switch (column.key) {
+                        switch (column.key) {
                        case 'created':
                         return (
                          <td
                           key={column.key}
                           className="px-4 py-3 text-slate-500"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {draft ? (
                            <input
                             type="date"
                             value={draft.createdDate}
@@ -4107,7 +5371,9 @@ function AuthenticatedHome() {
                           key={column.key}
                           className="px-4 py-3 font-medium text-slate-900"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {entry.isAdjustment ? (
+                           <span className="text-slate-400">-</span>
+                          ) : draft ? (
                            <select
                             value={draft.counterpartyAccountId ?? ''}
                             onChange={(event) =>
@@ -4149,7 +5415,13 @@ function AuthenticatedHome() {
                           key={column.key}
                           className="px-4 py-3"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {entry.isAdjustment ? (
+                           <span
+                            className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                           >
+                            {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
+                           </span>
+                          ) : draft ? (
                            <select
                             value={draft.direction}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
@@ -4173,7 +5445,9 @@ function AuthenticatedHome() {
                           key={column.key}
                           className="px-4 py-3 text-slate-600"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {entry.isAdjustment ? (
+                           <span className="inline-flex rounded bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">{t('adjustment_label')}</span>
+                          ) : draft ? (
                            <select
                             value={draft.type}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
@@ -4191,9 +5465,9 @@ function AuthenticatedHome() {
                         return (
                          <td
                           key={column.key}
-                          className="px-4 py-3 text-slate-700"
+                          className={`px-4 py-3 font-semibold ${entry.direction === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {draft ? (
                            <input
                             type="text"
                             inputMode="decimal"
@@ -4204,7 +5478,7 @@ function AuthenticatedHome() {
                            />
                           ) : (
                            <>
-                            {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })}
+                            {entry.amount.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                             {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                            </>
                           )}
@@ -4216,76 +5490,38 @@ function AuthenticatedHome() {
                           key={column.key}
                           className="px-4 py-3 text-slate-600"
                          >
-                          {isClientLedgerEditMode && draft
-                           ? (() => {
-                              const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                              const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
-                              const txCurr = entry.currencyCode;
-                              const accCurr = ledger.currencyCode;
-                              return (
-                               <div>
-                                {txCurr && accCurr && txCurr !== accCurr && (
-                                 <div className="mb-1 flex items-center justify-between">
-                                  <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
-                                  <button
-                                   type="button"
-                                   title="Reverse rate direction"
-                                   onClick={() => {
-                                    const val = parseFloat(draft.exchangeRate) || 1;
-                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                                    setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
-                                   }}
-                                   className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                                  >
-                                   <svg
-                                    width="14"
-                                    height="14"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    aria-hidden
-                                   >
-                                    <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                    <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                   </svg>
-                                  </button>
-                                 </div>
-                                )}
-                                <input
-                                 type="text"
-                                 inputMode="decimal"
-                                 dir="ltr"
-                                 value={draft.exchangeRate}
-                                 onChange={(event) =>
-                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
-                                 }
-                                 className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                                />
-                               </div>
-                              );
-                             })()
-                           : (() => {
-                              const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                              const txCurr = entry.currencyCode;
-                              const accCurr = ledger.currencyCode;
-                              const defaultReversed = entry.exchangeRateReversed;
-                              const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
-                              if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
-                               return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-                              }
-                              const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
-                              const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
-                              return (
-                               <div className="flex items-center gap-1">
-                                <span title={rateLabel}>{rateNumber}</span>
+                          {entry.isAdjustment ? (
+                           entry.exchangeRate && entry.exchangeRate !== 1 && entry.currencyCode !== ledger.currencyCode ? (
+                            (() => {
+                             const txCurr = entry.currencyCode;
+                             const accCurr = ledger.currencyCode;
+                             const rateNumber = entry.exchangeRateReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                             const rateLabel = `\u202A${entry.exchangeRateReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                             return <span title={rateLabel}>{rateNumber}</span>;
+                            })()
+                           ) : (
+                            <span className="text-slate-400">-</span>
+                           )
+                          ) : draft ? (
+                           (() => {
+                            const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                            const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
+                            const txCurr = entry.currencyCode;
+                            const accCurr = ledger.currencyCode;
+                            return (
+                             <div>
+                              {txCurr && accCurr && txCurr !== accCurr && (
+                               <div className="mb-1 flex items-center justify-between">
+                                <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
                                 <button
                                  type="button"
                                  title="Reverse rate direction"
-                                 onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
-                                 className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                 onClick={() => {
+                                  const val = parseFloat(draft.exchangeRate) || 1;
+                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                                  setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
+                                 }}
+                                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
                                 >
                                  <svg
                                   width="14"
@@ -4303,8 +5539,60 @@ function AuthenticatedHome() {
                                  </svg>
                                 </button>
                                </div>
-                              );
-                             })()}
+                              )}
+                              <input
+                               type="text"
+                               inputMode="decimal"
+                               dir="ltr"
+                               value={draft.exchangeRate}
+                               onChange={(event) =>
+                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
+                               }
+                               className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                              />
+                             </div>
+                            );
+                           })()
+                          ) : (
+                           (() => {
+                            const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                            const txCurr = entry.currencyCode;
+                            const accCurr = ledger.currencyCode;
+                            const defaultReversed = entry.exchangeRateReversed;
+                            const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
+                            if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
+                             return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                            }
+                            const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                            const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                            return (
+                             <div className="flex items-center gap-1">
+                              <span title={rateLabel}>{rateNumber}</span>
+                              <button
+                               type="button"
+                               title="Reverse rate direction"
+                               onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
+                               className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                              >
+                               <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden
+                               >
+                                <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                <path d="M17 20l4-4-4-4m4 4H7.5" />
+                               </svg>
+                              </button>
+                             </div>
+                            );
+                           })()
+                          )}
                          </td>
                         );
                        case 'commission':
@@ -4313,7 +5601,7 @@ function AuthenticatedHome() {
                           key={column.key}
                           className="px-4 py-3 text-slate-600"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {draft ? (
                            (() => {
                             const entryKey = `${entry.transactionId}:${ledger.accountId}`;
                             const isZero = parseFloat(draft.commission) === 0;
@@ -4342,9 +5630,9 @@ function AuthenticatedHome() {
                             );
                            })()
                           ) : entry.commission ? (
-                           <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</>
+                           <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%</>
                           ) : (
-                           <span className="text-slate-400">â€”</span>
+                           <span className="text-slate-400">-</span>
                           )}
                          </td>
                         );
@@ -4354,7 +5642,7 @@ function AuthenticatedHome() {
                           key={column.key}
                           className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
-                          {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}
+                          {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                          </td>
                         );
@@ -4364,7 +5652,7 @@ function AuthenticatedHome() {
                           key={column.key}
                           className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
-                          {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                          {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                          </td>
                         );
@@ -4374,7 +5662,9 @@ function AuthenticatedHome() {
                           key={column.key}
                           className="px-4 py-3 text-slate-500"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {entry.isAdjustment ? (
+                           entry.description || '-'
+                          ) : draft ? (
                            <input
                             type="text"
                             value={draft.description}
@@ -4387,7 +5677,9 @@ function AuthenticatedHome() {
                          </td>
                         );
                       }
-                     });
+                     })}
+                      </>
+                     );
                     })()}
                    </tr>
                    {entry.charges > 0 && (
@@ -4396,13 +5688,13 @@ function AuthenticatedHome() {
                      className="border-t border-dashed border-slate-200 bg-amber-50/60"
                     >
                      <td
-                      colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 1}
+                      colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3}
                       className="px-4 py-2"
                      >
                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
                        <span className="font-medium text-amber-700">{t('charges')}</span>
                        <span className="font-semibold">
-                        {entry.charges.toLocaleString(language, { maximumFractionDigits: 2 })}
+                        {entry.charges.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                         {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
                        </span>
                        {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
@@ -4410,7 +5702,7 @@ function AuthenticatedHome() {
                        )}
                        {entry.chargesPayer && (
                         <span className="text-slate-500">
-                         â€” {t('charges_payer_placeholder')}:{' '}
+                         {t('charges_payer_placeholder')}:{' '}
                          {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
                         </span>
                        )}
@@ -4616,8 +5908,53 @@ function AuthenticatedHome() {
             onSubmit={onTransactionSubmit}
             className="mt-5 max-w-md"
            >
+            <label className="block text-sm font-medium">{t('transaction_type')}</label>
+            <select
+             value={transactionForm.type}
+             onChange={(event) =>
+              setTransactionForm((current) => ({
+               ...current,
+               type: event.target.value,
+               chargesPayer: event.target.value === 'adjustment' ? '' : current.chargesPayer,
+              }))
+             }
+             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+            >
+             <option value="exchange">{t('transaction_type_exchange')}</option>
+             <option value="transfer">{t('transaction_type_transfer')}</option>
+             <option value="adjustment">{t('transaction_type_adjustment')}</option>
+            </select>
+
+            {isAdjustmentTransaction ? (
+             <div className="mt-4">
+              <label className="block text-sm font-medium">{t('adjustment_direction')}</label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+               <button
+                type="button"
+                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'debit' }))}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                 transactionForm.adjustmentDirection === 'debit'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+               >
+                {t('adjustment_direction_debit')}
+               </button>
+               <button
+                type="button"
+                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'credit' }))}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                 transactionForm.adjustmentDirection === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+               >
+                {t('adjustment_direction_credit')}
+               </button>
+              </div>
+             </div>
+            ) : null}
+
             <label className="block text-sm font-medium">
-             {t('transaction_account_from')} <span className="text-red-500">*</span>
+             {isAdjustmentTransaction ? t('client') : t('transaction_account_from')} <span className="text-red-500">*</span>
             </label>
             <div className="relative mt-2">
              <input
@@ -4627,7 +5964,7 @@ function AuthenticatedHome() {
                 ? txFromQuery
                 : transactionForm.accountFromId
                   ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
-                    ' â€” ' +
+                    ' · ' +
                     (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
                   : ''
               }
@@ -4658,7 +5995,7 @@ function AuthenticatedHome() {
                   }}
                   className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
                  >
-                  {account.clientName} â€” {account.currencyCode}
+                  {account.clientName} · {account.currencyCode}
                  </li>
                 ))}
                {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
@@ -4668,67 +6005,61 @@ function AuthenticatedHome() {
              )}
             </div>
 
-            <label className="mt-4 block text-sm font-medium">
-             {t('transaction_account_to')} <span className="text-red-500">*</span>
-            </label>
-            <div className="relative mt-2">
-             <input
-              type="text"
-              value={
-               txToOpen
-                ? txToQuery
-                : transactionForm.accountToId
-                  ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
-                    ' â€” ' +
-                    (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
-                  : ''
-              }
-              onChange={(event) => {
-               setTxToQuery(event.target.value);
-               setTxToOpen(true);
-              }}
-              onFocus={() => {
-               setTxToQuery('');
-               setTxToOpen(true);
-              }}
-              onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
-              placeholder={t('transaction_account_placeholder')}
-              className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-              autoComplete="off"
-             />
-             {txToOpen && (
-              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-               {clientAccounts
-                .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
-                .map((account) => (
-                 <li
-                  key={account.id}
-                  onMouseDown={() => {
-                   setTransactionForm((current) => ({ ...current, accountToId: account.id }));
-                   setTxToQuery('');
-                   setTxToOpen(false);
-                  }}
-                  className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-                 >
-                  {account.clientName} â€” {account.currencyCode}
-                 </li>
-                ))}
-               {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
-                <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+            {!isAdjustmentTransaction ? (
+             <>
+              <label className="mt-4 block text-sm font-medium">
+               {t('transaction_account_to')} <span className="text-red-500">*</span>
+              </label>
+              <div className="relative mt-2">
+               <input
+                type="text"
+                value={
+                 txToOpen
+                  ? txToQuery
+                  : transactionForm.accountToId
+                    ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
+                      ' · ' +
+                      (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
+                    : ''
+                }
+                onChange={(event) => {
+                 setTxToQuery(event.target.value);
+                 setTxToOpen(true);
+                }}
+                onFocus={() => {
+                 setTxToQuery('');
+                 setTxToOpen(true);
+                }}
+                onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
+                placeholder={t('transaction_account_placeholder')}
+                className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+                autoComplete="off"
+               />
+               {txToOpen && (
+                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+                 {clientAccounts
+                  .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
+                  .map((account) => (
+                   <li
+                    key={account.id}
+                    onMouseDown={() => {
+                     setTransactionForm((current) => ({ ...current, accountToId: account.id }));
+                     setTxToQuery('');
+                     setTxToOpen(false);
+                    }}
+                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                   >
+                    {account.clientName} · {account.currencyCode}
+                   </li>
+                  ))}
+                 {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
+                  <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+                 )}
+                </ul>
                )}
-              </ul>
-             )}
-            </div>
-
-            <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
-            <select
-             value={transactionForm.type}
-             onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
-             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-            >
-             <option value="exchange">{t('transaction_type_exchange')}</option>
-             <option value="transfer">{t('transaction_type_transfer')}</option>
-            </select>
+              </div>
+             </>
+            ) : null}
 
             <label className="mt-4 block text-sm font-medium">
              {t('transaction_amount')} <span className="text-red-500">*</span>
@@ -4769,7 +6100,7 @@ function AuthenticatedHome() {
 
             <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
              <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
-             <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
+             <div className={`mt-2 grid gap-2 ${showExchangeRateFrom && !isAdjustmentTransaction ? 'sm:grid-cols-2' : ''}`}>
               {showExchangeRateFrom && (
                <div>
                 <div className="flex items-center justify-between">
@@ -4819,169 +6150,175 @@ function AuthenticatedHome() {
                 />
                </div>
               )}
-              <div>
-               <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
-               <input
-                type="text"
-                inputMode="decimal"
-                dir="ltr"
-                value={transactionForm.commissionFrom}
-                onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                placeholder="0"
-               />
-              </div>
-             </div>
-            </div>
-
-            <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
-             <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
-             <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
-              {showExchangeRateTo && (
+              {!isAdjustmentTransaction ? (
                <div>
-                <div className="flex items-center justify-between">
-                 <label className="block text-xs font-medium text-slate-500">
-                  {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
-                   ? txToRateReversed
-                     ? `1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
-                     : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`
-                   : t('transaction_exchange_rate_to')}
-                 </label>
-                 {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
-                  <button
-                   type="button"
-                   title="Reverse rate direction"
-                   onClick={() => {
-                    const val = parseFloat(transactionForm.exchangeRateTo) || 1;
-                    setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
-                    setTxToRateReversed((r) => !r);
-                   }}
-                   className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                  >
-                   <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                   >
-                    <path d="M7 4 3 8l4 4M3 8h13.5" />
-                    <path d="M17 20l4-4-4-4m4 4H7.5" />
-                   </svg>
-                  </button>
-                 )}
-                </div>
+                <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
                 <input
                  type="text"
                  inputMode="decimal"
                  dir="ltr"
-                 value={transactionForm.exchangeRateTo}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+                 value={transactionForm.commissionFrom}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder="1"
-                />
-               </div>
-              )}
-              <div>
-               <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
-               <input
-                type="text"
-                inputMode="decimal"
-                dir="ltr"
-                value={transactionForm.commissionTo}
-                onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
-                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                placeholder="0"
-               />
-              </div>
-             </div>
-            </div>
-
-            <div className="mt-4">
-             <button
-              type="button"
-              onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
-              className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
-             >
-              <span>{isNewTransactionExpensesOpen ? 'â–¾' : 'â–¸'}</span>
-              {t('extra_expenses')}
-             </button>
-             {isNewTransactionExpensesOpen && (
-              <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
-               <div className="grid gap-2 sm:grid-cols-3">
-                <input
-                 type="text"
-                 inputMode="decimal"
-                 dir="ltr"
-                 value={transactionForm.charges}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
-                 className="rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
                  placeholder="0"
                 />
-                <select
-                 value={transactionForm.chargesCurrencyId ?? ''}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesCurrencyId: event.target.value ? Number(event.target.value) : null }))}
-                 className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                >
-                 <option value="">{t('currency')}</option>
-                 {enabledCurrencies.map((cur) => (
-                  <option
-                   key={cur.id}
-                   value={cur.id}
-                  >
-                   {cur.code}
-                  </option>
-                 ))}
-                </select>
-                <select
-                 value={transactionForm.chargesPayer}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesPayer: event.target.value }))}
-                 className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                >
-                 <option value="">{t('charges_payer_placeholder')}</option>
-                 <option value="from">
-                  {transactionForm.accountFromId
-                   ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
-                   : t('transaction_account_from')}
-                 </option>
-                 <option value="to">
-                  {transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
-                 </option>
-                </select>
                </div>
-               {showChargesExchangeRate && (
-                <div className="mt-2">
-                 <label className="block text-xs font-medium text-slate-500">
-                  {t('charges_exchange_rate')} ({chargesCurrencyCode} â†’ {chargesPayerAccountCurrencyCode})
-                 </label>
+              ) : null}
+             </div>
+            </div>
+
+            {!isAdjustmentTransaction ? (
+             <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
+              <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
+               {showExchangeRateTo && (
+                <div>
+                 <div className="flex items-center justify-between">
+                  <label className="block text-xs font-medium text-slate-500">
+                   {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
+                    ? txToRateReversed
+                      ? `1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
+                      : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`
+                    : t('transaction_exchange_rate_to')}
+                  </label>
+                  {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
+                   <button
+                    type="button"
+                    title="Reverse rate direction"
+                    onClick={() => {
+                     const val = parseFloat(transactionForm.exchangeRateTo) || 1;
+                     setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
+                     setTxToRateReversed((r) => !r);
+                    }}
+                    className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                   >
+                    <svg
+                     width="14"
+                     height="14"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="1.8"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="M7 4 3 8l4 4M3 8h13.5" />
+                     <path d="M17 20l4-4-4-4m4 4H7.5" />
+                    </svg>
+                   </button>
+                  )}
+                 </div>
                  <input
                   type="text"
                   inputMode="decimal"
                   dir="ltr"
-                  value={transactionForm.chargesExchangeRate}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizeDecimalInput(event.target.value) }))}
-                  className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                  value={transactionForm.exchangeRateTo}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder="1"
                  />
                 </div>
                )}
-               <div className="mt-2">
-                <label className="block text-xs font-medium text-slate-500">{t('charges_description')}</label>
+               <div>
+                <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
                 <input
                  type="text"
-                 value={transactionForm.chargesDescription}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
-                 className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder={t('charges_description_placeholder')}
+                 inputMode="decimal"
+                 dir="ltr"
+                 value={transactionForm.commissionTo}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
+                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 placeholder="0"
                 />
                </div>
               </div>
-             )}
-            </div>
+             </div>
+            ) : null}
+
+            {!isAdjustmentTransaction ? (
+             <div className="mt-4">
+              <button
+               type="button"
+               onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
+               className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+              >
+               <span>{isNewTransactionExpensesOpen ? '?' : '?'}</span>
+               {t('extra_expenses')}
+              </button>
+              {isNewTransactionExpensesOpen && (
+               <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
+                <div className="grid gap-2 sm:grid-cols-3">
+                 <input
+                  type="text"
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={transactionForm.charges}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
+                  className="rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                  placeholder="0"
+                 />
+                 <select
+                  value={transactionForm.chargesCurrencyId ?? ''}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesCurrencyId: event.target.value ? Number(event.target.value) : null }))}
+                  className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 >
+                  <option value="">{t('currency')}</option>
+                  {enabledCurrencies.map((cur) => (
+                   <option
+                    key={cur.id}
+                    value={cur.id}
+                   >
+                    {cur.code}
+                   </option>
+                  ))}
+                 </select>
+                 <select
+                  value={transactionForm.chargesPayer}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesPayer: event.target.value }))}
+                  className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 >
+                  <option value="">{t('charges_payer_placeholder')}</option>
+                  <option value="from">
+                   {transactionForm.accountFromId
+                    ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
+                    : t('transaction_account_from')}
+                  </option>
+                  <option value="to">
+                   {transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
+                  </option>
+                 </select>
+                </div>
+                {showChargesExchangeRate && (
+                 <div className="mt-2">
+                  <label className="block text-xs font-medium text-slate-500">
+                   {t('charges_exchange_rate')} ({chargesCurrencyCode} → {chargesPayerAccountCurrencyCode})
+                  </label>
+                  <input
+                   type="text"
+                   inputMode="decimal"
+                   dir="ltr"
+                   value={transactionForm.chargesExchangeRate}
+                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizeDecimalInput(event.target.value) }))}
+                   className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                   placeholder="1"
+                  />
+                 </div>
+                )}
+                <div className="mt-2">
+                 <label className="block text-xs font-medium text-slate-500">{t('charges_description')}</label>
+                 <input
+                  type="text"
+                  value={transactionForm.chargesDescription}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
+                  className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  placeholder={t('charges_description_placeholder')}
+                 />
+                </div>
+               </div>
+              )}
+             </div>
+            ) : null}
 
             <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
             <textarea
@@ -4995,7 +6332,7 @@ function AuthenticatedHome() {
              type="submit"
              className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
             >
-             {t('save_transaction')}
+             {isAdjustmentTransaction ? t('adjustment_add') : t('save_transaction')}
             </button>
            </form>
           </div>
@@ -5020,40 +6357,38 @@ function AuthenticatedHome() {
             >
              {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
             </button>
-            {isTransactionsEditMode ? (
-             <>
-              <button
-               type="button"
-               onClick={() => void onSaveAllTransactionDrafts()}
-               className="cursor-pointer rounded border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-              >
-               {t('save_changes')}
-              </button>
-              <button
-               type="button"
-               onClick={cancelTransactionsEditMode}
-               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-               {t('cancel')}
-              </button>
-             </>
-            ) : null}
             <button
              type="button"
-             onClick={() => (isTransactionsEditMode ? cancelTransactionsEditMode() : beginTransactionsEditMode())}
-             className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
-              isTransactionsEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-             }`}
+             onClick={openTransactionTableSettingsModal}
+             title={t('transactions_more_settings')}
+             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
             >
-             {isTransactionsEditMode ? t('transactions_done_editing') : t('transactions_edit_mode')}
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle
+               cx="12"
+               cy="12"
+               r="3"
+              />
+             </svg>
             </button>
-            {isTransactionsEditMode ? (
+            {selectedTransactionIds.size > 0 ? (
              <button
               type="button"
               onClick={() => void onDeleteSelectedTransactions()}
-              className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="cursor-pointer rounded border border-red-600 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
              >
-              Delete Selected
+              {t('delete')} ({selectedTransactionIds.size})
              </button>
             ) : null}
             <button
@@ -5095,520 +6430,782 @@ function AuthenticatedHome() {
           <div className={tableWrapClassName}>
            <table className="w-full text-sm">
             <colgroup>
-             {isTransactionsEditMode ? <col className="w-[5%]" /> : null}
-             <col className="w-[10%]" />
-             <col className="w-[15%]" />
-             <col className="w-[17%]" />
-             <col className="w-[17%]" />
-             <col className="w-[13%]" />
-             <col className="w-[13%]" />
-             <col className="w-[15%]" />
+             <col className="w-8" />
+             <col className="w-10" />
+             {transactionTableSettings.columns.created ? <col className="w-[10%]" /> : null}
+             {transactionTableSettings.columns.description ? <col className="w-[15%]" /> : null}
+             {transactionTableSettings.columns.accountFrom ? <col className="w-[17%]" /> : null}
+             {transactionTableSettings.columns.accountTo ? <col className="w-[17%]" /> : null}
+             {transactionTableSettings.columns.amount ? <col className="w-[13%]" /> : null}
+             {transactionTableSettings.columns.charges ? <col className="w-[13%]" /> : null}
+             {transactionTableSettings.columns.commission ? <col className="w-[15%]" /> : null}
             </colgroup>
             <thead className="bg-slate-100 text-slate-700">
              <tr>
-              {isTransactionsEditMode ? (
-               <th className="px-4 py-3">
-                <input
-                 type="checkbox"
-                 checked={paginatedTransactions.length > 0 && paginatedTransactions.every((transaction) => selectedTransactionIds.has(transaction.id))}
-                 onChange={onToggleSelectAllTransactions}
-                 aria-label="Select all transactions"
-                 className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
-                />
-               </th>
+              <th className="px-2 py-3 w-8">
+               <input
+                type="checkbox"
+                checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
+                onChange={onToggleSelectAllTransactions}
+                aria-label="Select all"
+                className="h-4 w-4 cursor-pointer rounded border-slate-300"
+               />
+              </th>
+              <th className="px-2 py-3 w-10" />
+              {transactionTableSettings.columns.created ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th> : null}
+              {transactionTableSettings.columns.description ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
               ) : null}
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th>
-              <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
+              {transactionTableSettings.columns.accountFrom ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
+              ) : null}
+              {transactionTableSettings.columns.accountTo ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
+              ) : null}
+              {transactionTableSettings.columns.amount ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th> : null}
+              {transactionTableSettings.columns.charges ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th> : null}
+              {transactionTableSettings.columns.commission ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th> : null}
              </tr>
             </thead>
             <tbody>
              {paginatedTransactions.map((txn) => (
               <tr
                key={txn.id}
-               className="border-t border-slate-200 align-top"
+               draggable={!editingRowIds.has(txn.id)}
+               onDragStart={(e) => {
+                if (!dragFromHandle.current) {
+                 e.preventDefault();
+                 return;
+                }
+                setDragRowId(txn.id);
+               }}
+               onDragEnd={() => {
+                dragFromHandle.current = false;
+                if (dragRowId !== null && dragOverRowId !== null && dragRowId !== dragOverRowId) {
+                 // If the dragged row is part of the selection, drag the whole selection; otherwise just this row
+                 const idsToMove = selectedTransactionIds.has(dragRowId) && selectedTransactionIds.size > 1 ? [...selectedTransactionIds] : [dragRowId];
+                 void onTransactionRowDrop(idsToMove, dragOverRowId, dragOverHalf);
+                }
+                setDragRowId(null);
+                setDragOverRowId(null);
+               }}
+               onDragOver={(e) => {
+                e.preventDefault();
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setDragOverHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
+                setDragOverRowId(txn.id);
+               }}
+               onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
+               className={`border-t border-slate-200 align-top transition-colors ${
+                dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
+               } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
+                dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
+               }`}
               >
                {(() => {
-                const draft = isTransactionsEditMode ? getTransactionTableDraft(txn.id) : null;
+                const isEditingRow = editingRowIds.has(txn.id);
+                const draft = isEditingRow ? getTransactionTableDraft(txn.id) : null;
 
                 return (
                  <>
-                  {isTransactionsEditMode ? (
-                   <td className="px-4 py-3 align-top">
-                    <input
-                     type="checkbox"
-                     checked={selectedTransactionIds.has(txn.id)}
-                     onChange={() => onToggleTransactionSelection(txn.id)}
-                     aria-label={`Select transaction ${txn.id}`}
-                     className="mt-1 h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
-                    />
+                  <td className="px-2 py-3 align-middle w-8">
+                   <input
+                    type="checkbox"
+                    checked={selectedTransactionIds.has(txn.id)}
+                    onChange={() => onToggleTransactionSelection(txn.id)}
+                    aria-label={`Select transaction ${txn.id}`}
+                    className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                   />
+                  </td>
+                  <td className="px-2 py-3 align-top">
+                   {isEditingRow ? (
+                    <div className="flex flex-col items-center gap-1">
+                     <span
+                      className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                      title="Drag to reorder"
+                      onMouseDown={() => {
+                       dragFromHandle.current = true;
+                      }}
+                     >
+                      <svg
+                       width="12"
+                       height="12"
+                       viewBox="0 0 24 24"
+                       fill="currentColor"
+                       aria-hidden
+                      >
+                       <circle
+                        cx="9"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="19"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="19"
+                        r="1.5"
+                       />
+                      </svg>
+                     </span>
+                     <button
+                      type="button"
+                      title={t('save_changes')}
+                      onClick={() => void onSaveTransactionTableRow(txn.id)}
+                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="2"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                     </button>
+                     <button
+                      type="button"
+                      title={t('cancel')}
+                      onClick={() =>
+                       setEditingRowIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(txn.id);
+                        return next;
+                       })
+                      }
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="2"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <line
+                        x1="18"
+                        y1="6"
+                        x2="6"
+                        y2="18"
+                       />
+                       <line
+                        x1="6"
+                        y1="6"
+                        x2="18"
+                        y2="18"
+                       />
+                      </svg>
+                     </button>
+                     <button
+                      type="button"
+                      title={t('delete')}
+                      onClick={() => void onDeleteTransactionTableRow(txn)}
+                      className="rounded p-1 text-red-500 hover:bg-red-50"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="1.8"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <polyline points="3 6 5 6 21 6" />
+                       <path d="M19 6l-1 14H6L5 6" />
+                       <path d="M10 11v6M14 11v6" />
+                       <path d="M9 6V4h6v2" />
+                      </svg>
+                     </button>
+                    </div>
+                   ) : (
+                    <div className="flex items-center gap-0.5">
+                     <span
+                      className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                      title="Drag to reorder"
+                      onMouseDown={() => {
+                       dragFromHandle.current = true;
+                      }}
+                     >
+                      <svg
+                       width="12"
+                       height="12"
+                       viewBox="0 0 24 24"
+                       fill="currentColor"
+                       aria-hidden
+                      >
+                       <circle
+                        cx="9"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="19"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="19"
+                        r="1.5"
+                       />
+                      </svg>
+                     </span>
+                     <button
+                      type="button"
+                      title={t('edit')}
+                      onClick={() => setEditingRowIds((prev) => new Set([...prev, txn.id]))}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="1.8"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <path d="M12 20h9" />
+                       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                     </button>
+                    </div>
+                   )}
+                  </td>
+                  {transactionTableSettings.columns.created ? (
+                   <td className="px-4 py-3 text-slate-500">
+                    {isEditingRow && draft ? (
+                     <input
+                      type="date"
+                      value={draft.createdDate}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    ) : (
+                     formatDateValue(txn.createdAt, transactionTableSettings.dateFormat)
+                    )}
                    </td>
                   ) : null}
-                  <td className="px-4 py-3 text-slate-500">
-                   {isTransactionsEditMode && draft ? (
-                    <input
-                     type="date"
-                     value={draft.createdDate}
-                     onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
-                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                    />
-                   ) : (
-                    new Date(txn.createdAt).toLocaleDateString(language)
-                   )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                   {isTransactionsEditMode && draft ? (
-                    <input
-                     type="text"
-                     value={draft.description}
-                     onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
-                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     placeholder={t('transaction_description_placeholder')}
-                    />
-                   ) : (
-                    txn.description || <span className="text-slate-400">â€”</span>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-900">
-                   {isTransactionsEditMode && draft ? (
-                    <div className="space-y-2">
-                     <select
-                      value={draft.accountFromId ?? ''}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { accountFromId: event.target.value ? Number(event.target.value) : null })}
-                      className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     >
-                      <option value="">{t('transaction_account_placeholder')}</option>
-                      {clientAccounts.map((account) => (
-                       <option
-                        key={account.id}
-                        value={account.id}
-                       >
-                        {account.clientName} - {account.currencySymbol || account.currencyCode}
-                       </option>
-                      ))}
-                     </select>
-                     {txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
-                      <div className="flex items-center justify-between">
-                       <span className="text-xs text-slate-400">
-                        {tableRateFromReversed[txn.id] ? `1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`}
-                       </span>
-                       <button
-                        type="button"
-                        title="Reverse rate direction"
-                        onClick={() => {
-                         const val = parseFloat(draft.exchangeRateFrom) || 1;
-                         updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                         setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
-                        }}
-                        className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                       >
-                        <svg
-                         width="14"
-                         height="14"
-                         viewBox="0 0 24 24"
-                         fill="none"
-                         stroke="currentColor"
-                         strokeWidth="1.8"
-                         strokeLinecap="round"
-                         strokeLinejoin="round"
-                         aria-hidden
-                        >
-                         <path d="M7 4 3 8l4 4M3 8h13.5" />
-                         <path d="M17 20l4-4-4-4m4 4H7.5" />
-                        </svg>
-                       </button>
-                      </div>
-                     )}
+                  {transactionTableSettings.columns.description ? (
+                   <td className="px-4 py-3 text-slate-600">
+                    {isEditingRow && draft ? (
                      <input
                       type="text"
-                      inputMode="decimal"
-                      dir="ltr"
-                      value={draft.exchangeRateFrom}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
+                      value={draft.description}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
                       className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                      placeholder={t('transaction_exchange_rate')}
+                      placeholder={t('transaction_description_placeholder')}
                      />
-                    </div>
-                   ) : (
-                    <>
-                     {(() => {
-                      const fromAccount = clientAccountMap.get(txn.accountFromId);
-                      const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
-
-                      return fromClient ? (
-                       <button
-                        type="button"
-                        onClick={() => openClientLedger(fromClient, 'clients')}
-                        className="cursor-pointer text-left hover:text-blue-700 hover:underline"
-                       >
-                        {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                       </button>
-                      ) : (
-                       <div>
-                        {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                       </div>
-                      );
-                     })()}
-                     {txn.exchangeRateFrom !== 1 ? (
-                      <div className="text-xs text-slate-500">
-                       {t('transaction_exchange_rate')}:{' '}
-                       {txn.exchangeRateFromReversed
-                        ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
-                        : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
-                      </div>
-                     ) : null}
-                    </>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-900">
-                   {isTransactionsEditMode && draft ? (
-                    <div className="space-y-2">
-                     <select
-                      value={draft.accountToId ?? ''}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { accountToId: event.target.value ? Number(event.target.value) : null })}
-                      className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     >
-                      <option value="">{t('transaction_account_placeholder')}</option>
-                      {clientAccounts.map((account) => (
-                       <option
-                        key={account.id}
-                        value={account.id}
-                       >
-                        {account.clientName} - {account.currencySymbol || account.currencyCode}
-                       </option>
-                      ))}
-                     </select>
-                     {txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
-                      <div className="flex items-center justify-between">
-                       <span className="text-xs text-slate-400">
-                        {tableRateToReversed[txn.id] ? `1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`}
-                       </span>
-                       <button
-                        type="button"
-                        title="Reverse rate direction"
-                        onClick={() => {
-                         const val = parseFloat(draft.exchangeRateTo) || 1;
-                         updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                         setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
-                        }}
-                        className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                       >
-                        <svg
-                         width="14"
-                         height="14"
-                         viewBox="0 0 24 24"
-                         fill="none"
-                         stroke="currentColor"
-                         strokeWidth="1.8"
-                         strokeLinecap="round"
-                         strokeLinejoin="round"
-                         aria-hidden
+                    ) : (
+                     txn.description || <span className="text-slate-400">-</span>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.accountFrom ? (
+                   <td className="px-4 py-3 font-medium text-slate-900">
+                    {isEditingRow && draft ? (
+                     <div className="space-y-2">
+                      <select
+                       value={draft.accountFromId ?? ''}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { accountFromId: event.target.value ? Number(event.target.value) : null })}
+                       className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      >
+                       <option value="">{t('transaction_account_placeholder')}</option>
+                       {clientAccounts.map((account) => (
+                        <option
+                         key={account.id}
+                         value={account.id}
                         >
-                         <path d="M7 4 3 8l4 4M3 8h13.5" />
-                         <path d="M17 20l4-4-4-4m4 4H7.5" />
-                        </svg>
-                       </button>
-                      </div>
-                     )}
-                     <input
-                      type="text"
-                      inputMode="decimal"
-                      dir="ltr"
-                      value={draft.exchangeRateTo}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                      placeholder={t('transaction_exchange_rate')}
-                     />
-                    </div>
-                   ) : (
-                    <>
-                     {(() => {
-                      const toAccount = clientAccountMap.get(txn.accountToId);
-                      const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
-
-                      return toClient ? (
-                       <button
-                        type="button"
-                        onClick={() => openClientLedger(toClient, 'clients')}
-                        className="cursor-pointer text-left hover:text-blue-700 hover:underline"
-                       >
-                        {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
-                       </button>
-                      ) : (
-                       <div>
-                        {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                         {account.clientName} - {account.currencySymbol || account.currencyCode}
+                        </option>
+                       ))}
+                      </select>
+                      {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
+                       <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-400">
+                         {tableRateFromReversed[txn.id] ? `1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`}
+                        </span>
+                        <button
+                         type="button"
+                         title="Reverse rate direction"
+                         onClick={() => {
+                          const val = parseFloat(draft.exchangeRateFrom) || 1;
+                          updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                          setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                         }}
+                         className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                        >
+                         <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                         >
+                          <path d="M7 4 3 8l4 4M3 8h13.5" />
+                          <path d="M17 20l4-4-4-4m4 4H7.5" />
+                         </svg>
+                        </button>
                        </div>
-                      );
-                     })()}
-                     {txn.exchangeRateTo !== 1 ? (
-                      <div className="text-xs text-slate-500">
-                       {t('transaction_exchange_rate')}:{' '}
-                       {txn.exchangeRateToReversed
-                        ? `1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`
-                        : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`}
-                      </div>
-                     ) : null}
-                    </>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">
-                   {isTransactionsEditMode && draft ? (
-                    <div className="flex gap-2">
-                     <input
-                      type="text"
-                      inputMode="decimal"
-                      dir="ltr"
-                      value={draft.amount}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
-                      className="min-w-0 w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     />
-                     <select
-                      value={draft.currencyId ?? ''}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { currencyId: event.target.value ? Number(event.target.value) : null })}
-                      className="w-20 rounded border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                     >
-                      <option value="">{t('transaction_currency_placeholder')}</option>
-                      {enabledCurrencies.map((currency) => (
-                       <option
-                        key={currency.id}
-                        value={currency.id}
-                       >
-                        {currency.code}
-                       </option>
-                      ))}
-                     </select>
-                    </div>
-                   ) : (
-                    <>
-                     <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
-                    </>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">
-                   {isTransactionsEditMode && draft ? (
-                    (() => {
-                     const isZero = parseFloat(draft.charges) === 0;
-                     const expanded = expensesExpandedTxns.has(txn.id);
-                     if (isZero && !expanded) {
-                      return (
-                       <button
-                        type="button"
-                        onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                        className="text-sm text-blue-600 hover:underline"
-                       >
-                        + {t('add_expenses')}
-                       </button>
-                      );
-                     }
-                     return (
-                      <div className="space-y-1">
+                      )}
+                      {transactionTableSettings.showExchangeRate ? (
                        <input
                         type="text"
                         inputMode="decimal"
                         dir="ltr"
-                        value={draft.charges}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
+                        value={draft.exchangeRateFrom}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
                         className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                        placeholder="0"
+                        placeholder={t('transaction_exchange_rate')}
                        />
-                       <select
-                        value={draft.chargesCurrencyId ?? ''}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                       >
-                        <option value="">{t('currency')}</option>
-                        {enabledCurrencies.map((cur) => (
-                         <option
-                          key={cur.id}
-                          value={cur.id}
-                         >
-                          {cur.code}
-                         </option>
-                        ))}
-                       </select>
-                       <select
-                        value={draft.chargesPayer}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { chargesPayer: event.target.value })}
-                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                       >
-                        <option value="">{t('charges_payer_placeholder')}</option>
-                        <option value="from">{txn.clientFromName}</option>
-                        <option value="to">{txn.clientToName}</option>
-                       </select>
-                       {(() => {
-                        const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
-                        const draftPayerAccountCurrencyCode =
-                         draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
-                        if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
-                        return (
-                         <div>
-                          <span className="text-xs text-slate-500">
-                           {draftChargesCurrencyCode} â†’ {draftPayerAccountCurrencyCode}
-                          </span>
-                          <input
-                           type="text"
-                           inputMode="decimal"
-                           dir="ltr"
-                           value={draft.chargesExchangeRate}
-                           onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
-                           className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                           placeholder="1"
-                          />
-                         </div>
-                        );
-                       })()}
-                       <div className="mt-1">
-                        <input
-                         type="text"
-                         value={draft.chargesDescription}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
-                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                         placeholder={t('charges_description_placeholder')}
-                        />
-                       </div>
-                      </div>
-                     );
-                    })()
-                   ) : txn.charges ? (
-                    <div>
-                     <span>{txn.charges.toLocaleString()}</span>
-                     {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
-                     {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
-                     {txn.chargesPayer && (
-                      <div className="text-xs text-slate-500">{txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : ''}</div>
-                     )}
-                     {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
-                    </div>
-                   ) : (
-                    <span className="text-slate-400">â€”</span>
-                   )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                   {isTransactionsEditMode && draft
-                    ? (() => {
-                       const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
-                       const expanded = commissionExpandedTxns.has(txn.id);
-                       if (bothZero && !expanded) {
-                        return (
-                         <div className="flex items-center gap-2">
-                          <button
-                           type="button"
-                           onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                           className="text-sm text-blue-600 hover:underline"
-                          >
-                           + {t('add_commission')}
-                          </button>
-                          <button
-                           type="button"
-                           onClick={() => onDeleteTransaction(txn.id)}
-                           className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                           title={t('delete')}
-                          >
-                           <svg
-                            className="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={1.8}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden
-                           >
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14H6L5 6" />
-                            <path d="M10 11v6M14 11v6" />
-                            <path d="M9 6V4h6v2" />
-                           </svg>
-                           <span className="text-xs font-semibold">{t('delete')}</span>
-                          </button>
-                         </div>
-                        );
-                       }
-                       return (
-                        <div className="space-y-2">
-                         <div className="flex items-center gap-2">
-                          <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
-                          <input
-                           type="text"
-                           inputMode="decimal"
-                           dir="ltr"
-                           value={draft.commissionFrom}
-                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
-                           className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                           placeholder="0"
-                          />
-                          <span className="text-xs text-slate-400">%</span>
-                         </div>
-                         <div className="flex items-center gap-2">
-                          <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
-                          <input
-                           type="text"
-                           inputMode="decimal"
-                           dir="ltr"
-                           value={draft.commissionTo}
-                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
-                           className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                           placeholder="0"
-                          />
-                          <span className="text-xs text-slate-400">%</span>
-                         </div>
-                         <div className="flex items-center gap-2">
-                          <button
-                           type="button"
-                           onClick={() => onDeleteTransaction(txn.id)}
-                           className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                           title={t('delete')}
-                          >
-                           <svg
-                            className="h-4 w-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={1.8}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden
-                           >
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14H6L5 6" />
-                            <path d="M10 11v6M14 11v6" />
-                            <path d="M9 6V4h6v2" />
-                           </svg>
-                           <span className="text-xs font-semibold">{t('delete')}</span>
-                          </button>
-                         </div>
-                        </div>
-                       );
-                      })()
-                    : (() => {
-                       const parts: string[] = [];
-                       if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
-                       if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
-                       return parts.length > 0 ? (
-                        <div className="space-y-0.5 text-xs">
-                         {parts.map((p, i) => (
-                          <div key={i}>{p}</div>
-                         ))}
-                        </div>
+                      ) : null}
+                     </div>
+                    ) : txn.isAdjustment ? (
+                     <>
+                      {(() => {
+                       const fromAccount = clientAccountMap.get(txn.accountFromId);
+                       const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
+
+                       return fromClient ? (
+                        <button
+                         type="button"
+                         onClick={() => openClientLedger(fromClient, 'clients')}
+                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                        >
+                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </button>
                        ) : (
-                        <span className="text-slate-400">â€”</span>
+                        <div>
+                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </div>
                        );
                       })()}
-                  </td>
+                      {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 && txn.currencyCode !== txn.accountFromCurrencyCode ? (
+                       <div className="text-xs text-slate-500">
+                        {t('transaction_exchange_rate')}:{' '}
+                        {txn.exchangeRateFromReversed
+                         ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
+                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
+                       </div>
+                      ) : null}
+                     </>
+                    ) : (
+                     <>
+                      {(() => {
+                       const fromAccount = clientAccountMap.get(txn.accountFromId);
+                       const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
+
+                       return fromClient ? (
+                        <button
+                         type="button"
+                         onClick={() => openClientLedger(fromClient, 'clients')}
+                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                        >
+                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </button>
+                       ) : (
+                        <div>
+                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </div>
+                       );
+                      })()}
+                      {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 ? (
+                       <div className="text-xs text-slate-500">
+                        {t('transaction_exchange_rate')}:{' '}
+                        {txn.exchangeRateFromReversed
+                         ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
+                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
+                       </div>
+                      ) : null}
+                     </>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.accountTo ? (
+                   <td className="px-4 py-3 font-medium text-slate-900">
+                    {isEditingRow && draft && txn.isAdjustment ? (
+                     <div className="grid grid-cols-2 gap-2">
+                      <button
+                       type="button"
+                       onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'debit' })}
+                       className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                        draft.adjustmentDirection === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                       }`}
+                      >
+                       {t('adjustment_direction_debit_short')}
+                      </button>
+                      <button
+                       type="button"
+                       onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'credit' })}
+                       className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                        draft.adjustmentDirection === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                       }`}
+                      >
+                       {t('adjustment_direction_credit_short')}
+                      </button>
+                     </div>
+                    ) : isEditingRow && draft ? (
+                     <div className="space-y-2">
+                      <select
+                       value={draft.accountToId ?? ''}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { accountToId: event.target.value ? Number(event.target.value) : null })}
+                       className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      >
+                       <option value="">{t('transaction_account_placeholder')}</option>
+                       {clientAccounts.map((account) => (
+                        <option
+                         key={account.id}
+                         value={account.id}
+                        >
+                         {account.clientName} - {account.currencySymbol || account.currencyCode}
+                        </option>
+                       ))}
+                      </select>
+                      {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
+                       <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-400">
+                         {tableRateToReversed[txn.id] ? `1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`}
+                        </span>
+                        <button
+                         type="button"
+                         title="Reverse rate direction"
+                         onClick={() => {
+                          const val = parseFloat(draft.exchangeRateTo) || 1;
+                          updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                          setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                         }}
+                         className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                        >
+                         <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                         >
+                          <path d="M7 4 3 8l4 4M3 8h13.5" />
+                          <path d="M17 20l4-4-4-4m4 4H7.5" />
+                         </svg>
+                        </button>
+                       </div>
+                      )}
+                      {transactionTableSettings.showExchangeRate ? (
+                       <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        value={draft.exchangeRateTo}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
+                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        placeholder={t('transaction_exchange_rate')}
+                       />
+                      ) : null}
+                     </div>
+                    ) : txn.isAdjustment ? (
+                     <div>{t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')}</div>
+                    ) : (
+                     <>
+                      {(() => {
+                       const toAccount = clientAccountMap.get(txn.accountToId);
+                       const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
+
+                       return toClient ? (
+                        <button
+                         type="button"
+                         onClick={() => openClientLedger(toClient, 'clients')}
+                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                        >
+                         {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                        </button>
+                       ) : (
+                        <div>
+                         {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                        </div>
+                       );
+                      })()}
+                      {transactionTableSettings.showExchangeRate && txn.exchangeRateTo !== 1 ? (
+                       <div className="text-xs text-slate-500">
+                        {t('transaction_exchange_rate')}:{' '}
+                        {txn.exchangeRateToReversed
+                         ? `1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`
+                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`}
+                       </div>
+                      ) : null}
+                     </>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.amount ? (
+                   <td className="px-4 py-3 text-slate-700">
+                    {isEditingRow && draft ? (
+                     <div className="flex gap-2">
+                      <input
+                       type="text"
+                       inputMode="decimal"
+                       dir="ltr"
+                       value={draft.amount}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
+                       className="min-w-0 w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      />
+                      <select
+                       value={draft.currencyId ?? ''}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { currencyId: event.target.value ? Number(event.target.value) : null })}
+                       className="w-20 rounded border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      >
+                       <option value="">{t('transaction_currency_placeholder')}</option>
+                       {enabledCurrencies.map((currency) => (
+                        <option
+                         key={currency.id}
+                         value={currency.id}
+                        >
+                         {currency.code}
+                        </option>
+                       ))}
+                      </select>
+                     </div>
+                    ) : (
+                     <>
+                      <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
+                     </>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.charges ? (
+                   <td className="px-4 py-3 text-slate-700">
+                    {txn.isAdjustment ? (
+                     <span className="text-slate-400">-</span>
+                    ) : isEditingRow && draft ? (
+                     (() => {
+                      const isZero = parseFloat(draft.charges) === 0;
+                      const expanded = expensesExpandedTxns.has(txn.id);
+                      if (isZero && !expanded) {
+                       return (
+                        <button
+                         type="button"
+                         onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                         className="text-sm text-blue-600 hover:underline"
+                        >
+                         + {t('add_expenses')}
+                        </button>
+                       );
+                      }
+                      return (
+                       <div className="space-y-1">
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.charges}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
+                         className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         placeholder="0"
+                        />
+                        <select
+                         value={draft.chargesCurrencyId ?? ''}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
+                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                        >
+                         <option value="">{t('currency')}</option>
+                         {enabledCurrencies.map((cur) => (
+                          <option
+                           key={cur.id}
+                           value={cur.id}
+                          >
+                           {cur.code}
+                          </option>
+                         ))}
+                        </select>
+                        <select
+                         value={draft.chargesPayer}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesPayer: event.target.value })}
+                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                        >
+                         <option value="">{t('charges_payer_placeholder')}</option>
+                         <option value="from">{txn.clientFromName}</option>
+                         <option value="to">{txn.clientToName}</option>
+                        </select>
+                        {(() => {
+                         const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
+                         const draftPayerAccountCurrencyCode =
+                          draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
+                         if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
+                         return (
+                          <div>
+                           <span className="text-xs text-slate-500">
+                            {draftChargesCurrencyCode} → {draftPayerAccountCurrencyCode}
+                           </span>
+                           <input
+                            type="text"
+                            inputMode="decimal"
+                            dir="ltr"
+                            value={draft.chargesExchangeRate}
+                            onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
+                            className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                            placeholder="1"
+                           />
+                          </div>
+                         );
+                        })()}
+                        <div className="mt-1">
+                         <input
+                          type="text"
+                          value={draft.chargesDescription}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
+                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          placeholder={t('charges_description_placeholder')}
+                         />
+                        </div>
+                       </div>
+                      );
+                     })()
+                    ) : txn.charges ? (
+                     <div>
+                      <span>{txn.charges.toLocaleString()}</span>
+                      {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
+                      {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
+                      {txn.chargesPayer && (
+                       <div className="text-xs text-slate-500">{txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : ''}</div>
+                      )}
+                      {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
+                     </div>
+                    ) : (
+                     <span className="text-slate-400">-</span>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.commission ? (
+                   <td className="px-4 py-3 text-slate-600">
+                    {txn.isAdjustment ? (
+                     <span className="text-slate-400">—</span>
+                    ) : isEditingRow && draft ? (
+                     (() => {
+                      const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
+                      const expanded = commissionExpandedTxns.has(txn.id);
+                      if (bothZero && !expanded) {
+                       return (
+                        <button
+                         type="button"
+                         onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                         className="text-sm text-blue-600 hover:underline"
+                        >
+                         + {t('add_commission')}
+                        </button>
+                       );
+                      }
+                      return (
+                       <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                         <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
+                         <input
+                          type="text"
+                          inputMode="decimal"
+                          dir="ltr"
+                          value={draft.commissionFrom}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
+                          className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          placeholder="0"
+                         />
+                         <span className="text-xs text-slate-400">%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                         <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
+                         <input
+                          type="text"
+                          inputMode="decimal"
+                          dir="ltr"
+                          value={draft.commissionTo}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
+                          className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          placeholder="0"
+                         />
+                         <span className="text-xs text-slate-400">%</span>
+                        </div>
+                       </div>
+                      );
+                     })()
+                    ) : (
+                     (() => {
+                      const parts: string[] = [];
+                      if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
+                      if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
+                      return parts.length > 0 ? (
+                       <div className="space-y-0.5 text-xs">
+                        {parts.map((p, i) => (
+                         <div key={i}>{p}</div>
+                        ))}
+                       </div>
+                      ) : (
+                       <span className="text-slate-400">-</span>
+                      );
+                     })()
+                    )}
+                   </td>
+                  ) : null}
                  </>
                 );
                })()}
               </tr>
              ))}
-             {transactions.length === 0 ? (
+             {transactionTableRows.length === 0 ? (
               <tr>
                <td
                 className="px-4 py-6 text-slate-500"
-                colSpan={isTransactionsEditMode ? 8 : 7}
+                colSpan={visibleTransactionColumnCount}
                >
                 {t('no_transactions')}
                </td>
@@ -5625,6 +7222,292 @@ function AuthenticatedHome() {
      ) : null}
     </div>
    </main>
+
+   {showTransactionTableSettingsModal ? (
+    <div
+     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onClick={closeTransactionTableSettingsModal}
+    >
+     <div
+      className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      onClick={(event) => event.stopPropagation()}
+     >
+      <h2 className="text-lg font-semibold text-slate-900">{t('transactions_table_settings_title')}</h2>
+      <div className="mt-5 space-y-5">
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+         {(
+          [
+           { key: 'created', label: t('date') },
+           { key: 'description', label: t('transaction_description') },
+           { key: 'accountFrom', label: t('transaction_account_from') },
+           { key: 'accountTo', label: t('transaction_account_to') },
+           { key: 'amount', label: t('transaction_amount') },
+           { key: 'charges', label: t('charges') },
+           { key: 'commission', label: t('commission') },
+          ] as Array<{ key: TransactionColumnKey; label: string }>
+         ).map((column) => {
+          const isVisible = transactionTableSettingsDraft.columns[column.key];
+          return (
+           <button
+            key={column.key}
+            type="button"
+            onClick={() =>
+             setTransactionTableSettingsDraft((current) => ({
+              ...current,
+              columns: { ...current.columns, [column.key]: !current.columns[column.key] },
+             }))
+            }
+            className={`rounded border px-3 py-1.5 text-xs font-semibold transition ${
+             isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+           >
+            {column.label}
+           </button>
+          );
+         })}
+        </div>
+       </div>
+
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_more_settings')}</p>
+        <div className="mt-2 space-y-4">
+         <label className="flex items-center justify-between gap-3 rounded border border-slate-200 px-4 py-3 text-sm text-slate-700">
+          <span>{t('transactions_show_exchange_rate')}</span>
+          <input
+           type="checkbox"
+           checked={transactionTableSettingsDraft.showExchangeRate}
+           onChange={() => setTransactionTableSettingsDraft((current) => ({ ...current, showExchangeRate: !current.showExchangeRate }))}
+           className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+          />
+         </label>
+
+         <div>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_date_format_label')}</label>
+          <select
+           value={transactionTableSettingsDraft.dateFormat}
+           onChange={(event) => setTransactionTableSettingsDraft((current) => ({ ...current, dateFormat: event.target.value as TransactionTableSettings['dateFormat'] }))}
+           className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          >
+           <option value="full">YYYY-MM-DD</option>
+           <option value="day-month">DD/MM</option>
+           <option value="month-year">MM/YYYY</option>
+           <option value="day-month-year-2">DD/MM/YY</option>
+           <option value="month-day">MM/DD</option>
+          </select>
+         </div>
+        </div>
+       </div>
+      </div>
+
+      <div className="mt-6 flex justify-end gap-2">
+       <button
+        type="button"
+        onClick={closeTransactionTableSettingsModal}
+        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+       >
+        {t('cancel')}
+       </button>
+       <button
+        type="button"
+        onClick={saveTransactionTableSettingsModal}
+        className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+       >
+        {t('save_changes')}
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
+
+   {adjustmentModal
+    ? (() => {
+       const ledger = selectedClientLedgers.find((l) => l.accountId === adjustmentModal.accountId);
+       const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
+       const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
+       const accountCurrencyCode = account?.currencyCode ?? ledger?.currencyCode ?? '';
+       const needsRate = !!(selectedCurrency && accountCurrencyCode && selectedCurrency.code !== accountCurrencyCode);
+       const rawRate = parseFloat(adjustmentModal.exchangeRate) || 0;
+       const effectiveRate = adjustmentModal.exchangeRateReversed ? (rawRate ? 1 / rawRate : 0) : rawRate;
+       const amountValue = parseFloat(adjustmentModal.amount) || 0;
+       const convertedAmount = needsRate ? amountValue * (effectiveRate || 0) : amountValue;
+       return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+         <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
+          <h3 className="text-lg font-semibold text-slate-900">{adjustmentModal.editingId ? t('adjustment_edit_title') : t('adjustment_add_title')}</h3>
+          {ledger ? (
+           <p className="mt-1 text-sm text-slate-500">
+            {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
+           </p>
+          ) : null}
+
+          <div className="mt-5 flex flex-col gap-4">
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_direction')}</label>
+            <div className="grid grid-cols-2 gap-2">
+             <button
+              type="button"
+              onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'debit' } : prev))}
+              className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+               adjustmentModal.direction === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+             >
+              {t('adjustment_direction_debit')}
+             </button>
+             <button
+              type="button"
+              onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'credit' } : prev))}
+              className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+               adjustmentModal.direction === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+             >
+              {t('adjustment_direction_credit')}
+             </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{adjustmentModal.direction === 'debit' ? t('adjustment_debit_hint') : t('adjustment_credit_hint')}</p>
+           </div>
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('amount')}</label>
+            <input
+             type="text"
+             inputMode="decimal"
+             dir="ltr"
+             value={adjustmentModal.amount}
+             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, amount: normalizeDecimalInput(e.target.value) } : prev))}
+             placeholder="0"
+             autoFocus
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('currency')}</label>
+            <select
+             value={adjustmentModal.currencyId ?? ''}
+             onChange={(e) =>
+              setAdjustmentModal((prev) => (prev ? { ...prev, currencyId: e.target.value ? Number(e.target.value) : null, exchangeRate: '', exchangeRateReversed: false } : prev))
+             }
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             {(adjustmentModal.currencyId && !enabledCurrencies.some((c) => c.id === adjustmentModal.currencyId)
+              ? [...enabledCurrencies, ...localizedCurrencies.filter((c) => c.id === adjustmentModal.currencyId)]
+              : enabledCurrencies
+             ).map((currency) => (
+              <option
+               key={currency.id}
+               value={currency.id}
+              >
+               {currency.code} {currency.symbol ? `(${currency.symbol})` : ''} · {currency.name}
+              </option>
+             ))}
+            </select>
+           </div>
+
+           {needsRate ? (
+            <div className="flex flex-col gap-1">
+             <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('exchange_rate')}</label>
+              <button
+               type="button"
+               title={t('reverse_rate')}
+               onClick={() =>
+                setAdjustmentModal((prev) => {
+                 if (!prev) return prev;
+                 const val = parseFloat(prev.exchangeRate) || 0;
+                 return {
+                  ...prev,
+                  exchangeRate: val ? String(Number((1 / val).toFixed(6))) : prev.exchangeRate,
+                  exchangeRateReversed: !prev.exchangeRateReversed,
+                 };
+                })
+               }
+               className="inline-flex items-center gap-1 rounded p-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+              >
+               <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <path d="M7 4 3 8l4 4M3 8h13.5" />
+                <path d="M17 20l4-4-4-4m4 4H7.5" />
+               </svg>
+               {adjustmentModal.exchangeRateReversed ? t('rate_division') : t('rate_multiplication')}
+              </button>
+             </div>
+             <span className="text-xs text-slate-400">
+              {adjustmentModal.exchangeRateReversed
+               ? `1 ${accountCurrencyCode} = ? ${selectedCurrency?.code ?? ''}`
+               : `1 ${selectedCurrency?.code ?? ''} = ? ${accountCurrencyCode}`}
+             </span>
+             <input
+              type="text"
+              inputMode="decimal"
+              dir="ltr"
+              value={adjustmentModal.exchangeRate}
+              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, exchangeRate: normalizeDecimalInput(e.target.value) } : prev))}
+              placeholder="0"
+              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             />
+             {amountValue > 0 && effectiveRate > 0 ? (
+              <span className="text-xs text-slate-500">
+               = {convertedAmount.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })} {accountCurrencyCode}
+              </span>
+             ) : null}
+            </div>
+           ) : null}
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_description')}</label>
+            <input
+             type="text"
+             value={adjustmentModal.description}
+             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+             placeholder={t('adjustment_description_placeholder')}
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('date')}</label>
+            <input
+             type="date"
+             value={adjustmentModal.date}
+             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, date: e.target.value } : prev))}
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+           <button
+            type="button"
+            onClick={() => setAdjustmentModal(null)}
+            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+           >
+            {t('cancel')}
+           </button>
+           <button
+            type="button"
+            onClick={() => void onSubmitAdjustment()}
+            disabled={!adjustmentModal.amount || parseFloat(adjustmentModal.amount) <= 0 || (needsRate && !(effectiveRate > 0))}
+            className="rounded bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800 disabled:cursor-not-allowed disabled:opacity-40"
+           >
+            {adjustmentModal.editingId ? t('save_changes') : t('adjustment_add')}
+           </button>
+          </div>
+         </div>
+        </div>
+       );
+      })()
+    : null}
 
    {pdfExportModal
     ? (() => {
@@ -5656,6 +7539,35 @@ function AuthenticatedHome() {
              onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value } : prev))}
              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
+           </div>
+
+           {/* Column toggles */}
+           <div>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_columns_label')}</label>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+             {pdfAllColumns.map((col) => {
+              const isRunningBal = col.key === 'runningBalance';
+              const isOn = isRunningBal || pdfExportModal.cols[col.key];
+              return (
+               <button
+                key={col.key}
+                type="button"
+                disabled={isRunningBal}
+                onClick={() => {
+                 if (isRunningBal) return;
+                 const newCols = { ...pdfExportModal.cols, [col.key]: !pdfExportModal.cols[col.key] };
+                 savePdfCols(pdfExportModal.accountId, newCols);
+                 setPdfExportModal((prev) => (prev ? { ...prev, cols: newCols } : prev));
+                }}
+                className={`rounded border px-2.5 py-1 text-xs font-medium transition ${
+                 isOn ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400'
+                } ${isRunningBal ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
+               >
+                {col.label}
+               </button>
+              );
+             })}
+            </div>
            </div>
 
            {(() => {
@@ -5691,7 +7603,7 @@ function AuthenticatedHome() {
            </button>
            <button
             type="button"
-            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate)}
+            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols)}
             disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
             className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
@@ -5703,6 +7615,138 @@ function AuthenticatedHome() {
        );
       })()
     : null}
+
+   {showLedgerSettingsModal ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowLedgerSettingsModal(false)}>
+     <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <h3 className="text-lg font-semibold text-slate-900">{t('nav_settings')}</h3>
+
+      <div className="mt-5 flex flex-col gap-5">
+       {/* Decimal places */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('decimal_places')}</p>
+        <div className="mt-2 flex overflow-hidden rounded border border-slate-300 bg-white w-fit">
+         <button
+          type="button"
+          onClick={() => setLedgerDecimals((d) => Math.max(0, d - 1))}
+          disabled={ledgerDecimals === 0}
+          className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
+         >
+          -
+         </button>
+         <span className="border-x border-slate-200 px-3 py-1.5 text-center text-sm font-semibold text-slate-800">{ledgerDecimals}</span>
+         <button
+          type="button"
+          onClick={() => setLedgerDecimals((d) => Math.min(6, d + 1))}
+          disabled={ledgerDecimals === 6}
+          className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
+         >
+          +
+         </button>
+        </div>
+       </div>
+
+       {/* Currency symbol toggle */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('currency_symbol')}</p>
+        <button
+         type="button"
+         onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
+         aria-pressed={showLedgerCurrencySymbol}
+         className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+          showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+         }`}
+        >
+         {t('currency_symbol')}
+        </button>
+       </div>
+
+       {/* Column visibility */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+         {orderedLedgerColumnOptions.map((column) => {
+          const isVisible = ledgerColumnVisibility[column.key];
+          return (
+           <button
+            key={column.key}
+            type="button"
+            onClick={() => toggleLedgerColumn(column.key)}
+            aria-pressed={isVisible}
+            className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+             isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+           >
+            {column.label}
+           </button>
+          );
+         })}
+        </div>
+       </div>
+      </div>
+
+      <div className="mt-5 flex justify-end">
+       <button
+        type="button"
+        onClick={() => setShowLedgerSettingsModal(false)}
+        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+       >
+        {t('cancel')}
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
+
+   {/* Create Organization dialog */}
+   {showCreateOrgDialog ? (
+    <div
+     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onClick={() => setShowCreateOrgDialog(false)}
+    >
+     <div
+      className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      onClick={(e) => e.stopPropagation()}
+     >
+      <h2 className="text-lg font-semibold text-slate-900">{t('new_organization')}</h2>
+      <form
+       onSubmit={(e) => void onCreateOrgFromDialog(e)}
+       className="mt-4 flex flex-col gap-4"
+      >
+       <div>
+        <label className="block text-sm font-medium text-slate-700">{t('organization_name')}</label>
+        <input
+         type="text"
+         value={organizationForm.name}
+         onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
+         placeholder={t('organization_name_placeholder')}
+         className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         autoFocus
+         required
+        />
+       </div>
+       <div className="flex justify-end gap-2">
+        <button
+         type="button"
+         onClick={() => {
+          setShowCreateOrgDialog(false);
+          setOrganizationForm(emptyOrganizationForm());
+         }}
+         className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+        >
+         {t('cancel')}
+        </button>
+        <button
+         type="submit"
+         className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition"
+        >
+         {t('save_organization')}
+        </button>
+       </div>
+      </form>
+     </div>
+    </div>
+   ) : null}
   </div>
  );
 }

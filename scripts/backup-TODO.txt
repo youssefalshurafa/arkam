@@ -1,0 +1,18 @@
+BACKUP SETUP - TODO
+===================
+
+[DONE] Backup script created: scripts/backup-arkam.ps1
+[DONE] pg_dump confirmed working (PostgreSQL 18 at C:\Program Files\PostgreSQL\18\bin)
+[DONE] First manual backup completed: D:\Software\arkam-backups\
+
+[ ] Schedule daily automatic backup via Task Scheduler:
+      - Open: Start Menu -> Task Scheduler
+      - Create Basic Task -> Trigger: Daily at 2:00 AM
+      - Action: Start a program
+          Program:   powershell.exe
+          Arguments: -ExecutionPolicy Bypass -File "D:\Software\arkam\scripts\backup-arkam.ps1"
+
+[ ] (Optional) Set up Google Drive off-site copy:
+      - Install rclone: winget install Rclone.Rclone
+      - Configure: rclone config  (name the remote "gdrive", choose Google Drive)
+      - The backup script will upload automatically once rclone is configured

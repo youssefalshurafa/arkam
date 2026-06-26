@@ -400,6 +400,12 @@ async function resetPasswordWithToken({ token, password }) {
     return { ok: true };
 }
 
+async function getUserByEmail(email) {
+    await ensurePublicSchema();
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    return fetchOne('SELECT id, email, name, image FROM users WHERE email = $1', [normalizedEmail]);
+}
+
 async function createEmailVerificationToken({ email, name }) {
     await ensurePublicSchema();
 
@@ -557,4 +563,5 @@ module.exports = {
     createEmailVerificationToken,
     getEmailVerificationToken,
     consumeEmailVerificationAndCreateUser,
+    getUserByEmail,
 };

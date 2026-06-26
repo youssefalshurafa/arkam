@@ -324,6 +324,18 @@ async function updateClientAccountStartingBalance(app, { accountId, startingBala
     await query(`UPDATE ${schema}.client_accounts SET starting_balance = $1 WHERE id = $2`, [startingBalance ?? 0, accountId]);
 }
 
+async function updateClientAccount(app, { accountId, currencyId, startingBalance }) {
+    if (!accountId) {
+        throw new Error('Account id is required.');
+    }
+
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `UPDATE ${schema}.client_accounts SET currency_id = $1, starting_balance = $2 WHERE id = $3`,
+        [currencyId, startingBalance ?? 0, accountId],
+    );
+}
+
 async function deleteClientAccount(app, accountId) {
     const { schema } = await getSchemaInfo(app);
     await query(`DELETE FROM ${schema}.client_accounts WHERE id = $1`, [accountId]);
@@ -680,6 +692,65 @@ async function deleteAllTransactions(app) {
     await query(`DELETE FROM ${schema}.transactions`);
 }
 
+async function listClientAdjustments(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`
+        SELECT
+            a.id,
+            a.account_id AS "accountId",
+            a.amount,
+            a.direction,
+            a.currency_id AS "currencyId",
+            a.currency_code AS "currencyCode",
+            a.currency_symbol AS "currencySymbol",
+            a.exchange_rate AS "exchangeRate",
+            a.exchange_rate_reversed AS "exchangeRateReversed",
+            a.description,
+            a.created_at AS "createdAt"
+        FROM ${schema}.client_adjustments a
+        ORDER BY a.created_at ASC
+    `);
+    return result.rows;
+}
+
+async function createClientAdjustment(app, { accountId, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
+    const { schema } = await getSchemaInfo(app);
+    if (!accountId) throw new Error('Account is required.');
+    if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
+    if (!['debit', 'credit'].includes(direction)) throw new Error('Direction must be debit or credit.');
+    const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+    const reversed = exchangeRateReversed ? true : false;
+    const columns = ['account_id', 'amount', 'direction', 'currency_id', 'currency_code', 'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description'];
+    const values = [accountId, amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || ''];
+    if (createdAt) {
+        columns.push('created_at');
+        values.push(createdAt);
+    }
+    const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+    const result = await query(
+        `INSERT INTO ${schema}.client_adjustments (${columns.join(', ')}) VALUES (${placeholders}) RETURNING id`,
+        values
+    );
+    return result.rows[0];
+}
+
+async function updateClientAdjustment(app, { id, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
+    const { schema } = await getSchemaInfo(app);
+    const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+    const reversed = exchangeRateReversed ? true : false;
+    await query(
+        `UPDATE ${schema}.client_adjustments
+         SET amount=$1, direction=$2, currency_id=$3, currency_code=$4, currency_symbol=$5, exchange_rate=$6, exchange_rate_reversed=$7, description=$8, created_at=$9
+         WHERE id=$10`,
+        [amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || '', createdAt, id]
+    );
+}
+
+async function deleteClientAdjustment(app, id) {
+    const { schema } = await getSchemaInfo(app);
+    await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
+}
+
 module.exports = {
     getDbInfo,
     setDbDirectory,
@@ -696,6 +767,7 @@ module.exports = {
     listClientAccounts,
     createClientAccount,
     updateClientAccountStartingBalance,
+    updateClientAccount,
     deleteClientAccount,
     listCurrencies,
     createCurrency,
@@ -711,4 +783,8 @@ module.exports = {
     updateTransaction,
     deleteTransaction,
     deleteAllTransactions,
+    listClientAdjustments,
+    createClientAdjustment,
+    updateClientAdjustment,
+    deleteClientAdjustment,
 };
