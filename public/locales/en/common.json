@@ -258,5 +258,18 @@
  "danger_delete_all_transactions_confirm": "Delete all transactions now?",
  "danger_delete_all_clients": "Delete All Clients",
  "danger_delete_all_clients_hint": "Removes every client and related accounts from the system.",
- "danger_delete_all_clients_confirm": "Delete all clients now?"
+ "danger_delete_all_clients_confirm": "Delete all clients now?",
+ "adjustment_label": "Expense",
+ "adjustment_add": "Add Expense",
+ "adjustment_add_title": "Add Expense",
+ "adjustment_edit_title": "Edit Expense",
+ "adjustment_direction": "Type",
+ "adjustment_direction_debit": "Debit (owes us)",
+ "adjustment_direction_credit": "Credit (we owe)",
+ "adjustment_debit_hint": "The client owes you this amount (e.g. gas money you took on their behalf).",
+ "adjustment_credit_hint": "You owe the client this amount (e.g. money you owe them for an item).",
+ "adjustment_description": "Description",
+ "adjustment_description_placeholder": "e.g. Gas money, iPhone payment",
+ "adjustment_amount_required": "Enter a valid amount greater than zero.",
+ "adjustment_delete_confirm": "Delete this expense entry?"
 }

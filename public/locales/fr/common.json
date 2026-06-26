@@ -257,5 +257,18 @@
  "danger_delete_all_transactions_confirm": "Supprimer toutes les transactions maintenant ?",
  "danger_delete_all_clients": "Supprimer tous les clients",
  "danger_delete_all_clients_hint": "Supprime tous les clients et les comptes associes du systeme.",
- "danger_delete_all_clients_confirm": "Supprimer tous les clients maintenant ?"
+ "danger_delete_all_clients_confirm": "Supprimer tous les clients maintenant ?",
+ "adjustment_label": "Depense",
+ "adjustment_add": "Ajouter une depense",
+ "adjustment_add_title": "Ajouter une depense",
+ "adjustment_edit_title": "Modifier la depense",
+ "adjustment_direction": "Type",
+ "adjustment_direction_debit": "Debit (nous doit)",
+ "adjustment_direction_credit": "Credit (nous devons)",
+ "adjustment_debit_hint": "Le client vous doit ce montant (ex. argent d'essence pris en son nom).",
+ "adjustment_credit_hint": "Vous devez ce montant au client (ex. argent que vous lui devez pour un article).",
+ "adjustment_description": "Description",
+ "adjustment_description_placeholder": "ex. Argent d'essence, paiement iPhone",
+ "adjustment_amount_required": "Saisissez un montant valide superieur a zero.",
+ "adjustment_delete_confirm": "Supprimer cette depense ?"
 }

@@ -258,5 +258,18 @@
  "danger_delete_all_transactions_confirm": "هل تريد حذف جميع المعاملات الآن؟",
  "danger_delete_all_clients": "حذف جميع العملاء",
  "danger_delete_all_clients_hint": "يحذف جميع العملاء والحسابات المرتبطة بهم من النظام.",
- "danger_delete_all_clients_confirm": "هل تريد حذف جميع العملاء الآن؟"
+ "danger_delete_all_clients_confirm": "هل تريد حذف جميع العملاء الآن؟",
+ "adjustment_label": "مصروف",
+ "adjustment_add": "إضافة مصروف",
+ "adjustment_add_title": "إضافة مصروف",
+ "adjustment_edit_title": "تعديل المصروف",
+ "adjustment_direction": "النوع",
+ "adjustment_direction_debit": "مدين (لنا عليه)",
+ "adjustment_direction_credit": "دائن (له علينا)",
+ "adjustment_debit_hint": "العميل مدين لك بهذا المبلغ (مثل أجرة بنزين أخذتها بالنيابة عنه).",
+ "adjustment_credit_hint": "أنت مدين للعميل بهذا المبلغ (مثل مبلغ تدين له به مقابل غرض).",
+ "adjustment_description": "الوصف",
+ "adjustment_description_placeholder": "مثال: أجرة بنزين، ثمن آيفون",
+ "adjustment_amount_required": "أدخل مبلغاً صالحاً أكبر من صفر.",
+ "adjustment_delete_confirm": "هل تريد حذف هذا المصروف؟"
 }

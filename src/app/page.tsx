@@ -187,6 +187,8 @@ type LedgerTransactionDraft = {
 
 type ClientLedgerEntry = {
  transactionId: number;
+ adjustmentId?: number;
+ isAdjustment?: boolean;
  createdAt: string;
  counterpartyName: string;
  counterpartyClientId: number | null;
@@ -207,6 +209,15 @@ type ClientLedgerEntry = {
  chargesExchangeRate: number;
  chargesDescription: string;
  isChargesPayerThisAccount: boolean;
+};
+
+type ClientAdjustment = {
+ id: number;
+ accountId: number;
+ amount: number;
+ direction: 'debit' | 'credit';
+ description: string;
+ createdAt: string;
 };
 
 type ClientAccountLedger = {
@@ -753,6 +764,7 @@ function AuthenticatedHome() {
  const [clients, setClients] = useState<Client[]>([]);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
+ const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
  const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>([]);
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
@@ -798,6 +810,14 @@ function AuthenticatedHome() {
  const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
  const [editingAccountBalanceType, setEditingAccountBalanceType] = useState<'debit' | 'credit'>('debit');
  const [pdfExportModal, setPdfExportModal] = useState<{ accountId: number; fromDate: string; toDate: string; cols: PdfColVisibility } | null>(null);
+ const [adjustmentModal, setAdjustmentModal] = useState<{
+  accountId: number;
+  editingId: number | null;
+  amount: string;
+  direction: 'debit' | 'credit';
+  description: string;
+  date: string;
+ } | null>(null);
  const [pdfSettings, setPdfSettings] = useState<PdfSettings>(() => getStoredPdfSettings());
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
@@ -837,14 +857,15 @@ function AuthenticatedHome() {
   }
 
   try {
-   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows] = (await Promise.all([
+   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows] = (await Promise.all([
     accountingApi.getDbInfo(),
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
     accountingApi.listTransactions(),
     accountingApi.listAllClientAccounts(),
-   ])) as [DbInfo, Organization[], Client[], Currency[], Transaction[], ClientAccount[]];
+    accountingApi.listClientAdjustments(),
+   ])) as [DbInfo, Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[]];
 
    let nextCurrencies = currencyRows;
    if (!nextCurrencies.length) {
@@ -857,6 +878,7 @@ function AuthenticatedHome() {
    setClients(clientRows);
    setCurrencies(nextCurrencies);
    setTransactions(transactionRows);
+   setAdjustments(adjustmentRows);
    setClientAccounts(clientAccountRows);
    setSelectedOrganizationForClients((current) => (current ? (organizationRows.find((organization) => organization.id === current.id) ?? null) : null));
    setSelectedClientForAccounts((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
@@ -1997,6 +2019,87 @@ function AuthenticatedHome() {
   }
  }
 
+ function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
+  if (existing) {
+   setAdjustmentModal({
+    accountId,
+    editingId: existing.id,
+    amount: String(existing.amount),
+    direction: existing.direction,
+    description: existing.description,
+    date: existing.createdAt.slice(0, 10),
+   });
+  } else {
+   setAdjustmentModal({
+    accountId,
+    editingId: null,
+    amount: '',
+    direction: 'debit',
+    description: '',
+    date: new Date().toISOString().slice(0, 10),
+   });
+  }
+ }
+
+ async function onSubmitAdjustment() {
+  if (!accountingApi || !adjustmentModal) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const amount = parseFloat(adjustmentModal.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+   setError(t('adjustment_amount_required'));
+   return;
+  }
+
+  const createdAt = `${adjustmentModal.date} 00:00:00`;
+
+  try {
+   if (adjustmentModal.editingId) {
+    await accountingApi.updateClientAdjustment({
+     id: adjustmentModal.editingId,
+     amount,
+     direction: adjustmentModal.direction,
+     description: adjustmentModal.description.trim(),
+     createdAt,
+    });
+   } else {
+    await accountingApi.createClientAdjustment({
+     accountId: adjustmentModal.accountId,
+     amount,
+     direction: adjustmentModal.direction,
+     description: adjustmentModal.description.trim(),
+     createdAt,
+    });
+   }
+   setAdjustmentModal(null);
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onDeleteAdjustment(id: number) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  if (!window.confirm(t('adjustment_delete_confirm'))) {
+   return;
+  }
+
+  try {
+   await accountingApi.deleteClientAdjustment(id);
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
  function onToggleTransactionSelection(transactionId: number) {
   if (!isTransactionsEditMode) {
    return;
@@ -2199,16 +2302,25 @@ function AuthenticatedHome() {
     },
    },
    { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
-   { key: 'direction', header: t('direction'), cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming') },
-   { key: 'type', header: t('transaction_type'), cell: (e) => t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange') },
+   {
+    key: 'direction',
+    header: t('direction'),
+    cell: (e) =>
+     e.isAdjustment ? t(e.direction === 'outgoing' ? 'adjustment_direction_credit' : 'adjustment_direction_debit') : t(e.direction === 'outgoing' ? 'outgoing' : 'incoming'),
+   },
+   {
+    key: 'type',
+    header: t('transaction_type'),
+    cell: (e) => (e.isAdjustment ? t('adjustment_label') : t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')),
+   },
    {
     key: 'amount',
     header: t('amount'),
     isNum: true,
     cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
-   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => formatRateValue(e.exchangeRate) },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => e.commission.toFixed(pdfSettings.decimals) },
+   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => (e.isAdjustment ? '—' : formatRateValue(e.exchangeRate)) },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '—' : e.commission.toFixed(pdfSettings.decimals)) },
    {
     key: 'netChange',
     header: t('net_change'),
@@ -2485,6 +2597,37 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
       return [];
      })
+     .concat(
+      adjustments
+       .filter((adj) => adj.accountId === account.id)
+       .map((adj) => ({
+        transactionId: -adj.id,
+        adjustmentId: adj.id,
+        isAdjustment: true as const,
+        createdAt: adj.createdAt,
+        counterpartyName: '',
+        counterpartyClientId: null,
+        // debit: client owes us (e.g. gas money) → balance moves in our favor (negative)
+        // credit: we owe the client (e.g. iPhone) → balance moves in their favor (positive)
+        direction: (adj.direction === 'credit' ? 'outgoing' : 'incoming') as 'incoming' | 'outgoing',
+        type: 'adjustment',
+        amount: adj.amount,
+        currencyCode: account.currencyCode,
+        currencySymbol: account.currencySymbol,
+        exchangeRate: 1,
+        exchangeRateReversed: false,
+        commission: 0,
+        netChange: adj.direction === 'credit' ? adj.amount : -adj.amount,
+        runningBalance: 0,
+        description: adj.description,
+        charges: 0,
+        chargesCurrencyCode: null,
+        chargesPayer: '',
+        chargesExchangeRate: 1,
+        chargesDescription: '',
+        isChargesPayerThisAccount: false,
+       })),
+     )
      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
 
     let runningBalance = account.startingBalance ?? 0;
@@ -2508,7 +2651,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
- }, [clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
+ }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -4328,6 +4471,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                {t('export_pdf')}
               </button>
              ) : null}
+             {!isClientLedgerEditMode ? (
+              <button
+               type="button"
+               onClick={() => {
+                const targetLedger =
+                 selectedClientLedgers.length === 1
+                  ? selectedClientLedgers[0]
+                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+                if (!targetLedger) return;
+                openAdjustmentModal(targetLedger.accountId);
+               }}
+               className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
+              >
+               {t('adjustment_add')}
+              </button>
+             ) : null}
             </>
            ) : null}
           </div>
@@ -4619,7 +4778,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           key={column.key}
                           className="px-4 py-3 font-medium text-slate-900"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {entry.isAdjustment ? (
+                           <span className="text-slate-400">—</span>
+                          ) : isClientLedgerEditMode && draft ? (
                            <select
                             value={draft.counterpartyAccountId ?? ''}
                             onChange={(event) =>
@@ -4661,7 +4822,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           key={column.key}
                           className="px-4 py-3"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {entry.isAdjustment ? (
+                           <span
+                            className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                           >
+                            {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
+                           </span>
+                          ) : isClientLedgerEditMode && draft ? (
                            <select
                             value={draft.direction}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
@@ -4685,7 +4852,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           key={column.key}
                           className="px-4 py-3 text-slate-600"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {entry.isAdjustment ? (
+                           <span className="inline-flex rounded bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">{t('adjustment_label')}</span>
+                          ) : isClientLedgerEditMode && draft ? (
                            <select
                             value={draft.type}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
@@ -4728,76 +4897,28 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           key={column.key}
                           className="px-4 py-3 text-slate-600"
                          >
-                          {isClientLedgerEditMode && draft
-                           ? (() => {
-                              const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                              const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
-                              const txCurr = entry.currencyCode;
-                              const accCurr = ledger.currencyCode;
-                              return (
-                               <div>
-                                {txCurr && accCurr && txCurr !== accCurr && (
-                                 <div className="mb-1 flex items-center justify-between">
-                                  <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
-                                  <button
-                                   type="button"
-                                   title="Reverse rate direction"
-                                   onClick={() => {
-                                    const val = parseFloat(draft.exchangeRate) || 1;
-                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                                    setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
-                                   }}
-                                   className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                                  >
-                                   <svg
-                                    width="14"
-                                    height="14"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    aria-hidden
-                                   >
-                                    <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                    <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                   </svg>
-                                  </button>
-                                 </div>
-                                )}
-                                <input
-                                 type="text"
-                                 inputMode="decimal"
-                                 dir="ltr"
-                                 value={draft.exchangeRate}
-                                 onChange={(event) =>
-                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
-                                 }
-                                 className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                                />
-                               </div>
-                              );
-                             })()
-                           : (() => {
-                              const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                              const txCurr = entry.currencyCode;
-                              const accCurr = ledger.currencyCode;
-                              const defaultReversed = entry.exchangeRateReversed;
-                              const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
-                              if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
-                               return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-                              }
-                              const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
-                              const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
-                              return (
-                               <div className="flex items-center gap-1">
-                                <span title={rateLabel}>{rateNumber}</span>
+                          {entry.isAdjustment ? (
+                           <span className="text-slate-400">—</span>
+                          ) : isClientLedgerEditMode && draft ? (
+                           (() => {
+                            const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                            const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
+                            const txCurr = entry.currencyCode;
+                            const accCurr = ledger.currencyCode;
+                            return (
+                             <div>
+                              {txCurr && accCurr && txCurr !== accCurr && (
+                               <div className="mb-1 flex items-center justify-between">
+                                <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
                                 <button
                                  type="button"
                                  title="Reverse rate direction"
-                                 onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
-                                 className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                 onClick={() => {
+                                  const val = parseFloat(draft.exchangeRate) || 1;
+                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                                  setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
+                                 }}
+                                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
                                 >
                                  <svg
                                   width="14"
@@ -4815,8 +4936,60 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                                  </svg>
                                 </button>
                                </div>
-                              );
-                             })()}
+                              )}
+                              <input
+                               type="text"
+                               inputMode="decimal"
+                               dir="ltr"
+                               value={draft.exchangeRate}
+                               onChange={(event) =>
+                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
+                               }
+                               className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                              />
+                             </div>
+                            );
+                           })()
+                          ) : (
+                           (() => {
+                            const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                            const txCurr = entry.currencyCode;
+                            const accCurr = ledger.currencyCode;
+                            const defaultReversed = entry.exchangeRateReversed;
+                            const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
+                            if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
+                             return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                            }
+                            const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                            const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                            return (
+                             <div className="flex items-center gap-1">
+                              <span title={rateLabel}>{rateNumber}</span>
+                              <button
+                               type="button"
+                               title="Reverse rate direction"
+                               onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
+                               className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                              >
+                               <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden
+                               >
+                                <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                <path d="M17 20l4-4-4-4m4 4H7.5" />
+                               </svg>
+                              </button>
+                             </div>
+                            );
+                           })()
+                          )}
                          </td>
                         );
                        case 'commission':
@@ -4886,7 +5059,59 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           key={column.key}
                           className="px-4 py-3 text-slate-500"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {entry.isAdjustment ? (
+                           <div className="flex items-center gap-2">
+                            <span className="flex-1">{entry.description || '-'}</span>
+                            {!isClientLedgerEditMode ? (
+                             <span className="flex shrink-0 items-center gap-1">
+                              <button
+                               type="button"
+                               title={t('edit')}
+                               onClick={() => {
+                                const adj = adjustments.find((a) => a.id === entry.adjustmentId);
+                                if (adj) openAdjustmentModal(ledger.accountId, adj);
+                               }}
+                               className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                              >
+                               <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden
+                               >
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                               </svg>
+                              </button>
+                              <button
+                               type="button"
+                               title={t('delete')}
+                               onClick={() => entry.adjustmentId && void onDeleteAdjustment(entry.adjustmentId)}
+                               className="rounded p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                              >
+                               <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden
+                               >
+                                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                               </svg>
+                              </button>
+                             </span>
+                            ) : null}
+                           </div>
+                          ) : isClientLedgerEditMode && draft ? (
                            <input
                             type="text"
                             value={draft.description}
@@ -6161,6 +6386,104 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      ) : null}
     </div>
    </main>
+
+   {adjustmentModal
+    ? (() => {
+       const ledger = selectedClientLedgers.find((l) => l.accountId === adjustmentModal.accountId);
+       return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+         <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
+          <h3 className="text-lg font-semibold text-slate-900">{adjustmentModal.editingId ? t('adjustment_edit_title') : t('adjustment_add_title')}</h3>
+          {ledger ? (
+           <p className="mt-1 text-sm text-slate-500">
+            {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
+           </p>
+          ) : null}
+
+          <div className="mt-5 flex flex-col gap-4">
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_direction')}</label>
+            <div className="grid grid-cols-2 gap-2">
+             <button
+              type="button"
+              onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'debit' } : prev))}
+              className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+               adjustmentModal.direction === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+             >
+              {t('adjustment_direction_debit')}
+             </button>
+             <button
+              type="button"
+              onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'credit' } : prev))}
+              className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+               adjustmentModal.direction === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+             >
+              {t('adjustment_direction_credit')}
+             </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{adjustmentModal.direction === 'debit' ? t('adjustment_debit_hint') : t('adjustment_credit_hint')}</p>
+           </div>
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('amount')}</label>
+            <input
+             type="text"
+             inputMode="decimal"
+             dir="ltr"
+             value={adjustmentModal.amount}
+             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, amount: normalizeDecimalInput(e.target.value) } : prev))}
+             placeholder="0"
+             autoFocus
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_description')}</label>
+            <input
+             type="text"
+             value={adjustmentModal.description}
+             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+             placeholder={t('adjustment_description_placeholder')}
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('date')}</label>
+            <input
+             type="date"
+             value={adjustmentModal.date}
+             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, date: e.target.value } : prev))}
+             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+          </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+           <button
+            type="button"
+            onClick={() => setAdjustmentModal(null)}
+            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+           >
+            {t('cancel')}
+           </button>
+           <button
+            type="button"
+            onClick={() => void onSubmitAdjustment()}
+            disabled={!adjustmentModal.amount || parseFloat(adjustmentModal.amount) <= 0}
+            className="rounded bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800 disabled:cursor-not-allowed disabled:opacity-40"
+           >
+            {adjustmentModal.editingId ? t('save_changes') : t('adjustment_add')}
+           </button>
+          </div>
+         </div>
+        </div>
+       );
+      })()
+    : null}
 
    {pdfExportModal
     ? (() => {

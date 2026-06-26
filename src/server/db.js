@@ -692,6 +692,56 @@ async function deleteAllTransactions(app) {
     await query(`DELETE FROM ${schema}.transactions`);
 }
 
+async function listClientAdjustments(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`
+        SELECT
+            a.id,
+            a.account_id AS "accountId",
+            a.amount,
+            a.direction,
+            a.description,
+            a.created_at AS "createdAt"
+        FROM ${schema}.client_adjustments a
+        ORDER BY a.created_at ASC
+    `);
+    return result.rows;
+}
+
+async function createClientAdjustment(app, { accountId, amount, direction, description, createdAt }) {
+    const { schema } = await getSchemaInfo(app);
+    if (!accountId) throw new Error('Account is required.');
+    if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
+    if (!['debit', 'credit'].includes(direction)) throw new Error('Direction must be debit or credit.');
+    if (createdAt) {
+        const result = await query(
+            `INSERT INTO ${schema}.client_adjustments (account_id, amount, direction, description, created_at)
+             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            [accountId, amount, direction, description?.trim() || '', createdAt]
+        );
+        return result.rows[0];
+    }
+    const result = await query(
+        `INSERT INTO ${schema}.client_adjustments (account_id, amount, direction, description)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [accountId, amount, direction, description?.trim() || '']
+    );
+    return result.rows[0];
+}
+
+async function updateClientAdjustment(app, { id, amount, direction, description, createdAt }) {
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `UPDATE ${schema}.client_adjustments SET amount=$1, direction=$2, description=$3, created_at=$4 WHERE id=$5`,
+        [amount, direction, description?.trim() || '', createdAt, id]
+    );
+}
+
+async function deleteClientAdjustment(app, id) {
+    const { schema } = await getSchemaInfo(app);
+    await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
+}
+
 module.exports = {
     getDbInfo,
     setDbDirectory,
@@ -724,4 +774,8 @@ module.exports = {
     updateTransaction,
     deleteTransaction,
     deleteAllTransactions,
+    listClientAdjustments,
+    createClientAdjustment,
+    updateClientAdjustment,
+    deleteClientAdjustment,
 };
