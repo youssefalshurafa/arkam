@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -2755,12 +2755,12 @@ function AuthenticatedHome() {
     isNum: true,
     cell: (e) => {
      if (e.isAdjustment) {
-      return e.exchangeRate && e.exchangeRate !== 1 ? formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : '�';
+      return e.exchangeRate && e.exchangeRate !== 1 ? formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : '-';
      }
      return formatRateValue(e.exchangeRate);
     },
    },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '�' : e.commission.toFixed(pdfSettings.decimals)) },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '-' : e.commission.toFixed(pdfSettings.decimals)) },
    {
     key: 'netChange',
     header: t('net_change'),
@@ -3985,7 +3985,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            key={account.id}
            className="rounded border border-slate-200 bg-white"
           >
-           {/* Row � click to edit */}
+           {/* Row · click to edit */}
            <button
             type="button"
             className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
@@ -4042,7 +4042,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                  key={cur.id}
                  value={cur.id}
                 >
-                 {cur.code} � {cur.name}
+                 {cur.code} · {cur.name}
                 </option>
                ))}
               </select>
@@ -4138,7 +4138,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              key={cur.id}
              value={cur.id}
             >
-             {cur.code} � {cur.name}
+             {cur.code} · {cur.name}
             </option>
            ))}
          </select>
@@ -4288,7 +4288,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
           {currency.isMain === 1 ? (
            <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
           ) : (
-           <span className="text-slate-400">�</span>
+           <span className="text-slate-400">-</span>
           )}
          </td>
          <td className="px-4 py-3">
@@ -4526,7 +4526,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          {currency.isMain === 1 ? (
           <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
          ) : (
-          <span className="text-slate-400">�</span>
+          <span className="text-slate-400">-</span>
          )}
         </td>
        </tr>
@@ -4744,7 +4744,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       </div>
      </div>
 
-     {/* Page title bar � hidden when in settings (settings has its own header) */}
+     {/* Page title bar · hidden when in settings (settings has its own header) */}
      {section !== 'client-ledger' && section !== 'settings' ? (
       <div className="border-b border-gray-200 bg-white px-5 py-3">
        <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5372,7 +5372,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           className="px-4 py-3 font-medium text-slate-900"
                          >
                           {entry.isAdjustment ? (
-                           <span className="text-slate-400">�</span>
+                           <span className="text-slate-400">-</span>
                           ) : draft ? (
                            <select
                             value={draft.counterpartyAccountId ?? ''}
@@ -5500,7 +5500,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                              return <span title={rateLabel}>{rateNumber}</span>;
                             })()
                            ) : (
-                            <span className="text-slate-400">�</span>
+                            <span className="text-slate-400">-</span>
                            )
                           ) : draft ? (
                            (() => {
@@ -5632,7 +5632,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           ) : entry.commission ? (
                            <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%</>
                           ) : (
-                           <span className="text-slate-400">�</span>
+                           <span className="text-slate-400">-</span>
                           )}
                          </td>
                         );
@@ -5702,7 +5702,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        )}
                        {entry.chargesPayer && (
                         <span className="text-slate-500">
-                         � {t('charges_payer_placeholder')}:{' '}
+                         {t('charges_payer_placeholder')}:{' '}
                          {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
                         </span>
                        )}
@@ -5964,7 +5964,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 ? txFromQuery
                 : transactionForm.accountFromId
                   ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
-                    ' � ' +
+                    ' · ' +
                     (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
                   : ''
               }
@@ -5995,7 +5995,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   }}
                   className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
                  >
-                  {account.clientName} � {account.currencyCode}
+                  {account.clientName} · {account.currencyCode}
                  </li>
                 ))}
                {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
@@ -6018,7 +6018,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ? txToQuery
                   : transactionForm.accountToId
                     ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
-                      ' � ' +
+                      ' · ' +
                       (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
                     : ''
                 }
@@ -6049,7 +6049,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     }}
                     className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
                    >
-                    {account.clientName} � {account.currencyCode}
+                    {account.clientName} · {account.currencyCode}
                    </li>
                   ))}
                  {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
@@ -6744,7 +6744,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                       placeholder={t('transaction_description_placeholder')}
                      />
                     ) : (
-                     txn.description || <span className="text-slate-400">�</span>
+                     txn.description || <span className="text-slate-400">-</span>
                     )}
                    </td>
                   ) : null}
@@ -7028,7 +7028,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   {transactionTableSettings.columns.charges ? (
                    <td className="px-4 py-3 text-slate-700">
                     {txn.isAdjustment ? (
-                     <span className="text-slate-400">�</span>
+                     <span className="text-slate-400">-</span>
                     ) : isEditingRow && draft ? (
                      (() => {
                       const isZero = parseFloat(draft.charges) === 0;
@@ -7124,7 +7124,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                       {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
                      </div>
                     ) : (
-                     <span className="text-slate-400">�</span>
+                     <span className="text-slate-400">-</span>
                     )}
                    </td>
                   ) : null}
@@ -7190,7 +7190,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         ))}
                        </div>
                       ) : (
-                       <span className="text-slate-400">�</span>
+                       <span className="text-slate-400">-</span>
                       );
                      })()
                     )}
@@ -7399,7 +7399,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                key={currency.id}
                value={currency.id}
               >
-               {currency.code} {currency.symbol ? `(${currency.symbol})` : ''} � {currency.name}
+               {currency.code} {currency.symbol ? `(${currency.symbol})` : ''} · {currency.name}
               </option>
              ))}
             </select>
