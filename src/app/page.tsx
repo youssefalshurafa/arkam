@@ -995,9 +995,16 @@ function AuthenticatedHome() {
 
  function formatRateValue(value: number): string {
   if (!Number.isFinite(value)) {
-   return '1';
+   return '1.00';
   }
-  return parseFloat(value.toFixed(6)).toString();
+  const trimmed = parseFloat(value.toFixed(6));
+  // Always show at least 2 decimal places
+  const str = trimmed.toString();
+  const dotIdx = str.indexOf('.');
+  if (dotIdx === -1) return str + '.00';
+  const decimals = str.length - dotIdx - 1;
+  if (decimals < 2) return str + '0'.repeat(2 - decimals);
+  return str;
  }
 
  function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: number): LedgerTransactionDraft {
@@ -2194,8 +2201,13 @@ function AuthenticatedHome() {
    { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
    { key: 'direction', header: t('direction'), cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming') },
    { key: 'type', header: t('transaction_type'), cell: (e) => t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange') },
-   { key: 'amount', header: t('amount'), isNum: true, cell: (e) => e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals }) },
-   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => e.exchangeRate.toFixed(pdfSettings.decimals) },
+   {
+    key: 'amount',
+    header: t('amount'),
+    isNum: true,
+    cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+   },
+   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => formatRateValue(e.exchangeRate) },
    { key: 'commission', header: t('commission'), isNum: true, cell: (e) => e.commission.toFixed(pdfSettings.decimals) },
    {
     key: 'netChange',
@@ -2277,6 +2289,9 @@ function AuthenticatedHome() {
  td.num { font-variant-numeric: tabular-nums; }
  th.num { }
  tr:last-child td { border-bottom: none; }
+ .final-balance { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 16px; padding: 12px 20px; border: 2px solid #1e293b; border-radius: 6px; background: #f8fafc; }
+ .final-balance .fb-label { font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; color: #1e293b; }
+ .final-balance .fb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: 700; font-variant-numeric: tabular-nums; }
  .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
 </style>
 </head>
@@ -2298,6 +2313,10 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
   ${rows}
  </tbody>
 </table>
+<div class="final-balance">
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencyCode}</span>
+ <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
+</div>
 ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
@@ -4684,7 +4703,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className="px-4 py-3 text-slate-700"
+                          className={`px-4 py-3 font-semibold ${entry.direction === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {isClientLedgerEditMode && draft ? (
                            <input
