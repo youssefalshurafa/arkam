@@ -2360,10 +2360,6 @@ function AuthenticatedHome() {
  }
 
  function onToggleTransactionSelection(transactionId: number) {
-  if (!isTransactionsEditMode) {
-   return;
-  }
-
   setSelectedTransactionIds((current) => {
    const next = new Set(current);
    if (next.has(transactionId)) {
@@ -2376,10 +2372,6 @@ function AuthenticatedHome() {
  }
 
  function onToggleSelectAllTransactions() {
-  if (!isTransactionsEditMode) {
-   return;
-  }
-
   setSelectedTransactionIds((current) => {
    const visibleIds = paginatedTransactions.map((transaction) => transaction.id);
    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => current.has(id));
@@ -2956,7 +2948,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   setShowTransactionTableSettingsModal(false);
  };
 
- const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 1; // +1 for the actions column
+ const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 2; // +1 actions col, +1 checkbox col
 
  const overviewCards = [
   { label: t('overview_currencies'), value: enabledCurrencies.length },
@@ -6240,10 +6232,37 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             <button
              type="button"
              onClick={openTransactionTableSettingsModal}
-             className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+             title={t('transactions_more_settings')}
+             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
             >
-             {t('transactions_more_settings')}
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle
+               cx="12"
+               cy="12"
+               r="3"
+              />
+             </svg>
             </button>
+            {selectedTransactionIds.size > 0 ? (
+             <button
+              type="button"
+              onClick={() => void onDeleteSelectedTransactions()}
+              className="cursor-pointer rounded border border-red-600 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+             >
+              {t('delete')} ({selectedTransactionIds.size})
+             </button>
+            ) : null}
             <button
              type="button"
              onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
@@ -6283,6 +6302,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
           <div className={tableWrapClassName}>
            <table className="w-full text-sm">
             <colgroup>
+             <col className="w-8" />
              <col className="w-10" />
              {transactionTableSettings.columns.created ? <col className="w-[10%]" /> : null}
              {transactionTableSettings.columns.description ? <col className="w-[15%]" /> : null}
@@ -6294,6 +6314,15 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             </colgroup>
             <thead className="bg-slate-100 text-slate-700">
              <tr>
+              <th className="px-2 py-3 w-8">
+               <input
+                type="checkbox"
+                checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
+                onChange={onToggleSelectAllTransactions}
+                aria-label="Select all"
+                className="h-4 w-4 cursor-pointer rounded border-slate-300"
+               />
+              </th>
               <th className="px-2 py-3 w-10" />
               {transactionTableSettings.columns.created ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th> : null}
               {transactionTableSettings.columns.description ? (
@@ -6347,6 +6376,15 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
                 return (
                  <>
+                  <td className="px-2 py-3 align-middle w-8">
+                   <input
+                    type="checkbox"
+                    checked={selectedTransactionIds.has(txn.id)}
+                    onChange={() => onToggleTransactionSelection(txn.id)}
+                    aria-label={`Select transaction ${txn.id}`}
+                    className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                   />
+                  </td>
                   <td className="px-2 py-3 align-top">
                    {isEditingRow ? (
                     <div className="flex flex-col items-center gap-1">
