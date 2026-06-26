@@ -112,6 +112,12 @@ type Transaction = {
  createdAt: string;
 };
 
+type TransactionTableRow = Transaction & {
+ adjustmentId?: number;
+ isAdjustment?: boolean;
+ adjustmentDirection?: 'debit' | 'credit';
+};
+
 type TransactionForm = {
  accountFromId: number | null;
  accountToId: number | null;
@@ -155,10 +161,13 @@ type TransactionUpdateInput = {
 
 type TransactionTableDraft = {
  transactionId: number;
+ adjustmentId?: number;
+ isAdjustment?: boolean;
  accountFromId: number | null;
  accountToId: number | null;
  currencyId: number | null;
  type: string;
+ adjustmentDirection?: 'debit' | 'credit';
  amount: string;
  exchangeRateFrom: string;
  commissionFrom: string;
@@ -995,16 +1004,59 @@ function AuthenticatedHome() {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
  }, [ledgerColumnOrder]);
 
- useEffect(() => {
-  const transactionIds = new Set(transactions.map((transaction) => transaction.id));
-  setSelectedTransactionIds((current) => new Set([...current].filter((id) => transactionIds.has(id))));
- }, [transactions]);
+ const transactionTableRows = useMemo<TransactionTableRow[]>(() => {
+  const adjustmentRows = adjustments.map((adjustment) => {
+   const account = clientAccounts.find((currentAccount) => currentAccount.id === adjustment.accountId);
 
- const totalTransactionPages = Math.max(1, Math.ceil(transactions.length / transactionsPageSize));
+   return {
+    id: -adjustment.id,
+    adjustmentId: adjustment.id,
+    isAdjustment: true,
+    adjustmentDirection: adjustment.direction,
+    accountFromId: adjustment.accountId,
+    clientFromName: account?.clientName || '',
+    accountFromCurrencyCode: account?.currencyCode || '',
+    accountFromCurrencySymbol: account?.currencySymbol || '',
+    accountToId: 0,
+    clientToName: '',
+    accountToCurrencyCode: '',
+    accountToCurrencySymbol: '',
+    currencyId: adjustment.currencyId ?? account?.currencyId ?? 0,
+    currencyCode: adjustment.currencyCode || account?.currencyCode || '',
+    currencySymbol: adjustment.currencySymbol || account?.currencySymbol || '',
+    amount: adjustment.amount,
+    type: 'adjustment',
+    exchangeRateFrom: adjustment.exchangeRate || 1,
+    commissionFrom: 0,
+    exchangeRateTo: 1,
+    commissionTo: 0,
+    exchangeRateFromReversed: adjustment.exchangeRateReversed ? 1 : 0,
+    exchangeRateToReversed: 0,
+    charges: 0,
+    chargesCurrencyId: null,
+    chargesCurrencyCode: null,
+    chargesCurrencySymbol: null,
+    chargesPayer: '',
+    chargesExchangeRate: 1,
+    chargesDescription: '',
+    description: adjustment.description,
+    createdAt: adjustment.createdAt,
+   };
+  });
+
+  return [...transactions, ...adjustmentRows].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+ }, [adjustments, clientAccounts, transactions]);
+
+ useEffect(() => {
+  const transactionIds = new Set(transactionTableRows.map((transaction) => transaction.id));
+  setSelectedTransactionIds((current) => new Set([...current].filter((id) => transactionIds.has(id))));
+ }, [transactionTableRows]);
+
+ const totalTransactionPages = Math.max(1, Math.ceil(transactionTableRows.length / transactionsPageSize));
  const paginatedTransactions = useMemo(() => {
   const start = (transactionsPage - 1) * transactionsPageSize;
-  return transactions.slice(start, start + transactionsPageSize);
- }, [transactions, transactionsPage, transactionsPageSize]);
+  return transactionTableRows.slice(start, start + transactionsPageSize);
+ }, [transactionTableRows, transactionsPage, transactionsPageSize]);
 
  useEffect(() => {
   setTransactionsPage((current) => Math.min(current, totalTransactionPages));
@@ -1126,24 +1178,28 @@ function AuthenticatedHome() {
   };
  }
 
- function buildTransactionTableDraft(transaction: Transaction): TransactionTableDraft {
+ function buildTransactionTableDraft(transaction: TransactionTableRow): TransactionTableDraft {
+  const isAdjustment = !!transaction.isAdjustment;
   const fromReversed = !!transaction.exchangeRateFromReversed;
   const toReversed = !!transaction.exchangeRateToReversed;
   return {
    transactionId: transaction.id,
+   adjustmentId: transaction.adjustmentId,
+   isAdjustment,
    accountFromId: transaction.accountFromId,
-   accountToId: transaction.accountToId,
+   accountToId: isAdjustment ? null : transaction.accountToId,
    currencyId: transaction.currencyId,
    type: transaction.type,
+   adjustmentDirection: transaction.adjustmentDirection,
    amount: String(transaction.amount),
    exchangeRateFrom: fromReversed ? formatRateValue(1 / transaction.exchangeRateFrom) : transaction.exchangeRateFrom.toFixed(2),
    commissionFrom: transaction.commissionFrom.toFixed(2),
-   exchangeRateTo: toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : transaction.exchangeRateTo.toFixed(2),
+   exchangeRateTo: isAdjustment ? '1.00' : toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : transaction.exchangeRateTo.toFixed(2),
    commissionTo: transaction.commissionTo.toFixed(2),
    charges: String(transaction.charges),
-   chargesCurrencyId: transaction.chargesCurrencyId,
-   chargesPayer: transaction.chargesPayer,
-   chargesExchangeRate: transaction.chargesExchangeRate.toFixed(2),
+   chargesCurrencyId: isAdjustment ? null : transaction.chargesCurrencyId,
+   chargesPayer: isAdjustment ? '' : transaction.chargesPayer,
+   chargesExchangeRate: isAdjustment ? '1.00' : transaction.chargesExchangeRate.toFixed(2),
    chargesDescription: transaction.chargesDescription,
    description: transaction.description,
    createdDate: transaction.createdAt.slice(0, 10),
@@ -1211,11 +1267,11 @@ function AuthenticatedHome() {
  function beginTransactionsEditMode() {
   const fromReversed: Record<number, boolean> = {};
   const toReversed: Record<number, boolean> = {};
-  transactions.forEach((transaction) => {
+  transactionTableRows.forEach((transaction) => {
    if (transaction.exchangeRateFromReversed) {
     fromReversed[transaction.id] = true;
    }
-   if (transaction.exchangeRateToReversed) {
+   if (!transaction.isAdjustment && transaction.exchangeRateToReversed) {
     toReversed[transaction.id] = true;
    }
   });
@@ -1244,7 +1300,7 @@ function AuthenticatedHome() {
    const existingDraft =
     current[transactionId] ??
     (() => {
-     const transaction = transactionMap.get(transactionId);
+     const transaction = transactionTableRowMap.get(transactionId);
      return transaction ? buildTransactionTableDraft(transaction) : null;
     })();
 
@@ -1268,12 +1324,12 @@ function AuthenticatedHome() {
    return existingDraft;
   }
 
-  const transaction = transactionMap.get(transactionId);
+  const transaction = transactionTableRowMap.get(transactionId);
   return transaction ? buildTransactionTableDraft(transaction) : null;
  }
 
  function onCancelTransactionTableRow(transactionId: number) {
-  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+  const transaction = transactionTableRowMap.get(transactionId);
   if (!transaction) {
    return;
   }
@@ -2076,8 +2132,32 @@ function AuthenticatedHome() {
   try {
    for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
     const draft = transactionTableDrafts[transactionId];
-    const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+    const transaction = transactionTableRowMap.get(transactionId);
     if (!draft || !transaction) continue;
+    if (draft.isAdjustment && draft.adjustmentId) {
+     const amount = parseFloat(draft.amount);
+     if (!draft.accountFromId || !draft.currencyId || !amount) {
+      setError(t('transaction_required'));
+      return;
+     }
+     const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
+     const selectedCurrency = currencyMap.get(draft.currencyId);
+     const account = clientAccountMap.get(draft.accountFromId);
+     await accountingApi.updateClientAdjustment({
+      id: draft.adjustmentId,
+      accountId: draft.accountFromId,
+      amount,
+      direction: draft.adjustmentDirection ?? 'debit',
+      currencyId: draft.currencyId,
+      currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+      currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+      exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+      exchangeRateReversed: !!tableRateFromReversed[transactionId],
+      description: draft.description,
+      createdAt: `${draft.createdDate} ${currentTime}`,
+     });
+     continue;
+    }
     const amount = parseFloat(draft.amount);
     if (!draft.accountFromId || !draft.accountToId || !draft.currencyId || !amount) {
      setError(t('transaction_required'));
@@ -2238,6 +2318,15 @@ function AuthenticatedHome() {
   }
  }
 
+ async function onDeleteTransactionTableRow(row: TransactionTableRow) {
+  if (row.isAdjustment && row.adjustmentId) {
+   await onDeleteAdjustment(row.adjustmentId);
+   return;
+  }
+
+  await onDeleteTransaction(row.id);
+ }
+
  function onToggleTransactionSelection(transactionId: number) {
   if (!isTransactionsEditMode) {
    return;
@@ -2294,7 +2383,11 @@ function AuthenticatedHome() {
 
   try {
    for (const transactionId of idsToDelete) {
-    await accountingApi.deleteTransaction(transactionId);
+    if (transactionId < 0) {
+     await accountingApi.deleteClientAdjustment(-transactionId);
+    } else {
+     await accountingApi.deleteTransaction(transactionId);
+    }
    }
    setSelectedTransactionIds(new Set());
    setError('');
@@ -2311,9 +2404,43 @@ function AuthenticatedHome() {
   }
 
   const draft = transactionTableDrafts[transactionId];
-  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+  const transaction = transactionTableRowMap.get(transactionId);
 
   if (!draft || !transaction) {
+   return;
+  }
+
+  if (draft.isAdjustment && draft.adjustmentId) {
+   const amount = parseFloat(draft.amount);
+
+   if (!draft.accountFromId || !draft.currencyId || !amount) {
+    setError(t('transaction_required'));
+    return;
+   }
+
+   const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
+   const selectedCurrency = currencyMap.get(draft.currencyId);
+   const account = clientAccountMap.get(draft.accountFromId);
+
+   try {
+    await accountingApi.updateClientAdjustment({
+     id: draft.adjustmentId,
+     accountId: draft.accountFromId,
+     amount,
+     direction: draft.adjustmentDirection ?? 'debit',
+     currencyId: draft.currencyId,
+     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+     exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+     exchangeRateReversed: !!tableRateFromReversed[transactionId],
+     description: draft.description,
+     createdAt: `${draft.createdDate} ${currentTime}`,
+    });
+    setError('');
+    await loadData();
+   } catch (e) {
+    setError(e instanceof Error ? e.message : t('error_failed_update'));
+   }
    return;
   }
 
@@ -2651,6 +2778,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
+ const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
  const selectedOrganizationClients = useMemo(
   () => (selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : []),
   [clients, selectedOrganizationForClients],
@@ -2698,7 +2826,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   { label: t('overview_currencies'), value: enabledCurrencies.length },
   { label: t('overview_organizations'), value: organizations.length },
   { label: t('overview_clients'), value: clients.length },
-  { label: t('overview_transactions'), value: transactions.length },
+  { label: t('overview_transactions'), value: transactionTableRows.length },
  ];
 
  const selectedClientLedgers: ClientAccountLedger[] = useMemo(() => {
@@ -2859,12 +2987,23 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const mutedPanelClassName = 'border border-gray-200 bg-gray-50 p-4';
  const tableWrapClassName = 'mt-3 overflow-x-auto border border-gray-200 bg-white';
  const transactionsPager =
-  transactions.length > 0 ? (
-   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-    <div className="text-sm text-slate-600">
-     Showing {(transactionsPage - 1) * transactionsPageSize + 1} - {Math.min(transactionsPage * transactionsPageSize, transactions.length)} of {transactions.length}
+  transactionTableRows.length > 0 ? (
+   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+    <div className="text-xs text-slate-600">
+     {(() => {
+      const from = (transactionsPage - 1) * transactionsPageSize + 1;
+      const to = Math.min(transactionsPage * transactionsPageSize, transactionTableRows.length);
+      if (language === 'ar') {
+       return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
+      }
+      if (language === 'fr') {
+       return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
+      }
+      return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
+     })()}
     </div>
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-1.5">
+     <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
      <select
       value={transactionsPageSize}
       onChange={(event) => {
@@ -2872,30 +3011,30 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        setTransactionsPageSize(nextSize);
        setTransactionsPage(1);
       }}
-      className="rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+      className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
      >
-      <option value={50}>50/page</option>
-      <option value={100}>100/page</option>
-      <option value={250}>250/page</option>
+      <option value={50}>50</option>
+      <option value={100}>100</option>
+      <option value={250}>250</option>
      </select>
      <button
       type="button"
       onClick={() => setTransactionsPage((current) => Math.max(1, current - 1))}
       disabled={transactionsPage <= 1}
-      className="rounded border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
-      Prev
+      {t('pagination_prev')}
      </button>
-     <span className="min-w-20 text-center text-sm font-semibold text-slate-700">
+     <span className="min-w-12 text-center text-xs font-semibold text-slate-700">
       {transactionsPage} / {totalTransactionPages}
      </span>
      <button
       type="button"
       onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, current + 1))}
       disabled={transactionsPage >= totalTransactionPages}
-      className="rounded border border-slate-300 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
-      Next
+      {t('pagination_next')}
      </button>
     </div>
    </div>
@@ -2990,62 +3129,62 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        isActive: false,
        onClick: () => navigateToSection('overview'),
       },
-      ...settingsTabs.map((item) => ({
-       id: `settings-${item.key}`,
-       label: item.label,
-       icon: item.icon,
-       isActive: settingsTab === item.key,
-       onClick: () => setSettingsTab(item.key),
+      ...settingsTabs.map((tab) => ({
+       id: tab.key,
+       label: tab.label,
+       icon: tab.icon,
+       isActive: settingsTab === tab.key,
+       onClick: () => {
+        navigateToSection('settings');
+        setSettingsTab(tab.key);
+       },
       })),
      ]
-   : navItems.map((item) => ({
-      id: item.key,
-      label: item.label,
-      icon: item.icon,
-      isActive: section === item.key || (section === 'organization-clients' && item.key === 'organizations') || (section === 'client-ledger' && item.key === 'clients'),
-      onClick: () => navigateToSection(item.key),
-     }));
-
- const activeSidebarItem = sidebarItems.find((item) => item.isActive) ?? sidebarItems[0];
+   : [
+      ...navItems.map((item) => ({
+       id: item.key,
+       label: item.label,
+       icon: item.icon,
+       isActive: section === item.key,
+       onClick: () => navigateToSection(item.key),
+      })),
+      {
+       id: 'settings',
+       label: t('settings_title'),
+       icon: 'settings',
+       isActive: false,
+       onClick: () => navigateToSection('settings'),
+      },
+     ];
 
  const organizationsSection = (
-  <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
-   <form
-    onSubmit={onOrganizationSubmit}
-    className={panelClassName}
-   >
-    <div className="flex items-center justify-between gap-3">
-     <div>
-      <h2 className="text-xl font-semibold">{organizationForm.id ? t('update_organization') : t('new_organization')}</h2>
-      <p className="mt-1 text-sm text-slate-600">{t('organizations_description')}</p>
-     </div>
-     {organizationForm.id ? (
-      <button
-       type="button"
-       onClick={() => setOrganizationForm(emptyOrganizationForm())}
-       className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      >
-       {t('cancel')}
-      </button>
-     ) : null}
-    </div>
+  <section className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+   <div className={panelClassName}>
+    <h2 className="text-xl font-semibold">{organizationForm.id ? t('update_organization') : t('new_organization')}</h2>
+    <p className="mt-1 text-sm text-slate-600">{t('organizations_description')}</p>
 
-    <label className="mt-5 block text-sm font-medium">{t('organization_name')}</label>
-    <input
-     value={organizationForm.name}
-     onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
-     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('organization_name_placeholder')}
-     required
-    />
-
-    <button
-     type="submit"
-     className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+    <form
+     onSubmit={(event) => void onOrganizationSubmit(event)}
+     className="mt-5"
     >
-     {organizationForm.id ? t('update_organization') : t('save_organization')}
-    </button>
-   </form>
+     <label className="block text-sm font-medium">{t('organization_name')}</label>
+     <input
+      type="text"
+      value={organizationForm.name}
+      onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
+      placeholder={t('organization_name_placeholder')}
+      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      required
+     />
+
+     <button
+      type="submit"
+      className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+     >
+      {organizationForm.id ? t('update_organization') : t('save_organization')}
+     </button>
+    </form>
+   </div>
 
    <div className={panelClassName}>
     <h2 className="text-xl font-semibold">{t('organizations_title')}</h2>
@@ -5246,57 +5385,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           className="px-4 py-3 text-slate-500"
                          >
                           {entry.isAdjustment ? (
-                           <div className="flex items-center gap-2">
-                            <span className="flex-1">{entry.description || '-'}</span>
-                            {!isClientLedgerEditMode ? (
-                             <span className="flex shrink-0 items-center gap-1">
-                              <button
-                               type="button"
-                               title={t('edit')}
-                               onClick={() => {
-                                const adj = adjustments.find((a) => a.id === entry.adjustmentId);
-                                if (adj) openAdjustmentModal(ledger.accountId, adj);
-                               }}
-                               className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
-                              >
-                               <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden
-                               >
-                                <path d="M12 20h9" />
-                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                               </svg>
-                              </button>
-                              <button
-                               type="button"
-                               title={t('delete')}
-                               onClick={() => entry.adjustmentId && void onDeleteAdjustment(entry.adjustmentId)}
-                               className="rounded p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-                              >
-                               <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden
-                               >
-                                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-                               </svg>
-                              </button>
-                             </span>
-                            ) : null}
-                           </div>
+                           entry.description || '-'
                           ) : isClientLedgerEditMode && draft ? (
                            <input
                             type="text"
@@ -5563,8 +5652,53 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             onSubmit={onTransactionSubmit}
             className="mt-5 max-w-md"
            >
+            <label className="block text-sm font-medium">{t('transaction_type')}</label>
+            <select
+             value={transactionForm.type}
+             onChange={(event) =>
+              setTransactionForm((current) => ({
+               ...current,
+               type: event.target.value,
+               chargesPayer: event.target.value === 'adjustment' ? '' : current.chargesPayer,
+              }))
+             }
+             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+            >
+             <option value="exchange">{t('transaction_type_exchange')}</option>
+             <option value="transfer">{t('transaction_type_transfer')}</option>
+             <option value="adjustment">{t('transaction_type_adjustment')}</option>
+            </select>
+
+            {isAdjustmentTransaction ? (
+             <div className="mt-4">
+              <label className="block text-sm font-medium">{t('adjustment_direction')}</label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+               <button
+                type="button"
+                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'debit' }))}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                 transactionForm.adjustmentDirection === 'debit'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+               >
+                {t('adjustment_direction_debit')}
+               </button>
+               <button
+                type="button"
+                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'credit' }))}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                 transactionForm.adjustmentDirection === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+               >
+                {t('adjustment_direction_credit')}
+               </button>
+              </div>
+             </div>
+            ) : null}
+
             <label className="block text-sm font-medium">
-             {t('transaction_account_from')} <span className="text-red-500">*</span>
+             {isAdjustmentTransaction ? t('client') : t('transaction_account_from')} <span className="text-red-500">*</span>
             </label>
             <div className="relative mt-2">
              <input
@@ -5614,51 +5748,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               </ul>
              )}
             </div>
-
-            <label className="mt-4 block text-sm font-medium">{t('transaction_type')}</label>
-            <select
-             value={transactionForm.type}
-             onChange={(event) =>
-              setTransactionForm((current) => ({
-               ...current,
-               type: event.target.value,
-               chargesPayer: event.target.value === 'adjustment' ? '' : current.chargesPayer,
-              }))
-             }
-             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-            >
-             <option value="exchange">{t('transaction_type_exchange')}</option>
-             <option value="transfer">{t('transaction_type_transfer')}</option>
-             <option value="adjustment">{t('transaction_type_adjustment')}</option>
-            </select>
-
-            {isAdjustmentTransaction ? (
-             <div className="mt-4">
-              <label className="block text-sm font-medium">{t('adjustment_direction')}</label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-               <button
-                type="button"
-                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'debit' }))}
-                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                 transactionForm.adjustmentDirection === 'debit'
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-               >
-                {t('adjustment_direction_debit')}
-               </button>
-               <button
-                type="button"
-                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'credit' }))}
-                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                 transactionForm.adjustmentDirection === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                }`}
-               >
-                {t('adjustment_direction_credit')}
-               </button>
-              </div>
-             </div>
-            ) : null}
 
             {!isAdjustmentTransaction ? (
              <>
@@ -6245,6 +6334,35 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        />
                       ) : null}
                      </div>
+                    ) : txn.isAdjustment ? (
+                     <>
+                      {(() => {
+                       const fromAccount = clientAccountMap.get(txn.accountFromId);
+                       const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
+
+                       return fromClient ? (
+                        <button
+                         type="button"
+                         onClick={() => openClientLedger(fromClient, 'clients')}
+                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                        >
+                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </button>
+                       ) : (
+                        <div>
+                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </div>
+                       );
+                      })()}
+                      {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 && txn.currencyCode !== txn.accountFromCurrencyCode ? (
+                       <div className="text-xs text-slate-500">
+                        {t('transaction_exchange_rate')}:{' '}
+                        {txn.exchangeRateFromReversed
+                         ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
+                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
+                       </div>
+                      ) : null}
+                     </>
                     ) : (
                      <>
                       {(() => {
@@ -6279,7 +6397,28 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ) : null}
                   {transactionTableSettings.columns.accountTo ? (
                    <td className="px-4 py-3 font-medium text-slate-900">
-                    {isTransactionsEditMode && draft ? (
+                    {isTransactionsEditMode && draft && txn.isAdjustment ? (
+                     <div className="grid grid-cols-2 gap-2">
+                      <button
+                       type="button"
+                       onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'debit' })}
+                       className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                        draft.adjustmentDirection === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                       }`}
+                      >
+                       {t('adjustment_direction_debit_short')}
+                      </button>
+                      <button
+                       type="button"
+                       onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'credit' })}
+                       className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                        draft.adjustmentDirection === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                       }`}
+                      >
+                       {t('adjustment_direction_credit_short')}
+                      </button>
+                     </div>
+                    ) : isTransactionsEditMode && draft ? (
                      <div className="space-y-2">
                       <select
                        value={draft.accountToId ?? ''}
@@ -6340,6 +6479,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        />
                       ) : null}
                      </div>
+                    ) : txn.isAdjustment ? (
+                     <div>{t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')}</div>
                     ) : (
                      <>
                       {(() => {
@@ -6409,7 +6550,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ) : null}
                   {transactionTableSettings.columns.charges ? (
                    <td className="px-4 py-3 text-slate-700">
-                    {isTransactionsEditMode && draft ? (
+                    {txn.isAdjustment ? (
+                     <span className="text-slate-400">—</span>
+                    ) : isTransactionsEditMode && draft ? (
                      (() => {
                       const isZero = parseFloat(draft.charges) === 0;
                       const expanded = expensesExpandedTxns.has(txn.id);
@@ -6510,116 +6653,141 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ) : null}
                   {transactionTableSettings.columns.commission ? (
                    <td className="px-4 py-3 text-slate-600">
-                    {isTransactionsEditMode && draft
-                     ? (() => {
-                        const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
-                        const expanded = commissionExpandedTxns.has(txn.id);
-                        if (bothZero && !expanded) {
-                         return (
-                          <div className="flex items-center gap-2">
-                           <button
-                            type="button"
-                            onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                            className="text-sm text-blue-600 hover:underline"
-                           >
-                            + {t('add_commission')}
-                           </button>
-                           <button
-                            type="button"
-                            onClick={() => onDeleteTransaction(txn.id)}
-                            className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                            title={t('delete')}
-                           >
-                            <svg
-                             className="h-4 w-4"
-                             viewBox="0 0 24 24"
-                             fill="none"
-                             stroke="currentColor"
-                             strokeWidth={1.8}
-                             strokeLinecap="round"
-                             strokeLinejoin="round"
-                             aria-hidden
-                            >
-                             <polyline points="3 6 5 6 21 6" />
-                             <path d="M19 6l-1 14H6L5 6" />
-                             <path d="M10 11v6M14 11v6" />
-                             <path d="M9 6V4h6v2" />
-                            </svg>
-                            <span className="text-xs font-semibold">{t('delete')}</span>
-                           </button>
-                          </div>
-                         );
-                        }
-                        return (
-                         <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                           <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
-                           <input
-                            type="text"
-                            inputMode="decimal"
-                            dir="ltr"
-                            value={draft.commissionFrom}
-                            onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
-                            className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                            placeholder="0"
-                           />
-                           <span className="text-xs text-slate-400">%</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                           <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
-                           <input
-                            type="text"
-                            inputMode="decimal"
-                            dir="ltr"
-                            value={draft.commissionTo}
-                            onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
-                            className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                            placeholder="0"
-                           />
-                           <span className="text-xs text-slate-400">%</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                           <button
-                            type="button"
-                            onClick={() => onDeleteTransaction(txn.id)}
-                            className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
-                            title={t('delete')}
-                           >
-                            <svg
-                             className="h-4 w-4"
-                             viewBox="0 0 24 24"
-                             fill="none"
-                             stroke="currentColor"
-                             strokeWidth={1.8}
-                             strokeLinecap="round"
-                             strokeLinejoin="round"
-                             aria-hidden
-                            >
-                             <polyline points="3 6 5 6 21 6" />
-                             <path d="M19 6l-1 14H6L5 6" />
-                             <path d="M10 11v6M14 11v6" />
-                             <path d="M9 6V4h6v2" />
-                            </svg>
-                            <span className="text-xs font-semibold">{t('delete')}</span>
-                           </button>
-                          </div>
-                         </div>
-                        );
-                       })()
-                     : (() => {
-                        const parts: string[] = [];
-                        if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
-                        if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
-                        return parts.length > 0 ? (
-                         <div className="space-y-0.5 text-xs">
-                          {parts.map((p, i) => (
-                           <div key={i}>{p}</div>
-                          ))}
-                         </div>
-                        ) : (
-                         <span className="text-slate-400">—</span>
-                        );
-                       })()}
+                    {isTransactionsEditMode && txn.isAdjustment ? (
+                     <button
+                      type="button"
+                      onClick={() => void onDeleteTransactionTableRow(txn)}
+                      className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
+                      title={t('delete')}
+                     >
+                      <svg
+                       className="h-4 w-4"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth={1.8}
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <polyline points="3 6 5 6 21 6" />
+                       <path d="M19 6l-1 14H6L5 6" />
+                       <path d="M10 11v6M14 11v6" />
+                       <path d="M9 6V4h6v2" />
+                      </svg>
+                     </button>
+                    ) : isTransactionsEditMode && draft ? (
+                     (() => {
+                      const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
+                      const expanded = commissionExpandedTxns.has(txn.id);
+                      if (bothZero && !expanded) {
+                       return (
+                        <div className="flex items-center gap-2">
+                         <button
+                          type="button"
+                          onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
+                          className="text-sm text-blue-600 hover:underline"
+                         >
+                          + {t('add_commission')}
+                         </button>
+                         <button
+                          type="button"
+                          onClick={() => void onDeleteTransactionTableRow(txn)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
+                          title={t('delete')}
+                         >
+                          <svg
+                           className="h-4 w-4"
+                           viewBox="0 0 24 24"
+                           fill="none"
+                           stroke="currentColor"
+                           strokeWidth={1.8}
+                           strokeLinecap="round"
+                           strokeLinejoin="round"
+                           aria-hidden
+                          >
+                           <polyline points="3 6 5 6 21 6" />
+                           <path d="M19 6l-1 14H6L5 6" />
+                           <path d="M10 11v6M14 11v6" />
+                           <path d="M9 6V4h6v2" />
+                          </svg>
+                          <span className="text-xs font-semibold">{t('delete')}</span>
+                         </button>
+                        </div>
+                       );
+                      }
+                      return (
+                       <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                         <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
+                         <input
+                          type="text"
+                          inputMode="decimal"
+                          dir="ltr"
+                          value={draft.commissionFrom}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
+                          className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          placeholder="0"
+                         />
+                         <span className="text-xs text-slate-400">%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                         <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
+                         <input
+                          type="text"
+                          inputMode="decimal"
+                          dir="ltr"
+                          value={draft.commissionTo}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
+                          className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          placeholder="0"
+                         />
+                         <span className="text-xs text-slate-400">%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                         <button
+                          type="button"
+                          onClick={() => void onDeleteTransactionTableRow(txn)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded border-2 border-red-700 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-800"
+                          title={t('delete')}
+                         >
+                          <svg
+                           className="h-4 w-4"
+                           viewBox="0 0 24 24"
+                           fill="none"
+                           stroke="currentColor"
+                           strokeWidth={1.8}
+                           strokeLinecap="round"
+                           strokeLinejoin="round"
+                           aria-hidden
+                          >
+                           <polyline points="3 6 5 6 21 6" />
+                           <path d="M19 6l-1 14H6L5 6" />
+                           <path d="M10 11v6M14 11v6" />
+                           <path d="M9 6V4h6v2" />
+                          </svg>
+                          <span className="text-xs font-semibold">{t('delete')}</span>
+                         </button>
+                        </div>
+                       </div>
+                      );
+                     })()
+                    ) : (
+                     (() => {
+                      const parts: string[] = [];
+                      if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
+                      if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
+                      return parts.length > 0 ? (
+                       <div className="space-y-0.5 text-xs">
+                        {parts.map((p, i) => (
+                         <div key={i}>{p}</div>
+                        ))}
+                       </div>
+                      ) : (
+                       <span className="text-slate-400">—</span>
+                      );
+                     })()
+                    )}
                    </td>
                   ) : null}
                  </>
@@ -6627,7 +6795,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                })()}
               </tr>
              ))}
-             {transactions.length === 0 ? (
+             {transactionTableRows.length === 0 ? (
               <tr>
                <td
                 className="px-4 py-6 text-slate-500"
