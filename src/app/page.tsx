@@ -851,7 +851,9 @@ function AuthenticatedHome() {
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
- const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
+ const [editingLedgerRowKeys, setEditingLedgerRowKeys] = useState<Set<string>>(new Set());
+ const [selectedLedgerEntryKeys, setSelectedLedgerEntryKeys] = useState<Set<string>>(new Set());
+ const [showLedgerSettingsModal, setShowLedgerSettingsModal] = useState(false);
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
@@ -875,6 +877,11 @@ function AuthenticatedHome() {
  const [isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen] = useState(false);
  const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
+ const [dragLedgerRowKey, setDragLedgerRowKey] = useState<string | null>(null);
+ const [dragOverLedgerRowKey, setDragOverLedgerRowKey] = useState<string | null>(null);
+ const [dragOverLedgerHalf, setDragOverLedgerHalf] = useState<'top' | 'bottom'>('bottom');
+ const dragLedgerFromHandle = useRef(false);
+ const [manualLedgerRowOrder, setManualLedgerRowOrder] = useState<Record<number, string[]>>({});
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({
   created: true,
@@ -1134,7 +1141,6 @@ function AuthenticatedHome() {
 
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients') {
   setClientLedgerBackSection(origin);
-  setIsClientLedgerEditMode(false);
   setLedgerTransactionDrafts({});
   setSelectedClientForLedger(client);
   const firstAccount = clientAccounts.find((account) => account.clientId === client.id);
@@ -1258,42 +1264,6 @@ function AuthenticatedHome() {
     },
    };
   });
- }
-
- function beginClientLedgerEditMode() {
-  const nextDrafts: Record<string, LedgerTransactionDraft> = {};
-  const nextReversed: Record<string, boolean> = {};
-
-  selectedClientLedgers.forEach((ledger) => {
-   ledger.entries.forEach((entry) => {
-    const transaction = transactions.find((currentTransaction) => currentTransaction.id === entry.transactionId);
-    const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-    if (!transaction || nextDrafts[draftKey]) {
-     return;
-    }
-
-    nextDrafts[draftKey] = buildLedgerTransactionDraft(transaction, ledger.accountId);
-    const isOutgoing = transaction.accountFromId === ledger.accountId;
-    const reversed = isOutgoing ? transaction.exchangeRateFromReversed : transaction.exchangeRateToReversed;
-    if (reversed) {
-     nextReversed[draftKey] = true;
-    }
-   });
-  });
-
-  setLedgerTransactionDrafts(nextDrafts);
-  setLedgerRateReversed(nextReversed);
-  setLedgerCommissionExpandedEntries(new Set());
-  setLedgerStartingBalanceDrafts({});
-  setIsClientLedgerEditMode(true);
- }
-
- function cancelClientLedgerEditMode() {
-  setLedgerTransactionDrafts({});
-  setLedgerCommissionExpandedEntries(new Set());
-  setLedgerStartingBalanceDrafts({});
-  setLedgerRateReversed({});
-  setIsClientLedgerEditMode(false);
  }
 
  function beginTransactionsEditMode() {
@@ -1454,65 +1424,54 @@ function AuthenticatedHome() {
   }));
  }
 
- async function onSaveAllLedgerTransactions() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
+ async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
+  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
+  if (!ledgerTransactionDrafts[draftKey]) {
+   setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(draftKey); return n; });
    return;
   }
+  await onSaveLedgerTransaction(transactionId, ledgerAccountId);
+  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(draftKey); return n; });
+  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; delete n[draftKey]; return n; });
+ }
 
-  try {
-   for (const [accountId, value] of Object.entries(ledgerStartingBalanceDrafts)) {
-    await accountingApi.updateClientAccountStartingBalance({ accountId: Number(accountId), startingBalance: parseFloat(value) || 0 });
-   }
-
-   for (const draftKey of Object.keys(ledgerTransactionDrafts)) {
-    const draft = ledgerTransactionDrafts[draftKey];
-    const transaction = transactions.find((currentTransaction) => currentTransaction.id === draft.transactionId);
-    if (!draft || !transaction) continue;
-
-    const amount = parseFloat(draft.amount);
-    const rawBulkRate = parseFloat(draft.exchangeRate) || 1;
-    const exchangeRate = ledgerRateReversed[draftKey] ? 1 / rawBulkRate : rawBulkRate;
-    const commission = parseFloat(draft.commission) || 0;
-
-    if (!draft.counterpartyAccountId || !amount) {
-     setError(t('transaction_required'));
-     return;
-    }
-
-    const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
-    const createdAt = `${draft.createdDate} ${currentTime}`;
-    const payload: TransactionUpdateInput = {
-     id: transaction.id,
-     accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
-     accountToId: draft.direction === 'outgoing' ? draft.counterpartyAccountId : draft.ledgerAccountId,
-     currencyId: transaction.currencyId,
-     amount,
-     type: draft.type,
-     exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
-     commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
-     exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
-     commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
-     exchangeRateFromReversed: draft.direction === 'outgoing' ? (ledgerRateReversed[draftKey] ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
-     exchangeRateToReversed: draft.direction === 'incoming' ? (ledgerRateReversed[draftKey] ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
-     charges: transaction.charges,
-     chargesCurrencyId: transaction.chargesCurrencyId,
-     chargesPayer: transaction.chargesPayer,
-     chargesExchangeRate: transaction.chargesExchangeRate,
-     chargesDescription: transaction.chargesDescription,
-     description: draft.description,
-     createdAt,
-    };
-
-    await accountingApi.updateTransaction(payload);
-   }
-
-   setError('');
-   cancelClientLedgerEditMode();
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
+ async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
+  const key = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
+  if (entry.isAdjustment && entry.adjustmentId) {
+   await onDeleteAdjustment(entry.adjustmentId);
+  } else {
+   await onDeleteTransaction(entry.transactionId);
   }
+  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
+  setSelectedLedgerEntryKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
+ }
+
+ function onToggleLedgerEntrySelection(key: string) {
+  setSelectedLedgerEntryKeys((prev) => {
+   const next = new Set(prev);
+   if (next.has(key)) next.delete(key); else next.add(key);
+   return next;
+  });
+ }
+
+ async function onDeleteSelectedLedgerEntries() {
+  const keys = [...selectedLedgerEntryKeys];
+  for (const key of keys) {
+   const [txIdStr, accIdStr] = key.split(':');
+   const txId = Number(txIdStr);
+   const accId = Number(accIdStr);
+   const ledger = selectedClientLedgers.find((l) => l.accountId === accId);
+   const entry = ledger?.entries.find((e) => e.transactionId === txId);
+   if (!entry) continue;
+   if (entry.isAdjustment && entry.adjustmentId) {
+    await onDeleteAdjustment(entry.adjustmentId);
+   } else {
+    await onDeleteTransaction(entry.transactionId);
+   }
+  }
+  setSelectedLedgerEntryKeys(new Set());
+  setError('');
+  await loadData();
  }
 
  async function onOrganizationSubmit(event: FormEvent<HTMLFormElement>) {
@@ -2514,6 +2473,66 @@ function AuthenticatedHome() {
   }
  }
 
+ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) {
+  const dragSet = new Set(draggedKeys);
+  if (dragSet.has(targetKey)) return;
+  const currentOrder = manualLedgerRowOrder[accountId] ?? selectedClientLedgers.find((l) => l.accountId === accountId)?.entries.map((e) => `${e.transactionId}:${accountId}`) ?? [];
+  if (!currentOrder.includes(targetKey)) return;
+  const without = currentOrder.filter((k) => !dragSet.has(k));
+  const insertIdx = without.indexOf(targetKey);
+  if (insertIdx === -1) return;
+  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
+  const next = [...without.slice(0, insertAt), ...draggedKeys, ...without.slice(insertAt)];
+  setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: next }));
+  const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
+  if (!ledger || !accountingApi) return;
+  const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
+  try {
+   for (const draggedKey of draggedKeys) {
+    const entry = entryMap.get(draggedKey);
+    if (!entry) continue;
+    const pos = next.indexOf(draggedKey);
+    const neighborAbove = (() => { for (let i = pos - 1; i >= 0; i--) { if (!dragSet.has(next[i])) return entryMap.get(next[i]); } })();
+    const neighborBelow = (() => { for (let i = pos + 1; i < next.length; i++) { if (!dragSet.has(next[i])) return entryMap.get(next[i]); } })();
+    const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
+    const draggedDate = entry.createdAt.slice(0, 10);
+    if (!zoneDate || zoneDate === draggedDate) continue;
+    const newCreatedAt = zoneDate + entry.createdAt.slice(10);
+    if (entry.isAdjustment && entry.adjustmentId) {
+     const adj = adjustments.find((a) => a.id === entry.adjustmentId);
+     if (!adj) continue;
+     await accountingApi.updateClientAdjustment({
+      id: adj.id, accountId, amount: adj.amount, direction: adj.direction,
+      currencyId: adj.currencyId ?? clientAccounts.find((a) => a.id === accountId)?.currencyId ?? 0,
+      currencyCode: adj.currencyCode, currencySymbol: adj.currencySymbol,
+      exchangeRate: adj.exchangeRate, exchangeRateReversed: adj.exchangeRateReversed,
+      description: adj.description, createdAt: newCreatedAt,
+     });
+    } else {
+     const tx = transactions.find((t) => t.id === entry.transactionId);
+     if (!tx) continue;
+     await accountingApi.updateTransaction({
+      id: tx.id, accountFromId: tx.accountFromId, accountToId: tx.accountToId,
+      currencyId: tx.currencyId, amount: tx.amount, type: tx.type,
+      exchangeRateFrom: tx.exchangeRateFrom, commissionFrom: tx.commissionFrom,
+      exchangeRateTo: tx.exchangeRateTo, commissionTo: tx.commissionTo,
+      exchangeRateFromReversed: tx.exchangeRateFromReversed, exchangeRateToReversed: tx.exchangeRateToReversed,
+      charges: tx.charges, chargesCurrencyId: tx.chargesCurrencyId, chargesPayer: tx.chargesPayer,
+      chargesExchangeRate: tx.chargesExchangeRate, chargesDescription: tx.chargesDescription,
+      description: tx.description, createdAt: newCreatedAt,
+     });
+    }
+   }
+   setError('');
+   const orderToKeep = next;
+   await loadData();
+   setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: orderToKeep }));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+   setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: currentOrder }));
+  }
+ }
+
  function resolveCreatedAt(draftDate: string, originalCreatedAt: string): string {
   const originalDate = originalCreatedAt.slice(0, 10);
   if (draftDate === originalDate) {
@@ -3078,7 +3097,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         isChargesPayerThisAccount: false,
        })),
      )
-     .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+     .sort((left, right) => {
+      const dateDiff = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      const leftId = left.isAdjustment ? (left.adjustmentId ?? 0) : left.transactionId;
+      const rightId = right.isAdjustment ? (right.adjustmentId ?? 0) : right.transactionId;
+      return leftId - rightId;
+     });
 
     let runningBalance = account.startingBalance ?? 0;
     const entriesWithBalance = entries.map((entry) => {
@@ -3102,6 +3127,32 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
  }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
+
+ useEffect(() => {
+  setManualLedgerRowOrder((current) => {
+   let changed = false;
+   const next = { ...current };
+   for (const ledger of selectedClientLedgers) {
+    const currentOrder = current[ledger.accountId];
+    if (!currentOrder) continue;
+    const newKeys = ledger.entries.map((e) => `${e.transactionId}:${ledger.accountId}`);
+    const newKeySet = new Set(newKeys);
+    const currentKeySet = new Set(currentOrder);
+    const kept = currentOrder.filter((k) => newKeySet.has(k));
+    const added = newKeys.filter((k) => !currentKeySet.has(k));
+    const merged = [...kept, ...added];
+    if (merged.join(',') !== currentOrder.join(',')) {
+     next[ledger.accountId] = merged;
+     changed = true;
+    }
+   }
+   const activeIds = new Set(selectedClientLedgers.map((l) => l.accountId));
+   for (const id of Object.keys(next).map(Number)) {
+    if (!activeIds.has(id)) { delete next[id]; changed = true; }
+   }
+   return changed ? next : current;
+  });
+ }, [selectedClientLedgers]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -4887,67 +4938,56 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             : null}
            {selectedClientForLedger ? (
             <>
-             {isClientLedgerEditMode ? (
-              <>
-               <button
-                type="button"
-                onClick={() => void onSaveAllLedgerTransactions()}
-                className="cursor-pointer rounded border border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-               >
-                {t('save_changes')}
-               </button>
-               <button
-                type="button"
-                onClick={cancelClientLedgerEditMode}
-                className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-               >
-                {t('cancel')}
-               </button>
-              </>
+             {selectedLedgerEntryKeys.size > 0 ? (
+              <button
+               type="button"
+               onClick={() => void onDeleteSelectedLedgerEntries()}
+               className="cursor-pointer rounded border border-red-500 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+              >
+               {t('delete')} ({selectedLedgerEntryKeys.size})
+              </button>
              ) : null}
              <button
               type="button"
-              onClick={() => (isClientLedgerEditMode ? cancelClientLedgerEditMode() : beginClientLedgerEditMode())}
-              className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
-               isClientLedgerEditMode ? 'border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-              }`}
+              onClick={() => {
+               const targetLedger =
+                selectedClientLedgers.length === 1
+                 ? selectedClientLedgers[0]
+                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+               if (!targetLedger) return;
+               const today = new Date().toISOString().slice(0, 10);
+               const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
+               setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, cols: getStoredPdfCols(targetLedger.accountId) });
+              }}
+              className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
              >
-              {isClientLedgerEditMode ? t('client_ledger_done_editing') : t('client_ledger_edit_mode')}
+              {t('export_pdf')}
              </button>
-             {!isClientLedgerEditMode ? (
-              <button
-               type="button"
-               onClick={() => {
-                const targetLedger =
-                 selectedClientLedgers.length === 1
-                  ? selectedClientLedgers[0]
-                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-                if (!targetLedger) return;
-                const today = new Date().toISOString().slice(0, 10);
-                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
-                setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, cols: getStoredPdfCols(targetLedger.accountId) });
-               }}
-               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-               {t('export_pdf')}
-              </button>
-             ) : null}
-             {!isClientLedgerEditMode ? (
-              <button
-               type="button"
-               onClick={() => {
-                const targetLedger =
-                 selectedClientLedgers.length === 1
-                  ? selectedClientLedgers[0]
-                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-                if (!targetLedger) return;
-                openAdjustmentModal(targetLedger.accountId);
-               }}
-               className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
-              >
-               {t('adjustment_add')}
-              </button>
-             ) : null}
+             <button
+              type="button"
+              onClick={() => {
+               const targetLedger =
+                selectedClientLedgers.length === 1
+                 ? selectedClientLedgers[0]
+                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+               if (!targetLedger) return;
+               openAdjustmentModal(targetLedger.accountId);
+              }}
+              className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
+             >
+              {t('adjustment_add')}
+             </button>
+             <button
+              type="button"
+              title={t('nav_settings')}
+              onClick={() => setShowLedgerSettingsModal(true)}
+              className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+             >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <circle cx="12" cy="12" r="3" />
+               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+             </button>
             </>
            ) : null}
           </div>
@@ -4974,20 +5014,26 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               <div className="grid gap-3 sm:grid-cols-3">
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('starting_balance')}</p>
-                {isClientLedgerEditMode ? (
-                 <div className="mt-2">
-                  <input
-                   type="number"
-                   value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
-                   onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
-                   className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                  />
-                 </div>
-                ) : (
-                 <p className={`mt-2 text-xl font-bold ${ledger.startingBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {ledger.startingBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                 </p>
-                )}
+                <div className="mt-2">
+                 <input
+                  type="number"
+                  value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
+                  onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
+                  onBlur={async (event) => {
+                   if (!accountingApi) return;
+                   const value = parseFloat(event.target.value);
+                   if (!isNaN(value)) {
+                    try {
+                     await accountingApi.updateClientAccountStartingBalance({ accountId: ledger.accountId, startingBalance: value });
+                     await loadData();
+                    } catch (e) {
+                     setError(e instanceof Error ? e.message : t('error_failed_update'));
+                    }
+                   }
+                  }}
+                  className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                 />
+                </div>
                </div>
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
@@ -5006,53 +5052,36 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
              ) : (
               <div className={tableWrapClassName}>
-               {isClientLedgerEditMode ? (
-                <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</span>
-                  {orderedLedgerColumnOptions.map((column) => {
-                   const isVisible = ledgerColumnVisibility[column.key];
-
-                   return (
-                    <button
-                     key={column.key}
-                     type="button"
-                     onClick={() => toggleLedgerColumn(column.key)}
-                     aria-pressed={isVisible}
-                     className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-                      isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                     }`}
-                    >
-                     {column.label}
-                    </button>
-                   );
-                  })}
-                  <button
-                   type="button"
-                   onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
-                   aria-pressed={showLedgerCurrencySymbol}
-                   className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-                    showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                   }`}
-                  >
-                   {t('currency_symbol')}
-                  </button>
-                 </div>
-                </div>
-               ) : null}
                <table className="w-full text-sm">
                 <thead className="bg-slate-100 text-slate-700">
                  <tr>
+                  <th className="w-8 px-2 py-3">
+                   <input
+                    type="checkbox"
+                    checked={ledger.entries.length > 0 && ledger.entries.every((e) => selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)))}
+                    onChange={() => {
+                     const allKeys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+                     const allSelected = allKeys.every((k) => selectedLedgerEntryKeys.has(k));
+                     setSelectedLedgerEntryKeys(allSelected ? new Set() : new Set(allKeys));
+                    }}
+                    className="cursor-pointer"
+                   />
+                  </th>
+                  <th className="w-10 px-2 py-3"></th>
                   {orderedLedgerColumnOptions.map((column) => {
                    if (!ledgerColumnVisibility[column.key]) {
                     return null;
                    }
 
-                   const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} ${isClientLedgerEditMode ? 'cursor-move select-none' : ''}`;
+                   const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} cursor-move select-none`;
 
                    const headerContent = (
-                    <span className="inline-flex items-center gap-2">
-                     {isClientLedgerEditMode ? <span className={`text-[10px] ${draggedLedgerColumn === column.key ? 'opacity-60' : 'opacity-80'}`}>::</span> : null}
+                    <span className="inline-flex items-center gap-1.5">
+                     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden className={`shrink-0 text-slate-400 ${draggedLedgerColumn === column.key ? 'opacity-50' : 'opacity-70'}`}>
+                      <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
+                      <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                      <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
+                     </svg>
                      <span>{column.label}</span>
                     </span>
                    );
@@ -5062,11 +5091,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5076,11 +5105,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5090,11 +5119,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5104,11 +5133,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5118,11 +5147,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5132,11 +5161,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5146,11 +5175,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5160,11 +5189,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5174,11 +5203,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5188,11 +5217,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      return (
                       <th
                        key={column.key}
-                       draggable={isClientLedgerEditMode}
-                       onDragStart={isClientLedgerEditMode ? (event) => onLedgerColumnDragStart(event, column.key) : undefined}
-                       onDragOver={isClientLedgerEditMode ? (event) => event.preventDefault() : undefined}
-                       onDrop={isClientLedgerEditMode ? () => onLedgerColumnDrop(column.key) : undefined}
-                       onDragEnd={isClientLedgerEditMode ? () => setDraggedLedgerColumn(null) : undefined}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
                        className={headerClassName}
                       >
                        {headerContent}
@@ -5203,25 +5232,128 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                  </tr>
                 </thead>
                 <tbody>
-                 {ledger.entries.map((entry) => (
+                 {((() => {
+                   const order = manualLedgerRowOrder[ledger.accountId];
+                   if (!order) return ledger.entries;
+                   const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
+                   return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
+                  })()).map((entry) => (
                   <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
-                   <tr className="border-t border-slate-200 align-top">
+                   <tr
+                    draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                    onDragStart={(e) => {
+                     if (!dragLedgerFromHandle.current) { e.preventDefault(); return; }
+                     setDragLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                    }}
+                    onDragEnd={() => {
+                     dragLedgerFromHandle.current = false;
+                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     if (dragLedgerRowKey !== null && dragOverLedgerRowKey !== null && dragLedgerRowKey !== dragOverLedgerRowKey) {
+                      const keysToMove = selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.size > 1
+                       ? [...selectedLedgerEntryKeys].filter((k) => k.endsWith(`:${ledger.accountId}`))
+                       : [dragLedgerRowKey];
+                      void onLedgerRowDrop(keysToMove, dragOverLedgerRowKey, dragOverLedgerHalf, ledger.accountId);
+                     }
+                     setDragLedgerRowKey(null);
+                     setDragOverLedgerRowKey(null);
+                    }}
+                    onDragOver={(e) => {
+                     e.preventDefault();
+                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                     setDragOverLedgerHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
+                     setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                    }}
+                    onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
+                    className={`border-t border-slate-200 align-top transition-colors ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                   >
                     {(() => {
-                     const draft = isClientLedgerEditMode ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     const isEditingRow = editingLedgerRowKeys.has(rowKey);
+                     const draft = isEditingRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
 
-                     return orderedLedgerColumnOptions.map((column) => {
-                      if (!ledgerColumnVisibility[column.key]) {
-                       return null;
-                      }
+                     return (
+                      <>
+                       {/* checkbox */}
+                       <td className="px-2 py-3 align-middle w-8">
+                        <input
+                         type="checkbox"
+                         checked={selectedLedgerEntryKeys.has(rowKey)}
+                         onChange={() => onToggleLedgerEntrySelection(rowKey)}
+                         className="cursor-pointer"
+                        />
+                       </td>
+                       {/* actions */}
+                       <td className="px-2 py-3 align-top w-10">
+                        {isEditingRow ? (
+                         <div className="flex flex-col items-center gap-1">
+                          <button type="button" title={t('save_changes')}
+                           onClick={() => void onSaveLedgerRow(entry.transactionId, ledger.accountId)}
+                           className="rounded p-1 text-emerald-600 hover:bg-emerald-50">
+                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                          </button>
+                          <button type="button" title={t('cancel')}
+                           onClick={() => {
+                            setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(rowKey); return n; });
+                            setLedgerTransactionDrafts((prev) => { const n = { ...prev }; delete n[rowKey]; return n; });
+                           }}
+                           className="rounded p-1 text-slate-400 hover:bg-slate-100">
+                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                          </button>
+                          <button type="button" title={t('delete')}
+                           onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
+                           className="rounded p-1 text-red-500 hover:bg-red-50">
+                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
+                          </button>
+                         </div>
+                        ) : (
+                         <div className="flex items-center gap-0.5">
+                          <span
+                           className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                           title="Drag to reorder"
+                           onMouseDown={() => { dragLedgerFromHandle.current = true; }}
+                          >
+                           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                            <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
+                            <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                            <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
+                           </svg>
+                          </span>
+                          <button type="button" title={t('edit')}
+                           onClick={() => {
+                            const draftKey = rowKey;
+                            const transaction = transactions.find((tx) => tx.id === entry.transactionId);
+                           if (transaction && !ledgerTransactionDrafts[draftKey]) {
+                            const isOutgoing = transaction.accountFromId === ledger.accountId;
+                            setLedgerRateReversed((prev) => ({
+                             ...prev,
+                             ...(isOutgoing ? (transaction.exchangeRateFromReversed ? { [draftKey]: true } : {}) : (transaction.exchangeRateToReversed ? { [draftKey]: true } : {})),
+                            }));
+                            setLedgerTransactionDrafts((prev) => ({
+                             ...prev,
+                             [draftKey]: buildLedgerTransactionDraft(transaction, ledger.accountId),
+                            }));
+                           }
+                           setEditingLedgerRowKeys((prev) => new Set([...prev, draftKey]));
+                          }}
+                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                          </button>
+                         </div>
+                        )}
+                       </td>
+                       {orderedLedgerColumnOptions.map((column) => {
+                        if (!ledgerColumnVisibility[column.key]) {
+                         return null;
+                        }
 
-                      switch (column.key) {
+                        switch (column.key) {
                        case 'created':
                         return (
                          <td
                           key={column.key}
                           className="px-4 py-3 text-slate-500"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {draft ? (
                            <input
                             type="date"
                             value={draft.createdDate}
@@ -5241,7 +5373,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                          >
                           {entry.isAdjustment ? (
                            <span className="text-slate-400">�</span>
-                          ) : isClientLedgerEditMode && draft ? (
+                          ) : draft ? (
                            <select
                             value={draft.counterpartyAccountId ?? ''}
                             onChange={(event) =>
@@ -5289,7 +5421,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                            >
                             {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
                            </span>
-                          ) : isClientLedgerEditMode && draft ? (
+                          ) : draft ? (
                            <select
                             value={draft.direction}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
@@ -5315,7 +5447,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                          >
                           {entry.isAdjustment ? (
                            <span className="inline-flex rounded bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">{t('adjustment_label')}</span>
-                          ) : isClientLedgerEditMode && draft ? (
+                          ) : draft ? (
                            <select
                             value={draft.type}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
@@ -5335,7 +5467,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           key={column.key}
                           className={`px-4 py-3 font-semibold ${entry.direction === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {draft ? (
                            <input
                             type="text"
                             inputMode="decimal"
@@ -5370,7 +5502,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                            ) : (
                             <span className="text-slate-400">�</span>
                            )
-                          ) : isClientLedgerEditMode && draft ? (
+                          ) : draft ? (
                            (() => {
                             const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
                             const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
@@ -5469,7 +5601,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           key={column.key}
                           className="px-4 py-3 text-slate-600"
                          >
-                          {isClientLedgerEditMode && draft ? (
+                          {draft ? (
                            (() => {
                             const entryKey = `${entry.transactionId}:${ledger.accountId}`;
                             const isZero = parseFloat(draft.commission) === 0;
@@ -5532,7 +5664,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                          >
                           {entry.isAdjustment ? (
                            entry.description || '-'
-                          ) : isClientLedgerEditMode && draft ? (
+                          ) : draft ? (
                            <input
                             type="text"
                             value={draft.description}
@@ -5545,7 +5677,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                          </td>
                         );
                       }
-                     });
+                     })}
+                      </>
+                     );
                     })()}
                    </tr>
                    {entry.charges > 0 && (
@@ -5554,7 +5688,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      className="border-t border-dashed border-slate-200 bg-amber-50/60"
                     >
                      <td
-                      colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 1}
+                      colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3}
                       className="px-4 py-2"
                      >
                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
@@ -5581,30 +5715,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                  ))}
                 </tbody>
                </table>
-              </div>
-             )}
-             {isClientLedgerEditMode && (
-              <div className="mt-4 flex items-center gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-3">
-               <span className="text-xs font-medium text-slate-500">{t('decimal_places')}</span>
-               <div className="flex overflow-hidden rounded border border-slate-300 bg-white">
-                <button
-                 type="button"
-                 onClick={() => setLedgerDecimals((d) => Math.max(0, d - 1))}
-                 disabled={ledgerDecimals === 0}
-                 className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
-                >
-                 -
-                </button>
-                <span className="border-x border-slate-200 px-3 py-1.5 text-center text-sm font-semibold text-slate-800">{ledgerDecimals}</span>
-                <button
-                 type="button"
-                 onClick={() => setLedgerDecimals((d) => Math.min(6, d + 1))}
-                 disabled={ledgerDecimals === 6}
-                 className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
-                >
-                 +
-                </button>
-               </div>
               </div>
              )}
             </div>
@@ -7505,6 +7615,88 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        );
       })()
     : null}
+
+   {showLedgerSettingsModal ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowLedgerSettingsModal(false)}>
+     <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <h3 className="text-lg font-semibold text-slate-900">{t('nav_settings')}</h3>
+
+      <div className="mt-5 flex flex-col gap-5">
+       {/* Decimal places */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('decimal_places')}</p>
+        <div className="mt-2 flex overflow-hidden rounded border border-slate-300 bg-white w-fit">
+         <button
+          type="button"
+          onClick={() => setLedgerDecimals((d) => Math.max(0, d - 1))}
+          disabled={ledgerDecimals === 0}
+          className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
+         >
+          -
+         </button>
+         <span className="border-x border-slate-200 px-3 py-1.5 text-center text-sm font-semibold text-slate-800">{ledgerDecimals}</span>
+         <button
+          type="button"
+          onClick={() => setLedgerDecimals((d) => Math.min(6, d + 1))}
+          disabled={ledgerDecimals === 6}
+          className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
+         >
+          +
+         </button>
+        </div>
+       </div>
+
+       {/* Currency symbol toggle */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('currency_symbol')}</p>
+        <button
+         type="button"
+         onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
+         aria-pressed={showLedgerCurrencySymbol}
+         className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+          showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+         }`}
+        >
+         {t('currency_symbol')}
+        </button>
+       </div>
+
+       {/* Column visibility */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+         {orderedLedgerColumnOptions.map((column) => {
+          const isVisible = ledgerColumnVisibility[column.key];
+          return (
+           <button
+            key={column.key}
+            type="button"
+            onClick={() => toggleLedgerColumn(column.key)}
+            aria-pressed={isVisible}
+            className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+             isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+           >
+            {column.label}
+           </button>
+          );
+         })}
+        </div>
+       </div>
+      </div>
+
+      <div className="mt-5 flex justify-end">
+       <button
+        type="button"
+        onClick={() => setShowLedgerSettingsModal(false)}
+        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+       >
+        {t('cancel')}
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
 
    {/* Create Organization dialog */}
    {showCreateOrgDialog ? (
