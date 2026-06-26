@@ -6314,7 +6314,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              {paginatedTransactions.map((txn) => (
               <tr
                key={txn.id}
-               draggable={true}
+               draggable={!editingRowIds.has(txn.id)}
                onDragStart={(e) => {
                 if (!dragFromHandle.current) {
                  e.preventDefault();
@@ -6348,138 +6348,183 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 return (
                  <>
                   <td className="px-2 py-3 align-top">
-                   <div className="flex flex-col items-center gap-1">
-                    {/* drag handle — always visible */}
-                    <span
-                     className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                     title="Drag to reorder"
-                     onMouseDown={() => {
-                      dragFromHandle.current = true;
-                     }}
-                    >
-                     <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      aria-hidden
+                   {isEditingRow ? (
+                    <div className="flex flex-col items-center gap-1">
+                     <span
+                      className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                      title="Drag to reorder"
+                      onMouseDown={() => {
+                       dragFromHandle.current = true;
+                      }}
                      >
-                      <circle
-                       cx="9"
-                       cy="5"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="15"
-                       cy="5"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="9"
-                       cy="12"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="15"
-                       cy="12"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="9"
-                       cy="19"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="15"
-                       cy="19"
-                       r="1.5"
-                      />
-                     </svg>
-                    </span>
-                    {isEditingRow ? (
-                     <>
-                      <button
-                       type="button"
-                       title={t('save_changes')}
-                       onClick={() => void onSaveTransactionTableRow(txn.id)}
-                       className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                      <svg
+                       width="12"
+                       height="12"
+                       viewBox="0 0 24 24"
+                       fill="currentColor"
+                       aria-hidden
                       >
-                       <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                       >
-                        <polyline points="20 6 9 17 4 12" />
-                       </svg>
-                      </button>
-                      <button
-                       type="button"
-                       title={t('cancel')}
-                       onClick={() =>
-                        setEditingRowIds((prev) => {
-                         const next = new Set(prev);
-                         next.delete(txn.id);
-                         return next;
-                        })
-                       }
-                       className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                       <circle
+                        cx="9"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="19"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="19"
+                        r="1.5"
+                       />
+                      </svg>
+                     </span>
+                     <button
+                      type="button"
+                      title={t('save_changes')}
+                      onClick={() => void onSaveTransactionTableRow(txn.id)}
+                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="2"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
                       >
-                       <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                       >
-                        <line
-                         x1="18"
-                         y1="6"
-                         x2="6"
-                         y2="18"
-                        />
-                        <line
-                         x1="6"
-                         y1="6"
-                         x2="18"
-                         y2="18"
-                        />
-                       </svg>
-                      </button>
-                      <button
-                       type="button"
-                       title={t('delete')}
-                       onClick={() => void onDeleteTransactionTableRow(txn)}
-                       className="rounded p-1 text-red-500 hover:bg-red-50"
+                       <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                     </button>
+                     <button
+                      type="button"
+                      title={t('cancel')}
+                      onClick={() =>
+                       setEditingRowIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(txn.id);
+                        return next;
+                       })
+                      }
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="2"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
                       >
-                       <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                       >
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6l-1 14H6L5 6" />
-                        <path d="M10 11v6M14 11v6" />
-                        <path d="M9 6V4h6v2" />
-                       </svg>
-                      </button>
-                     </>
-                    ) : (
+                       <line
+                        x1="18"
+                        y1="6"
+                        x2="6"
+                        y2="18"
+                       />
+                       <line
+                        x1="6"
+                        y1="6"
+                        x2="18"
+                        y2="18"
+                       />
+                      </svg>
+                     </button>
+                     <button
+                      type="button"
+                      title={t('delete')}
+                      onClick={() => void onDeleteTransactionTableRow(txn)}
+                      className="rounded p-1 text-red-500 hover:bg-red-50"
+                     >
+                      <svg
+                       width="14"
+                       height="14"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="1.8"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <polyline points="3 6 5 6 21 6" />
+                       <path d="M19 6l-1 14H6L5 6" />
+                       <path d="M10 11v6M14 11v6" />
+                       <path d="M9 6V4h6v2" />
+                      </svg>
+                     </button>
+                    </div>
+                   ) : (
+                    <div className="flex items-center gap-0.5">
+                     <span
+                      className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                      title="Drag to reorder"
+                      onMouseDown={() => {
+                       dragFromHandle.current = true;
+                      }}
+                     >
+                      <svg
+                       width="12"
+                       height="12"
+                       viewBox="0 0 24 24"
+                       fill="currentColor"
+                       aria-hidden
+                      >
+                       <circle
+                        cx="9"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="19"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="19"
+                        r="1.5"
+                       />
+                      </svg>
+                     </span>
                      <button
                       type="button"
                       title={t('edit')}
@@ -6501,8 +6546,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
                       </svg>
                      </button>
-                    )}
-                   </div>
+                    </div>
+                   )}
                   </td>
                   {transactionTableSettings.columns.created ? (
                    <td className="px-4 py-3 text-slate-500">
