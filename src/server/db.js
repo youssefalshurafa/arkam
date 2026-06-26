@@ -324,6 +324,18 @@ async function updateClientAccountStartingBalance(app, { accountId, startingBala
     await query(`UPDATE ${schema}.client_accounts SET starting_balance = $1 WHERE id = $2`, [startingBalance ?? 0, accountId]);
 }
 
+async function updateClientAccount(app, { accountId, currencyId, startingBalance }) {
+    if (!accountId) {
+        throw new Error('Account id is required.');
+    }
+
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `UPDATE ${schema}.client_accounts SET currency_id = $1, starting_balance = $2 WHERE id = $3`,
+        [currencyId, startingBalance ?? 0, accountId],
+    );
+}
+
 async function deleteClientAccount(app, accountId) {
     const { schema } = await getSchemaInfo(app);
     await query(`DELETE FROM ${schema}.client_accounts WHERE id = $1`, [accountId]);
@@ -696,6 +708,7 @@ module.exports = {
     listClientAccounts,
     createClientAccount,
     updateClientAccountStartingBalance,
+    updateClientAccount,
     deleteClientAccount,
     listCurrencies,
     createCurrency,

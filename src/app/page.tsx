@@ -56,6 +56,7 @@ type ClientForm = {
 type NewClientAccountDraft = {
  currencyId: number | null;
  startingBalance: string;
+ balanceType: 'debit' | 'credit';
 };
 
 type ClientAccount = {
@@ -258,8 +259,80 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
 ];
 
 const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
+const pdfSettingsStorageKey = 'arkam:pdf-settings';
+const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 
-type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger';
+type PdfColVisibility = Record<LedgerColumnKey, boolean>;
+
+const defaultPdfColVisibility: PdfColVisibility = {
+ created: true,
+ counterparty: false,
+ direction: false,
+ type: false,
+ amount: true,
+ exchangeRate: true,
+ commission: true,
+ netChange: true,
+ runningBalance: true,
+ description: true,
+};
+
+function getStoredPdfCols(accountId: number): PdfColVisibility {
+ if (typeof window === 'undefined') return defaultPdfColVisibility;
+ try {
+  const raw = window.localStorage.getItem(pdfColsStorageKeyPrefix + accountId);
+  if (!raw) return defaultPdfColVisibility;
+  return { ...defaultPdfColVisibility, ...JSON.parse(raw) };
+ } catch {
+  return defaultPdfColVisibility;
+ }
+}
+
+function savePdfCols(accountId: number, cols: PdfColVisibility) {
+ try {
+  window.localStorage.setItem(pdfColsStorageKeyPrefix + accountId, JSON.stringify(cols));
+ } catch {
+  /* ignore */
+ }
+}
+
+type PdfSettings = {
+ decimals: number;
+ fontFamily: string;
+ fontSize: number;
+ showPreBalance: boolean;
+ showMetaClient: boolean;
+ showMetaCurrency: boolean;
+ showMetaPeriod: boolean;
+ showFooter: boolean;
+ showGeneratedOn: boolean;
+};
+
+const defaultPdfSettings: PdfSettings = {
+ decimals: 2,
+ fontFamily: 'Arial, Helvetica, sans-serif',
+ fontSize: 12,
+ showPreBalance: true,
+ showMetaClient: true,
+ showMetaCurrency: true,
+ showMetaPeriod: true,
+ showFooter: true,
+ showGeneratedOn: true,
+};
+
+function getStoredPdfSettings(): PdfSettings {
+ if (typeof window === 'undefined') return defaultPdfSettings;
+ try {
+  const raw = window.localStorage.getItem(pdfSettingsStorageKey);
+  if (!raw) return defaultPdfSettings;
+  const parsed = JSON.parse(raw);
+  return { ...defaultPdfSettings, ...parsed };
+ } catch {
+  return defaultPdfSettings;
+ }
+}
+
+type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions';
 
@@ -645,6 +718,7 @@ const emptyClientForm = (): ClientForm => ({
 const createNewClientAccountDraft = (): NewClientAccountDraft => ({
  currencyId: null,
  startingBalance: '0',
+ balanceType: 'debit',
 });
 
 const emptyTransactionForm = (): TransactionForm => ({
@@ -682,6 +756,7 @@ function AuthenticatedHome() {
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [isClientLedgerEditMode, setIsClientLedgerEditMode] = useState(false);
+ const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
@@ -713,7 +788,15 @@ function AuthenticatedHome() {
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
- const [pdfExportModal, setPdfExportModal] = useState<{ accountId: number; fromDate: string; toDate: string } | null>(null);
+ const [newAccountBalanceType, setNewAccountBalanceType] = useState<'debit' | 'credit'>('debit');
+ const [showAddAccountForm, setShowAddAccountForm] = useState(false);
+ const [showCreateOrgDialog, setShowCreateOrgDialog] = useState(false);
+ const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+ const [editingAccountCurrencyId, setEditingAccountCurrencyId] = useState<number | null>(null);
+ const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
+ const [editingAccountBalanceType, setEditingAccountBalanceType] = useState<'debit' | 'credit'>('debit');
+ const [pdfExportModal, setPdfExportModal] = useState<{ accountId: number; fromDate: string; toDate: string; cols: PdfColVisibility } | null>(null);
+ const [pdfSettings, setPdfSettings] = useState<PdfSettings>(() => getStoredPdfSettings());
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
@@ -1261,6 +1344,30 @@ function AuthenticatedHome() {
   }
  }
 
+ async function onCreateOrgFromDialog(event: FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  if (!accountingApi || !organizationForm.name.trim()) {
+   setError(t('organization_required'));
+   return;
+  }
+  const newName = organizationForm.name.trim();
+  try {
+   await accountingApi.createOrganization(organizationForm);
+   await loadData();
+   // Auto-select the newly created org in the client form
+   setOrganizations((freshOrgs) => {
+    const newOrg = freshOrgs.find((o) => o.name === newName);
+    if (newOrg) setClientForm((current) => ({ ...current, organizationId: newOrg.id }));
+    return freshOrgs;
+   });
+   setOrganizationForm(emptyOrganizationForm());
+   setShowCreateOrgDialog(false);
+   setError('');
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
  async function onClientSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
   if (!accountingApi) {
@@ -1300,7 +1407,10 @@ function AuthenticatedHome() {
       await accountingApi.createClientAccount({
        clientId: created.clientId,
        currencyId: draft.currencyId,
-       startingBalance: parseFloat(draft.startingBalance) || 0,
+       startingBalance: (() => {
+        const abs = Math.abs(parseFloat(draft.startingBalance.replace(/,/g, '')) || 0);
+        return draft.balanceType === 'debit' ? -abs : abs;
+       })(),
       });
      }
     }
@@ -1998,11 +2108,29 @@ function AuthenticatedHome() {
  async function onAddClientAccount(clientId: number) {
   if (!accountingApi || !newAccountCurrencyId) return;
   try {
-   await accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId, startingBalance: parseFloat(newAccountStartingBalance) || 0 });
+   const abs = Math.abs(parseFloat(newAccountStartingBalance.replace(/,/g, '')) || 0);
+   const startingBalance = newAccountBalanceType === 'debit' ? -abs : abs;
+   await accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId, startingBalance });
    setNewAccountCurrencyId(null);
    setNewAccountStartingBalance('0');
+   setNewAccountBalanceType('debit');
+   setShowAddAccountForm(false);
    await loadData();
    // Re-sync selectedClientForAccounts with updated client data
+   setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onSaveEditAccount() {
+  if (!accountingApi || !editingAccountId || !editingAccountCurrencyId) return;
+  try {
+   const abs = Math.abs(parseFloat(editingAccountBalance.replace(/,/g, '')) || 0);
+   const startingBalance = editingAccountBalanceType === 'debit' ? -abs : abs;
+   await accountingApi.updateClientAccount({ accountId: editingAccountId, currencyId: editingAccountCurrencyId, startingBalance });
+   setEditingAccountId(null);
+   await loadData();
    setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -2030,7 +2158,7 @@ function AuthenticatedHome() {
   }
  }
 
- function generateLedgerHtml(ledger: ClientAccountLedger, fromDate: string, toDate: string): string {
+ function generateLedgerHtml(ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility): string {
   const filteredEntries = ledger.entries.filter((e) => {
    const d = e.createdAt.slice(0, 10);
    return d >= fromDate && d <= toDate;
@@ -2045,27 +2173,27 @@ function AuthenticatedHome() {
    { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
    { key: 'direction', header: t('direction'), cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming') },
    { key: 'type', header: t('transaction_type'), cell: (e) => t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange') },
-   { key: 'amount', header: t('amount'), isNum: true, cell: (e) => e.amount.toLocaleString(language, { maximumFractionDigits: 2 }) },
-   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => e.exchangeRate.toFixed(2) },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => e.commission.toFixed(2) },
+   { key: 'amount', header: t('amount'), isNum: true, cell: (e) => e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals }) },
+   { key: 'exchangeRate', header: t('exchange_rate'), isNum: true, cell: (e) => e.exchangeRate.toFixed(pdfSettings.decimals) },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => e.commission.toFixed(pdfSettings.decimals) },
    {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}</span>`,
+    cell: (e) => `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    {
     key: 'runningBalance',
     header: t('running_balance'),
     isNum: true,
-    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: 2 })}</span>`,
+    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
   ];
   const visibleCols = ledgerColumnOrder
    .map((key) => allCols.find((col) => col.key === key))
    .filter((col): col is ColDef => Boolean(col))
-   .filter((col) => col.key === 'runningBalance' || ledgerColumnVisibility[col.key]);
+   .filter((col) => col.key === 'runningBalance' || colVisibility[col.key]);
   // Ensure runningBalance is always present (append if somehow missing from order)
   if (!visibleCols.some((col) => col.key === 'runningBalance')) {
    const rbCol = allCols.find((col) => col.key === 'runningBalance');
@@ -2088,30 +2216,45 @@ function AuthenticatedHome() {
   const clientName = selectedClientForLedger?.name ?? '';
   const exportDate = new Date().toLocaleDateString(language);
 
+  const metaCards = [
+   pdfSettings.showMetaClient ? `<div class="meta-card"><div class="label">${t('client')}</div><div class="value">${clientName}</div></div>` : '',
+   pdfSettings.showMetaCurrency
+    ? `<div class="meta-card"><div class="label">${t('currency')}</div><div class="value">${ledger.currencyName} (${ledger.currencyCode})</div></div>`
+    : '',
+   pdfSettings.showMetaPeriod
+    ? `<div class="meta-card"><div class="label">${t('export_period')}</div><div class="value" style="font-size:12px">${fromDate} &rarr; ${toDate}</div></div>`
+    : '',
+  ].filter(Boolean);
+  const metaColCount = metaCards.length;
+
   return `<!DOCTYPE html>
 <html lang="${language}" dir="${dir}">
 <head>
 <meta charset="UTF-8">
 <style>
  * { box-sizing: border-box; margin: 0; padding: 0; }
- body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #1e293b; padding: 32px; }
+ body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
  .header-left h1 { font-size: 20px; font-weight: bold; }
  .header-left p { font-size: 11px; color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: 11px; color: #64748b; }
- .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+ .meta { display: grid; grid-template-columns: repeat(${metaColCount || 1}, 1fr); gap: 12px; margin-bottom: 20px; }
  .meta-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; background: #f8fafc; }
  .meta-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
  .meta-card .value { font-size: 14px; font-weight: bold; margin-top: 4px; }
  .pos { color: #059669; }
  .neg { color: #dc2626; }
+ .pre-balance { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
+ .pre-balance .pb-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; font-weight: 600; }
+ .pre-balance .pb-value { font-size: 14px; font-weight: bold; font-variant-numeric: tabular-nums; }
  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
- thead tr { background: #f1f5f9; }
- th { padding: 8px 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; text-align: ${isRTL ? 'right' : 'left'}; border-bottom: 1px solid #cbd5e1; }
+ thead tr { background: #e2e8f0; }
+ th { padding: 8px 10px; font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: ${isRTL ? 'right' : 'left'}; border-bottom: 2px solid #94a3b8; }
  td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; }
+ tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(even) { background: #ffffff; }
  td.num { text-align: ${isRTL ? 'left' : 'right'}; font-variant-numeric: tabular-nums; }
  th.num { text-align: ${isRTL ? 'left' : 'right'}; }
- tr.pre-row td { background: #eff6ff; font-weight: 600; }
  tr:last-child td { border-bottom: none; }
  .footer { margin-top: 24px; font-size: 10px; color: #94a3b8; text-align: center; }
 </style>
@@ -2122,45 +2265,27 @@ function AuthenticatedHome() {
   <h1>Arkam Exchange</h1>
   <p>${t('client_ledger_statement')}</p>
  </div>
- <div class="header-right">
-  <div>${t('export_generated_on')}: ${exportDate}</div>
- </div>
+ ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
-<div class="meta">
- <div class="meta-card">
-  <div class="label">${t('client')}</div>
-  <div class="value">${clientName}</div>
- </div>
- <div class="meta-card">
-  <div class="label">${t('currency')}</div>
-  <div class="value">${ledger.currencyName} (${ledger.currencyCode})</div>
- </div>
- <div class="meta-card">
-  <div class="label">${t('export_period')}</div>
-  <div class="value" style="font-size:12px">${fromDate} â†’ ${toDate}</div>
- </div>
-</div>
-<table>
+${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span></div>` : ''}
+<table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
  </thead>
  <tbody>
-  <tr class="pre-row">
-   <td colspan="${colCount - 1}">${t('export_pre_balance')}</td>
-   <td class="num ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: 2 })}</td>
-  </tr>
   ${rows}
  </tbody>
 </table>
-<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>
+${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
  }
 
- async function onExportLedgerPdf(ledger: ClientAccountLedger, fromDate: string, toDate: string) {
+ async function onExportLedgerPdf(ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility) {
   if (!accountingApi) return;
   try {
-   const html = generateLedgerHtml(ledger, fromDate, toDate);
+   const html = generateLedgerHtml(ledger, fromDate, toDate, colVisibility);
    const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^a-z0-9]/gi, '_');
    const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
    const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
@@ -2181,6 +2306,7 @@ function AuthenticatedHome() {
  const settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }> = [
   { key: 'database', label: t('settings_database_title'), icon: 'database' },
   { key: 'language', label: t('settings_language_title'), icon: 'settings' },
+  { key: 'pdf', label: t('settings_pdf_title'), icon: 'settings' },
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
@@ -2636,6 +2762,136 @@ function AuthenticatedHome() {
   </section>
  );
 
+ const pdfAllColumns: { key: LedgerColumnKey; label: string }[] = [
+  { key: 'created', label: t('date') },
+  { key: 'counterparty', label: t('counterparty') },
+  { key: 'direction', label: t('direction') },
+  { key: 'type', label: t('transaction_type') },
+  { key: 'amount', label: t('amount') },
+  { key: 'exchangeRate', label: t('exchange_rate') },
+  { key: 'commission', label: t('commission') },
+  { key: 'netChange', label: t('net_change') },
+  { key: 'runningBalance', label: t('running_balance') },
+  { key: 'description', label: t('transaction_description') },
+ ];
+
+ function updatePdfSettings(partial: Partial<PdfSettings>) {
+  const next = { ...pdfSettings, ...partial };
+  setPdfSettings(next);
+  try {
+   window.localStorage.setItem(pdfSettingsStorageKey, JSON.stringify(next));
+  } catch {
+   /* ignore */
+  }
+ }
+
+ const pdfSettingsSection = (
+  <section className="flex flex-col gap-6">
+   <div className={panelClassName}>
+    <h2 className="text-2xl font-semibold">{t('settings_pdf_title')}</h2>
+    <p className="mt-2 text-sm text-slate-600">{t('settings_pdf_description')}</p>
+
+    {/* Font */}
+    <div className="mt-6 grid gap-4 sm:grid-cols-2">
+     <div>
+      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_font_family_label')}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t('pdf_font_family_hint')}</p>
+      <select
+       value={pdfSettings.fontFamily}
+       onChange={(e) => updatePdfSettings({ fontFamily: e.target.value })}
+       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+       <option value="Arial, Helvetica, sans-serif">Arial</option>
+       <option value="'Times New Roman', Times, serif">Times New Roman</option>
+       <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+       <option value="Verdana, Geneva, sans-serif">Verdana</option>
+       <option value="Tahoma, Geneva, sans-serif">Tahoma</option>
+       <option value="Trebuchet MS, Helvetica, sans-serif">Trebuchet MS</option>
+       <option value="'Courier New', Courier, monospace">Courier New</option>
+      </select>
+     </div>
+     <div>
+      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_font_size_label')}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t('pdf_font_size_hint')}</p>
+      <select
+       value={pdfSettings.fontSize}
+       onChange={(e) => updatePdfSettings({ fontSize: Number(e.target.value) })}
+       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+       {[8, 9, 10, 11, 12, 13, 14, 16, 18].map((s) => (
+        <option
+         key={s}
+         value={s}
+        >
+         {s}px
+        </option>
+       ))}
+      </select>
+     </div>
+    </div>
+
+    {/* Decimal places */}
+    <div className="mt-6">
+     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_decimals_label')}</h3>
+     <p className="mt-1 text-xs text-slate-500">{t('pdf_decimals_hint')}</p>
+     <div className="mt-3 inline-flex items-center rounded border border-slate-300 bg-white overflow-hidden">
+      <button
+       type="button"
+       onClick={() => updatePdfSettings({ decimals: Math.max(0, pdfSettings.decimals - 1) })}
+       className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+       disabled={pdfSettings.decimals === 0}
+      >
+       −
+      </button>
+      <span className="min-w-8 px-2 py-1.5 text-center text-sm font-semibold text-slate-800 border-x border-slate-300">{pdfSettings.decimals}</span>
+      <button
+       type="button"
+       onClick={() => updatePdfSettings({ decimals: Math.min(6, pdfSettings.decimals + 1) })}
+       className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+       disabled={pdfSettings.decimals === 6}
+      >
+       +
+      </button>
+     </div>
+    </div>
+
+    {/* Section visibility */}
+    <div className="mt-6">
+     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_sections_label')}</h3>
+     <p className="mt-1 text-xs text-slate-500">{t('pdf_sections_hint')}</p>
+     <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      {(
+       [
+        { key: 'showPreBalance', labelKey: 'pdf_show_pre_balance', hintKey: 'pdf_show_pre_balance_hint' },
+        { key: 'showMetaClient', labelKey: 'pdf_show_meta_client', hintKey: 'pdf_show_meta_client_hint' },
+        { key: 'showMetaCurrency', labelKey: 'pdf_show_meta_currency', hintKey: 'pdf_show_meta_currency_hint' },
+        { key: 'showMetaPeriod', labelKey: 'pdf_show_meta_period', hintKey: 'pdf_show_meta_period_hint' },
+        { key: 'showGeneratedOn', labelKey: 'pdf_show_generated_on', hintKey: 'pdf_show_generated_on_hint' },
+        { key: 'showFooter', labelKey: 'pdf_show_footer', hintKey: 'pdf_show_footer_hint' },
+       ] as Array<{ key: keyof Omit<PdfSettings, 'decimals' | 'fontFamily' | 'fontSize'>; labelKey: string; hintKey: string }>
+      ).map(({ key, labelKey, hintKey }) => (
+       <label
+        key={key}
+        className="flex cursor-pointer items-start gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-slate-100"
+       >
+        <input
+         type="checkbox"
+         checked={pdfSettings[key] as boolean}
+         onChange={(e) => updatePdfSettings({ [key]: e.target.checked })}
+         className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 accent-blue-600"
+        />
+        <div>
+         <p className="text-sm font-medium text-slate-800">{t(labelKey)}</p>
+         <p className="text-xs text-slate-500">{t(hintKey)}</p>
+        </div>
+       </label>
+      ))}
+     </div>
+    </div>
+   </div>
+  </section>
+ );
+
  const languageSection = (
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
@@ -2744,12 +3000,17 @@ function AuthenticatedHome() {
     <label className="mt-4 block text-sm font-medium">{t('client_organization')}</label>
     <select
      value={clientForm.organizationId ?? ''}
-     onChange={(event) =>
+     onChange={(event) => {
+      if (event.target.value === '__create__') {
+       setOrganizationForm(emptyOrganizationForm());
+       setShowCreateOrgDialog(true);
+       return;
+      }
       setClientForm((current) => ({
        ...current,
        organizationId: event.target.value ? Number(event.target.value) : null,
-      }))
-     }
+      }));
+     }}
      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
     >
      <option value="">{t('client_organization_placeholder')}</option>
@@ -2761,6 +3022,7 @@ function AuthenticatedHome() {
        {organization.name}
       </option>
      ))}
+     <option value="__create__">{t('client_organization_create')}</option>
     </select>
 
     <label className="mt-4 block text-sm font-medium">{t('client_email')}</label>
@@ -2833,16 +3095,39 @@ function AuthenticatedHome() {
               </option>
              ))}
            </select>
-           <input
-            type="number"
-            value={draft.startingBalance}
-            onChange={(event) => {
-             const nextBalance = event.target.value;
-             setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
-            }}
-            placeholder={t('starting_balance')}
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring sm:w-40"
-           />
+          </div>
+          <div className="mt-2">
+           <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+           <div className="mt-1 flex items-center gap-2">
+            <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+             <button
+              type="button"
+              onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'debit' } : row)))}
+              className={`px-3 py-2 transition ${draft.balanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+             >
+              {t('balance_type_debit')}
+             </button>
+             <button
+              type="button"
+              onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'credit' } : row)))}
+              className={`px-3 py-2 transition ${draft.balanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+             >
+              {t('balance_type_credit')}
+             </button>
+            </div>
+            <input
+             type="text"
+             inputMode="decimal"
+             value={draft.startingBalance}
+             onChange={(event) => {
+              const nextBalance = event.target.value.replace(/,/g, '');
+              setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
+             }}
+             placeholder="0"
+             className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+           <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
           </div>
           {newClientAccountDrafts.length > 1 ? (
            <button
@@ -2967,7 +3252,11 @@ function AuthenticatedHome() {
        </h2>
        <button
         type="button"
-        onClick={() => setSelectedClientForAccounts(null)}
+        onClick={() => {
+         setSelectedClientForAccounts(null);
+         setEditingAccountId(null);
+         setShowAddAccountForm(false);
+        }}
         className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
        >
         {t('cancel')}
@@ -2977,60 +3266,225 @@ function AuthenticatedHome() {
       <div className="mt-4 space-y-2">
        {clientAccounts
         .filter((a) => a.clientId === selectedClientForAccounts.id)
-        .map((account) => (
-         <div
-          key={account.id}
-          className="flex items-center justify-between rounded border border-slate-200 px-4 py-3"
-         >
-          <span className="font-mono font-semibold text-slate-800">{account.currencySymbol || account.currencyCode}</span>
-          <button
-           type="button"
-           onClick={() => onDeleteClientAccount(account.id)}
-           className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+        .map((account) => {
+         const isEditing = editingAccountId === account.id;
+         return (
+          <div
+           key={account.id}
+           className="rounded border border-slate-200 bg-white"
           >
-           {t('delete')}
-          </button>
-         </div>
-        ))}
+           {/* Row — click to edit */}
+           <button
+            type="button"
+            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
+            onClick={() => {
+             if (isEditing) {
+              setEditingAccountId(null);
+             } else {
+              const absBalance = Math.abs(account.startingBalance ?? 0);
+              setEditingAccountId(account.id);
+              setEditingAccountCurrencyId(account.currencyId);
+              setEditingAccountBalance(String(absBalance));
+              setEditingAccountBalanceType((account.startingBalance ?? 0) >= 0 ? 'credit' : 'debit');
+              setShowAddAccountForm(false);
+             }
+            }}
+           >
+            <div className="flex items-center gap-3">
+             <span className="font-mono font-semibold text-slate-800">{account.currencyCode}</span>
+             <span className="text-sm text-slate-500">{account.currencySymbol || ''}</span>
+            </div>
+            <div className="flex items-center gap-3">
+             <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {(account.startingBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+             </span>
+             <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`text-slate-400 transition-transform ${isEditing ? 'rotate-180' : ''}`}
+             >
+              <path d="m6 9 6 6 6-6" />
+             </svg>
+            </div>
+           </button>
+
+           {/* Inline edit form */}
+           {isEditing && (
+            <div className="border-t border-slate-200 bg-slate-50 px-4 py-4">
+             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_edit')}</p>
+             <div className="flex flex-col gap-3">
+              <select
+               value={editingAccountCurrencyId ?? ''}
+               onChange={(event) => setEditingAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+               className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              >
+               <option value="">{t('client_account_currency_placeholder')}</option>
+               {enabledCurrencies.map((cur) => (
+                <option
+                 key={cur.id}
+                 value={cur.id}
+                >
+                 {cur.code} — {cur.name}
+                </option>
+               ))}
+              </select>
+              <div>
+               <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+               <div className="mt-1 flex items-center gap-2">
+                <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+                 <button
+                  type="button"
+                  onClick={() => setEditingAccountBalanceType('debit')}
+                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                 >
+                  {t('balance_type_debit')}
+                 </button>
+                 <button
+                  type="button"
+                  onClick={() => setEditingAccountBalanceType('credit')}
+                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                 >
+                  {t('balance_type_credit')}
+                 </button>
+                </div>
+                <input
+                 type="text"
+                 inputMode="decimal"
+                 value={editingAccountBalance}
+                 onChange={(event) => setEditingAccountBalance(event.target.value.replace(/,/g, ''))}
+                 placeholder="0"
+                 className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                />
+               </div>
+               <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+              </div>
+              <div className="flex gap-2">
+               <button
+                type="button"
+                onClick={() => void onSaveEditAccount()}
+                disabled={!editingAccountCurrencyId}
+                className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:opacity-40"
+               >
+                {t('client_account_save')}
+               </button>
+               <button
+                type="button"
+                onClick={() => onDeleteClientAccount(account.id)}
+                className="rounded border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 transition"
+               >
+                {t('delete')}
+               </button>
+               <button
+                type="button"
+                onClick={() => setEditingAccountId(null)}
+                className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
+               >
+                {t('cancel')}
+               </button>
+              </div>
+             </div>
+            </div>
+           )}
+          </div>
+         );
+        })}
        {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
       </div>
 
-      <div className="mt-4 flex flex-col gap-2">
-       <div className="flex gap-2">
-        <select
-         value={newAccountCurrencyId ?? ''}
-         onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-         className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-        >
-         <option value="">{t('client_account_currency_placeholder')}</option>
-         {enabledCurrencies
-          .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
-          .map((cur) => (
-           <option
-            key={cur.id}
-            value={cur.id}
-           >
-            {cur.code} — {cur.name}
-           </option>
-          ))}
-        </select>
-        <input
-         type="number"
-         value={newAccountStartingBalance}
-         onChange={(event) => setNewAccountStartingBalance(event.target.value)}
-         placeholder={t('starting_balance')}
-         className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-        />
-       </div>
+      {/* Add account */}
+      {!showAddAccountForm ? (
        <button
         type="button"
-        onClick={() => onAddClientAccount(selectedClientForAccounts.id)}
-        disabled={!newAccountCurrencyId}
-        className="self-start rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+        onClick={() => {
+         setShowAddAccountForm(true);
+         setEditingAccountId(null);
+        }}
+        className="mt-4 rounded border border-dashed border-blue-400 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 transition"
        >
-        {t('client_account_open')}
+        {t('client_account_add_new')}
        </button>
-      </div>
+      ) : (
+       <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_add_new')}</p>
+        <div className="flex flex-col gap-3">
+         <select
+          value={newAccountCurrencyId ?? ''}
+          onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+          className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">{t('client_account_currency_placeholder')}</option>
+          {enabledCurrencies
+           .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
+           .map((cur) => (
+            <option
+             key={cur.id}
+             value={cur.id}
+            >
+             {cur.code} — {cur.name}
+            </option>
+           ))}
+         </select>
+         <div>
+          <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+          <div className="mt-1 flex items-center gap-2">
+           <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+            <button
+             type="button"
+             onClick={() => setNewAccountBalanceType('debit')}
+             className={`px-3 py-2 transition ${newAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+             {t('balance_type_debit')}
+            </button>
+            <button
+             type="button"
+             onClick={() => setNewAccountBalanceType('credit')}
+             className={`px-3 py-2 transition ${newAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+             {t('balance_type_credit')}
+            </button>
+           </div>
+           <input
+            type="text"
+            inputMode="decimal"
+            value={newAccountStartingBalance}
+            onChange={(event) => setNewAccountStartingBalance(event.target.value.replace(/,/g, ''))}
+            placeholder="0"
+            className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           />
+          </div>
+          <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+         </div>
+         <div className="flex gap-2">
+          <button
+           type="button"
+           onClick={() => void onAddClientAccount(selectedClientForAccounts.id)}
+           disabled={!newAccountCurrencyId}
+           className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+           {t('client_account_open')}
+          </button>
+          <button
+           type="button"
+           onClick={() => {
+            setShowAddAccountForm(false);
+            setNewAccountCurrencyId(null);
+            setNewAccountStartingBalance('0');
+            setNewAccountBalanceType('debit');
+           }}
+           className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
+          >
+           {t('cancel')}
+          </button>
+         </div>
+        </div>
+       </div>
+      )}
      </div>
     ) : null}
    </div>
@@ -3418,6 +3872,7 @@ function AuthenticatedHome() {
     {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
     {settingsTab === 'database' ? databaseSection : null}
     {settingsTab === 'language' ? languageSection : null}
+    {settingsTab === 'pdf' ? pdfSettingsSection : null}
     {settingsTab === 'danger' ? dangerSection : null}
     {settingsTab === 'clients' ? clientsSection : null}
     {settingsTab === 'organizations' ? organizationsSection : null}
@@ -3809,7 +4264,7 @@ function AuthenticatedHome() {
                 if (!targetLedger) return;
                 const today = new Date().toISOString().slice(0, 10);
                 const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
-                setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today });
+                setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, cols: getStoredPdfCols(targetLedger.accountId) });
                }}
                className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
@@ -3853,14 +4308,14 @@ function AuthenticatedHome() {
                  </div>
                 ) : (
                  <p className={`mt-2 text-xl font-bold ${ledger.startingBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {ledger.startingBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                  {ledger.startingBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                  </p>
                 )}
                </div>
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
                 <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                 {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                 {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                 </p>
                </div>
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
@@ -4204,7 +4659,7 @@ function AuthenticatedHome() {
                            />
                           ) : (
                            <>
-                            {entry.amount.toLocaleString(language, { maximumFractionDigits: 2 })}
+                            {entry.amount.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                             {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                            </>
                           )}
@@ -4342,7 +4797,7 @@ function AuthenticatedHome() {
                             );
                            })()
                           ) : entry.commission ? (
-                           <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</>
+                           <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%</>
                           ) : (
                            <span className="text-slate-400">—</span>
                           )}
@@ -4354,7 +4809,7 @@ function AuthenticatedHome() {
                           key={column.key}
                           className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
-                          {entry.netChange.toLocaleString(language, { maximumFractionDigits: 2 })}
+                          {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                          </td>
                         );
@@ -4364,7 +4819,7 @@ function AuthenticatedHome() {
                           key={column.key}
                           className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
-                          {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: 2 })}
+                          {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                          </td>
                         );
@@ -4402,7 +4857,7 @@ function AuthenticatedHome() {
                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
                        <span className="font-medium text-amber-700">{t('charges')}</span>
                        <span className="font-semibold">
-                        {entry.charges.toLocaleString(language, { maximumFractionDigits: 2 })}
+                        {entry.charges.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                         {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
                        </span>
                        {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
@@ -4423,6 +4878,30 @@ function AuthenticatedHome() {
                  ))}
                 </tbody>
                </table>
+              </div>
+             )}
+             {isClientLedgerEditMode && (
+              <div className="mt-4 flex items-center gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-3">
+               <span className="text-xs font-medium text-slate-500">{t('decimal_places')}</span>
+               <div className="flex overflow-hidden rounded border border-slate-300 bg-white">
+                <button
+                 type="button"
+                 onClick={() => setLedgerDecimals((d) => Math.max(0, d - 1))}
+                 disabled={ledgerDecimals === 0}
+                 className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
+                >
+                 −
+                </button>
+                <span className="border-x border-slate-200 px-3 py-1.5 text-center text-sm font-semibold text-slate-800">{ledgerDecimals}</span>
+                <button
+                 type="button"
+                 onClick={() => setLedgerDecimals((d) => Math.min(6, d + 1))}
+                 disabled={ledgerDecimals === 6}
+                 className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
+                >
+                 +
+                </button>
+               </div>
               </div>
              )}
             </div>
@@ -5658,6 +6137,35 @@ function AuthenticatedHome() {
             />
            </div>
 
+           {/* Column toggles */}
+           <div>
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_columns_label')}</label>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+             {pdfAllColumns.map((col) => {
+              const isRunningBal = col.key === 'runningBalance';
+              const isOn = isRunningBal || pdfExportModal.cols[col.key];
+              return (
+               <button
+                key={col.key}
+                type="button"
+                disabled={isRunningBal}
+                onClick={() => {
+                 if (isRunningBal) return;
+                 const newCols = { ...pdfExportModal.cols, [col.key]: !pdfExportModal.cols[col.key] };
+                 savePdfCols(pdfExportModal.accountId, newCols);
+                 setPdfExportModal((prev) => (prev ? { ...prev, cols: newCols } : prev));
+                }}
+                className={`rounded border px-2.5 py-1 text-xs font-medium transition ${
+                 isOn ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400'
+                } ${isRunningBal ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
+               >
+                {col.label}
+               </button>
+              );
+             })}
+            </div>
+           </div>
+
            {(() => {
             const preBalance = ledger.startingBalance + ledger.entries.filter((e) => e.createdAt.slice(0, 10) < pdfExportModal.fromDate).reduce((sum, e) => sum + e.netChange, 0);
             const count = ledger.entries.filter((e) => {
@@ -5691,7 +6199,7 @@ function AuthenticatedHome() {
            </button>
            <button
             type="button"
-            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate)}
+            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols)}
             disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
             className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
@@ -5703,6 +6211,56 @@ function AuthenticatedHome() {
        );
       })()
     : null}
+
+   {/* Create Organization dialog */}
+   {showCreateOrgDialog ? (
+    <div
+     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onClick={() => setShowCreateOrgDialog(false)}
+    >
+     <div
+      className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      onClick={(e) => e.stopPropagation()}
+     >
+      <h2 className="text-lg font-semibold text-slate-900">{t('new_organization')}</h2>
+      <form
+       onSubmit={(e) => void onCreateOrgFromDialog(e)}
+       className="mt-4 flex flex-col gap-4"
+      >
+       <div>
+        <label className="block text-sm font-medium text-slate-700">{t('organization_name')}</label>
+        <input
+         type="text"
+         value={organizationForm.name}
+         onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
+         placeholder={t('organization_name_placeholder')}
+         className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         autoFocus
+         required
+        />
+       </div>
+       <div className="flex justify-end gap-2">
+        <button
+         type="button"
+         onClick={() => {
+          setShowCreateOrgDialog(false);
+          setOrganizationForm(emptyOrganizationForm());
+         }}
+         className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+        >
+         {t('cancel')}
+        </button>
+        <button
+         type="submit"
+         className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition"
+        >
+         {t('save_organization')}
+        </button>
+       </div>
+      </form>
+     </div>
+    </div>
+   ) : null}
   </div>
  );
 }
