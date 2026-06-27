@@ -110,6 +110,7 @@ type Transaction = {
  chargesDescription: string;
  description: string;
  archiveNote: string;
+ isArchived: number;
  createdAt: string;
 };
 
@@ -1090,6 +1091,7 @@ function AuthenticatedHome() {
     chargesDescription: '',
     description: adjustment.description,
     archiveNote: '',
+    isArchived: 0,
     createdAt: adjustment.createdAt,
    };
   });
@@ -1131,9 +1133,11 @@ function AuthenticatedHome() {
    });
   })();
   if (section === 'archive') {
-   return ordered.filter((row) => !row.isAdjustment && (!row.accountFromId || !row.accountToId));
+   // Archive shows: explicit archive-only records, plus real transactions missing a party.
+   return ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId)));
   }
-  return ordered;
+  // The main Transactions list never shows archive-only records.
+  return ordered.filter((row) => !row.isArchived);
  }, [transactionTableRows, manualRowOrder, section]);
 
  // Per-currency totals across all archived rows (not just the current page), shown at the table foot.
@@ -1862,8 +1866,9 @@ function AuthenticatedHome() {
   }
 
   const amount = parseFloat(transactionForm.amount);
+  const isArchiveCreate = section === 'archive';
 
-  if (isAdjustmentTransaction) {
+  if (isAdjustmentTransaction && !isArchiveCreate) {
    if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
     setError(t('adjustment_required'));
     return;
@@ -1903,8 +1908,8 @@ function AuthenticatedHome() {
    return;
   }
 
-  if ((!transactionForm.accountFromId && !transactionForm.accountToId) || !transactionForm.currencyId) {
-   setError(t('transaction_party_required'));
+  if (!transactionForm.currencyId || (!isArchiveCreate && !transactionForm.accountFromId && !transactionForm.accountToId)) {
+   setError(t(isArchiveCreate ? 'archive_create_required' : 'transaction_party_required'));
    return;
   }
 
@@ -1915,6 +1920,7 @@ function AuthenticatedHome() {
     currencyId: transactionForm.currencyId,
     amount: amount || 0,
     type: transactionForm.type,
+    isArchived: isArchiveCreate,
     exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
     commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
     exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
@@ -2983,7 +2989,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
 
   const archived = transactions
-   .filter((tx) => !tx.accountFromId || !tx.accountToId)
+   .filter((tx) => tx.isArchived || !tx.accountFromId || !tx.accountToId)
    .slice()
    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -3158,7 +3164,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   [clients, selectedOrganizationForClients],
  );
 
- const isAdjustmentTransaction = transactionForm.type === 'adjustment';
+ const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
  const transactionSelectedCurrencyCode = transactionForm.currencyId ? currencyMap.get(transactionForm.currencyId)?.code : undefined;
  const transactionAccountFromCurrencyCode = transactionForm.accountFromId ? clientAccountMap.get(transactionForm.accountFromId)?.currencyCode : undefined;
  const transactionAccountToCurrencyCode = transactionForm.accountToId ? clientAccountMap.get(transactionForm.accountToId)?.currencyCode : undefined;
@@ -3214,6 +3220,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    .map((account) => {
     const entries = transactions
      .flatMap<ClientLedgerEntry>((transaction) => {
+      // Archive-only records are historical and never affect a client's ledger/balance.
+      if (transaction.isArchived) return [];
       if (transaction.accountFromId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountToId ?? -1);
        return [
@@ -3518,7 +3526,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   archive: {
    title: t('archive_title'),
    description: t('archive_description'),
-   accent: `${transactions.filter((tx) => !tx.accountFromId || !tx.accountToId).length} ${t('nav_archive')}`,
+   accent: `${transactions.filter((tx) => tx.isArchived || !tx.accountFromId || !tx.accountToId).length} ${t('nav_archive')}`,
   },
  };
 
@@ -6032,10 +6040,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
        {section === 'transactions' || section === 'archive' ? (
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
-         {section === 'transactions' && isNewTransactionSectionOpen ? (
+         {(section === 'transactions' || section === 'archive') && isNewTransactionSectionOpen ? (
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
-           <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
-           <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
+           <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
+           <p className="mt-1 text-sm text-slate-600">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
 
            {pendingImportData ? (
             <div className="mt-5 rounded border border-blue-200 bg-blue-50/60 p-4">
@@ -6227,7 +6235,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             >
              <option value="exchange">{t('transaction_type_exchange')}</option>
              <option value="transfer">{t('transaction_type_transfer')}</option>
-             <option value="adjustment">{t('transaction_type_adjustment')}</option>
+             {section === 'archive' ? null : <option value="adjustment">{t('transaction_type_adjustment')}</option>}
             </select>
 
             {isAdjustmentTransaction ? (
@@ -6750,7 +6758,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               {t('delete')} ({selectedTransactionIds.size})
              </button>
             ) : null}
-            {section === 'transactions' ? (
+            {section === 'transactions' || section === 'archive' ? (
              <button
               type="button"
               onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
@@ -6859,7 +6867,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 setDragOverRowId(txn.id);
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
-               className={`border-t border-slate-200 align-top transition-colors ${
+               className={`border-t border-slate-200 align-top transition-colors ${txn.isArchived ? 'bg-amber-50' : ''} ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
@@ -7565,6 +7573,19 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   ) : null}
                   {section === 'archive' ? (
                    <td className="px-4 py-3 text-slate-600">
+                    {txn.isArchived ? (
+                     <span
+                      title={t('archive_only_badge_hint')}
+                      className="mb-1.5 inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                     >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                       <rect x="3" y="4" width="18" height="4" rx="1" />
+                       <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+                       <path d="M10 12h4" />
+                      </svg>
+                      {t('archive_only_badge')}
+                     </span>
+                    ) : null}
                     {isEditingRow && draft ? (
                      <input
                       type="text"

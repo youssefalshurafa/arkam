@@ -224,6 +224,7 @@ async function ensureWorkspaceSchema(workspaceId) {
                     charges_description TEXT NOT NULL DEFAULT '',
                     description TEXT NOT NULL DEFAULT '',
                     archive_note TEXT NOT NULL DEFAULT '',
+                    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
 
@@ -253,6 +254,9 @@ async function ensureWorkspaceSchema(workspaceId) {
                 ALTER TABLE ${schema}.transactions ALTER COLUMN account_to_id DROP NOT NULL;
                 -- Free-text note shown in the Archive's "More info" column.
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS archive_note TEXT NOT NULL DEFAULT '';
+                -- Archive-only records: historical transactions from before the DB. They live only in the
+                -- Archive, never affect client balances/ledgers, and never appear in the main transactions list.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
             `);
 
             // Non-ISO currencies (e.g. crypto/stablecoins) aren't in Intl's currency list,

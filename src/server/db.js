@@ -519,6 +519,7 @@ async function listTransactions(app) {
             t.charges_description AS "chargesDescription",
             t.description,
             COALESCE(t.archive_note, '') AS "archiveNote",
+            CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
             t.created_at AS "createdAt"
         FROM ${schema}.transactions t
         LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
@@ -535,7 +536,9 @@ async function listTransactions(app) {
 }
 
 async function createTransaction(app, txn) {
-    if (!txn.accountFromId && !txn.accountToId) {
+    const isArchived = Boolean(txn.isArchived);
+    // Archive-only records (pre-DB history) may have no party at all; normal transactions need at least one.
+    if (!isArchived && !txn.accountFromId && !txn.accountToId) {
         throw new Error('At least one party (sender or receiver) is required.');
     }
     if (!txn.currencyId) {
@@ -566,9 +569,10 @@ async function createTransaction(app, txn) {
                     charges_exchange_rate,
                     charges_description,
                     description,
+                    is_archived,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             `,
             [
                 txn.accountFromId || null,
@@ -588,6 +592,7 @@ async function createTransaction(app, txn) {
                 txn.chargesExchangeRate || 1,
                 txn.chargesDescription?.trim() || '',
                 txn.description?.trim() || '',
+                isArchived,
                 txn.createdAt.trim(),
             ],
         );
@@ -613,9 +618,10 @@ async function createTransaction(app, txn) {
                 charges_payer,
                 charges_exchange_rate,
                 charges_description,
-                description
+                description,
+                is_archived
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         `,
         [
             txn.accountFromId || null,
@@ -635,6 +641,7 @@ async function createTransaction(app, txn) {
             txn.chargesExchangeRate || 1,
             txn.chargesDescription?.trim() || '',
             txn.description?.trim() || '',
+            isArchived,
         ],
     );
 }
