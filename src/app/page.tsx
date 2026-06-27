@@ -933,6 +933,10 @@ function AuthenticatedHome() {
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
  const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
+ const [showTransactionExportModal, setShowTransactionExportModal] = useState(false);
+ const [transactionExportFrom, setTransactionExportFrom] = useState('');
+ const [transactionExportTo, setTransactionExportTo] = useState('');
+ const [isExportingTransactions, setIsExportingTransactions] = useState(false);
  const [txSortDir, setTxSortDir] = useState<'desc' | 'asc'>('desc');
  const [txFilterOpen, setTxFilterOpen] = useState(false);
  const [txFilterSearch, setTxFilterSearch] = useState('');
@@ -3340,6 +3344,197 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   saveTransactionTableSettings(transactionTableSettingsDraft);
   setShowTransactionTableSettingsModal(false);
  };
+
+ const openTransactionExportModal = () => {
+  // Default the range to span all currently shown transactions (earliest → latest).
+  let earliest = '';
+  let latest = '';
+  for (const row of displayedTransactionRows) {
+   const day = row.createdAt.slice(0, 10);
+   if (!day) continue;
+   if (!earliest || day < earliest) earliest = day;
+   if (!latest || day > latest) latest = day;
+  }
+  setTransactionExportFrom(earliest);
+  setTransactionExportTo(latest);
+  setShowTransactionExportModal(true);
+ };
+
+ const closeTransactionExportModal = () => {
+  if (isExportingTransactions) return;
+  setShowTransactionExportModal(false);
+ };
+
+ // Builds the rows/headers for the transactions export, honouring the date range
+ // and the currently visible columns so the export matches what the user sees.
+ const buildTransactionExportData = (fromDate: string, toDate: string) => {
+  const columns = transactionTableSettings.columns;
+  const rows = displayedTransactionRows.filter((row) => {
+   const day = row.createdAt.slice(0, 10);
+   if (fromDate && day < fromDate) return false;
+   if (toDate && day > toDate) return false;
+   return true;
+  });
+
+  const headers: string[] = [];
+  if (columns.created) headers.push(t('date'));
+  if (columns.description) headers.push(t('transaction_description'));
+  if (columns.accountFrom) headers.push(t('transaction_account_from'));
+  if (columns.accountTo) headers.push(t('transaction_account_to'));
+  if (columns.amount) headers.push(t('transaction_amount'));
+  if (columns.charges) headers.push(t('charges'));
+  if (columns.commission) headers.push(t('commission'));
+
+  const partyLabel = (name: string, symbol: string, code: string, fallback: string) =>
+   name ? `${name}${symbol || code ? ` (${symbol || code})` : ''}` : fallback;
+
+  const dataRows = rows.map((txn) => {
+   const cells: string[] = [];
+   if (columns.created) cells.push(formatDateValue(txn.createdAt, transactionTableSettings.dateFormat));
+   if (columns.description) cells.push(txn.description || '');
+   if (columns.accountFrom) {
+    cells.push(
+     txn.accountFromId
+      ? partyLabel(txn.clientFromName, txn.accountFromCurrencySymbol, txn.accountFromCurrencyCode, '')
+      : t('archive_no_sender'),
+    );
+   }
+   if (columns.accountTo) {
+    cells.push(
+     txn.isAdjustment
+      ? t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')
+      : txn.accountToId
+       ? partyLabel(txn.clientToName, txn.accountToCurrencySymbol, txn.accountToCurrencyCode, '')
+       : t('archive_no_receiver'),
+    );
+   }
+   if (columns.amount) {
+    cells.push(txn.amount ? `${txn.amount.toLocaleString(language)} ${txn.currencySymbol || txn.currencyCode}` : '-');
+   }
+   if (columns.charges) {
+    if (txn.isAdjustment || !txn.charges) {
+     cells.push('-');
+    } else {
+     const parts = [`${txn.charges.toLocaleString(language)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
+     if (txn.chargesPayer) parts.push(txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : '');
+     if (txn.chargesDescription) parts.push(txn.chargesDescription);
+     cells.push(parts.filter(Boolean).join(' — '));
+    }
+   }
+   if (columns.commission) {
+    if (txn.isAdjustment) {
+     cells.push('-');
+    } else {
+     const parts: string[] = [];
+     if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
+     if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
+     cells.push(parts.length ? parts.join(' — ') : '-');
+    }
+   }
+   return cells;
+  });
+
+  return { headers, rows: dataRows, count: dataRows.length };
+ };
+
+ const transactionExportFileBase = () => {
+  const range = [transactionExportFrom, transactionExportTo].filter(Boolean).join('_');
+  const sectionLabel = section === 'archive' ? 'archive' : 'transactions';
+  return range ? `${sectionLabel}_${range}` : `${sectionLabel}_${new Date().toISOString().slice(0, 10)}`;
+ };
+
+ function generateTransactionsExportHtml(headers: string[], rows: string[][]): string {
+  const esc = (value: string) =>
+   String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
+  const dir = isRTL ? 'rtl' : 'ltr';
+  const exportDate = new Date().toLocaleDateString(language);
+  const rangeLabel = [transactionExportFrom, transactionExportTo].filter(Boolean).join(' → ');
+  const headerCells = headers.map((header) => `<th>${esc(header)}</th>`).join('');
+  const bodyRows = rows
+   .map((cells) => `<tr>${cells.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
+   .join('');
+
+  return `<!DOCTYPE html>
+<html lang="${language}" dir="${dir}">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
+<style>
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
+ .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
+ .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
+ table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+ thead tr { background: #e2e8f0; }
+ th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
+ td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+ tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(even) { background: #ffffff; }
+ .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
+ .empty { margin-top: 24px; text-align: center; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="header">
+ <div class="header-left">
+  <h1>Arkam Exchange</h1>
+  <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
+ </div>
+ ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
+</div>
+${
+ rows.length > 0
+  ? `<table>
+ <thead>
+  <tr>${headerCells}</tr>
+ </thead>
+ <tbody>
+  ${bodyRows}
+ </tbody>
+</table>`
+  : `<div class="empty">${esc(t('transactions_export_empty'))}</div>`
+}
+${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+</body>
+</html>`;
+ }
+
+ async function onExportTransactionsPdf() {
+  if (!accountingApi) return;
+  setIsExportingTransactions(true);
+  try {
+   const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo);
+   const html = generateTransactionsExportHtml(headers, rows);
+   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `${transactionExportFileBase()}.pdf` });
+   if (result.ok) setShowTransactionExportModal(false);
+   else setError(t('error_failed_save'));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsExportingTransactions(false);
+  }
+ }
+
+ async function onExportTransactionsExcel() {
+  setIsExportingTransactions(true);
+  try {
+   const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo);
+   const xlsxModule = await import('xlsx');
+   const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
+   const workbook = xlsxModule.utils.book_new();
+   xlsxModule.utils.book_append_sheet(workbook, worksheet, section === 'archive' ? 'Archive' : 'Transactions');
+   xlsxModule.writeFile(workbook, `${transactionExportFileBase()}.xlsx`);
+   setShowTransactionExportModal(false);
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsExportingTransactions(false);
+  }
+ }
 
  const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 2; // +1 actions col, +1 checkbox col
 
@@ -6908,6 +7103,70 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             ) : null}
             <button
              type="button"
+             onClick={() => transactionsImportInputRef.current?.click()}
+             disabled={isImportingTransactions}
+             title={isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
+             aria-label={isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
+             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+             {isImportingTransactions ? (
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               className="animate-spin"
+               aria-hidden
+              >
+               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+             ) : (
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+               <polyline points="17 8 12 3 7 8" />
+               <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+             )}
+            </button>
+            <button
+             type="button"
+             onClick={openTransactionExportModal}
+             title={t('transactions_export_title')}
+             aria-label={t('transactions_export_title')}
+             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
+            >
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+             </svg>
+            </button>
+            <button
+             type="button"
              onClick={openTransactionTableSettingsModal}
              title={t('transactions_more_settings')}
              className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
@@ -7967,6 +8226,87 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     </div>
    </main>
 
+   {showTransactionExportModal ? (
+    <div
+     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onClick={closeTransactionExportModal}
+    >
+     <div
+      className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      onClick={(event) => event.stopPropagation()}
+     >
+      <h2 className="text-lg font-semibold text-slate-900">{t('transactions_export_title')}</h2>
+      <p className="mt-1 text-sm text-slate-500">{t('transactions_export_hint')}</p>
+
+      <div className="mt-5 grid grid-cols-2 gap-4">
+       <div>
+        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_export_from')}</label>
+        <input
+         type="date"
+         value={transactionExportFrom}
+         max={transactionExportTo || undefined}
+         onChange={(event) => setTransactionExportFrom(event.target.value)}
+         className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        />
+       </div>
+       <div>
+        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_export_to')}</label>
+        <input
+         type="date"
+         value={transactionExportTo}
+         min={transactionExportFrom || undefined}
+         onChange={(event) => setTransactionExportTo(event.target.value)}
+         className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        />
+       </div>
+      </div>
+
+      <p className="mt-3 text-xs text-slate-500">
+       {t('transactions_export_count').replace('{count}', String(buildTransactionExportData(transactionExportFrom, transactionExportTo).count))}
+      </p>
+
+      <div className="mt-6 grid grid-cols-2 gap-3">
+       <button
+        type="button"
+        onClick={() => void onExportTransactionsPdf()}
+        disabled={isExportingTransactions}
+        className="flex items-center justify-center gap-2 rounded border border-red-600 bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+         <polyline points="14 2 14 8 20 8" />
+        </svg>
+        {t('transactions_export_pdf')}
+       </button>
+       <button
+        type="button"
+        onClick={() => void onExportTransactionsExcel()}
+        disabled={isExportingTransactions}
+        className="flex items-center justify-center gap-2 rounded border border-emerald-600 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+         <polyline points="14 2 14 8 20 8" />
+         <path d="M9 13l6 5M15 13l-6 5" />
+        </svg>
+        {t('transactions_export_excel')}
+       </button>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+       <button
+        type="button"
+        onClick={closeTransactionExportModal}
+        disabled={isExportingTransactions}
+        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        {t('cancel')}
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
+
    {showTransactionTableSettingsModal ? (
     <div
      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -8044,20 +8384,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </div>
        </div>
 
-       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_section_title')}</p>
-        <div className="mt-2">
-         <button
-          type="button"
-          onClick={() => { closeTransactionTableSettingsModal(); transactionsImportInputRef.current?.click(); }}
-          disabled={isImportingTransactions}
-          className="cursor-pointer rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-         >
-          {isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
-         </button>
-         <p className="mt-1.5 text-xs text-slate-500">{t('import_sheet_hint')}</p>
-        </div>
-       </div>
       </div>
 
       <div className="mt-6 flex justify-end gap-2">
