@@ -157,6 +157,7 @@ type TransactionUpdateInput = {
  chargesExchangeRate: number;
  chargesDescription: string;
  description: string;
+ archiveNote?: string;
  createdAt: string;
 };
 
@@ -180,6 +181,7 @@ type TransactionTableDraft = {
  chargesExchangeRate: string;
  chargesDescription: string;
  description: string;
+ archiveNote: string;
  createdDate: string;
 };
 
@@ -924,7 +926,6 @@ function AuthenticatedHome() {
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({ ...defaultLedgerColumnVisibility });
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
  const [transactionTableDrafts, setTransactionTableDrafts] = useState<Record<number, TransactionTableDraft>>({});
- const [archiveNoteDrafts, setArchiveNoteDrafts] = useState<Record<number, string>>({});
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
@@ -1135,6 +1136,20 @@ function AuthenticatedHome() {
   return ordered;
  }, [transactionTableRows, manualRowOrder, section]);
 
+ // Per-currency totals across all archived rows (not just the current page), shown at the table foot.
+ const archiveCurrencyTotals = useMemo(() => {
+  if (section !== 'archive') return [] as Array<{ code: string; symbol: string; total: number }>;
+  const totals = new Map<string, { code: string; symbol: string; total: number }>();
+  for (const row of displayedTransactionRows) {
+   if (!row.amount) continue;
+   const key = row.currencyCode || String(row.currencyId);
+   const existing = totals.get(key);
+   if (existing) existing.total += row.amount;
+   else totals.set(key, { code: row.currencyCode, symbol: row.currencySymbol, total: row.amount });
+  }
+  return [...totals.values()];
+ }, [section, displayedTransactionRows]);
+
  const totalTransactionPages = Math.max(1, Math.ceil(displayedTransactionRows.length / transactionsPageSize));
  const paginatedTransactions = useMemo(() => {
   const start = (transactionsPage - 1) * transactionsPageSize;
@@ -1288,6 +1303,7 @@ function AuthenticatedHome() {
    chargesExchangeRate: isAdjustment ? '1.00' : transaction.chargesExchangeRate.toFixed(2),
    chargesDescription: transaction.chargesDescription,
    description: transaction.description,
+   archiveNote: transaction.archiveNote,
    createdDate: transaction.createdAt.slice(0, 10),
   };
  }
@@ -1759,34 +1775,6 @@ function AuthenticatedHome() {
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
-  }
- }
-
- async function onSaveArchiveNote(transactionId: number, note: string) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-  const current = transactions.find((tx) => tx.id === transactionId);
-  if (!current || (current.archiveNote ?? '') === note.trim()) {
-   setArchiveNoteDrafts((prev) => {
-    const next = { ...prev };
-    delete next[transactionId];
-    return next;
-   });
-   return;
-  }
-  try {
-   await accountingApi.updateTransactionNote(transactionId, note);
-   setTransactions((prev) => prev.map((tx) => (tx.id === transactionId ? { ...tx, archiveNote: note.trim() } : tx)));
-   setArchiveNoteDrafts((prev) => {
-    const next = { ...prev };
-    delete next[transactionId];
-    return next;
-   });
-   setError('');
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
  }
 
@@ -2276,6 +2264,7 @@ function AuthenticatedHome() {
      chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
      chargesDescription: draft.chargesDescription,
      description: draft.description,
+     archiveNote: draft.archiveNote,
      createdAt: `${draft.createdDate} ${currentTime}`,
     });
    }
@@ -2984,6 +2973,112 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
    const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
    if (result.ok) setPdfExportModal(null);
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ function generateArchiveHtml(): string {
+  const esc = (value: string) =>
+   String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
+
+  const archived = transactions
+   .filter((tx) => !tx.accountFromId || !tx.accountToId)
+   .slice()
+   .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const headers = [t('date'), t('transaction_account_from'), t('transaction_account_to'), t('amount'), t('archive_more_info'), t('transaction_description')];
+  const headerCells = headers.map((header, index) => `<th${index === 3 ? ' class="num"' : ''}>${esc(header)}</th>`).join('');
+
+  const rows = archived
+   .map((tx) => {
+    const from = tx.accountFromId
+     ? `${esc(tx.clientFromName)} <span style="color:#64748b">${esc(tx.accountFromCurrencyCode)}</span>`
+     : `<span class="muted">${esc(t('archive_no_sender'))}</span>`;
+    const to = tx.accountToId
+     ? `${esc(tx.clientToName)} <span style="color:#64748b">${esc(tx.accountToCurrencyCode)}</span>`
+     : `<span class="muted">${esc(t('archive_no_receiver'))}</span>`;
+    const amount = tx.amount
+     ? `${tx.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${esc(tx.currencySymbol || tx.currencyCode)}`
+     : '-';
+    return `<tr><td>${formatDateValue(tx.createdAt, pdfSettings.dateFormat)}</td><td>${from}</td><td>${to}</td><td class="num">${amount}</td><td>${esc(tx.archiveNote)}</td><td>${esc(tx.description)}</td></tr>`;
+   })
+   .join('');
+
+  const totals = new Map<string, { code: string; symbol: string; total: number }>();
+  for (const tx of archived) {
+   if (!tx.amount) continue;
+   const key = tx.currencyCode || String(tx.currencyId);
+   const existing = totals.get(key);
+   if (existing) existing.total += tx.amount;
+   else totals.set(key, { code: tx.currencyCode, symbol: tx.currencySymbol, total: tx.amount });
+  }
+  const totalsHtml = [...totals.values()]
+   .map((total) => `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} <span style="color:#64748b">${esc(total.symbol || total.code)}</span></span>`)
+   .join('');
+
+  const dir = isRTL ? 'rtl' : 'ltr';
+  const exportDate = new Date().toLocaleDateString(language);
+
+  return `<!DOCTYPE html>
+<html lang="${language}" dir="${dir}">
+<head>
+<meta charset="UTF-8">
+<style>
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
+ .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
+ .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
+ table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+ thead tr { background: #e2e8f0; }
+ th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
+ td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+ tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(even) { background: #ffffff; }
+ td.num { font-variant-numeric: tabular-nums; }
+ .muted { color: #94a3b8; font-style: italic; }
+ .totals { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 16px; padding: 12px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; }
+ .totals .totals-label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
+ .totals .total-item { font-weight: 700; font-variant-numeric: tabular-nums; }
+ .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
+ .empty { margin-top: 24px; text-align: center; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="header">
+ <div class="header-left">
+  <h1>Arkam Exchange</h1>
+  <p>${esc(t('archive_title'))}</p>
+ </div>
+ ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
+</div>
+${
+ archived.length > 0
+  ? `<table>
+ <thead>
+  <tr>${headerCells}</tr>
+ </thead>
+ <tbody>
+  ${rows}
+ </tbody>
+</table>
+${totalsHtml ? `<div class="totals"><span class="totals-label">${esc(t('archive_totals'))}</span>${totalsHtml}</div>` : ''}`
+  : `<div class="empty">${esc(t('archive_empty'))}</div>`
+}
+${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+</body>
+</html>`;
+ }
+
+ async function onExportArchivePdf() {
+  if (!accountingApi) return;
+  try {
+   const html = generateArchiveHtml();
+   const exportDate = new Date().toISOString().slice(0, 10);
+   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `archive_${exportDate}.pdf` });
+   if (!result.ok) setError(t('error_failed_save'));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
@@ -6612,6 +6707,15 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
              </button>
             ) : null}
+            {section === 'archive' ? (
+             <button
+              type="button"
+              onClick={() => void onExportArchivePdf()}
+              className="cursor-pointer rounded border border-blue-600 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+             >
+              {t('archive_export_pdf')}
+             </button>
+            ) : null}
             <button
              type="button"
              onClick={openTransactionTableSettingsModal}
@@ -7460,18 +7564,20 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    </td>
                   ) : null}
                   {section === 'archive' ? (
-                   <td className="px-4 py-3">
-                    <input
-                     type="text"
-                     value={archiveNoteDrafts[txn.id] ?? txn.archiveNote}
-                     onChange={(event) => setArchiveNoteDrafts((prev) => ({ ...prev, [txn.id]: event.target.value }))}
-                     onBlur={(event) => void onSaveArchiveNote(txn.id, event.target.value)}
-                     onKeyDown={(event) => {
-                      if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
-                     }}
-                     placeholder={t('archive_more_info_placeholder')}
-                     className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                    />
+                   <td className="px-4 py-3 text-slate-600">
+                    {isEditingRow && draft ? (
+                     <input
+                      type="text"
+                      value={draft.archiveNote}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { archiveNote: event.target.value })}
+                      placeholder={t('archive_more_info_placeholder')}
+                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    ) : txn.archiveNote ? (
+                     txn.archiveNote
+                    ) : (
+                     <span className="text-slate-400">-</span>
+                    )}
                    </td>
                   ) : null}
                  </>
@@ -7490,6 +7596,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               </tr>
              ) : null}
             </tbody>
+            {section === 'archive' && archiveCurrencyTotals.length > 0 ? (
+             <tfoot>
+              <tr className="border-t-2 border-slate-300 bg-slate-50">
+               <td colSpan={visibleTransactionColumnCount + 1} className="px-4 py-3">
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                 <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t('archive_totals')}</span>
+                 {archiveCurrencyTotals.map((total) => (
+                  <span key={total.code} className="text-sm font-semibold text-slate-900">
+                   {total.total.toLocaleString()} <span className="font-normal text-slate-500">{total.symbol || total.code}</span>
+                  </span>
+                 ))}
+                </div>
+               </td>
+              </tr>
+             </tfoot>
+            ) : null}
            </table>
           </div>
           {transactionsPager}

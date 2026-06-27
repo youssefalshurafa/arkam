@@ -42,7 +42,6 @@ const writeActions = new Set([
  'setMainCurrency',
  'createTransaction',
  'updateTransaction',
- 'updateTransactionNote',
  'deleteTransaction',
  'deleteAllTransactions',
  'createClientAdjustment',
@@ -250,9 +249,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
    case 'updateTransaction':
     await db.updateTransaction(appLike, payload);
-    return NextResponse.json({ ok: true });
-   case 'updateTransactionNote':
-    await db.updateTransactionNote(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteTransaction':
     await db.deleteTransaction(appLike, payload);

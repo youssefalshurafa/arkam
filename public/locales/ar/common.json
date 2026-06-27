@@ -207,6 +207,8 @@
  "archive_empty": "لا توجد معاملات مؤرشفة. ستظهر هنا المعاملات التي ينقصها مرسل أو مستلم.",
  "archive_more_info": "مزيد من المعلومات",
  "archive_more_info_placeholder": "أضف ملاحظة…",
+ "archive_export_pdf": "تصدير PDF",
+ "archive_totals": "الإجماليات",
  "optional": "اختياري",
  "clear_selection": "مسح الاختيار",
  "adjustment_required": "الحساب والمبلغ والعملة مطلوبة.",

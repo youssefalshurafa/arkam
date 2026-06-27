@@ -671,8 +671,9 @@ async function updateTransaction(app, txn) {
                 charges_exchange_rate = $15,
                 charges_description = $16,
                 description = $17,
-                created_at = $18
-            WHERE id = $19
+                archive_note = COALESCE($18, archive_note),
+                created_at = $19
+            WHERE id = $20
         `,
         [
             txn.accountFromId || null,
@@ -692,18 +693,12 @@ async function updateTransaction(app, txn) {
             txn.chargesExchangeRate || 1,
             txn.chargesDescription?.trim() || '',
             txn.description?.trim() || '',
+            // Only the table inline-edit sends archiveNote; other paths leave it untouched via COALESCE.
+            txn.archiveNote === undefined || txn.archiveNote === null ? null : String(txn.archiveNote).trim(),
             txn.createdAt,
             txn.id,
         ],
     );
-}
-
-async function updateTransactionNote(app, { id, note }) {
-    if (!id) {
-        throw new Error('Transaction id is required.');
-    }
-    const { schema } = await getSchemaInfo(app);
-    await query(`UPDATE ${schema}.transactions SET archive_note = $1 WHERE id = $2`, [String(note ?? '').trim(), id]);
 }
 
 async function deleteTransaction(app, transactionId) {
@@ -805,7 +800,6 @@ module.exports = {
     listTransactions,
     createTransaction,
     updateTransaction,
-    updateTransactionNote,
     deleteTransaction,
     deleteAllTransactions,
     listClientAdjustments,

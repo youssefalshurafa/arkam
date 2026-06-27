@@ -206,6 +206,8 @@
  "archive_empty": "Aucune transaction archivée. Les transactions sans expéditeur ou destinataire apparaîtront ici.",
  "archive_more_info": "Plus d'infos",
  "archive_more_info_placeholder": "Ajouter une note…",
+ "archive_export_pdf": "Exporter en PDF",
+ "archive_totals": "Totaux",
  "optional": "facultatif",
  "clear_selection": "Effacer la sélection",
  "adjustment_required": "Le compte, le montant et la devise sont requis.",

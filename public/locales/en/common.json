@@ -207,6 +207,8 @@
  "archive_empty": "No archived transactions. Transactions missing a sender or receiver will appear here.",
  "archive_more_info": "More info",
  "archive_more_info_placeholder": "Add a note…",
+ "archive_export_pdf": "Export PDF",
+ "archive_totals": "Totals",
  "optional": "optional",
  "clear_selection": "Clear selection",
  "adjustment_required": "Account, amount, and currency are required.",
