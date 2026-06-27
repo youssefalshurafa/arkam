@@ -968,7 +968,7 @@ function AuthenticatedHome() {
  const [editingCurrencySymbolValue, setEditingCurrencySymbolValue] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
- const [openAccountOnCreate, setOpenAccountOnCreate] = useState(false);
+ const [openAccountOnCreate, setOpenAccountOnCreate] = useState(true);
  const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
  const [txFromQuery, setTxFromQuery] = useState('');
@@ -1654,7 +1654,7 @@ function AuthenticatedHome() {
    }
 
    setClientForm(emptyClientForm());
-   setOpenAccountOnCreate(false);
+   setOpenAccountOnCreate(true);
    setNewClientAccountDrafts([createNewClientAccountDraft()]);
    setError('');
    await loadData();
@@ -2930,7 +2930,7 @@ function AuthenticatedHome() {
   const metaCards = [
    pdfSettings.showMetaClient ? `<div class="meta-card"><div class="label">${t('client')}</div><div class="value">${clientName}</div></div>` : '',
    pdfSettings.showMetaCurrency
-    ? `<div class="meta-card"><div class="label">${t('currency')}</div><div class="value">${ledger.currencyName} (${ledger.currencyCode})</div></div>`
+    ? `<div class="meta-card"><div class="label">${t('currency')}</div><div class="value">${ledger.currencyName} (${ledger.currencySymbol || ledger.currencyCode})</div></div>`
     : '',
    pdfSettings.showMetaPeriod
     ? `<div class="meta-card"><div class="label">${t('export_period')}</div><div class="value" style="font-size:12px">${fromDate} &rarr; ${toDate}</div></div>`
@@ -2942,6 +2942,9 @@ function AuthenticatedHome() {
 <html lang="${language}" dir="${dir}">
 <head>
 <meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
 <style>
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
@@ -2982,7 +2985,7 @@ function AuthenticatedHome() {
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span></div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
@@ -2992,7 +2995,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  </tbody>
 </table>
 <div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencyCode}</span>
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
 ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
@@ -3066,6 +3069,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 <html lang="${language}" dir="${dir}">
 <head>
 <meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
 <style>
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
@@ -3755,6 +3761,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
       >
        <option value="Arial, Helvetica, sans-serif">Arial</option>
+       <option value="'Cairo', sans-serif">Cairo</option>
        <option value="'Times New Roman', Times, serif">Times New Roman</option>
        <option value="Georgia, 'Times New Roman', serif">Georgia</option>
        <option value="Verdana, Geneva, sans-serif">Verdana</option>
@@ -3992,7 +3999,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        type="button"
        onClick={() => {
         setClientForm(emptyClientForm());
-        setOpenAccountOnCreate(false);
+        setOpenAccountOnCreate(true);
         setNewClientAccountDrafts([createNewClientAccountDraft()]);
        }}
        className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -4149,7 +4156,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             onClick={() => setNewClientAccountDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
             className="mt-2 inline-flex rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
            >
-            Remove account
+            {t('client_account_remove')}
            </button>
           ) : null}
          </div>
@@ -4160,7 +4167,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          onClick={() => setNewClientAccountDrafts((current) => [...current, createNewClientAccountDraft()])}
          className="inline-flex rounded border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
         >
-         Open another account
+         {t('client_account_open_another')}
         </button>
        </div>
       ) : null}
@@ -5814,7 +5821,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className={`px-4 py-3 font-semibold ${entry.direction === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.direction === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {draft ? (
                            <input
@@ -5989,7 +5996,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
@@ -5999,7 +6006,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}

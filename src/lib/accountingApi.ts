@@ -64,8 +64,18 @@ function exportHtmlAsPdfFallback(html: string, title: string): Promise<{ ok: boo
  popup.document.title = title;
  popup.document.close();
 
- popup.focus();
- popup.print();
+ const triggerPrint = () => {
+  popup.focus();
+  popup.print();
+ };
+
+ // Wait for web fonts (e.g. Cairo) to load before printing so they don't fall back to a system font.
+ const popupFonts = (popup.document as Document & { fonts?: FontFaceSet }).fonts;
+ if (popupFonts?.ready) {
+  popupFonts.ready.then(() => setTimeout(triggerPrint, 150)).catch(() => triggerPrint());
+ } else {
+  setTimeout(triggerPrint, 400);
+ }
 
  return Promise.resolve({ ok: true });
 }

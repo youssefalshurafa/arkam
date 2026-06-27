@@ -173,6 +173,8 @@
  "client_ledger_done_editing": "Done Editing",
  "save_changes": "Save Changes",
  "client_account_open": "Open Account",
+ "client_account_remove": "Remove account",
+ "client_account_open_another": "Open another account",
  "client_account_add_new": "+ Add Account",
  "client_account_edit": "Edit Account",
  "client_account_save": "Save",

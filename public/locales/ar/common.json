@@ -173,6 +173,8 @@
  "client_ledger_done_editing": "إنهاء التعديل",
  "save_changes": "حفظ التغييرات",
  "client_account_open": "فتح حساب",
+ "client_account_remove": "إزالة الحساب",
+ "client_account_open_another": "فتح حساب آخر",
  "client_account_add_new": "➕ إضافة حساب",
  "client_account_edit": "تعديل الحساب",
  "client_account_save": "حفظ",

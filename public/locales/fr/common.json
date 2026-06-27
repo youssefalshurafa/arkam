@@ -172,6 +172,8 @@
  "client_ledger_done_editing": "Terminer la modification",
  "save_changes": "Enregistrer les modifications",
  "client_account_open": "Ouvrir un compte",
+ "client_account_remove": "Supprimer le compte",
+ "client_account_open_another": "Ouvrir un autre compte",
  "client_account_add_new": "+ Ajouter un compte",
  "client_account_edit": "Modifier le compte",
  "client_account_save": "Enregistrer",
