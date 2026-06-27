@@ -312,5 +312,19 @@
  "adjustment_delete_confirm": "Supprimer cette depense ?",
  "reverse_rate": "Inverser le sens du taux",
  "rate_multiplication": "Multiplier",
- "rate_division": "Diviser"
+ "rate_division": "Diviser",
+ "sort_asc": "Trier par ordre croissant",
+ "sort_desc": "Trier par ordre décroissant",
+ "import_section_title": "Importation",
+ "import_sheet": "Importer un fichier",
+ "import_sheet_loading": "Importation en cours...",
+ "import_sheet_hint": "Accepte les fichiers .xlsx, .xls et .csv.",
+ "tx_filter_toggle": "Filtrer et rechercher",
+ "tx_filter_search": "Rechercher",
+ "tx_filter_search_placeholder": "Client ou description...",
+ "tx_filter_client": "Client",
+ "tx_filter_client_all": "Tous les clients",
+ "tx_filter_date_from": "Du",
+ "tx_filter_date_to": "Au",
+ "tx_filter_clear": "Effacer les filtres"
 }

@@ -313,5 +313,19 @@
  "adjustment_delete_confirm": "Delete this expense entry?",
  "reverse_rate": "Reverse rate direction",
  "rate_multiplication": "Multiply",
- "rate_division": "Divide"
+ "rate_division": "Divide",
+ "sort_asc": "Sort ascending",
+ "sort_desc": "Sort descending",
+ "import_section_title": "Import",
+ "import_sheet": "Import Sheet",
+ "import_sheet_loading": "Importing...",
+ "import_sheet_hint": "Accepts .xlsx, .xls, and .csv files.",
+ "tx_filter_toggle": "Filter & Search",
+ "tx_filter_search": "Search",
+ "tx_filter_search_placeholder": "Client or description...",
+ "tx_filter_client": "Client",
+ "tx_filter_client_all": "All clients",
+ "tx_filter_date_from": "From date",
+ "tx_filter_date_to": "To date",
+ "tx_filter_clear": "Clear filters"
 }

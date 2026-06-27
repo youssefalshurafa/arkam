@@ -918,6 +918,7 @@ function AuthenticatedHome() {
  const [showLedgerSettingsModal, setShowLedgerSettingsModal] = useState(false);
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
+ const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
@@ -932,6 +933,12 @@ function AuthenticatedHome() {
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
  const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
+ const [txSortDir, setTxSortDir] = useState<'desc' | 'asc'>('desc');
+ const [txFilterOpen, setTxFilterOpen] = useState(false);
+ const [txFilterSearch, setTxFilterSearch] = useState('');
+ const [txFilterClient, setTxFilterClient] = useState('');
+ const [txFilterDateFrom, setTxFilterDateFrom] = useState('');
+ const [txFilterDateTo, setTxFilterDateTo] = useState('');
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
  const [ledgerCommissionExpandedEntries, setLedgerCommissionExpandedEntries] = useState<Set<string>>(new Set());
@@ -1128,13 +1135,13 @@ function AuthenticatedHome() {
 
   return ([...transactions, ...adjustmentRows] as TransactionTableRow[]).sort((left, right) => {
    const dateDiff = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-   if (dateDiff !== 0) return dateDiff;
+   if (dateDiff !== 0) return txSortDir === 'desc' ? dateDiff : -dateDiff;
    // Stable tiebreaker: higher DB id = inserted later = shown first within the same date
    const leftId = left.isAdjustment ? (left.adjustmentId ?? 0) : left.id;
    const rightId = right.isAdjustment ? (right.adjustmentId ?? 0) : right.id;
-   return rightId - leftId;
+   return txSortDir === 'desc' ? rightId - leftId : leftId - rightId;
   });
- }, [adjustments, clientAccounts, transactions]);
+ }, [adjustments, clientAccounts, transactions, txSortDir]);
 
  useEffect(() => {
   const transactionIds = new Set(transactionTableRows.map((transaction) => transaction.id));
@@ -1162,13 +1169,39 @@ function AuthenticatedHome() {
     return row ? [row] : [];
    });
   })();
-  if (section === 'archive') {
-   // Archive shows: explicit archive-only records, plus real transactions missing a party.
-   return ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId)));
+  let filtered =
+   section === 'archive'
+    ? ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId)))
+    : ordered.filter((row) => !row.isArchived);
+  if (txFilterSearch) {
+   const q = txFilterSearch.toLowerCase();
+   filtered = filtered.filter(
+    (row) =>
+     row.clientFromName.toLowerCase().includes(q) ||
+     row.clientToName.toLowerCase().includes(q) ||
+     row.description.toLowerCase().includes(q),
+   );
   }
-  // The main Transactions list never shows archive-only records.
-  return ordered.filter((row) => !row.isArchived);
- }, [transactionTableRows, manualRowOrder, section]);
+  if (txFilterClient) {
+   filtered = filtered.filter((row) => row.clientFromName === txFilterClient || row.clientToName === txFilterClient);
+  }
+  if (txFilterDateFrom) {
+   filtered = filtered.filter((row) => row.createdAt.slice(0, 10) >= txFilterDateFrom);
+  }
+  if (txFilterDateTo) {
+   filtered = filtered.filter((row) => row.createdAt.slice(0, 10) <= txFilterDateTo);
+  }
+  return filtered;
+ }, [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo]);
+
+ const txFilterClientOptions = useMemo(() => {
+  const names = new Set<string>();
+  for (const row of transactionTableRows) {
+   if (row.clientFromName) names.add(row.clientFromName);
+   if (row.clientToName) names.add(row.clientToName);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+ }, [transactionTableRows]);
 
  // Per-currency totals across all archived rows (not just the current page), shown at the table foot.
  const archiveCurrencyTotals = useMemo(() => {
@@ -1193,6 +1226,10 @@ function AuthenticatedHome() {
  useEffect(() => {
   setTransactionsPage((current) => Math.min(current, totalTransactionPages));
  }, [totalTransactionPages]);
+
+ useEffect(() => {
+  setTransactionsPage(1);
+ }, [txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
@@ -3510,14 +3547,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     <div className="text-xs text-slate-600">
      {(() => {
       const from = (transactionsPage - 1) * transactionsPageSize + 1;
-      const to = Math.min(transactionsPage * transactionsPageSize, transactionTableRows.length);
-      if (language === 'ar') {
-       return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
-      }
-      if (language === 'fr') {
-       return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
-      }
-      return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
+      const to = Math.min(transactionsPage * transactionsPageSize, displayedTransactionRows.length);
+      return `${from}-${to} ${t('pagination_of')} ${displayedTransactionRows.length}`;
      })()}
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
@@ -5436,20 +5467,17 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               <div>
                <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
                <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-3">
-               <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('starting_balance')}</p>
-                <div className="mt-2">
+               <div className="mt-2 flex items-center gap-1.5">
+                <span className="text-xs text-slate-400">{t('starting_balance')}:</span>
+                {editingStartingBalanceIds.has(ledger.accountId) ? (
                  <input
                   type="number"
+                  autoFocus
                   value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
                   onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
                   onBlur={async (event) => {
-                   if (!accountingApi) return;
                    const value = parseFloat(event.target.value);
-                   if (!isNaN(value)) {
+                   if (!isNaN(value) && accountingApi) {
                     try {
                      await accountingApi.updateClientAccountStartingBalance({ accountId: ledger.accountId, startingBalance: value });
                      await loadData();
@@ -5457,11 +5485,36 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      setError(e instanceof Error ? e.message : t('error_failed_update'));
                     }
                    }
+                   setEditingStartingBalanceIds((prev) => { const next = new Set(prev); next.delete(ledger.accountId); return next; });
                   }}
-                  className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setLedgerStartingBalanceDrafts((prev) => { const next = { ...prev }; delete next[ledger.accountId]; return next; }); setEditingStartingBalanceIds((prev) => { const next = new Set(prev); next.delete(ledger.accountId); return next; }); } }}
+                  className="w-32 rounded border border-slate-300 px-2 py-0.5 text-xs outline-none ring-blue-300 focus:ring"
                  />
-                </div>
+                ) : (
+                 <>
+                  <span className="text-xs font-medium text-slate-600">
+                   {(ledgerStartingBalanceDrafts[ledger.accountId] !== undefined
+                    ? parseFloat(ledgerStartingBalanceDrafts[ledger.accountId]) || 0
+                    : ledger.startingBalance
+                   ).toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                  </span>
+                  <button
+                   type="button"
+                   onClick={() => setEditingStartingBalanceIds((prev) => new Set([...prev, ledger.accountId]))}
+                   title={t('edit')}
+                   className="text-slate-400 transition hover:text-slate-700"
+                  >
+                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                   </svg>
+                  </button>
+                 </>
+                )}
                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
                 <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -6844,16 +6897,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              onChange={onImportTransactionsFile}
              className="hidden"
             />
-            {section === 'transactions' ? (
-             <button
-              type="button"
-              onClick={() => transactionsImportInputRef.current?.click()}
-              disabled={isImportingTransactions}
-              className="cursor-pointer rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-             >
-              {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
-             </button>
-            ) : null}
             {section === 'archive' ? (
              <button
               type="button"
@@ -6956,6 +6999,99 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             ) : null}
            </div>
           </div>
+          <div className="mt-3 rounded border border-slate-200 bg-slate-50">
+           <button
+            type="button"
+            onClick={() => setTxFilterOpen((o) => !o)}
+            aria-expanded={txFilterOpen}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+            </svg>
+            {t('tx_filter_toggle')}
+            {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo) && (
+             <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">
+              {[txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo].filter(Boolean).length}
+             </span>
+            )}
+            <svg
+             width="14"
+             height="14"
+             viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             strokeWidth="2"
+             strokeLinecap="round"
+             strokeLinejoin="round"
+             aria-hidden
+             className={`ml-auto transition-transform ${txFilterOpen ? 'rotate-180' : ''}`}
+            >
+             <path d="M6 9l6 6 6-6" />
+            </svg>
+           </button>
+           {txFilterOpen && (
+            <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-3 py-3">
+             <div className="flex min-w-36 flex-1 flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">{t('tx_filter_search')}</label>
+              <input
+               type="text"
+               value={txFilterSearch}
+               onChange={(e) => setTxFilterSearch(e.target.value)}
+               placeholder={t('tx_filter_search_placeholder')}
+               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+              />
+             </div>
+             <div className="flex min-w-36 flex-1 flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">{t('tx_filter_client')}</label>
+              <select
+               value={txFilterClient}
+               onChange={(e) => setTxFilterClient(e.target.value)}
+               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+              >
+               <option value="">{t('tx_filter_client_all')}</option>
+               {txFilterClientOptions.map((name) => (
+                <option key={name} value={name}>
+                 {name}
+                </option>
+               ))}
+              </select>
+             </div>
+             <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_from')}</label>
+              <input
+               type="date"
+               value={txFilterDateFrom}
+               onChange={(e) => setTxFilterDateFrom(e.target.value)}
+               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+              />
+             </div>
+             <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_to')}</label>
+              <input
+               type="date"
+               value={txFilterDateTo}
+               onChange={(e) => setTxFilterDateTo(e.target.value)}
+               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+              />
+             </div>
+             {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo) && (
+              <button
+               type="button"
+               onClick={() => {
+                setTxFilterSearch('');
+                setTxFilterClient('');
+                setTxFilterDateFrom('');
+                setTxFilterDateTo('');
+               }}
+               className="self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
+              >
+               {t('tx_filter_clear')}
+              </button>
+             )}
+            </div>
+           )}
+          </div>
           {transactionsPager}
           <div className={tableWrapClassName}>
            <table className="w-full text-sm">
@@ -6983,7 +7119,31 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                />
               </th>
               <th className="px-2 py-3 w-10" />
-              {transactionTableSettings.columns.created ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th> : null}
+              {transactionTableSettings.columns.created ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
+                <button
+                 type="button"
+                 onClick={() => setTxSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+                 className="inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
+                 title={txSortDir === 'desc' ? t('sort_asc') : t('sort_desc')}
+                >
+                 {t('date')}
+                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  {txSortDir === 'desc' ? (
+                   <>
+                    <path d="M12 5v14" />
+                    <path d="M5 12l7 7 7-7" />
+                   </>
+                  ) : (
+                   <>
+                    <path d="M12 19V5" />
+                    <path d="M5 12l7-7 7 7" />
+                   </>
+                  )}
+                 </svg>
+                </button>
+               </th>
+              ) : null}
               {transactionTableSettings.columns.description ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
               ) : null}
@@ -7555,9 +7715,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                       </select>
                      </div>
                     ) : (
-                     <>
+                     <span className="whitespace-nowrap">
                       <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
-                     </>
+                     </span>
                     )}
                    </td>
                   ) : null}
@@ -7651,8 +7811,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      })()
                     ) : txn.charges ? (
                      <div>
-                      <span>{txn.charges.toLocaleString()}</span>
-                      {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
+                      <span className="whitespace-nowrap">
+                       <span>{txn.charges.toLocaleString()}</span>
+                       {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
+                      </span>
                       {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
                       {txn.chargesPayer && (
                        <div className="text-xs text-slate-500">{txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : ''}</div>
@@ -7879,6 +8041,21 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            <option value="month-day">MM/DD</option>
           </select>
          </div>
+        </div>
+       </div>
+
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_section_title')}</p>
+        <div className="mt-2">
+         <button
+          type="button"
+          onClick={() => { closeTransactionTableSettingsModal(); transactionsImportInputRef.current?.click(); }}
+          disabled={isImportingTransactions}
+          className="cursor-pointer rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+         >
+          {isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
+         </button>
+         <p className="mt-1.5 text-xs text-slate-500">{t('import_sheet_hint')}</p>
         </div>
        </div>
       </div>

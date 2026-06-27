@@ -313,5 +313,19 @@
  "adjustment_delete_confirm": "هل تريد حذف هذا المصروف؟",
  "reverse_rate": "عكس اتجاه السعر",
  "rate_multiplication": "ضرب",
- "rate_division": "قسمة"
+ "rate_division": "قسمة",
+ "sort_asc": "ترتيب تصاعدي",
+ "sort_desc": "ترتيب تنازلي",
+ "import_section_title": "استيراد",
+ "import_sheet": "استيراد ملف",
+ "import_sheet_loading": "جارٍ الاستيراد...",
+ "import_sheet_hint": "يقبل ملفات .xlsx و .xls و .csv.",
+ "tx_filter_toggle": "تصفية وبحث",
+ "tx_filter_search": "بحث",
+ "tx_filter_search_placeholder": "عميل أو وصف...",
+ "tx_filter_client": "العميل",
+ "tx_filter_client_all": "جميع العملاء",
+ "tx_filter_date_from": "من تاريخ",
+ "tx_filter_date_to": "إلى تاريخ",
+ "tx_filter_clear": "مسح الفلاتر"
 }
