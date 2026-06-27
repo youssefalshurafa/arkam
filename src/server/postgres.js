@@ -247,6 +247,15 @@ async function ensureWorkspaceSchema(workspaceId) {
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate_reversed BOOLEAN NOT NULL DEFAULT FALSE;
             `);
 
+            // Non-ISO currencies (e.g. crypto/stablecoins) aren't in Intl's currency list,
+            // so seed them into the catalog here. DO NOTHING keeps any user edits/enabled state intact.
+            await client.query(
+                `INSERT INTO ${schema}.currencies (code, name, symbol)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (code) DO NOTHING`,
+                ['USDT', 'Tether (USDT)', '₮'],
+            );
+
             return schemaName;
         });
     })().catch((error) => {

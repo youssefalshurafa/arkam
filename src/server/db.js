@@ -72,8 +72,17 @@ function getCurrencySymbol(code) {
     }
 }
 
+// Non-ISO currencies (crypto/stablecoins) that Intl doesn't know about.
+const EXTRA_CURRENCIES = [{ code: 'USDT', name: 'Tether (USDT)', symbol: '₮' }];
+
 async function seedCurrenciesForSchema(schema, executor) {
-    for (const code of getSupportedCurrencyCodes()) {
+    const isoCurrencies = getSupportedCurrencyCodes().map((code) => ({
+        code,
+        name: getCurrencyDisplayName(code),
+        symbol: getCurrencySymbol(code),
+    }));
+
+    for (const { code, name, symbol } of [...isoCurrencies, ...EXTRA_CURRENCIES]) {
         await query(
             `
                 INSERT INTO ${schema}.currencies (code, name, symbol)
@@ -82,7 +91,7 @@ async function seedCurrenciesForSchema(schema, executor) {
                     name = EXCLUDED.name,
                     symbol = EXCLUDED.symbol
             `,
-            [code, getCurrencyDisplayName(code), getCurrencySymbol(code)],
+            [code, name, symbol],
             executor,
         );
     }
@@ -423,10 +432,22 @@ async function updateCurrency(app, currency) {
     }
 
     const { schema } = await getSchemaInfo(app);
-    await query(
-        `UPDATE ${schema}.currencies SET code = $1, name = $2, symbol = $3 WHERE id = $4`,
-        [currency.code.trim().toUpperCase(), currency.name.trim(), currency.symbol?.trim() || '', currency.id],
-    );
+    const code = currency.code.trim().toUpperCase();
+    const symbol = currency.symbol?.trim() || '';
+
+    await withTransaction(async (client) => {
+        await query(
+            `UPDATE ${schema}.currencies SET code = $1, name = $2, symbol = $3 WHERE id = $4`,
+            [code, currency.name.trim(), symbol, currency.id],
+            client,
+        );
+        // client_adjustments stores a denormalized copy of the currency code/symbol; keep it in sync.
+        await query(
+            `UPDATE ${schema}.client_adjustments SET currency_code = $1, currency_symbol = $2 WHERE currency_id = $3`,
+            [code, symbol, currency.id],
+            client,
+        );
+    });
 }
 
 async function deleteCurrency(app, currencyId) {

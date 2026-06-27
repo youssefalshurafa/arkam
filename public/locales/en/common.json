@@ -241,6 +241,8 @@
  "pdf_font_family_hint": "Typeface used for all text in the PDF.",
  "pdf_font_size_label": "Font size",
  "pdf_font_size_hint": "Base font size for the PDF.",
+ "pdf_head_font_size_label": "Table head font size",
+ "pdf_head_font_size_hint": "Font size for the table header row in the PDF.",
  "pdf_date_format_label": "Date format",
  "pdf_date_format_hint": "Choose how dates appear in the Date column of the exported PDF.",
  "pdf_sections_label": "Sections",

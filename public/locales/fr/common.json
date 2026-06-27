@@ -236,6 +236,8 @@
  "pdf_font_family_hint": "Typeface utilisée pour tout le texte du PDF.",
  "pdf_font_size_label": "Taille de police",
  "pdf_font_size_hint": "Taille de police de base pour le PDF.",
+ "pdf_head_font_size_label": "Taille de police de l'en-tête du tableau",
+ "pdf_head_font_size_hint": "Taille de police de la ligne d'en-tête du tableau dans le PDF.",
  "pdf_date_format_label": "Format de date",
  "pdf_date_format_hint": "Choisissez comment les dates apparaissent dans la colonne Date du PDF exporté.",
  "pdf_sections_label": "Sections",

@@ -375,6 +375,7 @@ type PdfSettings = {
  decimals: number;
  fontFamily: string;
  fontSize: number;
+ headFontSize: number;
  dateFormat: 'full' | 'day-month' | 'month-year' | 'day-month-year-2' | 'month-day';
  showPreBalance: boolean;
  showMetaClient: boolean;
@@ -388,6 +389,7 @@ const defaultPdfSettings: PdfSettings = {
  decimals: 2,
  fontFamily: 'Arial, Helvetica, sans-serif',
  fontSize: 12,
+ headFontSize: 13,
  dateFormat: 'full',
  showPreBalance: true,
  showMetaClient: true,
@@ -922,6 +924,8 @@ function AuthenticatedHome() {
  const [pdfSettings, setPdfSettings] = useState<PdfSettings>(() => getStoredPdfSettings());
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
+ const [editingCurrencySymbolId, setEditingCurrencySymbolId] = useState<number | null>(null);
+ const [editingCurrencySymbolValue, setEditingCurrencySymbolValue] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
  const [openAccountOnCreate, setOpenAccountOnCreate] = useState(false);
@@ -1708,6 +1712,32 @@ function AuthenticatedHome() {
   if (!accountingApi) return;
   try {
    await accountingApi.setMainCurrency(id);
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ }
+
+ function onStartEditCurrencySymbol(currency: Currency) {
+  setEditingCurrencySymbolId(currency.id);
+  setEditingCurrencySymbolValue(currency.symbol || '');
+ }
+
+ function onCancelEditCurrencySymbol() {
+  setEditingCurrencySymbolId(null);
+  setEditingCurrencySymbolValue('');
+ }
+
+ async function onSaveCurrencySymbol(currency: Currency) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+  try {
+   await accountingApi.updateCurrency({ id: currency.id, code: currency.code, name: currency.name, symbol: editingCurrencySymbolValue.trim() });
+   setEditingCurrencySymbolId(null);
+   setEditingCurrencySymbolValue('');
+   setError('');
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -2834,7 +2864,7 @@ function AuthenticatedHome() {
  .pre-balance .pb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: bold; font-variant-numeric: tabular-nums; }
  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
  thead tr { background: #e2e8f0; }
- th { padding: 8px 10px; font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
+ th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
  td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
  tbody tr:nth-child(odd) { background: #f8fafc; }
  tbody tr:nth-child(even) { background: #ffffff; }
@@ -3514,6 +3544,24 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
       >
        {[8, 9, 10, 11, 12, 13, 14, 16, 18].map((s) => (
+        <option
+         key={s}
+         value={s}
+        >
+         {s}px
+        </option>
+       ))}
+      </select>
+     </div>
+     <div>
+      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_head_font_size_label')}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t('pdf_head_font_size_hint')}</p>
+      <select
+       value={pdfSettings.headFontSize}
+       onChange={(e) => updatePdfSettings({ headFontSize: Number(e.target.value) })}
+       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+       {[8, 9, 10, 11, 12, 13, 14, 16, 18, 20].map((s) => (
         <option
          key={s}
          value={s}
@@ -4283,7 +4331,54 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         >
          <td className="px-4 py-3 font-mono font-semibold text-slate-900">{currency.code}</td>
          <td className="px-4 py-3 text-slate-700">{currency.name}</td>
-         <td className="px-4 py-3 text-slate-600">{currency.symbol || '-'}</td>
+         <td className="px-4 py-3 text-slate-600">
+          {editingCurrencySymbolId === currency.id ? (
+           <div className="flex items-center gap-2">
+            <input
+             autoFocus
+             value={editingCurrencySymbolValue}
+             onChange={(event) => setEditingCurrencySymbolValue(event.target.value)}
+             onKeyDown={(event) => {
+              if (event.key === 'Enter') void onSaveCurrencySymbol(currency);
+              if (event.key === 'Escape') onCancelEditCurrencySymbol();
+             }}
+             maxLength={8}
+             className="w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+             placeholder={t('currency_symbol')}
+            />
+            <button
+             type="button"
+             onClick={() => void onSaveCurrencySymbol(currency)}
+             className="rounded border border-green-200 px-2.5 py-1 text-xs font-semibold text-green-700 hover:bg-green-50"
+            >
+             {t('client_account_save')}
+            </button>
+            <button
+             type="button"
+             onClick={onCancelEditCurrencySymbol}
+             className="rounded border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+             {t('cancel')}
+            </button>
+           </div>
+          ) : (
+           <div className="flex items-center gap-2">
+            <span>{currency.symbol || '-'}</span>
+            <button
+             type="button"
+             onClick={() => onStartEditCurrencySymbol(currency)}
+             title={t('edit')}
+             aria-label={t('edit')}
+             className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+            >
+             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+             </svg>
+            </button>
+           </div>
+          )}
+         </td>
          <td className="px-4 py-3">
           {currency.isMain === 1 ? (
            <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
