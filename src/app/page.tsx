@@ -294,6 +294,7 @@ const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
 const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
+const lastBackupAtStorageKey = 'arkam:last-backup-at';
 
 type PdfColVisibility = Record<LedgerColumnKey, boolean>;
 
@@ -902,7 +903,6 @@ function AuthenticatedHome() {
  const [section, setSection] = useState<Section>('overview');
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
- const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
@@ -1023,6 +1023,15 @@ function AuthenticatedHome() {
   currencyId: null,
  });
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
+ const [isBackingUp, setIsBackingUp] = useState(false);
+ const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+ const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
+ const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
+
+ useEffect(() => {
+  if (typeof window === 'undefined') return;
+  setLastBackupAt(window.localStorage.getItem(lastBackupAtStorageKey));
+ }, []);
 
  const loadData = useCallback(async () => {
   if (!accountingApi) {
@@ -1031,15 +1040,14 @@ function AuthenticatedHome() {
   }
 
   try {
-   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows] = (await Promise.all([
-    accountingApi.getDbInfo(),
+   const [organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows] = (await Promise.all([
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
     accountingApi.listTransactions(),
     accountingApi.listAllClientAccounts(),
     accountingApi.listClientAdjustments(),
-   ])) as [DbInfo, Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[]];
+   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[]];
 
    let nextCurrencies = currencyRows;
    if (!nextCurrencies.length) {
@@ -1047,7 +1055,6 @@ function AuthenticatedHome() {
     nextCurrencies = (await accountingApi.listCurrencies()) as Currency[];
    }
 
-   setDbInfo(db);
    setOrganizations(organizationRows);
    setClients(clientRows);
    setCurrencies(nextCurrencies);
@@ -1851,6 +1858,109 @@ function AuthenticatedHome() {
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
+ }
+
+ async function onDownloadBackup() {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  setIsBackingUp(true);
+  try {
+   const backup = await accountingApi.exportWorkspaceData();
+   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+   const url = URL.createObjectURL(blob);
+   const link = document.createElement('a');
+   link.href = url;
+   link.download = `arkam_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+   document.body.appendChild(link);
+   link.click();
+   document.body.removeChild(link);
+   URL.revokeObjectURL(url);
+   const now = new Date().toISOString();
+   if (typeof window !== 'undefined') window.localStorage.setItem(lastBackupAtStorageKey, now);
+   setLastBackupAt(now);
+   setError('');
+   setImportSummary(t('backup_download_success'));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsBackingUp(false);
+  }
+ }
+
+ async function onRestoreBackupFile(event: ChangeEvent<HTMLInputElement>) {
+  const file = event.target.files?.[0];
+  if (backupRestoreInputRef.current) backupRestoreInputRef.current.value = '';
+  if (!file) return;
+
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const confirmed = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('backup_restore_confirm')}`);
+  if (!confirmed) return;
+
+  setIsRestoringBackup(true);
+  try {
+   const text = await file.text();
+   let parsed: unknown;
+   try {
+    parsed = JSON.parse(text);
+   } catch {
+    throw new Error(t('backup_restore_invalid_file'));
+   }
+
+   if (!parsed || typeof parsed !== 'object' || (parsed as { format?: string }).format !== 'arkam-backup') {
+    throw new Error(t('backup_restore_invalid_file'));
+   }
+
+   await accountingApi.importWorkspaceData(parsed as Parameters<typeof accountingApi.importWorkspaceData>[0]);
+   setSelectedTransactionIds(new Set());
+   setTransactionTableDrafts({});
+   setCommissionExpandedTxns(new Set());
+   setExpensesExpandedTxns(new Set());
+   setClientForm(emptyClientForm());
+   setSelectedClientForAccounts(null);
+   setSelectedClientForLedger(null);
+   setSelectedLedgerAccountId(null);
+   setTransactionsPage(1);
+   setError('');
+   await loadData();
+   setImportSummary(t('backup_restore_success'));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsRestoringBackup(false);
+  }
+ }
+
+ // Localized "Last backup: 2 days ago" style label, or a "never" message.
+ function lastBackupLabel(): string {
+  if (!lastBackupAt) return t('backup_last_never');
+
+  const then = new Date(lastBackupAt).getTime();
+  if (Number.isNaN(then)) return t('backup_last_never');
+
+  const diffMs = Date.now() - then;
+  const minutes = Math.round(diffMs / 60000);
+  const hours = Math.round(diffMs / 3600000);
+  const days = Math.round(diffMs / 86400000);
+
+  let relative: string;
+  try {
+   const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
+   if (Math.abs(days) >= 1) relative = rtf.format(-days, 'day');
+   else if (Math.abs(hours) >= 1) relative = rtf.format(-hours, 'hour');
+   else if (Math.abs(minutes) >= 1) relative = rtf.format(-minutes, 'minute');
+   else relative = rtf.format(0, 'minute');
+  } catch {
+   relative = new Date(lastBackupAt).toLocaleString(language);
+  }
+
+  return t('backup_last_label').replace('{time}', relative);
  }
 
  function onStartEditCurrencySymbol(currency: Currency) {
@@ -3786,29 +3896,55 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const databaseSection = (
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
-    <h2 className="text-2xl font-semibold">{t('settings_database_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('settings_database_description')}</p>
+    <h2 className="text-2xl font-semibold">{t('backup_title')}</h2>
+    <p className="mt-2 text-sm text-slate-600">{t('backup_description')}</p>
 
-    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-     <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_provider_label')}</p>
-      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.provider ?? t('loading')}</p>
+    <input
+     ref={backupRestoreInputRef}
+     type="file"
+     accept=".json,application/json"
+     onChange={onRestoreBackupFile}
+     className="hidden"
+    />
+
+    <div className="mt-6 grid gap-4 md:grid-cols-2">
+     <div className="rounded border border-slate-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">{t('backup_download_title')}</h3>
+      <p className="mt-1 text-sm text-slate-600">{t('backup_download_hint')}</p>
+      <button
+       type="button"
+       onClick={() => void onDownloadBackup()}
+       disabled={isBackingUp || isRestoringBackup}
+       className="mt-4 inline-flex items-center gap-2 rounded border border-blue-600 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+       </svg>
+       {isBackingUp ? t('backup_download_loading') : t('backup_download_button')}
+      </button>
+      <p className={`mt-3 text-xs ${lastBackupAt ? 'text-slate-500' : 'text-amber-600'}`}>{lastBackupLabel()}</p>
      </div>
-     <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_host_label')}</p>
-      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo ? `${dbInfo.host}:${dbInfo.port}` : t('loading')}</p>
-     </div>
-     <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_name_label')}</p>
-      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.database ?? t('loading')}</p>
-     </div>
-     <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_schema_label')}</p>
-      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.schema ?? t('loading')}</p>
+
+     <div className="rounded border border-amber-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">{t('backup_restore_title')}</h3>
+      <p className="mt-1 text-sm text-slate-600">{t('backup_restore_hint')}</p>
+      <button
+       type="button"
+       onClick={() => backupRestoreInputRef.current?.click()}
+       disabled={isBackingUp || isRestoringBackup}
+       className="mt-4 inline-flex items-center gap-2 rounded border border-amber-600 bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="17 8 12 3 7 8" />
+        <line x1="12" y1="3" x2="12" y2="15" />
+       </svg>
+       {isRestoringBackup ? t('backup_restore_loading') : t('backup_restore_button')}
+      </button>
      </div>
     </div>
-
-    <div className="mt-4 rounded border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">{t('settings_database_hint')}</div>
    </div>
   </section>
  );

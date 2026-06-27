@@ -159,4 +159,15 @@ export const accountingApi = {
    return data as { ok: true; member: { userId: string; email: string; role: 'admin' | 'member' | 'viewer' } };
   }),
  exportLedgerPdf: ({ html, defaultFileName }: { html: string; defaultFileName: string }) => exportHtmlAsPdfFallback(html, defaultFileName),
+ exportWorkspaceData: () => request<WorkspaceBackup>({ action: 'exportWorkspaceData' }),
+ importWorkspaceData: (backup: WorkspaceBackup) => request<{ ok: true }>({ action: 'importWorkspaceData', payload: backup }),
+};
+
+export type WorkspaceBackup = {
+ format: string;
+ version: number;
+ exportedAt: string;
+ database: string;
+ schema: string;
+ tables: Record<string, Array<Record<string, unknown>>>;
 };

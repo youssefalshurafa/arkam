@@ -777,6 +777,88 @@ async function deleteClientAdjustment(app, id) {
     await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
 }
 
+// Tables that make up a full workspace backup, listed in dependency order
+// (parents before children) so a restore can insert them sequentially.
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments'];
+
+const BACKUP_FORMAT = 'arkam-backup';
+const BACKUP_VERSION = 1;
+
+// Dumps every row of every workspace table (raw column names, original ids
+// preserved) so the result can later be re-imported by importWorkspaceData.
+async function exportWorkspaceData(app) {
+    const { schema, schemaName } = await getSchemaInfo(app);
+    const metadata = getDatabaseMetadata();
+
+    const tables = {};
+    for (const table of BACKUP_TABLES) {
+        const result = await query(`SELECT * FROM ${schema}.${quoteIdentifier(table)} ORDER BY id ASC`);
+        tables[table] = result.rows;
+    }
+
+    return {
+        format: BACKUP_FORMAT,
+        version: BACKUP_VERSION,
+        exportedAt: new Date().toISOString(),
+        database: metadata.database,
+        schema: schemaName,
+        tables,
+    };
+}
+
+// Replaces the entire workspace dataset with the contents of a backup produced
+// by exportWorkspaceData. Runs in a single transaction: every table is cleared
+// (children first) and rebuilt (parents first), then identity sequences are
+// realigned to the restored ids so future inserts don't collide.
+async function importWorkspaceData(app, backup) {
+    if (!backup || typeof backup !== 'object' || backup.format !== BACKUP_FORMAT || !backup.tables || typeof backup.tables !== 'object') {
+        throw new Error('Invalid or unrecognized backup file.');
+    }
+
+    const { schema, schemaName } = await getSchemaInfo(app);
+
+    await withTransaction(async (client) => {
+        // Clear existing data, children before parents, to satisfy FK constraints.
+        for (const table of [...BACKUP_TABLES].reverse()) {
+            await query(`DELETE FROM ${schema}.${quoteIdentifier(table)}`, [], client);
+        }
+
+        // Re-insert, parents before children, preserving original ids.
+        for (const table of BACKUP_TABLES) {
+            const rows = Array.isArray(backup.tables[table]) ? backup.tables[table] : [];
+
+            for (const row of rows) {
+                if (!row || typeof row !== 'object') continue;
+                const columns = Object.keys(row);
+                if (!columns.length) continue;
+
+                const quotedColumns = columns.map((column) => quoteIdentifier(column)).join(', ');
+                const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
+                const values = columns.map((column) => row[column]);
+
+                await query(
+                    `INSERT INTO ${schema}.${quoteIdentifier(table)} (${quotedColumns}) VALUES (${placeholders})`,
+                    values,
+                    client,
+                );
+            }
+
+            // Realign the identity sequence so the next generated id is max(id) + 1.
+            await query(
+                `SELECT setval(
+                    pg_get_serial_sequence($1, 'id'),
+                    (SELECT COALESCE(MAX(id), 0) FROM ${schema}.${quoteIdentifier(table)}) + 1,
+                    false
+                 )`,
+                [`${schemaName}.${table}`],
+                client,
+            );
+        }
+    });
+
+    return { ok: true };
+}
+
 module.exports = {
     getDbInfo,
     setDbDirectory,
@@ -813,4 +895,6 @@ module.exports = {
     createClientAdjustment,
     updateClientAdjustment,
     deleteClientAdjustment,
+    exportWorkspaceData,
+    importWorkspaceData,
 };
