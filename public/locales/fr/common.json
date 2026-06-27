@@ -277,6 +277,8 @@
  "export_pdf_title": "Exporter le relevé de compte",
  "export_date_from": "Du",
  "export_date_to": "Au",
+ "export_start_transaction": "Commencer à la transaction",
+ "export_end_transaction": "Terminer à la transaction",
  "settings_danger_title": "Zone dangereuse",
  "settings_danger_description": "Utilisez ces actions uniquement si vous voulez supprimer de grands ensembles de donnees.",
  "danger_zone_warning_title": "Actions a haut risque",

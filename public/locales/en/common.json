@@ -250,6 +250,8 @@
  "export_pdf_title": "Export Ledger as PDF",
  "export_date_from": "From Date",
  "export_date_to": "To Date",
+ "export_start_transaction": "Start from transaction",
+ "export_end_transaction": "End at transaction",
  "settings_pdf_title": "PDF Export",
  "settings_pdf_description": "Configure what appears in exported PDF account statements, independently from the on-screen ledger view.",
  "pdf_columns_label": "Columns",

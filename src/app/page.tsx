@@ -712,6 +712,11 @@ function getCommissionAmount(baseAmount: number, commissionPercent: number) {
  return baseAmount * (commissionPercent / 100);
 }
 
+// Stable identifier for a ledger entry (used to pick exact start/end boundaries for PDF export).
+function ledgerEntryKey(entry: ClientLedgerEntry) {
+ return entry.isAdjustment ? `a-${entry.adjustmentId}` : `t-${entry.transactionId}`;
+}
+
 function formatDateValue(value: string, dateFormat: PdfSettings['dateFormat']) {
  const iso = value.slice(0, 10);
  const [y = '', m = '', d = ''] = iso.split('-');
@@ -937,7 +942,14 @@ function AuthenticatedHome() {
  const [editingAccountCurrencyId, setEditingAccountCurrencyId] = useState<number | null>(null);
  const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
  const [editingAccountBalanceType, setEditingAccountBalanceType] = useState<'debit' | 'credit'>('debit');
- const [pdfExportModal, setPdfExportModal] = useState<{ accountId: number; fromDate: string; toDate: string; cols: PdfColVisibility } | null>(null);
+ const [pdfExportModal, setPdfExportModal] = useState<{
+  accountId: number;
+  fromDate: string;
+  toDate: string;
+  fromEntryKey: string | null;
+  toEntryKey: string | null;
+  cols: PdfColVisibility;
+ } | null>(null);
  const [adjustmentModal, setAdjustmentModal] = useState<{
   accountId: number;
   editingId: number | null;
@@ -2797,13 +2809,30 @@ function AuthenticatedHome() {
   }
  }
 
- function generateLedgerHtml(ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility): string {
-  const filteredEntries = ledger.entries.filter((e) => {
+ function generateLedgerHtml(
+  ledger: ClientAccountLedger,
+  fromDate: string,
+  toDate: string,
+  colVisibility: PdfColVisibility,
+  fromEntryKey?: string | null,
+  toEntryKey?: string | null,
+ ): string {
+  // Candidates are the entries within the chosen date range; the start/end transaction
+  // pickers then narrow the exact boundaries (handy when a day has many transactions).
+  const candidates = ledger.entries.filter((e) => {
    const d = e.createdAt.slice(0, 10);
    return d >= fromDate && d <= toDate;
   });
+  const startIdx = fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey)) : 0;
+  const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
+  const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
+  const filteredEntries = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
 
-  const preBalance = ledger.startingBalance + ledger.entries.filter((e) => e.createdAt.slice(0, 10) < fromDate).reduce((sum, e) => sum + e.netChange, 0);
+  // Pre-balance includes everything chronologically before the first selected entry
+  // (entries before the date range, plus same-range entries skipped by the start picker).
+  const firstSelected = filteredEntries[0];
+  const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
+  const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
 
   // Build column definitions respecting user visibility; running_balance is always included
   type ColDef = { key: LedgerColumnKey; header: string; isNum?: boolean; cell: (e: ClientLedgerEntry, runBal: number) => string };
@@ -2971,10 +3000,17 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 </html>`;
  }
 
- async function onExportLedgerPdf(ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility) {
+ async function onExportLedgerPdf(
+  ledger: ClientAccountLedger,
+  fromDate: string,
+  toDate: string,
+  colVisibility: PdfColVisibility,
+  fromEntryKey?: string | null,
+  toEntryKey?: string | null,
+ ) {
   if (!accountingApi) return;
   try {
-   const html = generateLedgerHtml(ledger, fromDate, toDate, colVisibility);
+   const html = generateLedgerHtml(ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey);
    const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^a-z0-9]/gi, '_');
    const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
    const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
@@ -5270,7 +5306,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                if (!targetLedger) return;
                const today = new Date().toISOString().slice(0, 10);
                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
-               setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, cols: getStoredPdfCols(targetLedger.accountId) });
+               setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, fromEntryKey: null, toEntryKey: null, cols: getStoredPdfCols(targetLedger.accountId) });
               }}
               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
              >
@@ -7948,7 +7984,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             <input
              type="date"
              value={pdfExportModal.fromDate}
-             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value } : prev))}
+             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev))}
              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
@@ -7957,10 +7993,67 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             <input
              type="date"
              value={pdfExportModal.toDate}
-             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value } : prev))}
+             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev))}
              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
+
+           {/* Start picker lists only the From-date's transactions; End picker only the To-date's. */}
+           {(() => {
+            const startCandidates = ledger.entries.filter((e) => e.createdAt.slice(0, 10) === pdfExportModal.fromDate);
+            const endCandidates = ledger.entries.filter((e) => e.createdAt.slice(0, 10) === pdfExportModal.toDate);
+            if (startCandidates.length === 0 && endCandidates.length === 0) return null;
+            const startKey =
+             pdfExportModal.fromEntryKey && startCandidates.some((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)
+              ? pdfExportModal.fromEntryKey
+              : startCandidates[0]
+                ? ledgerEntryKey(startCandidates[0])
+                : '';
+            const endKey =
+             pdfExportModal.toEntryKey && endCandidates.some((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey)
+              ? pdfExportModal.toEntryKey
+              : endCandidates[endCandidates.length - 1]
+                ? ledgerEntryKey(endCandidates[endCandidates.length - 1])
+                : '';
+            const entryLabel = (e: ClientLedgerEntry) =>
+             `${formatDateValue(e.createdAt, pdfSettings.dateFormat)} · ${e.counterpartyName} · ${e.direction === 'outgoing' ? '−' : '+'}${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${e.currencySymbol || e.currencyCode}`;
+            return (
+             <>
+              {startCandidates.length > 0 ? (
+               <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_start_transaction')}</label>
+                <select
+                 value={startKey}
+                 onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromEntryKey: e.target.value } : prev))}
+                 className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                >
+                 {startCandidates.map((entry) => (
+                  <option key={ledgerEntryKey(entry)} value={ledgerEntryKey(entry)}>
+                   {entryLabel(entry)}
+                  </option>
+                 ))}
+                </select>
+               </div>
+              ) : null}
+              {endCandidates.length > 0 ? (
+               <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_end_transaction')}</label>
+                <select
+                 value={endKey}
+                 onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toEntryKey: e.target.value } : prev))}
+                 className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                >
+                 {endCandidates.map((entry) => (
+                  <option key={ledgerEntryKey(entry)} value={ledgerEntryKey(entry)}>
+                   {entryLabel(entry)}
+                  </option>
+                 ))}
+                </select>
+               </div>
+              ) : null}
+             </>
+            );
+           })()}
 
            {/* Column toggles */}
            <div>
@@ -7992,11 +8085,18 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            </div>
 
            {(() => {
-            const preBalance = ledger.startingBalance + ledger.entries.filter((e) => e.createdAt.slice(0, 10) < pdfExportModal.fromDate).reduce((sum, e) => sum + e.netChange, 0);
-            const count = ledger.entries.filter((e) => {
+            const candidates = ledger.entries.filter((e) => {
              const d = e.createdAt.slice(0, 10);
              return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
-            }).length;
+            });
+            const startIdx = pdfExportModal.fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)) : 0;
+            const endIdxRaw = pdfExportModal.toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey) : -1;
+            const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
+            const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
+            const firstSelected = selected[0];
+            const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
+            const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
+            const count = selected.length;
             return (
              <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
               <div className="flex justify-between">
@@ -8024,7 +8124,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            </button>
            <button
             type="button"
-            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols)}
+            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)}
             disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
             className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
            >

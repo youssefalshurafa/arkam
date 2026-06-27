@@ -278,6 +278,8 @@
  "export_pdf_title": "تصدير كشف الحساب",
  "export_date_from": "من تاريخ",
  "export_date_to": "إلى تاريخ",
+ "export_start_transaction": "ابدأ من معاملة",
+ "export_end_transaction": "انتهِ عند معاملة",
  "settings_danger_title": "منطقة خطرة",
  "settings_danger_description": "استخدم هذه الإجراءات فقط عندما تريد حذف بيانات كبيرة بشكل مقصود.",
  "danger_zone_warning_title": "إجراءات عالية الخطورة",
