@@ -223,6 +223,7 @@ async function ensureWorkspaceSchema(workspaceId) {
                     charges_exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1,
                     charges_description TEXT NOT NULL DEFAULT '',
                     description TEXT NOT NULL DEFAULT '',
+                    archive_note TEXT NOT NULL DEFAULT '',
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
 
@@ -245,6 +246,13 @@ async function ensureWorkspaceSchema(workspaceId) {
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS currency_symbol TEXT NOT NULL DEFAULT '';
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1;
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate_reversed BOOLEAN NOT NULL DEFAULT FALSE;
+
+                -- A transaction may be missing one party (e.g. money received from an unknown sender);
+                -- such incomplete transactions surface in the Archive until both parties are filled in.
+                ALTER TABLE ${schema}.transactions ALTER COLUMN account_from_id DROP NOT NULL;
+                ALTER TABLE ${schema}.transactions ALTER COLUMN account_to_id DROP NOT NULL;
+                -- Free-text note shown in the Archive's "More info" column.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS archive_note TEXT NOT NULL DEFAULT '';
             `);
 
             // Non-ISO currencies (e.g. crypto/stablecoins) aren't in Intl's currency list,

@@ -82,11 +82,11 @@ type Currency = {
 
 type Transaction = {
  id: number;
- accountFromId: number;
+ accountFromId: number | null;
  clientFromName: string;
  accountFromCurrencyCode: string;
  accountFromCurrencySymbol: string;
- accountToId: number;
+ accountToId: number | null;
  clientToName: string;
  accountToCurrencyCode: string;
  accountToCurrencySymbol: string;
@@ -109,6 +109,7 @@ type Transaction = {
  chargesExchangeRate: number;
  chargesDescription: string;
  description: string;
+ archiveNote: string;
  createdAt: string;
 };
 
@@ -139,8 +140,8 @@ type TransactionForm = {
 
 type TransactionUpdateInput = {
  id: number;
- accountFromId: number;
- accountToId: number;
+ accountFromId: number | null;
+ accountToId: number | null;
  currencyId: number;
  amount: number;
  type: string;
@@ -286,11 +287,37 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
 ];
 
 const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
+const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
 const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
 
 type PdfColVisibility = Record<LedgerColumnKey, boolean>;
+
+const defaultLedgerColumnVisibility: Record<LedgerColumnKey, boolean> = {
+ created: true,
+ counterparty: true,
+ direction: false,
+ type: false,
+ amount: true,
+ exchangeRate: true,
+ commission: true,
+ netChange: true,
+ runningBalance: true,
+ description: true,
+};
+
+// Column show/hide is stored per client so each client's ledger keeps its own choice.
+function getStoredLedgerColumnVisibility(clientId: number | null | undefined): Record<LedgerColumnKey, boolean> {
+ if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerColumnVisibility };
+ try {
+  const raw = window.localStorage.getItem(ledgerColumnVisibilityStorageKeyPrefix + clientId);
+  if (!raw) return { ...defaultLedgerColumnVisibility };
+  return { ...defaultLedgerColumnVisibility, ...JSON.parse(raw) };
+ } catch {
+  return { ...defaultLedgerColumnVisibility };
+ }
+}
 type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
 
 type TransactionTableSettings = {
@@ -413,9 +440,9 @@ function getStoredPdfSettings(): PdfSettings {
 
 type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
-type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions';
+type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive';
 
-const allowedSections: Section[] = ['overview', 'settings', 'organizations', 'organization-clients', 'clients', 'client-ledger', 'currencies', 'transactions'];
+const allowedSections: Section[] = ['overview', 'settings', 'organizations', 'organization-clients', 'clients', 'client-ledger', 'currencies', 'transactions', 'archive'];
 
 function getSectionFromHash(hash: string): Section {
  const normalized = hash.replace('#', '');
@@ -699,7 +726,7 @@ function formatDateValue(value: string, dateFormat: PdfSettings['dateFormat']) {
  }
 }
 
-type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth';
+type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive';
 
 function renderIcon(icon: IconName, className = 'h-5 w-5') {
  const commonProps = {
@@ -796,6 +823,14 @@ function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="M17 12v-4" />
     </svg>
    );
+  case 'archive':
+   return (
+    <svg {...commonProps}>
+     <rect x="3" y="4" width="18" height="4" rx="1" />
+     <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+     <path d="M10 12h4" />
+    </svg>
+   );
  }
 }
 
@@ -886,20 +921,10 @@ function AuthenticatedHome() {
  const dragLedgerFromHandle = useRef(false);
  const [manualLedgerRowOrder, setManualLedgerRowOrder] = useState<Record<number, string[]>>({});
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
- const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({
-  created: true,
-  counterparty: true,
-  direction: false,
-  type: false,
-  amount: true,
-  exchangeRate: true,
-  commission: true,
-  netChange: true,
-  runningBalance: true,
-  description: true,
- });
+ const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({ ...defaultLedgerColumnVisibility });
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
  const [transactionTableDrafts, setTransactionTableDrafts] = useState<Record<number, TransactionTableDraft>>({});
+ const [archiveNoteDrafts, setArchiveNoteDrafts] = useState<Record<number, string>>({});
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
@@ -1022,6 +1047,11 @@ function AuthenticatedHome() {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
  }, [ledgerColumnOrder]);
 
+ // Load the per-client column show/hide choices whenever the open client changes.
+ useEffect(() => {
+  setLedgerColumnVisibility(getStoredLedgerColumnVisibility(selectedClientForLedger?.id));
+ }, [selectedClientForLedger?.id]);
+
  const transactionTableRows = useMemo<TransactionTableRow[]>(() => {
   const adjustmentRows = adjustments.map((adjustment) => {
    const account = clientAccounts.find((currentAccount) => currentAccount.id === adjustment.accountId);
@@ -1058,6 +1088,7 @@ function AuthenticatedHome() {
     chargesExchangeRate: 1,
     chargesDescription: '',
     description: adjustment.description,
+    archiveNote: '',
     createdAt: adjustment.createdAt,
    };
   });
@@ -1086,15 +1117,23 @@ function AuthenticatedHome() {
   });
  }, [transactionTableRows]);
 
- // Rows in user-defined order (if any), otherwise natural sort order
+ // Rows in user-defined order (if any), otherwise natural sort order.
+ // The Archive section shows only transactions missing a party; the main
+ // Transactions section shows everything (including those archived rows).
  const displayedTransactionRows = useMemo<TransactionTableRow[]>(() => {
-  if (!manualRowOrder) return transactionTableRows;
-  const rowMap = new Map(transactionTableRows.map((r) => [r.id, r]));
-  return manualRowOrder.flatMap((id) => {
-   const row = rowMap.get(id);
-   return row ? [row] : [];
-  });
- }, [transactionTableRows, manualRowOrder]);
+  const ordered = (() => {
+   if (!manualRowOrder) return transactionTableRows;
+   const rowMap = new Map(transactionTableRows.map((r) => [r.id, r]));
+   return manualRowOrder.flatMap((id) => {
+    const row = rowMap.get(id);
+    return row ? [row] : [];
+   });
+  })();
+  if (section === 'archive') {
+   return ordered.filter((row) => !row.isAdjustment && (!row.accountFromId || !row.accountToId));
+  }
+  return ordered;
+ }, [transactionTableRows, manualRowOrder, section]);
 
  const totalTransactionPages = Math.max(1, Math.ceil(displayedTransactionRows.length / transactionsPageSize));
  const paginatedTransactions = useMemo(() => {
@@ -1154,10 +1193,14 @@ function AuthenticatedHome() {
  }
 
  function toggleLedgerColumn(column: LedgerColumnKey) {
-  setLedgerColumnVisibility((current) => ({
-   ...current,
-   [column]: !current[column],
-  }));
+  setLedgerColumnVisibility((current) => {
+   const next = { ...current, [column]: !current[column] };
+   const clientId = selectedClientForLedger?.id;
+   if (clientId && typeof window !== 'undefined') {
+    window.localStorage.setItem(ledgerColumnVisibilityStorageKeyPrefix + clientId, JSON.stringify(next));
+   }
+   return next;
+  });
  }
 
  function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
@@ -1719,6 +1762,34 @@ function AuthenticatedHome() {
   }
  }
 
+ async function onSaveArchiveNote(transactionId: number, note: string) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+  const current = transactions.find((tx) => tx.id === transactionId);
+  if (!current || (current.archiveNote ?? '') === note.trim()) {
+   setArchiveNoteDrafts((prev) => {
+    const next = { ...prev };
+    delete next[transactionId];
+    return next;
+   });
+   return;
+  }
+  try {
+   await accountingApi.updateTransactionNote(transactionId, note);
+   setTransactions((prev) => prev.map((tx) => (tx.id === transactionId ? { ...tx, archiveNote: note.trim() } : tx)));
+   setArchiveNoteDrafts((prev) => {
+    const next = { ...prev };
+    delete next[transactionId];
+    return next;
+   });
+   setError('');
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
  function onStartEditCurrencySymbol(currency: Currency) {
   setEditingCurrencySymbolId(currency.id);
   setEditingCurrencySymbolValue(currency.symbol || '');
@@ -1844,8 +1915,8 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!transactionForm.accountFromId || !transactionForm.accountToId || !transactionForm.currencyId || !amount) {
-   setError(t('transaction_required'));
+  if ((!transactionForm.accountFromId && !transactionForm.accountToId) || !transactionForm.currencyId) {
+   setError(t('transaction_party_required'));
    return;
   }
 
@@ -1854,7 +1925,7 @@ function AuthenticatedHome() {
     accountFromId: transactionForm.accountFromId,
     accountToId: transactionForm.accountToId,
     currencyId: transactionForm.currencyId,
-    amount,
+    amount: amount || 0,
     type: transactionForm.type,
     exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
     commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
@@ -2181,8 +2252,8 @@ function AuthenticatedHome() {
      continue;
     }
     const amount = parseFloat(draft.amount);
-    if (!draft.accountFromId || !draft.accountToId || !draft.currencyId || !amount) {
-     setError(t('transaction_required'));
+    if ((!draft.accountFromId && !draft.accountToId) || !draft.currencyId) {
+     setError(t('transaction_party_required'));
      return;
     }
     const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
@@ -2191,7 +2262,7 @@ function AuthenticatedHome() {
      accountFromId: draft.accountFromId,
      accountToId: draft.accountToId,
      currencyId: draft.currencyId,
-     amount,
+     amount: amount || 0,
      type: draft.type,
      exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
      commissionFrom: parseFloat(draft.commissionFrom) || 0,
@@ -2455,7 +2526,7 @@ function AuthenticatedHome() {
     const newCreatedAt = zoneDate + draggedRow.createdAt.slice(10);
 
     if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
-     const account = clientAccountMap.get(draggedRow.accountFromId);
+     const account = clientAccountMap.get(draggedRow.accountFromId ?? -1);
      const selectedCurrency = currencyMap.get(draggedRow.currencyId);
      await accountingApi.updateClientAdjustment({
       id: draggedRow.adjustmentId,
@@ -2924,6 +2995,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
   { key: 'transactions', label: t('nav_transactions'), icon: 'transactions' },
+  { key: 'archive', label: t('nav_archive'), icon: 'archive' },
  ];
 
  const settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }> = [
@@ -3048,7 +3120,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     const entries = transactions
      .flatMap<ClientLedgerEntry>((transaction) => {
       if (transaction.accountFromId === account.id) {
-       const counterparty = clientAccountMap.get(transaction.accountToId);
+       const counterparty = clientAccountMap.get(transaction.accountToId ?? -1);
        return [
         {
          transactionId: transaction.id,
@@ -3077,7 +3149,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       }
 
       if (transaction.accountToId === account.id) {
-       const counterparty = clientAccountMap.get(transaction.accountFromId);
+       const counterparty = clientAccountMap.get(transaction.accountFromId ?? -1);
        return [
         {
          transactionId: transaction.id,
@@ -3347,6 +3419,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    title: t('transactions_title'),
    description: t('transactions_description'),
    accent: `${transactions.length} ${t('nav_transactions')}`,
+  },
+  archive: {
+   title: t('archive_title'),
+   description: t('archive_description'),
+   accent: `${transactions.filter((tx) => !tx.accountFromId || !tx.accountToId).length} ${t('nav_archive')}`,
   },
  };
 
@@ -5858,9 +5935,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
        {section === 'currencies' ? currenciesReadOnlySection : null}
 
-       {section === 'transactions' ? (
+       {section === 'transactions' || section === 'archive' ? (
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
-         {isNewTransactionSectionOpen ? (
+         {section === 'transactions' && isNewTransactionSectionOpen ? (
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
            <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
            <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
@@ -6087,7 +6164,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             ) : null}
 
             <label className="block text-sm font-medium">
-             {isAdjustmentTransaction ? t('client') : t('transaction_account_from')} <span className="text-red-500">*</span>
+             {isAdjustmentTransaction ? t('client') : t('transaction_account_from')}
+             {isAdjustmentTransaction ? <span className="text-red-500"> *</span> : null}
             </label>
             <div className="relative mt-2">
              <input
@@ -6111,9 +6189,28 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               }}
               onBlur={() => setTimeout(() => setTxFromOpen(false), 150)}
               placeholder={t('transaction_account_placeholder')}
-              className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+              className={`w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
               autoComplete="off"
              />
+             {transactionForm.accountFromId && !txFromOpen ? (
+              <button
+               type="button"
+               onMouseDown={(event) => {
+                event.preventDefault();
+                setTransactionForm((current) => ({ ...current, accountFromId: null }));
+                setTxFromQuery('');
+                setTxFromOpen(false);
+               }}
+               title={t('clear_selection')}
+               aria-label={t('clear_selection')}
+               className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-2' : 'right-2'}`}
+              >
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+               </svg>
+              </button>
+             ) : null}
              {txFromOpen && (
               <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
                {clientAccounts
@@ -6141,7 +6238,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             {!isAdjustmentTransaction ? (
              <>
               <label className="mt-4 block text-sm font-medium">
-               {t('transaction_account_to')} <span className="text-red-500">*</span>
+               {t('transaction_account_to')}
               </label>
               <div className="relative mt-2">
                <input
@@ -6165,9 +6262,28 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 }}
                 onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
                 placeholder={t('transaction_account_placeholder')}
-                className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+                className={`w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
                 autoComplete="off"
                />
+               {transactionForm.accountToId && !txToOpen ? (
+                <button
+                 type="button"
+                 onMouseDown={(event) => {
+                  event.preventDefault();
+                  setTransactionForm((current) => ({ ...current, accountToId: null }));
+                  setTxToQuery('');
+                  setTxToOpen(false);
+                 }}
+                 title={t('clear_selection')}
+                 aria-label={t('clear_selection')}
+                 className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-2' : 'right-2'}`}
+                >
+                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                 </svg>
+                </button>
+               ) : null}
                {txToOpen && (
                 <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
                  {clientAccounts
@@ -6195,7 +6311,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             ) : null}
 
             <label className="mt-4 block text-sm font-medium">
-             {t('transaction_amount')} <span className="text-red-500">*</span>
+             {t('transaction_amount')}
+             {isAdjustmentTransaction ? <span className="text-red-500"> *</span> : null}
             </label>
             <div className="mt-2 flex gap-2">
              <input
@@ -6473,7 +6590,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
          <div className={`${panelClassName} min-w-0 xl:flex-1`}>
           <div className="flex items-start justify-between gap-4">
-           <h2 className="text-xl font-semibold">{t('transactions_title')}</h2>
+           <div>
+            <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_title') : t('transactions_title')}</h2>
+            {section === 'archive' ? <p className="mt-1 text-sm text-slate-600">{t('archive_description')}</p> : null}
+           </div>
            <div className="flex flex-wrap items-center gap-2">
             <input
              ref={transactionsImportInputRef}
@@ -6482,14 +6602,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              onChange={onImportTransactionsFile}
              className="hidden"
             />
-            <button
-             type="button"
-             onClick={() => transactionsImportInputRef.current?.click()}
-             disabled={isImportingTransactions}
-             className="cursor-pointer rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-             {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
-            </button>
+            {section === 'transactions' ? (
+             <button
+              type="button"
+              onClick={() => transactionsImportInputRef.current?.click()}
+              disabled={isImportingTransactions}
+              className="cursor-pointer rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+             >
+              {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
+             </button>
+            ) : null}
             <button
              type="button"
              onClick={openTransactionTableSettingsModal}
@@ -6524,39 +6646,41 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               {t('delete')} ({selectedTransactionIds.size})
              </button>
             ) : null}
-            <button
-             type="button"
-             onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
-             aria-expanded={isNewTransactionSectionOpen}
-             title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
-             className={`cursor-pointer rounded border p-2 transition ${
-              isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-             }`}
-            >
-             <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              className="h-4 w-4"
-              aria-hidden="true"
+            {section === 'transactions' ? (
+             <button
+              type="button"
+              onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
+              aria-expanded={isNewTransactionSectionOpen}
+              title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
+              className={`cursor-pointer rounded border p-2 transition ${
+               isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+              }`}
              >
-              {isNewTransactionSectionOpen ? (
-               <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6 18L18 6M6 6l12 12"
-               />
-              ) : (
-               <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4v16M4 12h16"
-               />
-              )}
-             </svg>
-            </button>
+              <svg
+               xmlns="http://www.w3.org/2000/svg"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="2.5"
+               className="h-4 w-4"
+               aria-hidden="true"
+              >
+               {isNewTransactionSectionOpen ? (
+                <path
+                 strokeLinecap="round"
+                 strokeLinejoin="round"
+                 d="M6 18L18 6M6 6l12 12"
+                />
+               ) : (
+                <path
+                 strokeLinecap="round"
+                 strokeLinejoin="round"
+                 d="M12 4v16M4 12h16"
+                />
+               )}
+              </svg>
+             </button>
+            ) : null}
            </div>
           </div>
           {transactionsPager}
@@ -6572,6 +6696,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              {transactionTableSettings.columns.amount ? <col className="w-[13%]" /> : null}
              {transactionTableSettings.columns.charges ? <col className="w-[13%]" /> : null}
              {transactionTableSettings.columns.commission ? <col className="w-[15%]" /> : null}
+             {section === 'archive' ? <col className="w-[16%]" /> : null}
             </colgroup>
             <thead className="bg-slate-100 text-slate-700">
              <tr>
@@ -6598,6 +6723,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               {transactionTableSettings.columns.amount ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th> : null}
               {transactionTableSettings.columns.charges ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th> : null}
               {transactionTableSettings.columns.commission ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th> : null}
+              {section === 'archive' ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('archive_more_info')}</th> : null}
              </tr>
             </thead>
             <tbody>
@@ -6947,7 +7073,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     ) : txn.isAdjustment ? (
                      <>
                       {(() => {
-                       const fromAccount = clientAccountMap.get(txn.accountFromId);
+                       const fromAccount = clientAccountMap.get(txn.accountFromId ?? -1);
                        const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
 
                        return fromClient ? (
@@ -6976,7 +7102,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     ) : (
                      <>
                       {(() => {
-                       const fromAccount = clientAccountMap.get(txn.accountFromId);
+                       const fromAccount = clientAccountMap.get(txn.accountFromId ?? -1);
                        const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
 
                        return fromClient ? (
@@ -6987,10 +7113,12 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         >
                          {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </button>
-                       ) : (
+                       ) : txn.accountFromId ? (
                         <div>
                          {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </div>
+                       ) : (
+                        <span className="italic text-slate-400">{t('archive_no_sender')}</span>
                        );
                       })()}
                       {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 ? (
@@ -7094,7 +7222,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     ) : (
                      <>
                       {(() => {
-                       const toAccount = clientAccountMap.get(txn.accountToId);
+                       const toAccount = clientAccountMap.get(txn.accountToId ?? -1);
                        const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
 
                        return toClient ? (
@@ -7105,10 +7233,12 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         >
                          {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </button>
-                       ) : (
+                       ) : txn.accountToId ? (
                         <div>
                          {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </div>
+                       ) : (
+                        <span className="italic text-slate-400">{t('archive_no_receiver')}</span>
                        );
                       })()}
                       {transactionTableSettings.showExchangeRate && txn.exchangeRateTo !== 1 ? (
@@ -7329,18 +7459,33 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     )}
                    </td>
                   ) : null}
+                  {section === 'archive' ? (
+                   <td className="px-4 py-3">
+                    <input
+                     type="text"
+                     value={archiveNoteDrafts[txn.id] ?? txn.archiveNote}
+                     onChange={(event) => setArchiveNoteDrafts((prev) => ({ ...prev, [txn.id]: event.target.value }))}
+                     onBlur={(event) => void onSaveArchiveNote(txn.id, event.target.value)}
+                     onKeyDown={(event) => {
+                      if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
+                     }}
+                     placeholder={t('archive_more_info_placeholder')}
+                     className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                    />
+                   </td>
+                  ) : null}
                  </>
                 );
                })()}
               </tr>
              ))}
-             {transactionTableRows.length === 0 ? (
+             {displayedTransactionRows.length === 0 ? (
               <tr>
                <td
                 className="px-4 py-6 text-slate-500"
-                colSpan={visibleTransactionColumnCount}
+                colSpan={visibleTransactionColumnCount + (section === 'archive' ? 1 : 0)}
                >
-                {t('no_transactions')}
+                {section === 'archive' ? t('archive_empty') : t('no_transactions')}
                </td>
               </tr>
              ) : null}

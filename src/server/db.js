@@ -492,13 +492,13 @@ async function listTransactions(app) {
         SELECT
             t.id,
             t.account_from_id AS "accountFromId",
-            c_from.name AS "clientFromName",
-            acur_from.code AS "accountFromCurrencyCode",
-            acur_from.symbol AS "accountFromCurrencySymbol",
+            COALESCE(c_from.name, '') AS "clientFromName",
+            COALESCE(acur_from.code, '') AS "accountFromCurrencyCode",
+            COALESCE(acur_from.symbol, '') AS "accountFromCurrencySymbol",
             t.account_to_id AS "accountToId",
-            c_to.name AS "clientToName",
-            acur_to.code AS "accountToCurrencyCode",
-            acur_to.symbol AS "accountToCurrencySymbol",
+            COALESCE(c_to.name, '') AS "clientToName",
+            COALESCE(acur_to.code, '') AS "accountToCurrencyCode",
+            COALESCE(acur_to.symbol, '') AS "accountToCurrencySymbol",
             t.currency_id AS "currencyId",
             cur.code AS "currencyCode",
             cur.symbol AS "currencySymbol",
@@ -518,14 +518,15 @@ async function listTransactions(app) {
             t.charges_exchange_rate AS "chargesExchangeRate",
             t.charges_description AS "chargesDescription",
             t.description,
+            COALESCE(t.archive_note, '') AS "archiveNote",
             t.created_at AS "createdAt"
         FROM ${schema}.transactions t
-        JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
-        JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
-        JOIN ${schema}.currencies acur_from ON acur_from.id = ca_from.currency_id
-        JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
-        JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
-        JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
+        LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
+        LEFT JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
+        LEFT JOIN ${schema}.currencies acur_from ON acur_from.id = ca_from.currency_id
+        LEFT JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
+        LEFT JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
+        LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
         JOIN ${schema}.currencies cur ON cur.id = t.currency_id
         LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
         ORDER BY t.created_at DESC
@@ -534,14 +535,11 @@ async function listTransactions(app) {
 }
 
 async function createTransaction(app, txn) {
-    if (!txn.accountFromId || !txn.accountToId) {
-        throw new Error('Both accounts are required.');
+    if (!txn.accountFromId && !txn.accountToId) {
+        throw new Error('At least one party (sender or receiver) is required.');
     }
     if (!txn.currencyId) {
         throw new Error('Amount currency is required.');
-    }
-    if (!txn.amount || txn.amount <= 0) {
-        throw new Error('Amount must be greater than zero.');
     }
 
     const { schema } = await getSchemaInfo(app);
@@ -573,10 +571,10 @@ async function createTransaction(app, txn) {
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
             `,
             [
-                txn.accountFromId,
-                txn.accountToId,
+                txn.accountFromId || null,
+                txn.accountToId || null,
                 txn.currencyId,
-                txn.amount,
+                txn.amount || 0,
                 txn.type || 'exchange',
                 txn.exchangeRateFrom || 1,
                 txn.commissionFrom || 0,
@@ -620,10 +618,10 @@ async function createTransaction(app, txn) {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         `,
         [
-            txn.accountFromId,
-            txn.accountToId,
+            txn.accountFromId || null,
+            txn.accountToId || null,
             txn.currencyId,
-            txn.amount,
+            txn.amount || 0,
             txn.type || 'exchange',
             txn.exchangeRateFrom || 1,
             txn.commissionFrom || 0,
@@ -645,14 +643,11 @@ async function updateTransaction(app, txn) {
     if (!txn.id) {
         throw new Error('Transaction id is required.');
     }
-    if (!txn.accountFromId || !txn.accountToId) {
-        throw new Error('Both accounts are required.');
+    if (!txn.accountFromId && !txn.accountToId) {
+        throw new Error('At least one party (sender or receiver) is required.');
     }
     if (!txn.currencyId) {
         throw new Error('Amount currency is required.');
-    }
-    if (!txn.amount || txn.amount <= 0) {
-        throw new Error('Amount must be greater than zero.');
     }
 
     const { schema } = await getSchemaInfo(app);
@@ -680,10 +675,10 @@ async function updateTransaction(app, txn) {
             WHERE id = $19
         `,
         [
-            txn.accountFromId,
-            txn.accountToId,
+            txn.accountFromId || null,
+            txn.accountToId || null,
             txn.currencyId,
-            txn.amount,
+            txn.amount || 0,
             txn.type || 'exchange',
             txn.exchangeRateFrom || 1,
             txn.commissionFrom || 0,
@@ -701,6 +696,14 @@ async function updateTransaction(app, txn) {
             txn.id,
         ],
     );
+}
+
+async function updateTransactionNote(app, { id, note }) {
+    if (!id) {
+        throw new Error('Transaction id is required.');
+    }
+    const { schema } = await getSchemaInfo(app);
+    await query(`UPDATE ${schema}.transactions SET archive_note = $1 WHERE id = $2`, [String(note ?? '').trim(), id]);
 }
 
 async function deleteTransaction(app, transactionId) {
@@ -802,6 +805,7 @@ module.exports = {
     listTransactions,
     createTransaction,
     updateTransaction,
+    updateTransactionNote,
     deleteTransaction,
     deleteAllTransactions,
     listClientAdjustments,
