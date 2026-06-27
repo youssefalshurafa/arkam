@@ -461,6 +461,22 @@ function normalizeDecimalInput(value: string) {
   .replace(/[^0-9.\-]/g, '');
 }
 
+// Like normalizeDecimalInput, but adds thousand separators to the integer part for live display.
+// Use normalizeDecimalInput(value) before parsing to strip the commas back out.
+function formatAmountInput(value: string) {
+ const normalized = normalizeDecimalInput(value); // digits, optional single '.', optional leading '-'
+ if (!normalized) return '';
+ const negative = normalized.startsWith('-');
+ const unsigned = negative ? normalized.slice(1) : normalized;
+ const dotIndex = unsigned.indexOf('.');
+ const hasDot = dotIndex !== -1;
+ let intPart = (hasDot ? unsigned.slice(0, dotIndex) : unsigned).replace(/^0+(?=\d)/, '');
+ const decPart = hasDot ? unsigned.slice(dotIndex + 1).replace(/\./g, '') : '';
+ if (intPart === '') intPart = hasDot ? '0' : '';
+ const groupedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+ return `${negative ? '-' : ''}${groupedInt}${hasDot ? `.${decPart}` : ''}`;
+}
+
 function normalizeImportHeader(value: string) {
  return value
   .trim()
@@ -971,6 +987,8 @@ function AuthenticatedHome() {
  const [openAccountOnCreate, setOpenAccountOnCreate] = useState(true);
  const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
+ const [newTransactionDate, setNewTransactionDate] = useState(() => new Date().toISOString().slice(0, 10));
+ const [copiedTransaction, setCopiedTransaction] = useState<TransactionTableRow | null>(null);
  const [txFromQuery, setTxFromQuery] = useState('');
  const [txFromOpen, setTxFromOpen] = useState(false);
  const [txToQuery, setTxToQuery] = useState('');
@@ -1877,8 +1895,10 @@ function AuthenticatedHome() {
    return;
   }
 
-  const amount = parseFloat(transactionForm.amount);
+  const amount = parseFloat(normalizeDecimalInput(transactionForm.amount));
   const isArchiveCreate = section === 'archive';
+  // Use the chosen date with the current time-of-day so same-day entries keep their natural order.
+  const newTransactionCreatedAt = `${newTransactionDate} ${new Date().toTimeString().slice(0, 8)}`;
 
   if (isAdjustmentTransaction && !isArchiveCreate) {
    if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
@@ -1900,6 +1920,7 @@ function AuthenticatedHome() {
      exchangeRate: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
      exchangeRateReversed: txFromRateReversed,
      description: transactionForm.description,
+     createdAt: newTransactionCreatedAt,
     });
 
     setTransactionForm(emptyTransactionForm());
@@ -1911,6 +1932,7 @@ function AuthenticatedHome() {
     setTxToRateReversed(false);
     setIsNewTransactionSectionOpen(false);
     setIsNewTransactionExpensesOpen(false);
+    setNewTransactionDate(new Date().toISOString().slice(0, 10));
     setError('');
     await loadData();
    } catch (e) {
@@ -1945,6 +1967,7 @@ function AuthenticatedHome() {
     chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
     chargesDescription: transactionForm.chargesDescription,
     description: transactionForm.description,
+    createdAt: newTransactionCreatedAt,
    });
 
    setTransactionForm(emptyTransactionForm());
@@ -1956,6 +1979,7 @@ function AuthenticatedHome() {
    setTxToRateReversed(false);
    setIsNewTransactionSectionOpen(false);
    setIsNewTransactionExpensesOpen(false);
+   setNewTransactionDate(new Date().toISOString().slice(0, 10));
    setError('');
    await loadData();
   } catch (e) {
@@ -2454,6 +2478,44 @@ function AuthenticatedHome() {
    visibleIds.forEach((id) => next.add(id));
    return next;
   });
+ }
+
+ function onCopySelectedTransaction() {
+  const ids = [...selectedTransactionIds];
+  if (ids.length !== 1) return;
+  const row = transactionTableRowMap.get(ids[0]);
+  if (row) setCopiedTransaction(row);
+ }
+
+ function onPasteCopiedTransaction() {
+  const row = copiedTransaction;
+  if (!row) return;
+  const fromReversed = !!row.exchangeRateFromReversed;
+  const toReversed = !!row.exchangeRateToReversed;
+  const isAdjustment = !!row.isAdjustment;
+  setTransactionForm({
+   accountFromId: row.accountFromId,
+   accountToId: isAdjustment ? null : row.accountToId,
+   currencyId: row.currencyId,
+   amount: row.amount ? formatAmountInput(String(row.amount)) : '',
+   type: isAdjustment ? 'adjustment' : row.type,
+   adjustmentDirection: row.adjustmentDirection ?? 'debit',
+   exchangeRateFrom: fromReversed ? formatRateValue(1 / row.exchangeRateFrom) : String(row.exchangeRateFrom),
+   commissionFrom: String(row.commissionFrom),
+   exchangeRateTo: isAdjustment ? '1' : toReversed ? formatRateValue(1 / row.exchangeRateTo) : String(row.exchangeRateTo),
+   commissionTo: String(row.commissionTo),
+   charges: row.charges ? String(row.charges) : '',
+   chargesCurrencyId: row.chargesCurrencyId,
+   chargesPayer: row.chargesPayer,
+   chargesExchangeRate: String(row.chargesExchangeRate),
+   chargesDescription: row.chargesDescription,
+   description: row.description,
+  });
+  setTxFromRateReversed(fromReversed);
+  setTxToRateReversed(toReversed);
+  setTxFromQuery('');
+  setTxToQuery('');
+  if (row.charges) setIsNewTransactionExpensesOpen(true);
  }
 
  async function onDeleteSelectedTransactions() {
@@ -5148,6 +5210,15 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             </div>
            ))}
           </div>
+
+          <button
+           type="button"
+           onClick={() => navigateToSection('transactions')}
+           className="mt-6 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
+          >
+           {renderIcon('transactions', 'h-4 w-4')}
+           {t('overview_go_to_transactions')}
+          </button>
          </div>
 
          <div className={panelClassName}>
@@ -6085,7 +6156,24 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
          {(section === 'transactions' || section === 'archive') && isNewTransactionSectionOpen ? (
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
-           <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
+           <div className="flex items-start justify-between gap-3">
+            <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
+            {copiedTransaction ? (
+             <button
+              type="button"
+              onClick={onPasteCopiedTransaction}
+              title={t('paste_transaction')}
+              aria-label={t('paste_transaction')}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+               <rect x="9" y="3" width="6" height="4" rx="1" />
+              </svg>
+              {t('paste_transaction')}
+             </button>
+            ) : null}
+           </div>
            <p className="mt-1 text-sm text-slate-600">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
 
            {pendingImportData ? (
@@ -6281,6 +6369,14 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              {section === 'archive' ? null : <option value="adjustment">{t('transaction_type_adjustment')}</option>}
             </select>
 
+            <label className="mt-4 block text-sm font-medium">{t('date')}</label>
+            <input
+             type="date"
+             value={newTransactionDate}
+             onChange={(event) => setNewTransactionDate(event.target.value)}
+             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+            />
+
             {isAdjustmentTransaction ? (
              <div className="mt-4">
               <label className="block text-sm font-medium">{t('adjustment_direction')}</label>
@@ -6466,7 +6562,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               inputMode="decimal"
               dir="ltr"
               value={transactionForm.amount}
-              onChange={(event) => setTransactionForm((current) => ({ ...current, amount: normalizeDecimalInput(event.target.value) }))}
+              onChange={(event) => setTransactionForm((current) => ({ ...current, amount: formatAmountInput(event.target.value) }))}
               className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
               placeholder="0.00"
               required
@@ -6792,6 +6888,20 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               />
              </svg>
             </button>
+            {selectedTransactionIds.size === 1 ? (
+             <button
+              type="button"
+              onClick={onCopySelectedTransaction}
+              title={t('copy_transaction')}
+              aria-label={t('copy_transaction')}
+              className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
+             >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <rect x="9" y="9" width="11" height="11" rx="2" />
+               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+             </button>
+            ) : null}
             {selectedTransactionIds.size > 0 ? (
              <button
               type="button"
