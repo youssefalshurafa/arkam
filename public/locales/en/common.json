@@ -91,6 +91,7 @@
  "client_currency_placeholder": "Select a currency",
  "client_currency_required": "Please select a currency to open an account for this client.",
  "unassigned": "Unassigned",
+ "sort_by": "Sort by {{field}}",
  "save_client": "Save Client",
  "update_client": "Update Client",
  "new_client": "New Client",

@@ -90,6 +90,7 @@
  "client_currency_placeholder": "Sélectionner une devise",
  "client_currency_required": "Veuillez sélectionner une devise pour ouvrir un compte à ce client.",
  "unassigned": "Non attribué",
+ "sort_by": "Trier par {{field}}",
  "save_client": "Enregistrer le client",
  "update_client": "Mettre à jour le client",
  "new_client": "Nouveau client",

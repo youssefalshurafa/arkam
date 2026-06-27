@@ -90,6 +90,7 @@
  "client_currency_placeholder": "اختر عملة",
  "client_currency_required": "الرجاء اختيار عملة لفتح حساب لهذا العميل.",
  "unassigned": "غير مُعين",
+ "sort_by": "ترتيب حسب {{field}}",
  "save_client": "حفظ العميل",
  "update_client": "تحديث العميل",
  "new_client": "عميل جديد",

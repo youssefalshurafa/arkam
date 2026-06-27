@@ -846,6 +846,7 @@ function AuthenticatedHome() {
  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
+ const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
@@ -2971,6 +2972,17 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  );
  const currencyMap = useMemo(() => new Map(localizedCurrencies.map((currency) => [currency.id, currency])), [localizedCurrencies]);
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+ const sortedClients = useMemo(() => {
+  const factor = clientSort.dir === 'asc' ? 1 : -1;
+  return [...clients].sort((a, b) => {
+   const aVal = clientSort.key === 'organization' ? a.organizationName || '' : a.name;
+   const bVal = clientSort.key === 'organization' ? b.organizationName || '' : b.name;
+   return aVal.localeCompare(bVal, language, { sensitivity: 'base' }) * factor;
+  });
+ }, [clients, clientSort, language]);
+ const toggleClientSort = useCallback((key: 'name' | 'organization') => {
+  setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+ }, []);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
@@ -3722,6 +3734,32 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   </section>
  );
 
+ const clientSortHeader = (key: 'name' | 'organization', label: string) => {
+  const active = clientSort.key === key;
+  return (
+   <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
+    <button
+     type="button"
+     onClick={() => toggleClientSort(key)}
+     title={t('sort_by', { field: label })}
+     className={`inline-flex items-center gap-1.5 font-semibold transition hover:text-blue-700 ${active ? 'text-blue-700' : 'text-slate-700'}`}
+    >
+     <span>{label}</span>
+     {active ? (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+       {clientSort.dir === 'asc' ? <polyline points="6 15 12 9 18 15" /> : <polyline points="6 9 12 15 18 9" />}
+      </svg>
+     ) : (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300" aria-hidden>
+       <polyline points="8 9 12 5 16 9" />
+       <polyline points="16 15 12 19 8 15" />
+      </svg>
+     )}
+    </button>
+   </th>
+  );
+ };
+
  const clientsSection = (
   <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
    <form
@@ -3928,13 +3966,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       <table className="w-full text-sm">
        <thead className="bg-slate-100 text-slate-700">
         <tr>
-         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_organization')}</th>
+         {clientSortHeader('name', t('name'))}
+         {clientSortHeader('organization', t('client_organization'))}
          <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
         </tr>
        </thead>
        <tbody>
-        {clients.map((client) => (
+        {sortedClients.map((client) => (
          <tr
           key={client.id}
           className="border-t border-slate-200 align-top"
@@ -4508,13 +4546,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      <table className="w-full text-sm">
       <thead className="bg-slate-100 text-slate-700">
        <tr>
-        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_organization')}</th>
+        {clientSortHeader('name', t('name'))}
+        {clientSortHeader('organization', t('client_organization'))}
         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
        </tr>
       </thead>
       <tbody>
-       {clients.map((client) => (
+       {sortedClients.map((client) => (
         <tr
          key={client.id}
          className="border-t border-slate-200 align-top"
