@@ -48,6 +48,7 @@ export default function AccountSettings() {
  const [pwdError, setPwdError] = useState('');
  const [pwdSuccess, setPwdSuccess] = useState('');
  const [pwdSubmitting, setPwdSubmitting] = useState(false);
+ const [passwordOpen, setPasswordOpen] = useState(false);
 
  // Renew state
  const [showRenew, setShowRenew] = useState(false);
@@ -364,6 +365,15 @@ export default function AccountSettings() {
     <h2 className="text-2xl font-semibold">{t('account_password_title')}</h2>
     <p className="mt-2 text-sm text-slate-600">{t('account_password_desc')}</p>
 
+    {!passwordOpen ? (
+     <button
+      type="button"
+      onClick={() => setPasswordOpen(true)}
+      className="mt-5 rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+     >
+      {t('account_password_title')}
+     </button>
+    ) : (
     <form onSubmit={(e) => void onChangePassword(e)} className="mt-5 max-w-sm space-y-4">
      <div>
       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_current_password')}</label>
@@ -403,14 +413,31 @@ export default function AccountSettings() {
      {pwdError && <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{pwdError}</p>}
      {pwdSuccess && <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{pwdSuccess}</p>}
 
-     <button
-      type="submit"
-      disabled={pwdSubmitting}
-      className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-     >
-      {pwdSubmitting ? t('account_password_saving') : t('account_password_save')}
-     </button>
+     <div className="flex items-center gap-3">
+      <button
+       type="submit"
+       disabled={pwdSubmitting}
+       className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+       {pwdSubmitting ? t('account_password_saving') : t('account_password_save')}
+      </button>
+      <button
+       type="button"
+       onClick={() => {
+        setPasswordOpen(false);
+        setPwdError('');
+        setPwdSuccess('');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+       }}
+       className="text-sm font-semibold text-slate-500 transition hover:text-slate-700"
+      >
+       {t('cancel')}
+      </button>
+     </div>
     </form>
+    )}
    </div>
   </section>
  );
