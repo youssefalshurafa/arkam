@@ -138,6 +138,48 @@ async function ensurePublicSchema() {
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
                     CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
+
+                    -- Access-approval gate: new signups are 'pending' until the super admin approves
+                    -- their payment. Existing users default to 'approved' so nobody is locked out.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
+
+                    -- Subscription window, set when the super admin approves/renews a payment.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMPTZ;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMPTZ;
+
+                    -- Extra profile details collected at signup (carried through the
+                    -- verification token, then persisted on the user).
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
+
+                    -- One payment/approval request per signup. The payment screenshot is stored
+                    -- inline as bytea and only served through the super-admin-gated proof endpoint.
+                    CREATE TABLE IF NOT EXISTS access_requests (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        plan TEXT NOT NULL DEFAULT '',
+                        amount TEXT NOT NULL DEFAULT '',
+                        network TEXT NOT NULL DEFAULT '',
+                        tx_reference TEXT NOT NULL DEFAULT '',
+                        proof_mime TEXT NOT NULL DEFAULT '',
+                        proof_data BYTEA,
+                        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+                        note TEXT NOT NULL DEFAULT '',
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        reviewed_at TIMESTAMPTZ,
+                        reviewed_by TEXT
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
+                    CREATE INDEX IF NOT EXISTS idx_access_requests_user_id ON access_requests(user_id);
+
+                    -- Length (in days) of the plan tier the user paid for; drives the
+                    -- subscription window on approval and the extension on renewal.
+                    ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS duration_days INTEGER NOT NULL DEFAULT 30;
                 `);
             });
         })().catch((error) => {
@@ -154,7 +196,11 @@ async function ensureWorkspaceSchema(workspaceId) {
     const existing = workspaceSchemaReadyPromises.get(schemaName);
 
     if (existing) {
-        return schemaName;
+        // Return the in-flight promise (not the bare name) so concurrent callers
+        // WAIT for the schema/tables to finish being created before querying them.
+        // Returning the name early caused a race: parallel queries on a workspace's
+        // first load could hit "relation ... does not exist".
+        return existing;
     }
 
     const schemaReadyPromise = (async () => {
@@ -223,6 +269,8 @@ async function ensureWorkspaceSchema(workspaceId) {
                     charges_exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1,
                     charges_description TEXT NOT NULL DEFAULT '',
                     description TEXT NOT NULL DEFAULT '',
+                    archive_note TEXT NOT NULL DEFAULT '',
+                    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
 
@@ -245,7 +293,26 @@ async function ensureWorkspaceSchema(workspaceId) {
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS currency_symbol TEXT NOT NULL DEFAULT '';
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1;
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate_reversed BOOLEAN NOT NULL DEFAULT FALSE;
+
+                -- A transaction may be missing one party (e.g. money received from an unknown sender);
+                -- such incomplete transactions surface in the Archive until both parties are filled in.
+                ALTER TABLE ${schema}.transactions ALTER COLUMN account_from_id DROP NOT NULL;
+                ALTER TABLE ${schema}.transactions ALTER COLUMN account_to_id DROP NOT NULL;
+                -- Free-text note shown in the Archive's "More info" column.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS archive_note TEXT NOT NULL DEFAULT '';
+                -- Archive-only records: historical transactions from before the DB. They live only in the
+                -- Archive, never affect client balances/ledgers, and never appear in the main transactions list.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
             `);
+
+            // Non-ISO currencies (e.g. crypto/stablecoins) aren't in Intl's currency list,
+            // so seed them into the catalog here. DO NOTHING keeps any user edits/enabled state intact.
+            await client.query(
+                `INSERT INTO ${schema}.currencies (code, name, symbol)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (code) DO NOTHING`,
+                ['USDT', 'Tether (USDT)', '₮'],
+            );
 
             return schemaName;
         });

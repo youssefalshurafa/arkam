@@ -5,6 +5,7 @@ import { getProviders, signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import SiteLayout from '@/components/marketing/SiteLayout';
 
 const rememberedEmailStorageKey = 'arkam.rememberedEmail';
 const rememberedPasswordStorageKey = 'arkam.rememberedPassword';
@@ -12,6 +13,14 @@ const rememberedPasswordStorageKey = 'arkam.rememberedPassword';
 function getLoginErrorMessage(message: string, t: (key: string) => string) {
  if (message === 'CredentialsSignin') {
   return t('login_invalid_credentials');
+ }
+
+ if (message === 'PENDING_APPROVAL') {
+  return t('login_pending_approval');
+ }
+
+ if (message === 'ACCESS_REJECTED') {
+  return t('login_access_rejected');
  }
 
  return message;
@@ -123,20 +132,20 @@ export default function LoginPage() {
 
  if (status === 'loading') {
   return (
-   <main className="flex min-h-screen items-center justify-center bg-gray-100">
-    <div className="rounded border border-gray-300 bg-white px-6 py-4 text-sm text-gray-700 shadow-sm">{t('loading')}</div>
-   </main>
+   <SiteLayout hideSignIn>
+    <div className="flex flex-1 items-center justify-center p-4">
+     <div className="rounded border border-gray-300 bg-white px-6 py-4 text-sm text-gray-700 shadow-sm">{t('loading')}</div>
+    </div>
+   </SiteLayout>
   );
  }
 
  return (
-  <main className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+  <SiteLayout hideSignIn>
+   <div className="flex flex-1 items-center justify-center p-4">
    <div className="w-full max-w-sm">
     {/* App header */}
     <div className="mb-6 text-center">
-     <div className="inline-flex items-center justify-center rounded bg-blue-800 px-4 py-2 mb-3">
-      <span className="text-lg font-bold tracking-widest text-white">ARKAM</span>
-     </div>
      <p className="text-sm text-gray-500">{t('app_description')}</p>
     </div>
 
@@ -304,6 +313,7 @@ export default function LoginPage() {
      </div>
     </section>
    </div>
-  </main>
+   </div>
+  </SiteLayout>
  );
 }

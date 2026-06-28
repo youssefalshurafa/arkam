@@ -4,7 +4,9 @@ import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, us
 import { useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import LoginPage from '@/components/auth/LoginPage';
+import HomePage from '@/components/marketing/HomePage';
+import AccountSettings from '@/components/account/AccountSettings';
+import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 
@@ -82,11 +84,11 @@ type Currency = {
 
 type Transaction = {
  id: number;
- accountFromId: number;
+ accountFromId: number | null;
  clientFromName: string;
  accountFromCurrencyCode: string;
  accountFromCurrencySymbol: string;
- accountToId: number;
+ accountToId: number | null;
  clientToName: string;
  accountToCurrencyCode: string;
  accountToCurrencySymbol: string;
@@ -109,6 +111,8 @@ type Transaction = {
  chargesExchangeRate: number;
  chargesDescription: string;
  description: string;
+ archiveNote: string;
+ isArchived: number;
  createdAt: string;
 };
 
@@ -139,8 +143,8 @@ type TransactionForm = {
 
 type TransactionUpdateInput = {
  id: number;
- accountFromId: number;
- accountToId: number;
+ accountFromId: number | null;
+ accountToId: number | null;
  currencyId: number;
  amount: number;
  type: string;
@@ -156,6 +160,7 @@ type TransactionUpdateInput = {
  chargesExchangeRate: number;
  chargesDescription: string;
  description: string;
+ archiveNote?: string;
  createdAt: string;
 };
 
@@ -179,6 +184,7 @@ type TransactionTableDraft = {
  chargesExchangeRate: string;
  chargesDescription: string;
  description: string;
+ archiveNote: string;
  createdDate: string;
 };
 
@@ -286,11 +292,38 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
 ];
 
 const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
+const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
 const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
+const lastBackupAtStorageKey = 'arkam:last-backup-at';
 
 type PdfColVisibility = Record<LedgerColumnKey, boolean>;
+
+const defaultLedgerColumnVisibility: Record<LedgerColumnKey, boolean> = {
+ created: true,
+ counterparty: true,
+ direction: false,
+ type: false,
+ amount: true,
+ exchangeRate: true,
+ commission: true,
+ netChange: true,
+ runningBalance: true,
+ description: true,
+};
+
+// Column show/hide is stored per client so each client's ledger keeps its own choice.
+function getStoredLedgerColumnVisibility(clientId: number | null | undefined): Record<LedgerColumnKey, boolean> {
+ if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerColumnVisibility };
+ try {
+  const raw = window.localStorage.getItem(ledgerColumnVisibilityStorageKeyPrefix + clientId);
+  if (!raw) return { ...defaultLedgerColumnVisibility };
+  return { ...defaultLedgerColumnVisibility, ...JSON.parse(raw) };
+ } catch {
+  return { ...defaultLedgerColumnVisibility };
+ }
+}
 type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
 
 type TransactionTableSettings = {
@@ -375,6 +408,7 @@ type PdfSettings = {
  decimals: number;
  fontFamily: string;
  fontSize: number;
+ headFontSize: number;
  dateFormat: 'full' | 'day-month' | 'month-year' | 'day-month-year-2' | 'month-day';
  showPreBalance: boolean;
  showMetaClient: boolean;
@@ -388,6 +422,7 @@ const defaultPdfSettings: PdfSettings = {
  decimals: 2,
  fontFamily: 'Arial, Helvetica, sans-serif',
  fontSize: 12,
+ headFontSize: 13,
  dateFormat: 'full',
  showPreBalance: true,
  showMetaClient: true,
@@ -409,11 +444,11 @@ function getStoredPdfSettings(): PdfSettings {
  }
 }
 
-type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
+type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
-type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions';
+type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive';
 
-const allowedSections: Section[] = ['overview', 'settings', 'organizations', 'organization-clients', 'clients', 'client-ledger', 'currencies', 'transactions'];
+const allowedSections: Section[] = ['overview', 'settings', 'organizations', 'organization-clients', 'clients', 'client-ledger', 'currencies', 'transactions', 'archive'];
 
 function getSectionFromHash(hash: string): Section {
  const normalized = hash.replace('#', '');
@@ -427,6 +462,22 @@ function normalizeDecimalInput(value: string) {
   .replace(/\u066B/g, '.')
   .replace(/[\u066C,\s]/g, '')
   .replace(/[^0-9.\-]/g, '');
+}
+
+// Like normalizeDecimalInput, but adds thousand separators to the integer part for live display.
+// Use normalizeDecimalInput(value) before parsing to strip the commas back out.
+function formatAmountInput(value: string) {
+ const normalized = normalizeDecimalInput(value); // digits, optional single '.', optional leading '-'
+ if (!normalized) return '';
+ const negative = normalized.startsWith('-');
+ const unsigned = negative ? normalized.slice(1) : normalized;
+ const dotIndex = unsigned.indexOf('.');
+ const hasDot = dotIndex !== -1;
+ let intPart = (hasDot ? unsigned.slice(0, dotIndex) : unsigned).replace(/^0+(?=\d)/, '');
+ const decPart = hasDot ? unsigned.slice(dotIndex + 1).replace(/\./g, '') : '';
+ if (intPart === '') intPart = hasDot ? '0' : '';
+ const groupedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+ return `${negative ? '-' : ''}${groupedInt}${hasDot ? `.${decPart}` : ''}`;
 }
 
 function normalizeImportHeader(value: string) {
@@ -680,6 +731,11 @@ function getCommissionAmount(baseAmount: number, commissionPercent: number) {
  return baseAmount * (commissionPercent / 100);
 }
 
+// Stable identifier for a ledger entry (used to pick exact start/end boundaries for PDF export).
+function ledgerEntryKey(entry: ClientLedgerEntry) {
+ return entry.isAdjustment ? `a-${entry.adjustmentId}` : `t-${entry.transactionId}`;
+}
+
 function formatDateValue(value: string, dateFormat: PdfSettings['dateFormat']) {
  const iso = value.slice(0, 10);
  const [y = '', m = '', d = ''] = iso.split('-');
@@ -697,7 +753,7 @@ function formatDateValue(value: string, dateFormat: PdfSettings['dateFormat']) {
  }
 }
 
-type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth';
+type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive';
 
 function renderIcon(icon: IconName, className = 'h-5 w-5') {
  const commonProps = {
@@ -794,6 +850,14 @@ function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="M17 12v-4" />
     </svg>
    );
+  case 'archive':
+   return (
+    <svg {...commonProps}>
+     <rect x="3" y="4" width="18" height="4" rx="1" />
+     <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+     <path d="M10 12h4" />
+    </svg>
+   );
  }
 }
 
@@ -841,9 +905,11 @@ function AuthenticatedHome() {
  const [section, setSection] = useState<Section>('overview');
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
- const [dbInfo, setDbInfo] = useState<DbInfo | null>(null);
+ const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
+ const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
+ const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
@@ -856,6 +922,7 @@ function AuthenticatedHome() {
  const [showLedgerSettingsModal, setShowLedgerSettingsModal] = useState(false);
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
+ const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
@@ -870,6 +937,16 @@ function AuthenticatedHome() {
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
  const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
+ const [showTransactionExportModal, setShowTransactionExportModal] = useState(false);
+ const [transactionExportFrom, setTransactionExportFrom] = useState('');
+ const [transactionExportTo, setTransactionExportTo] = useState('');
+ const [isExportingTransactions, setIsExportingTransactions] = useState(false);
+ const [txSortDir, setTxSortDir] = useState<'desc' | 'asc'>('desc');
+ const [txFilterOpen, setTxFilterOpen] = useState(false);
+ const [txFilterSearch, setTxFilterSearch] = useState('');
+ const [txFilterClient, setTxFilterClient] = useState('');
+ const [txFilterDateFrom, setTxFilterDateFrom] = useState('');
+ const [txFilterDateTo, setTxFilterDateTo] = useState('');
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
  const [ledgerCommissionExpandedEntries, setLedgerCommissionExpandedEntries] = useState<Set<string>>(new Set());
@@ -883,18 +960,7 @@ function AuthenticatedHome() {
  const dragLedgerFromHandle = useRef(false);
  const [manualLedgerRowOrder, setManualLedgerRowOrder] = useState<Record<number, string[]>>({});
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
- const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({
-  created: true,
-  counterparty: true,
-  direction: false,
-  type: false,
-  amount: true,
-  exchangeRate: true,
-  commission: true,
-  netChange: true,
-  runningBalance: true,
-  description: true,
- });
+ const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({ ...defaultLedgerColumnVisibility });
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
  const [transactionTableDrafts, setTransactionTableDrafts] = useState<Record<number, TransactionTableDraft>>({});
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
@@ -907,7 +973,14 @@ function AuthenticatedHome() {
  const [editingAccountCurrencyId, setEditingAccountCurrencyId] = useState<number | null>(null);
  const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
  const [editingAccountBalanceType, setEditingAccountBalanceType] = useState<'debit' | 'credit'>('debit');
- const [pdfExportModal, setPdfExportModal] = useState<{ accountId: number; fromDate: string; toDate: string; cols: PdfColVisibility } | null>(null);
+ const [pdfExportModal, setPdfExportModal] = useState<{
+  accountId: number;
+  fromDate: string;
+  toDate: string;
+  fromEntryKey: string | null;
+  toEntryKey: string | null;
+  cols: PdfColVisibility;
+ } | null>(null);
  const [adjustmentModal, setAdjustmentModal] = useState<{
   accountId: number;
   editingId: number | null;
@@ -922,11 +995,15 @@ function AuthenticatedHome() {
  const [pdfSettings, setPdfSettings] = useState<PdfSettings>(() => getStoredPdfSettings());
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
+ const [editingCurrencySymbolId, setEditingCurrencySymbolId] = useState<number | null>(null);
+ const [editingCurrencySymbolValue, setEditingCurrencySymbolValue] = useState('');
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
- const [openAccountOnCreate, setOpenAccountOnCreate] = useState(false);
+ const [openAccountOnCreate, setOpenAccountOnCreate] = useState(true);
  const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
+ const [newTransactionDate, setNewTransactionDate] = useState(() => new Date().toISOString().slice(0, 10));
+ const [copiedTransaction, setCopiedTransaction] = useState<TransactionTableRow | null>(null);
  const [txFromQuery, setTxFromQuery] = useState('');
  const [txFromOpen, setTxFromOpen] = useState(false);
  const [txToQuery, setTxToQuery] = useState('');
@@ -950,6 +1027,15 @@ function AuthenticatedHome() {
   currencyId: null,
  });
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
+ const [isBackingUp, setIsBackingUp] = useState(false);
+ const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+ const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
+ const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
+
+ useEffect(() => {
+  if (typeof window === 'undefined') return;
+  setLastBackupAt(window.localStorage.getItem(lastBackupAtStorageKey));
+ }, []);
 
  const loadData = useCallback(async () => {
   if (!accountingApi) {
@@ -958,15 +1044,14 @@ function AuthenticatedHome() {
   }
 
   try {
-   const [db, organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows] = (await Promise.all([
-    accountingApi.getDbInfo(),
+   const [organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows] = (await Promise.all([
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
     accountingApi.listTransactions(),
     accountingApi.listAllClientAccounts(),
     accountingApi.listClientAdjustments(),
-   ])) as [DbInfo, Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[]];
+   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[]];
 
    let nextCurrencies = currencyRows;
    if (!nextCurrencies.length) {
@@ -974,7 +1059,6 @@ function AuthenticatedHome() {
     nextCurrencies = (await accountingApi.listCurrencies()) as Currency[];
    }
 
-   setDbInfo(db);
    setOrganizations(organizationRows);
    setClients(clientRows);
    setCurrencies(nextCurrencies);
@@ -1000,6 +1084,31 @@ function AuthenticatedHome() {
   };
  }, [loadData]);
 
+ // Load the user's workspaces for the sidebar switcher (shown only when 2+).
+ useEffect(() => {
+  let mounted = true;
+  accountingApi
+   .listWorkspaces()
+   .then(({ workspaces, defaultWorkspaceId }) => {
+    if (!mounted) return;
+    setUserWorkspaces(workspaces);
+    setActiveWorkspaceIdState(accountingApi.getActiveWorkspaceId() || defaultWorkspaceId || workspaces[0]?.id || null);
+   })
+   .catch(() => {
+    /* non-fatal */
+   });
+  return () => {
+   mounted = false;
+  };
+ }, []);
+
+ const onSwitchWorkspace = (id: string) => {
+  if (!id || id === activeWorkspaceId) return;
+  accountingApi.setActiveWorkspaceId(id);
+  // Full reload to cleanly re-scope all workspace-bound state.
+  window.location.reload();
+ };
+
  useEffect(() => {
   const applyHashSection = () => {
    setSection(getSectionFromHash(window.location.hash));
@@ -1016,6 +1125,11 @@ function AuthenticatedHome() {
  useEffect(() => {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
  }, [ledgerColumnOrder]);
+
+ // Load the per-client column show/hide choices whenever the open client changes.
+ useEffect(() => {
+  setLedgerColumnVisibility(getStoredLedgerColumnVisibility(selectedClientForLedger?.id));
+ }, [selectedClientForLedger?.id]);
 
  const transactionTableRows = useMemo<TransactionTableRow[]>(() => {
   const adjustmentRows = adjustments.map((adjustment) => {
@@ -1053,19 +1167,21 @@ function AuthenticatedHome() {
     chargesExchangeRate: 1,
     chargesDescription: '',
     description: adjustment.description,
+    archiveNote: '',
+    isArchived: 0,
     createdAt: adjustment.createdAt,
    };
   });
 
   return ([...transactions, ...adjustmentRows] as TransactionTableRow[]).sort((left, right) => {
    const dateDiff = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-   if (dateDiff !== 0) return dateDiff;
+   if (dateDiff !== 0) return txSortDir === 'desc' ? dateDiff : -dateDiff;
    // Stable tiebreaker: higher DB id = inserted later = shown first within the same date
    const leftId = left.isAdjustment ? (left.adjustmentId ?? 0) : left.id;
    const rightId = right.isAdjustment ? (right.adjustmentId ?? 0) : right.id;
-   return rightId - leftId;
+   return txSortDir === 'desc' ? rightId - leftId : leftId - rightId;
   });
- }, [adjustments, clientAccounts, transactions]);
+ }, [adjustments, clientAccounts, transactions, txSortDir]);
 
  useEffect(() => {
   const transactionIds = new Set(transactionTableRows.map((transaction) => transaction.id));
@@ -1081,15 +1197,65 @@ function AuthenticatedHome() {
   });
  }, [transactionTableRows]);
 
- // Rows in user-defined order (if any), otherwise natural sort order
+ // Rows in user-defined order (if any), otherwise natural sort order.
+ // The Archive section shows only transactions missing a party; the main
+ // Transactions section shows everything (including those archived rows).
  const displayedTransactionRows = useMemo<TransactionTableRow[]>(() => {
-  if (!manualRowOrder) return transactionTableRows;
-  const rowMap = new Map(transactionTableRows.map((r) => [r.id, r]));
-  return manualRowOrder.flatMap((id) => {
-   const row = rowMap.get(id);
-   return row ? [row] : [];
-  });
- }, [transactionTableRows, manualRowOrder]);
+  const ordered = (() => {
+   if (!manualRowOrder) return transactionTableRows;
+   const rowMap = new Map(transactionTableRows.map((r) => [r.id, r]));
+   return manualRowOrder.flatMap((id) => {
+    const row = rowMap.get(id);
+    return row ? [row] : [];
+   });
+  })();
+  let filtered =
+   section === 'archive'
+    ? ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId)))
+    : ordered.filter((row) => !row.isArchived);
+  if (txFilterSearch) {
+   const q = txFilterSearch.toLowerCase();
+   filtered = filtered.filter(
+    (row) =>
+     row.clientFromName.toLowerCase().includes(q) ||
+     row.clientToName.toLowerCase().includes(q) ||
+     row.description.toLowerCase().includes(q),
+   );
+  }
+  if (txFilterClient) {
+   filtered = filtered.filter((row) => row.clientFromName === txFilterClient || row.clientToName === txFilterClient);
+  }
+  if (txFilterDateFrom) {
+   filtered = filtered.filter((row) => row.createdAt.slice(0, 10) >= txFilterDateFrom);
+  }
+  if (txFilterDateTo) {
+   filtered = filtered.filter((row) => row.createdAt.slice(0, 10) <= txFilterDateTo);
+  }
+  return filtered;
+ }, [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo]);
+
+ const txFilterClientOptions = useMemo(() => {
+  const names = new Set<string>();
+  for (const row of transactionTableRows) {
+   if (row.clientFromName) names.add(row.clientFromName);
+   if (row.clientToName) names.add(row.clientToName);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+ }, [transactionTableRows]);
+
+ // Per-currency totals across all archived rows (not just the current page), shown at the table foot.
+ const archiveCurrencyTotals = useMemo(() => {
+  if (section !== 'archive') return [] as Array<{ code: string; symbol: string; total: number }>;
+  const totals = new Map<string, { code: string; symbol: string; total: number }>();
+  for (const row of displayedTransactionRows) {
+   if (!row.amount) continue;
+   const key = row.currencyCode || String(row.currencyId);
+   const existing = totals.get(key);
+   if (existing) existing.total += row.amount;
+   else totals.set(key, { code: row.currencyCode, symbol: row.currencySymbol, total: row.amount });
+  }
+  return [...totals.values()];
+ }, [section, displayedTransactionRows]);
 
  const totalTransactionPages = Math.max(1, Math.ceil(displayedTransactionRows.length / transactionsPageSize));
  const paginatedTransactions = useMemo(() => {
@@ -1100,6 +1266,10 @@ function AuthenticatedHome() {
  useEffect(() => {
   setTransactionsPage((current) => Math.min(current, totalTransactionPages));
  }, [totalTransactionPages]);
+
+ useEffect(() => {
+  setTransactionsPage(1);
+ }, [txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
@@ -1149,10 +1319,14 @@ function AuthenticatedHome() {
  }
 
  function toggleLedgerColumn(column: LedgerColumnKey) {
-  setLedgerColumnVisibility((current) => ({
-   ...current,
-   [column]: !current[column],
-  }));
+  setLedgerColumnVisibility((current) => {
+   const next = { ...current, [column]: !current[column] };
+   const clientId = selectedClientForLedger?.id;
+   if (clientId && typeof window !== 'undefined') {
+    window.localStorage.setItem(ledgerColumnVisibilityStorageKeyPrefix + clientId, JSON.stringify(next));
+   }
+   return next;
+  });
  }
 
  function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
@@ -1240,6 +1414,7 @@ function AuthenticatedHome() {
    chargesExchangeRate: isAdjustment ? '1.00' : transaction.chargesExchangeRate.toFixed(2),
    chargesDescription: transaction.chargesDescription,
    description: transaction.description,
+   archiveNote: transaction.archiveNote,
    createdDate: transaction.createdAt.slice(0, 10),
   };
  }
@@ -1574,7 +1749,7 @@ function AuthenticatedHome() {
    }
 
    setClientForm(emptyClientForm());
-   setOpenAccountOnCreate(false);
+   setOpenAccountOnCreate(true);
    setNewClientAccountDrafts([createNewClientAccountDraft()]);
    setError('');
    await loadData();
@@ -1714,6 +1889,144 @@ function AuthenticatedHome() {
   }
  }
 
+ async function onDownloadBackup() {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  setIsBackingUp(true);
+  try {
+   const backup = await accountingApi.exportWorkspaceData();
+   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+   const url = URL.createObjectURL(blob);
+   const link = document.createElement('a');
+   link.href = url;
+   link.download = `arkam_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+   document.body.appendChild(link);
+   link.click();
+   document.body.removeChild(link);
+   URL.revokeObjectURL(url);
+   const now = new Date().toISOString();
+   if (typeof window !== 'undefined') window.localStorage.setItem(lastBackupAtStorageKey, now);
+   setLastBackupAt(now);
+   setError('');
+   setImportSummary(t('backup_download_success'));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsBackingUp(false);
+  }
+ }
+
+ async function onRestoreBackupFile(event: ChangeEvent<HTMLInputElement>) {
+  const file = event.target.files?.[0];
+  if (backupRestoreInputRef.current) backupRestoreInputRef.current.value = '';
+  if (!file) return;
+
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const confirmed = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('backup_restore_confirm')}`);
+  if (!confirmed) return;
+
+  setIsRestoringBackup(true);
+  try {
+   const text = await file.text();
+   let parsed: unknown;
+   try {
+    parsed = JSON.parse(text);
+   } catch {
+    throw new Error(t('backup_restore_invalid_file'));
+   }
+
+   if (!parsed || typeof parsed !== 'object' || (parsed as { format?: string }).format !== 'arkam-backup') {
+    throw new Error(t('backup_restore_invalid_file'));
+   }
+
+   await accountingApi.importWorkspaceData(parsed as Parameters<typeof accountingApi.importWorkspaceData>[0]);
+   setSelectedTransactionIds(new Set());
+   setTransactionTableDrafts({});
+   setCommissionExpandedTxns(new Set());
+   setExpensesExpandedTxns(new Set());
+   setClientForm(emptyClientForm());
+   setSelectedClientForAccounts(null);
+   setSelectedClientForLedger(null);
+   setSelectedLedgerAccountId(null);
+   setTransactionsPage(1);
+   setError('');
+   await loadData();
+   setImportSummary(t('backup_restore_success'));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsRestoringBackup(false);
+  }
+ }
+
+ // Localized "Last backup: 2 days ago" style label, or a "never" message.
+ function lastBackupLabel(): string {
+  if (!lastBackupAt) return t('backup_last_never');
+
+  const then = new Date(lastBackupAt).getTime();
+  if (Number.isNaN(then)) return t('backup_last_never');
+
+  const diffMs = Date.now() - then;
+  const minutes = Math.round(diffMs / 60000);
+  const hours = Math.round(diffMs / 3600000);
+  const days = Math.round(diffMs / 86400000);
+
+  const exact = new Date(lastBackupAt).toLocaleString(language, {
+   year: 'numeric',
+   month: 'short',
+   day: 'numeric',
+   hour: '2-digit',
+   minute: '2-digit',
+   second: '2-digit',
+  });
+
+  let relative: string;
+  try {
+   const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
+   if (Math.abs(days) >= 1) relative = rtf.format(-days, 'day');
+   else if (Math.abs(hours) >= 1) relative = rtf.format(-hours, 'hour');
+   else if (Math.abs(minutes) >= 1) relative = rtf.format(-minutes, 'minute');
+   else relative = rtf.format(0, 'minute');
+  } catch {
+   relative = exact;
+  }
+
+  return t('backup_last_label').replace('{time}', `${relative} (${exact})`);
+ }
+
+ function onStartEditCurrencySymbol(currency: Currency) {
+  setEditingCurrencySymbolId(currency.id);
+  setEditingCurrencySymbolValue(currency.symbol || '');
+ }
+
+ function onCancelEditCurrencySymbol() {
+  setEditingCurrencySymbolId(null);
+  setEditingCurrencySymbolValue('');
+ }
+
+ async function onSaveCurrencySymbol(currency: Currency) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+  try {
+   await accountingApi.updateCurrency({ id: currency.id, code: currency.code, name: currency.name, symbol: editingCurrencySymbolValue.trim() });
+   setEditingCurrencySymbolId(null);
+   setEditingCurrencySymbolValue('');
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ }
+
  async function onEnableCurrency(id: number) {
   if (!accountingApi) {
    setError(t('error_bridge'));
@@ -1771,9 +2084,12 @@ function AuthenticatedHome() {
    return;
   }
 
-  const amount = parseFloat(transactionForm.amount);
+  const amount = parseFloat(normalizeDecimalInput(transactionForm.amount));
+  const isArchiveCreate = section === 'archive';
+  // Use the chosen date with the current time-of-day so same-day entries keep their natural order.
+  const newTransactionCreatedAt = `${newTransactionDate} ${new Date().toTimeString().slice(0, 8)}`;
 
-  if (isAdjustmentTransaction) {
+  if (isAdjustmentTransaction && !isArchiveCreate) {
    if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
     setError(t('adjustment_required'));
     return;
@@ -1793,6 +2109,7 @@ function AuthenticatedHome() {
      exchangeRate: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
      exchangeRateReversed: txFromRateReversed,
      description: transactionForm.description,
+     createdAt: newTransactionCreatedAt,
     });
 
     setTransactionForm(emptyTransactionForm());
@@ -1804,6 +2121,7 @@ function AuthenticatedHome() {
     setTxToRateReversed(false);
     setIsNewTransactionSectionOpen(false);
     setIsNewTransactionExpensesOpen(false);
+    setNewTransactionDate(new Date().toISOString().slice(0, 10));
     setError('');
     await loadData();
    } catch (e) {
@@ -1813,8 +2131,8 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!transactionForm.accountFromId || !transactionForm.accountToId || !transactionForm.currencyId || !amount) {
-   setError(t('transaction_required'));
+  if (!transactionForm.currencyId || (!isArchiveCreate && !transactionForm.accountFromId && !transactionForm.accountToId)) {
+   setError(t(isArchiveCreate ? 'archive_create_required' : 'transaction_party_required'));
    return;
   }
 
@@ -1823,8 +2141,9 @@ function AuthenticatedHome() {
     accountFromId: transactionForm.accountFromId,
     accountToId: transactionForm.accountToId,
     currencyId: transactionForm.currencyId,
-    amount,
+    amount: amount || 0,
     type: transactionForm.type,
+    isArchived: isArchiveCreate,
     exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
     commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
     exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
@@ -1837,6 +2156,7 @@ function AuthenticatedHome() {
     chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
     chargesDescription: transactionForm.chargesDescription,
     description: transactionForm.description,
+    createdAt: newTransactionCreatedAt,
    });
 
    setTransactionForm(emptyTransactionForm());
@@ -1848,6 +2168,7 @@ function AuthenticatedHome() {
    setTxToRateReversed(false);
    setIsNewTransactionSectionOpen(false);
    setIsNewTransactionExpensesOpen(false);
+   setNewTransactionDate(new Date().toISOString().slice(0, 10));
    setError('');
    await loadData();
   } catch (e) {
@@ -2150,8 +2471,8 @@ function AuthenticatedHome() {
      continue;
     }
     const amount = parseFloat(draft.amount);
-    if (!draft.accountFromId || !draft.accountToId || !draft.currencyId || !amount) {
-     setError(t('transaction_required'));
+    if ((!draft.accountFromId && !draft.accountToId) || !draft.currencyId) {
+     setError(t('transaction_party_required'));
      return;
     }
     const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
@@ -2160,7 +2481,7 @@ function AuthenticatedHome() {
      accountFromId: draft.accountFromId,
      accountToId: draft.accountToId,
      currencyId: draft.currencyId,
-     amount,
+     amount: amount || 0,
      type: draft.type,
      exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
      commissionFrom: parseFloat(draft.commissionFrom) || 0,
@@ -2174,6 +2495,7 @@ function AuthenticatedHome() {
      chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
      chargesDescription: draft.chargesDescription,
      description: draft.description,
+     archiveNote: draft.archiveNote,
      createdAt: `${draft.createdDate} ${currentTime}`,
     });
    }
@@ -2347,6 +2669,44 @@ function AuthenticatedHome() {
   });
  }
 
+ function onCopySelectedTransaction() {
+  const ids = [...selectedTransactionIds];
+  if (ids.length !== 1) return;
+  const row = transactionTableRowMap.get(ids[0]);
+  if (row) setCopiedTransaction(row);
+ }
+
+ function onPasteCopiedTransaction() {
+  const row = copiedTransaction;
+  if (!row) return;
+  const fromReversed = !!row.exchangeRateFromReversed;
+  const toReversed = !!row.exchangeRateToReversed;
+  const isAdjustment = !!row.isAdjustment;
+  setTransactionForm({
+   accountFromId: row.accountFromId,
+   accountToId: isAdjustment ? null : row.accountToId,
+   currencyId: row.currencyId,
+   amount: row.amount ? formatAmountInput(String(row.amount)) : '',
+   type: isAdjustment ? 'adjustment' : row.type,
+   adjustmentDirection: row.adjustmentDirection ?? 'debit',
+   exchangeRateFrom: fromReversed ? formatRateValue(1 / row.exchangeRateFrom) : String(row.exchangeRateFrom),
+   commissionFrom: String(row.commissionFrom),
+   exchangeRateTo: isAdjustment ? '1' : toReversed ? formatRateValue(1 / row.exchangeRateTo) : String(row.exchangeRateTo),
+   commissionTo: String(row.commissionTo),
+   charges: row.charges ? String(row.charges) : '',
+   chargesCurrencyId: row.chargesCurrencyId,
+   chargesPayer: row.chargesPayer,
+   chargesExchangeRate: String(row.chargesExchangeRate),
+   chargesDescription: row.chargesDescription,
+   description: row.description,
+  });
+  setTxFromRateReversed(fromReversed);
+  setTxToRateReversed(toReversed);
+  setTxFromQuery('');
+  setTxToQuery('');
+  if (row.charges) setIsNewTransactionExpensesOpen(true);
+ }
+
  async function onDeleteSelectedTransactions() {
   if (!accountingApi) {
    setError(t('error_bridge'));
@@ -2424,7 +2784,7 @@ function AuthenticatedHome() {
     const newCreatedAt = zoneDate + draggedRow.createdAt.slice(10);
 
     if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
-     const account = clientAccountMap.get(draggedRow.accountFromId);
+     const account = clientAccountMap.get(draggedRow.accountFromId ?? -1);
      const selectedCurrency = currencyMap.get(draggedRow.currencyId);
      await accountingApi.updateClientAdjustment({
       id: draggedRow.adjustmentId,
@@ -2700,13 +3060,30 @@ function AuthenticatedHome() {
   }
  }
 
- function generateLedgerHtml(ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility): string {
-  const filteredEntries = ledger.entries.filter((e) => {
+ function generateLedgerHtml(
+  ledger: ClientAccountLedger,
+  fromDate: string,
+  toDate: string,
+  colVisibility: PdfColVisibility,
+  fromEntryKey?: string | null,
+  toEntryKey?: string | null,
+ ): string {
+  // Candidates are the entries within the chosen date range; the start/end transaction
+  // pickers then narrow the exact boundaries (handy when a day has many transactions).
+  const candidates = ledger.entries.filter((e) => {
    const d = e.createdAt.slice(0, 10);
    return d >= fromDate && d <= toDate;
   });
+  const startIdx = fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey)) : 0;
+  const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
+  const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
+  const filteredEntries = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
 
-  const preBalance = ledger.startingBalance + ledger.entries.filter((e) => e.createdAt.slice(0, 10) < fromDate).reduce((sum, e) => sum + e.netChange, 0);
+  // Pre-balance includes everything chronologically before the first selected entry
+  // (entries before the date range, plus same-range entries skipped by the start picker).
+  const firstSelected = filteredEntries[0];
+  const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
+  const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
 
   // Build column definitions respecting user visibility; running_balance is always included
   type ColDef = { key: LedgerColumnKey; header: string; isNum?: boolean; cell: (e: ClientLedgerEntry, runBal: number) => string };
@@ -2804,7 +3181,7 @@ function AuthenticatedHome() {
   const metaCards = [
    pdfSettings.showMetaClient ? `<div class="meta-card"><div class="label">${t('client')}</div><div class="value">${clientName}</div></div>` : '',
    pdfSettings.showMetaCurrency
-    ? `<div class="meta-card"><div class="label">${t('currency')}</div><div class="value">${ledger.currencyName} (${ledger.currencyCode})</div></div>`
+    ? `<div class="meta-card"><div class="label">${t('currency')}</div><div class="value">${ledger.currencyName} (${ledger.currencySymbol || ledger.currencyCode})</div></div>`
     : '',
    pdfSettings.showMetaPeriod
     ? `<div class="meta-card"><div class="label">${t('export_period')}</div><div class="value" style="font-size:12px">${fromDate} &rarr; ${toDate}</div></div>`
@@ -2816,6 +3193,9 @@ function AuthenticatedHome() {
 <html lang="${language}" dir="${dir}">
 <head>
 <meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
 <style>
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
@@ -2834,7 +3214,7 @@ function AuthenticatedHome() {
  .pre-balance .pb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: bold; font-variant-numeric: tabular-nums; }
  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
  thead tr { background: #e2e8f0; }
- th { padding: 8px 10px; font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
+ th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
  td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
  tbody tr:nth-child(odd) { background: #f8fafc; }
  tbody tr:nth-child(even) { background: #ffffff; }
@@ -2856,7 +3236,7 @@ function AuthenticatedHome() {
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span></div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
@@ -2866,7 +3246,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  </tbody>
 </table>
 <div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencyCode}</span>
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
 ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
@@ -2874,14 +3254,130 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 </html>`;
  }
 
- async function onExportLedgerPdf(ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility) {
+ async function onExportLedgerPdf(
+  ledger: ClientAccountLedger,
+  fromDate: string,
+  toDate: string,
+  colVisibility: PdfColVisibility,
+  fromEntryKey?: string | null,
+  toEntryKey?: string | null,
+ ) {
   if (!accountingApi) return;
   try {
-   const html = generateLedgerHtml(ledger, fromDate, toDate, colVisibility);
+   const html = generateLedgerHtml(ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey);
    const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^a-z0-9]/gi, '_');
    const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
    const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
    if (result.ok) setPdfExportModal(null);
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ function generateArchiveHtml(): string {
+  const esc = (value: string) =>
+   String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
+
+  const archived = transactions
+   .filter((tx) => tx.isArchived || !tx.accountFromId || !tx.accountToId)
+   .slice()
+   .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const headers = [t('date'), t('transaction_account_from'), t('transaction_account_to'), t('amount'), t('archive_more_info'), t('transaction_description')];
+  const headerCells = headers.map((header, index) => `<th${index === 3 ? ' class="num"' : ''}>${esc(header)}</th>`).join('');
+
+  const rows = archived
+   .map((tx) => {
+    const from = tx.accountFromId
+     ? `${esc(tx.clientFromName)} <span style="color:#64748b">${esc(tx.accountFromCurrencyCode)}</span>`
+     : `<span class="muted">${esc(t('archive_no_sender'))}</span>`;
+    const to = tx.accountToId
+     ? `${esc(tx.clientToName)} <span style="color:#64748b">${esc(tx.accountToCurrencyCode)}</span>`
+     : `<span class="muted">${esc(t('archive_no_receiver'))}</span>`;
+    const amount = tx.amount
+     ? `${tx.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${esc(tx.currencySymbol || tx.currencyCode)}`
+     : '-';
+    return `<tr><td>${formatDateValue(tx.createdAt, pdfSettings.dateFormat)}</td><td>${from}</td><td>${to}</td><td class="num">${amount}</td><td>${esc(tx.archiveNote)}</td><td>${esc(tx.description)}</td></tr>`;
+   })
+   .join('');
+
+  const totals = new Map<string, { code: string; symbol: string; total: number }>();
+  for (const tx of archived) {
+   if (!tx.amount) continue;
+   const key = tx.currencyCode || String(tx.currencyId);
+   const existing = totals.get(key);
+   if (existing) existing.total += tx.amount;
+   else totals.set(key, { code: tx.currencyCode, symbol: tx.currencySymbol, total: tx.amount });
+  }
+  const totalsHtml = [...totals.values()]
+   .map((total) => `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} <span style="color:#64748b">${esc(total.symbol || total.code)}</span></span>`)
+   .join('');
+
+  const dir = isRTL ? 'rtl' : 'ltr';
+  const exportDate = new Date().toLocaleDateString(language);
+
+  return `<!DOCTYPE html>
+<html lang="${language}" dir="${dir}">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
+<style>
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
+ .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
+ .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
+ table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+ thead tr { background: #e2e8f0; }
+ th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
+ td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+ tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(even) { background: #ffffff; }
+ td.num { font-variant-numeric: tabular-nums; }
+ .muted { color: #94a3b8; font-style: italic; }
+ .totals { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 16px; padding: 12px 16px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; }
+ .totals .totals-label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
+ .totals .total-item { font-weight: 700; font-variant-numeric: tabular-nums; }
+ .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
+ .empty { margin-top: 24px; text-align: center; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="header">
+ <div class="header-left">
+  <h1>Arkam Exchange</h1>
+  <p>${esc(t('archive_title'))}</p>
+ </div>
+ ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
+</div>
+${
+ archived.length > 0
+  ? `<table>
+ <thead>
+  <tr>${headerCells}</tr>
+ </thead>
+ <tbody>
+  ${rows}
+ </tbody>
+</table>
+${totalsHtml ? `<div class="totals"><span class="totals-label">${esc(t('archive_totals'))}</span>${totalsHtml}</div>` : ''}`
+  : `<div class="empty">${esc(t('archive_empty'))}</div>`
+}
+${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+</body>
+</html>`;
+ }
+
+ async function onExportArchivePdf() {
+  if (!accountingApi) return;
+  try {
+   const html = generateArchiveHtml();
+   const exportDate = new Date().toISOString().slice(0, 10);
+   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `archive_${exportDate}.pdf` });
+   if (!result.ok) setError(t('error_failed_save'));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
@@ -2893,9 +3389,12 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
   { key: 'transactions', label: t('nav_transactions'), icon: 'transactions' },
+  { key: 'archive', label: t('nav_archive'), icon: 'archive' },
  ];
 
  const settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }> = [
+  { key: 'account', label: t('account_title'), icon: 'auth' },
+  { key: 'team', label: t('team_title'), icon: 'clients' },
   { key: 'database', label: t('settings_database_title'), icon: 'database' },
   { key: 'language', label: t('settings_language_title'), icon: 'settings' },
   { key: 'pdf', label: t('settings_pdf_title'), icon: 'settings' },
@@ -2941,6 +3440,17 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  );
  const currencyMap = useMemo(() => new Map(localizedCurrencies.map((currency) => [currency.id, currency])), [localizedCurrencies]);
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
+ const sortedClients = useMemo(() => {
+  const factor = clientSort.dir === 'asc' ? 1 : -1;
+  return [...clients].sort((a, b) => {
+   const aVal = clientSort.key === 'organization' ? a.organizationName || '' : a.name;
+   const bVal = clientSort.key === 'organization' ? b.organizationName || '' : b.name;
+   return aVal.localeCompare(bVal, language, { sensitivity: 'base' }) * factor;
+  });
+ }, [clients, clientSort, language]);
+ const toggleClientSort = useCallback((key: 'name' | 'organization') => {
+  setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+ }, []);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
@@ -2949,7 +3459,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   [clients, selectedOrganizationForClients],
  );
 
- const isAdjustmentTransaction = transactionForm.type === 'adjustment';
+ const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
  const transactionSelectedCurrencyCode = transactionForm.currencyId ? currencyMap.get(transactionForm.currencyId)?.code : undefined;
  const transactionAccountFromCurrencyCode = transactionForm.accountFromId ? clientAccountMap.get(transactionForm.accountFromId)?.currencyCode : undefined;
  const transactionAccountToCurrencyCode = transactionForm.accountToId ? clientAccountMap.get(transactionForm.accountToId)?.currencyCode : undefined;
@@ -2985,6 +3495,197 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   setShowTransactionTableSettingsModal(false);
  };
 
+ const openTransactionExportModal = () => {
+  // Default the range to span all currently shown transactions (earliest → latest).
+  let earliest = '';
+  let latest = '';
+  for (const row of displayedTransactionRows) {
+   const day = row.createdAt.slice(0, 10);
+   if (!day) continue;
+   if (!earliest || day < earliest) earliest = day;
+   if (!latest || day > latest) latest = day;
+  }
+  setTransactionExportFrom(earliest);
+  setTransactionExportTo(latest);
+  setShowTransactionExportModal(true);
+ };
+
+ const closeTransactionExportModal = () => {
+  if (isExportingTransactions) return;
+  setShowTransactionExportModal(false);
+ };
+
+ // Builds the rows/headers for the transactions export, honouring the date range
+ // and the currently visible columns so the export matches what the user sees.
+ const buildTransactionExportData = (fromDate: string, toDate: string) => {
+  const columns = transactionTableSettings.columns;
+  const rows = displayedTransactionRows.filter((row) => {
+   const day = row.createdAt.slice(0, 10);
+   if (fromDate && day < fromDate) return false;
+   if (toDate && day > toDate) return false;
+   return true;
+  });
+
+  const headers: string[] = [];
+  if (columns.created) headers.push(t('date'));
+  if (columns.description) headers.push(t('transaction_description'));
+  if (columns.accountFrom) headers.push(t('transaction_account_from'));
+  if (columns.accountTo) headers.push(t('transaction_account_to'));
+  if (columns.amount) headers.push(t('transaction_amount'));
+  if (columns.charges) headers.push(t('charges'));
+  if (columns.commission) headers.push(t('commission'));
+
+  const partyLabel = (name: string, symbol: string, code: string, fallback: string) =>
+   name ? `${name}${symbol || code ? ` (${symbol || code})` : ''}` : fallback;
+
+  const dataRows = rows.map((txn) => {
+   const cells: string[] = [];
+   if (columns.created) cells.push(formatDateValue(txn.createdAt, transactionTableSettings.dateFormat));
+   if (columns.description) cells.push(txn.description || '');
+   if (columns.accountFrom) {
+    cells.push(
+     txn.accountFromId
+      ? partyLabel(txn.clientFromName, txn.accountFromCurrencySymbol, txn.accountFromCurrencyCode, '')
+      : t('archive_no_sender'),
+    );
+   }
+   if (columns.accountTo) {
+    cells.push(
+     txn.isAdjustment
+      ? t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')
+      : txn.accountToId
+       ? partyLabel(txn.clientToName, txn.accountToCurrencySymbol, txn.accountToCurrencyCode, '')
+       : t('archive_no_receiver'),
+    );
+   }
+   if (columns.amount) {
+    cells.push(txn.amount ? `${txn.amount.toLocaleString(language)} ${txn.currencySymbol || txn.currencyCode}` : '-');
+   }
+   if (columns.charges) {
+    if (txn.isAdjustment || !txn.charges) {
+     cells.push('-');
+    } else {
+     const parts = [`${txn.charges.toLocaleString(language)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
+     if (txn.chargesPayer) parts.push(txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : '');
+     if (txn.chargesDescription) parts.push(txn.chargesDescription);
+     cells.push(parts.filter(Boolean).join(' — '));
+    }
+   }
+   if (columns.commission) {
+    if (txn.isAdjustment) {
+     cells.push('-');
+    } else {
+     const parts: string[] = [];
+     if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
+     if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
+     cells.push(parts.length ? parts.join(' — ') : '-');
+    }
+   }
+   return cells;
+  });
+
+  return { headers, rows: dataRows, count: dataRows.length };
+ };
+
+ const transactionExportFileBase = () => {
+  const range = [transactionExportFrom, transactionExportTo].filter(Boolean).join('_');
+  const sectionLabel = section === 'archive' ? 'archive' : 'transactions';
+  return range ? `${sectionLabel}_${range}` : `${sectionLabel}_${new Date().toISOString().slice(0, 10)}`;
+ };
+
+ function generateTransactionsExportHtml(headers: string[], rows: string[][]): string {
+  const esc = (value: string) =>
+   String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
+  const dir = isRTL ? 'rtl' : 'ltr';
+  const exportDate = new Date().toLocaleDateString(language);
+  const rangeLabel = [transactionExportFrom, transactionExportTo].filter(Boolean).join(' → ');
+  const headerCells = headers.map((header) => `<th>${esc(header)}</th>`).join('');
+  const bodyRows = rows
+   .map((cells) => `<tr>${cells.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
+   .join('');
+
+  return `<!DOCTYPE html>
+<html lang="${language}" dir="${dir}">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
+<style>
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
+ .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
+ .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
+ table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+ thead tr { background: #e2e8f0; }
+ th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
+ td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+ tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(even) { background: #ffffff; }
+ .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
+ .empty { margin-top: 24px; text-align: center; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="header">
+ <div class="header-left">
+  <h1>Arkam Exchange</h1>
+  <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
+ </div>
+ ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
+</div>
+${
+ rows.length > 0
+  ? `<table>
+ <thead>
+  <tr>${headerCells}</tr>
+ </thead>
+ <tbody>
+  ${bodyRows}
+ </tbody>
+</table>`
+  : `<div class="empty">${esc(t('transactions_export_empty'))}</div>`
+}
+${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+</body>
+</html>`;
+ }
+
+ async function onExportTransactionsPdf() {
+  if (!accountingApi) return;
+  setIsExportingTransactions(true);
+  try {
+   const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo);
+   const html = generateTransactionsExportHtml(headers, rows);
+   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `${transactionExportFileBase()}.pdf` });
+   if (result.ok) setShowTransactionExportModal(false);
+   else setError(t('error_failed_save'));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsExportingTransactions(false);
+  }
+ }
+
+ async function onExportTransactionsExcel() {
+  setIsExportingTransactions(true);
+  try {
+   const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo);
+   const xlsxModule = await import('xlsx');
+   const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
+   const workbook = xlsxModule.utils.book_new();
+   xlsxModule.utils.book_append_sheet(workbook, worksheet, section === 'archive' ? 'Archive' : 'Transactions');
+   xlsxModule.writeFile(workbook, `${transactionExportFileBase()}.xlsx`);
+   setShowTransactionExportModal(false);
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsExportingTransactions(false);
+  }
+ }
+
  const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 2; // +1 actions col, +1 checkbox col
 
  const overviewCards = [
@@ -3005,8 +3706,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    .map((account) => {
     const entries = transactions
      .flatMap<ClientLedgerEntry>((transaction) => {
+      // Archive-only records are historical and never affect a client's ledger/balance.
+      if (transaction.isArchived) return [];
       if (transaction.accountFromId === account.id) {
-       const counterparty = clientAccountMap.get(transaction.accountToId);
+       const counterparty = clientAccountMap.get(transaction.accountToId ?? -1);
        return [
         {
          transactionId: transaction.id,
@@ -3035,7 +3738,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       }
 
       if (transaction.accountToId === account.id) {
-       const counterparty = clientAccountMap.get(transaction.accountFromId);
+       const counterparty = clientAccountMap.get(transaction.accountFromId ?? -1);
        return [
         {
          transactionId: transaction.id,
@@ -3189,14 +3892,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     <div className="text-xs text-slate-600">
      {(() => {
       const from = (transactionsPage - 1) * transactionsPageSize + 1;
-      const to = Math.min(transactionsPage * transactionsPageSize, transactionTableRows.length);
-      if (language === 'ar') {
-       return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
-      }
-      if (language === 'fr') {
-       return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
-      }
-      return `${from}-${to} ${t('pagination_of')} ${transactionTableRows.length}`;
+      const to = Math.min(transactionsPage * transactionsPageSize, displayedTransactionRows.length);
+      return `${from}-${to} ${t('pagination_of')} ${displayedTransactionRows.length}`;
      })()}
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
@@ -3239,29 +3936,55 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const databaseSection = (
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
-    <h2 className="text-2xl font-semibold">{t('settings_database_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('settings_database_description')}</p>
+    <h2 className="text-2xl font-semibold">{t('backup_title')}</h2>
+    <p className="mt-2 text-sm text-slate-600">{t('backup_description')}</p>
 
-    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-     <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_provider_label')}</p>
-      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.provider ?? t('loading')}</p>
+    <input
+     ref={backupRestoreInputRef}
+     type="file"
+     accept=".json,application/json"
+     onChange={onRestoreBackupFile}
+     className="hidden"
+    />
+
+    <div className="mt-6 grid gap-4 md:grid-cols-2">
+     <div className="rounded border border-slate-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">{t('backup_download_title')}</h3>
+      <p className="mt-1 text-sm text-slate-600">{t('backup_download_hint')}</p>
+      <button
+       type="button"
+       onClick={() => void onDownloadBackup()}
+       disabled={isBackingUp || isRestoringBackup}
+       className="mt-4 inline-flex items-center gap-2 rounded border border-blue-600 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+       </svg>
+       {isBackingUp ? t('backup_download_loading') : t('backup_download_button')}
+      </button>
+      <p className={`mt-3 text-xs ${lastBackupAt ? 'text-slate-500' : 'text-amber-600'}`}>{lastBackupLabel()}</p>
      </div>
-     <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_host_label')}</p>
-      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo ? `${dbInfo.host}:${dbInfo.port}` : t('loading')}</p>
-     </div>
-     <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_name_label')}</p>
-      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.database ?? t('loading')}</p>
-     </div>
-     <div className={mutedPanelClassName}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('settings_database_schema_label')}</p>
-      <p className="mt-3 break-all font-mono text-sm text-slate-900">{dbInfo?.schema ?? t('loading')}</p>
+
+     <div className="rounded border border-amber-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">{t('backup_restore_title')}</h3>
+      <p className="mt-1 text-sm text-slate-600">{t('backup_restore_hint')}</p>
+      <button
+       type="button"
+       onClick={() => backupRestoreInputRef.current?.click()}
+       disabled={isBackingUp || isRestoringBackup}
+       className="mt-4 inline-flex items-center gap-2 rounded border border-amber-600 bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="17 8 12 3 7 8" />
+        <line x1="12" y1="3" x2="12" y2="15" />
+       </svg>
+       {isRestoringBackup ? t('backup_restore_loading') : t('backup_restore_button')}
+      </button>
      </div>
     </div>
-
-    <div className="mt-4 rounded border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-900">{t('settings_database_hint')}</div>
    </div>
   </section>
  );
@@ -3305,6 +4028,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    title: t('transactions_title'),
    description: t('transactions_description'),
    accent: `${transactions.length} ${t('nav_transactions')}`,
+  },
+  archive: {
+   title: t('archive_title'),
+   description: t('archive_description'),
+   accent: `${transactions.filter((tx) => tx.isArchived || !tx.accountFromId || !tx.accountToId).length} ${t('nav_archive')}`,
   },
  };
 
@@ -3497,6 +4225,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
       >
        <option value="Arial, Helvetica, sans-serif">Arial</option>
+       <option value="'Cairo', sans-serif">Cairo</option>
        <option value="'Times New Roman', Times, serif">Times New Roman</option>
        <option value="Georgia, 'Times New Roman', serif">Georgia</option>
        <option value="Verdana, Geneva, sans-serif">Verdana</option>
@@ -3514,6 +4243,24 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
       >
        {[8, 9, 10, 11, 12, 13, 14, 16, 18].map((s) => (
+        <option
+         key={s}
+         value={s}
+        >
+         {s}px
+        </option>
+       ))}
+      </select>
+     </div>
+     <div>
+      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_head_font_size_label')}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t('pdf_head_font_size_hint')}</p>
+      <select
+       value={pdfSettings.headFontSize}
+       onChange={(e) => updatePdfSettings({ headFontSize: Number(e.target.value) })}
+       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      >
+       {[8, 9, 10, 11, 12, 13, 14, 16, 18, 20].map((s) => (
         <option
          key={s}
          value={s}
@@ -3674,6 +4421,32 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   </section>
  );
 
+ const clientSortHeader = (key: 'name' | 'organization', label: string) => {
+  const active = clientSort.key === key;
+  return (
+   <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
+    <button
+     type="button"
+     onClick={() => toggleClientSort(key)}
+     title={t('sort_by', { field: label })}
+     className={`inline-flex items-center gap-1.5 font-semibold transition hover:text-blue-700 ${active ? 'text-blue-700' : 'text-slate-700'}`}
+    >
+     <span>{label}</span>
+     {active ? (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+       {clientSort.dir === 'asc' ? <polyline points="6 15 12 9 18 15" /> : <polyline points="6 9 12 15 18 9" />}
+      </svg>
+     ) : (
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300" aria-hidden>
+       <polyline points="8 9 12 5 16 9" />
+       <polyline points="16 15 12 19 8 15" />
+      </svg>
+     )}
+    </button>
+   </th>
+  );
+ };
+
  const clientsSection = (
   <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
    <form
@@ -3690,7 +4463,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        type="button"
        onClick={() => {
         setClientForm(emptyClientForm());
-        setOpenAccountOnCreate(false);
+        setOpenAccountOnCreate(true);
         setNewClientAccountDrafts([createNewClientAccountDraft()]);
        }}
        className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -3847,7 +4620,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             onClick={() => setNewClientAccountDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
             className="mt-2 inline-flex rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
            >
-            Remove account
+            {t('client_account_remove')}
            </button>
           ) : null}
          </div>
@@ -3858,7 +4631,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          onClick={() => setNewClientAccountDrafts((current) => [...current, createNewClientAccountDraft()])}
          className="inline-flex rounded border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
         >
-         Open another account
+         {t('client_account_open_another')}
         </button>
        </div>
       ) : null}
@@ -3880,13 +4653,14 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       <table className="w-full text-sm">
        <thead className="bg-slate-100 text-slate-700">
         <tr>
-         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_organization')}</th>
+         {clientSortHeader('name', t('name'))}
+         {clientSortHeader('organization', t('client_organization'))}
          <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
+         <th className="px-4 py-3" />
         </tr>
        </thead>
        <tbody>
-        {clients.map((client) => (
+        {sortedClients.map((client) => (
          <tr
           key={client.id}
           className="border-t border-slate-200 align-top"
@@ -3899,33 +4673,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            >
             {client.name}
            </button>
-           <div className="mt-2 flex flex-wrap gap-2">
-            <button
-             type="button"
-             onClick={() => {
-              setClientForm({
-               id: client.id,
-               organizationId: client.organizationId,
-               name: client.name,
-               email: client.email,
-               phone: client.phone,
-               address: client.address,
-              });
-              setOpenAccountOnCreate(false);
-              setNewClientAccountDrafts([createNewClientAccountDraft()]);
-             }}
-             className="cursor-pointer rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-             {t('edit')}
-            </button>
-            <button
-             type="button"
-             onClick={() => onDeleteClient(client.id)}
-             className="cursor-pointer rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
-            >
-             {t('delete')}
-            </button>
-           </div>
           </td>
           <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
           <td className="px-4 py-3">
@@ -3939,13 +4686,49 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             {t('client_accounts')} ({client.accountCount})
            </button>
           </td>
+          <td className="px-4 py-3">
+           <div className="flex items-center gap-1">
+            <button
+             type="button"
+             title={t('edit')}
+             onClick={() => {
+              setClientForm({
+               id: client.id,
+               organizationId: client.organizationId,
+               name: client.name,
+               email: client.email,
+               phone: client.phone,
+               address: client.address,
+              });
+              setOpenAccountOnCreate(false);
+              setNewClientAccountDrafts([createNewClientAccountDraft()]);
+             }}
+             className="cursor-pointer rounded p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            >
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" />
+              <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" />
+             </svg>
+            </button>
+            <button
+             type="button"
+             title={t('delete')}
+             onClick={() => onDeleteClient(client.id)}
+             className="cursor-pointer rounded p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-600"
+            >
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+             </svg>
+            </button>
+           </div>
+          </td>
          </tr>
         ))}
         {clients.length === 0 ? (
          <tr>
           <td
            className="px-4 py-6 text-slate-500"
-           colSpan={3}
+           colSpan={4}
           >
            {t('no_clients')}
           </td>
@@ -4283,7 +5066,54 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         >
          <td className="px-4 py-3 font-mono font-semibold text-slate-900">{currency.code}</td>
          <td className="px-4 py-3 text-slate-700">{currency.name}</td>
-         <td className="px-4 py-3 text-slate-600">{currency.symbol || '-'}</td>
+         <td className="px-4 py-3 text-slate-600">
+          {editingCurrencySymbolId === currency.id ? (
+           <div className="flex items-center gap-2">
+            <input
+             autoFocus
+             value={editingCurrencySymbolValue}
+             onChange={(event) => setEditingCurrencySymbolValue(event.target.value)}
+             onKeyDown={(event) => {
+              if (event.key === 'Enter') void onSaveCurrencySymbol(currency);
+              if (event.key === 'Escape') onCancelEditCurrencySymbol();
+             }}
+             maxLength={8}
+             className="w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+             placeholder={t('currency_symbol')}
+            />
+            <button
+             type="button"
+             onClick={() => void onSaveCurrencySymbol(currency)}
+             className="rounded border border-green-200 px-2.5 py-1 text-xs font-semibold text-green-700 hover:bg-green-50"
+            >
+             {t('client_account_save')}
+            </button>
+            <button
+             type="button"
+             onClick={onCancelEditCurrencySymbol}
+             className="rounded border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+             {t('cancel')}
+            </button>
+           </div>
+          ) : (
+           <div className="flex items-center gap-2">
+            <span>{currency.symbol || '-'}</span>
+            <button
+             type="button"
+             onClick={() => onStartEditCurrencySymbol(currency)}
+             title={t('edit')}
+             aria-label={t('edit')}
+             className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+            >
+             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+             </svg>
+            </button>
+           </div>
+          )}
+         </td>
          <td className="px-4 py-3">
           {currency.isMain === 1 ? (
            <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
@@ -4413,13 +5243,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      <table className="w-full text-sm">
       <thead className="bg-slate-100 text-slate-700">
        <tr>
-        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_organization')}</th>
+        {clientSortHeader('name', t('name'))}
+        {clientSortHeader('organization', t('client_organization'))}
         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
        </tr>
       </thead>
       <tbody>
-       {clients.map((client) => (
+       {sortedClients.map((client) => (
         <tr
          key={client.id}
          className="border-t border-slate-200 align-top"
@@ -4582,6 +5412,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    <div className="flex flex-col gap-4 p-4">
     {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
     {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
+    {settingsTab === 'account' ? <AccountSettings /> : null}
+    {settingsTab === 'team' ? <TeamSettings /> : null}
     {settingsTab === 'database' ? databaseSection : null}
     {settingsTab === 'language' ? languageSection : null}
     {settingsTab === 'pdf' ? pdfSettingsSection : null}
@@ -4598,7 +5430,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    <main className="flex w-full">
     {/* Classic sidebar - desktop only */}
     <aside
-     className={`hidden lg:flex flex-col bg-[#1e3a5f] text-white border-r border-[#15304f] shrink-0 transition-[width] duration-200 ${isSidebarCollapsed ? 'w-16' : 'w-56'}`}
+     className={`hidden lg:flex flex-col text-white border-r shrink-0 transition-[width,background-color] duration-200 ${
+      section === 'settings' ? 'bg-[#3b2f63] border-[#2a2049]' : 'bg-[#1e3a5f] border-[#15304f]'
+     } ${isSidebarCollapsed ? 'w-16' : 'w-56'}`}
      style={{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}
     >
      {/* Brand */}
@@ -4632,7 +5466,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          aria-label={item.label}
          title={item.label}
          className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium transition ${
-          isActive ? 'bg-blue-600 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+          isActive ? (section === 'settings' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white') : 'text-blue-100 hover:bg-white/10 hover:text-white'
          } ${isSidebarCollapsed ? 'justify-center' : ''}`}
         >
          <span className="shrink-0">{renderIcon(item.icon, 'h-4 w-4')}</span>
@@ -4672,6 +5506,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        <span className="shrink-0">{renderIcon('auth', 'h-4 w-4')}</span>
        {isSidebarCollapsed ? null : <span>{t('sign_out')}</span>}
       </button>
+      {!isSidebarCollapsed && userWorkspaces.length > 1 ? (
+       <div className="px-3 pb-1 pt-1">
+        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-blue-300">{t('workspace_label')}</label>
+        <select
+         value={activeWorkspaceId ?? ''}
+         onChange={(event) => onSwitchWorkspace(event.target.value)}
+         className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
+        >
+         {userWorkspaces.map((workspace) => (
+          <option key={workspace.id} value={workspace.id}>
+           {workspace.name}
+          </option>
+         ))}
+        </select>
+       </div>
+      ) : null}
       {isSidebarCollapsed ? null : (
        <div className="px-3 pb-2 pt-1">
         <select
@@ -4792,6 +5642,15 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             </div>
            ))}
           </div>
+
+          <button
+           type="button"
+           onClick={() => navigateToSection('transactions')}
+           className="mt-6 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
+          >
+           {renderIcon('transactions', 'h-4 w-4')}
+           {t('overview_go_to_transactions')}
+          </button>
          </div>
 
          <div className={panelClassName}>
@@ -4957,7 +5816,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                if (!targetLedger) return;
                const today = new Date().toISOString().slice(0, 10);
                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
-               setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, cols: getStoredPdfCols(targetLedger.accountId) });
+               setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, fromEntryKey: null, toEntryKey: null, cols: getStoredPdfCols(targetLedger.accountId) });
               }}
               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
              >
@@ -5009,20 +5868,17 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               <div>
                <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
                <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-3">
-               <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('starting_balance')}</p>
-                <div className="mt-2">
+               <div className="mt-2 flex items-center gap-1.5">
+                <span className="text-xs text-slate-400">{t('starting_balance')}:</span>
+                {editingStartingBalanceIds.has(ledger.accountId) ? (
                  <input
                   type="number"
+                  autoFocus
                   value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
                   onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
                   onBlur={async (event) => {
-                   if (!accountingApi) return;
                    const value = parseFloat(event.target.value);
-                   if (!isNaN(value)) {
+                   if (!isNaN(value) && accountingApi) {
                     try {
                      await accountingApi.updateClientAccountStartingBalance({ accountId: ledger.accountId, startingBalance: value });
                      await loadData();
@@ -5030,11 +5886,36 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      setError(e instanceof Error ? e.message : t('error_failed_update'));
                     }
                    }
+                   setEditingStartingBalanceIds((prev) => { const next = new Set(prev); next.delete(ledger.accountId); return next; });
                   }}
-                  className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setLedgerStartingBalanceDrafts((prev) => { const next = { ...prev }; delete next[ledger.accountId]; return next; }); setEditingStartingBalanceIds((prev) => { const next = new Set(prev); next.delete(ledger.accountId); return next; }); } }}
+                  className="w-32 rounded border border-slate-300 px-2 py-0.5 text-xs outline-none ring-blue-300 focus:ring"
                  />
-                </div>
+                ) : (
+                 <>
+                  <span className="text-xs font-medium text-slate-600">
+                   {(ledgerStartingBalanceDrafts[ledger.accountId] !== undefined
+                    ? parseFloat(ledgerStartingBalanceDrafts[ledger.accountId]) || 0
+                    : ledger.startingBalance
+                   ).toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                  </span>
+                  <button
+                   type="button"
+                   onClick={() => setEditingStartingBalanceIds((prev) => new Set([...prev, ledger.accountId]))}
+                   title={t('edit')}
+                   className="text-slate-400 transition hover:text-slate-700"
+                  >
+                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                   </svg>
+                  </button>
+                 </>
+                )}
                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
                 <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
@@ -5465,7 +6346,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className={`px-4 py-3 font-semibold ${entry.direction === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.direction === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {draft ? (
                            <input
@@ -5640,7 +6521,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className={`px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
@@ -5650,7 +6531,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className={`px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
@@ -5725,12 +6606,29 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
        {section === 'currencies' ? currenciesReadOnlySection : null}
 
-       {section === 'transactions' ? (
+       {section === 'transactions' || section === 'archive' ? (
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
-         {isNewTransactionSectionOpen ? (
+         {(section === 'transactions' || section === 'archive') && isNewTransactionSectionOpen ? (
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
-           <h2 className="text-xl font-semibold">{t('new_transaction')}</h2>
-           <p className="mt-1 text-sm text-slate-600">{t('transactions_description')}</p>
+           <div className="flex items-start justify-between gap-3">
+            <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
+            {copiedTransaction ? (
+             <button
+              type="button"
+              onClick={onPasteCopiedTransaction}
+              title={t('paste_transaction')}
+              aria-label={t('paste_transaction')}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+               <rect x="9" y="3" width="6" height="4" rx="1" />
+              </svg>
+              {t('paste_transaction')}
+             </button>
+            ) : null}
+           </div>
+           <p className="mt-1 text-sm text-slate-600">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
 
            {pendingImportData ? (
             <div className="mt-5 rounded border border-blue-200 bg-blue-50/60 p-4">
@@ -5922,8 +6820,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             >
              <option value="exchange">{t('transaction_type_exchange')}</option>
              <option value="transfer">{t('transaction_type_transfer')}</option>
-             <option value="adjustment">{t('transaction_type_adjustment')}</option>
+             {section === 'archive' ? null : <option value="adjustment">{t('transaction_type_adjustment')}</option>}
             </select>
+
+            <label className="mt-4 block text-sm font-medium">{t('date')}</label>
+            <input
+             type="date"
+             value={newTransactionDate}
+             onChange={(event) => setNewTransactionDate(event.target.value)}
+             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+            />
 
             {isAdjustmentTransaction ? (
              <div className="mt-4">
@@ -5954,7 +6860,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             ) : null}
 
             <label className="block text-sm font-medium">
-             {isAdjustmentTransaction ? t('client') : t('transaction_account_from')} <span className="text-red-500">*</span>
+             {isAdjustmentTransaction ? t('client') : t('transaction_account_from')}
+             {isAdjustmentTransaction ? <span className="text-red-500"> *</span> : null}
             </label>
             <div className="relative mt-2">
              <input
@@ -5978,9 +6885,28 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               }}
               onBlur={() => setTimeout(() => setTxFromOpen(false), 150)}
               placeholder={t('transaction_account_placeholder')}
-              className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+              className={`w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
               autoComplete="off"
              />
+             {transactionForm.accountFromId && !txFromOpen ? (
+              <button
+               type="button"
+               onMouseDown={(event) => {
+                event.preventDefault();
+                setTransactionForm((current) => ({ ...current, accountFromId: null }));
+                setTxFromQuery('');
+                setTxFromOpen(false);
+               }}
+               title={t('clear_selection')}
+               aria-label={t('clear_selection')}
+               className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-2' : 'right-2'}`}
+              >
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+               </svg>
+              </button>
+             ) : null}
              {txFromOpen && (
               <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
                {clientAccounts
@@ -6008,7 +6934,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             {!isAdjustmentTransaction ? (
              <>
               <label className="mt-4 block text-sm font-medium">
-               {t('transaction_account_to')} <span className="text-red-500">*</span>
+               {t('transaction_account_to')}
               </label>
               <div className="relative mt-2">
                <input
@@ -6032,9 +6958,28 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 }}
                 onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
                 placeholder={t('transaction_account_placeholder')}
-                className="w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+                className={`w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
                 autoComplete="off"
                />
+               {transactionForm.accountToId && !txToOpen ? (
+                <button
+                 type="button"
+                 onMouseDown={(event) => {
+                  event.preventDefault();
+                  setTransactionForm((current) => ({ ...current, accountToId: null }));
+                  setTxToQuery('');
+                  setTxToOpen(false);
+                 }}
+                 title={t('clear_selection')}
+                 aria-label={t('clear_selection')}
+                 className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-2' : 'right-2'}`}
+                >
+                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                 </svg>
+                </button>
+               ) : null}
                {txToOpen && (
                 <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
                  {clientAccounts
@@ -6062,7 +7007,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             ) : null}
 
             <label className="mt-4 block text-sm font-medium">
-             {t('transaction_amount')} <span className="text-red-500">*</span>
+             {t('transaction_amount')}
+             {isAdjustmentTransaction ? <span className="text-red-500"> *</span> : null}
             </label>
             <div className="mt-2 flex gap-2">
              <input
@@ -6070,7 +7016,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               inputMode="decimal"
               dir="ltr"
               value={transactionForm.amount}
-              onChange={(event) => setTransactionForm((current) => ({ ...current, amount: normalizeDecimalInput(event.target.value) }))}
+              onChange={(event) => setTransactionForm((current) => ({ ...current, amount: formatAmountInput(event.target.value) }))}
               className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
               placeholder="0.00"
               required
@@ -6340,7 +7286,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
          <div className={`${panelClassName} min-w-0 xl:flex-1`}>
           <div className="flex items-start justify-between gap-4">
-           <h2 className="text-xl font-semibold">{t('transactions_title')}</h2>
+           <div>
+            <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_title') : t('transactions_title')}</h2>
+            {section === 'archive' ? <p className="mt-1 text-sm text-slate-600">{t('archive_description')}</p> : null}
+           </div>
            <div className="flex flex-wrap items-center gap-2">
             <input
              ref={transactionsImportInputRef}
@@ -6349,13 +7298,78 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              onChange={onImportTransactionsFile}
              className="hidden"
             />
+            {section === 'archive' ? (
+             <button
+              type="button"
+              onClick={() => void onExportArchivePdf()}
+              className="cursor-pointer rounded border border-blue-600 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+             >
+              {t('archive_export_pdf')}
+             </button>
+            ) : null}
             <button
              type="button"
              onClick={() => transactionsImportInputRef.current?.click()}
              disabled={isImportingTransactions}
-             className="cursor-pointer rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+             title={isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
+             aria-label={isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
+             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-             {isImportingTransactions ? 'Importing...' : 'Import Sheet'}
+             {isImportingTransactions ? (
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               className="animate-spin"
+               aria-hidden
+              >
+               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+             ) : (
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+               <polyline points="17 8 12 3 7 8" />
+               <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+             )}
+            </button>
+            <button
+             type="button"
+             onClick={openTransactionExportModal}
+             title={t('transactions_export_title')}
+             aria-label={t('transactions_export_title')}
+             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
+            >
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+             </svg>
             </button>
             <button
              type="button"
@@ -6382,49 +7396,166 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               />
              </svg>
             </button>
+            {selectedTransactionIds.size === 1 ? (
+             <button
+              type="button"
+              onClick={onCopySelectedTransaction}
+              title={t('copy_transaction')}
+              aria-label={t('copy_transaction')}
+              className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
+             >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <rect x="9" y="9" width="11" height="11" rx="2" />
+               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+             </button>
+            ) : null}
             {selectedTransactionIds.size > 0 ? (
              <button
               type="button"
               onClick={() => void onDeleteSelectedTransactions()}
-              className="cursor-pointer rounded border border-red-600 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+              title={`${t('delete')} (${selectedTransactionIds.size})`}
+              aria-label={`${t('delete')} (${selectedTransactionIds.size})`}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-red-600 bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
              >
-              {t('delete')} ({selectedTransactionIds.size})
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <path d="M3 6h18" />
+               <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+               <path d="M10 11v6M14 11v6" />
+              </svg>
+              {selectedTransactionIds.size}
              </button>
             ) : null}
-            <button
-             type="button"
-             onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
-             aria-expanded={isNewTransactionSectionOpen}
-             title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
-             className={`cursor-pointer rounded border p-2 transition ${
-              isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-             }`}
-            >
-             <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              className="h-4 w-4"
-              aria-hidden="true"
+            {section === 'transactions' || section === 'archive' ? (
+             <button
+              type="button"
+              onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
+              aria-expanded={isNewTransactionSectionOpen}
+              title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
+              className={`cursor-pointer rounded border p-2 transition ${
+               isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
+              }`}
              >
-              {isNewTransactionSectionOpen ? (
-               <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6 18L18 6M6 6l12 12"
-               />
-              ) : (
-               <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4v16M4 12h16"
-               />
-              )}
-             </svg>
-            </button>
+              <svg
+               xmlns="http://www.w3.org/2000/svg"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="2.5"
+               className="h-4 w-4"
+               aria-hidden="true"
+              >
+               {isNewTransactionSectionOpen ? (
+                <path
+                 strokeLinecap="round"
+                 strokeLinejoin="round"
+                 d="M6 18L18 6M6 6l12 12"
+                />
+               ) : (
+                <path
+                 strokeLinecap="round"
+                 strokeLinejoin="round"
+                 d="M12 4v16M4 12h16"
+                />
+               )}
+              </svg>
+             </button>
+            ) : null}
            </div>
+          </div>
+          <div className="mt-3 rounded border border-slate-200 bg-slate-50">
+           <button
+            type="button"
+            onClick={() => setTxFilterOpen((o) => !o)}
+            aria-expanded={txFilterOpen}
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+            </svg>
+            {t('tx_filter_toggle')}
+            {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo) && (
+             <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">
+              {[txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo].filter(Boolean).length}
+             </span>
+            )}
+            <svg
+             width="14"
+             height="14"
+             viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             strokeWidth="2"
+             strokeLinecap="round"
+             strokeLinejoin="round"
+             aria-hidden
+             className={`ml-auto transition-transform ${txFilterOpen ? 'rotate-180' : ''}`}
+            >
+             <path d="M6 9l6 6 6-6" />
+            </svg>
+           </button>
+           {txFilterOpen && (
+            <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-3 py-3">
+             <div className="flex min-w-36 flex-1 flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">{t('tx_filter_search')}</label>
+              <input
+               type="text"
+               value={txFilterSearch}
+               onChange={(e) => setTxFilterSearch(e.target.value)}
+               placeholder={t('tx_filter_search_placeholder')}
+               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+              />
+             </div>
+             <div className="flex min-w-36 flex-1 flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">{t('tx_filter_client')}</label>
+              <select
+               value={txFilterClient}
+               onChange={(e) => setTxFilterClient(e.target.value)}
+               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+              >
+               <option value="">{t('tx_filter_client_all')}</option>
+               {txFilterClientOptions.map((name) => (
+                <option key={name} value={name}>
+                 {name}
+                </option>
+               ))}
+              </select>
+             </div>
+             <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_from')}</label>
+              <input
+               type="date"
+               value={txFilterDateFrom}
+               onChange={(e) => setTxFilterDateFrom(e.target.value)}
+               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+              />
+             </div>
+             <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_to')}</label>
+              <input
+               type="date"
+               value={txFilterDateTo}
+               onChange={(e) => setTxFilterDateTo(e.target.value)}
+               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+              />
+             </div>
+             {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo) && (
+              <button
+               type="button"
+               onClick={() => {
+                setTxFilterSearch('');
+                setTxFilterClient('');
+                setTxFilterDateFrom('');
+                setTxFilterDateTo('');
+               }}
+               className="self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
+              >
+               {t('tx_filter_clear')}
+              </button>
+             )}
+            </div>
+           )}
           </div>
           {transactionsPager}
           <div className={tableWrapClassName}>
@@ -6439,6 +7570,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              {transactionTableSettings.columns.amount ? <col className="w-[13%]" /> : null}
              {transactionTableSettings.columns.charges ? <col className="w-[13%]" /> : null}
              {transactionTableSettings.columns.commission ? <col className="w-[15%]" /> : null}
+             {section === 'archive' ? <col className="w-[16%]" /> : null}
             </colgroup>
             <thead className="bg-slate-100 text-slate-700">
              <tr>
@@ -6452,7 +7584,31 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                />
               </th>
               <th className="px-2 py-3 w-10" />
-              {transactionTableSettings.columns.created ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th> : null}
+              {transactionTableSettings.columns.created ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
+                <button
+                 type="button"
+                 onClick={() => setTxSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+                 className="inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
+                 title={txSortDir === 'desc' ? t('sort_asc') : t('sort_desc')}
+                >
+                 {t('date')}
+                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  {txSortDir === 'desc' ? (
+                   <>
+                    <path d="M12 5v14" />
+                    <path d="M5 12l7 7 7-7" />
+                   </>
+                  ) : (
+                   <>
+                    <path d="M12 19V5" />
+                    <path d="M5 12l7-7 7 7" />
+                   </>
+                  )}
+                 </svg>
+                </button>
+               </th>
+              ) : null}
               {transactionTableSettings.columns.description ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
               ) : null}
@@ -6465,6 +7621,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               {transactionTableSettings.columns.amount ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th> : null}
               {transactionTableSettings.columns.charges ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th> : null}
               {transactionTableSettings.columns.commission ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th> : null}
+              {section === 'archive' ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('archive_more_info')}</th> : null}
              </tr>
             </thead>
             <tbody>
@@ -6496,7 +7653,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 setDragOverRowId(txn.id);
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
-               className={`border-t border-slate-200 align-top transition-colors ${
+               className={`border-t border-slate-200 align-top transition-colors ${txn.isArchived ? 'bg-amber-50' : ''} ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
@@ -6814,7 +7971,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     ) : txn.isAdjustment ? (
                      <>
                       {(() => {
-                       const fromAccount = clientAccountMap.get(txn.accountFromId);
+                       const fromAccount = clientAccountMap.get(txn.accountFromId ?? -1);
                        const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
 
                        return fromClient ? (
@@ -6843,7 +8000,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     ) : (
                      <>
                       {(() => {
-                       const fromAccount = clientAccountMap.get(txn.accountFromId);
+                       const fromAccount = clientAccountMap.get(txn.accountFromId ?? -1);
                        const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
 
                        return fromClient ? (
@@ -6854,10 +8011,12 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         >
                          {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </button>
-                       ) : (
+                       ) : txn.accountFromId ? (
                         <div>
                          {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </div>
+                       ) : (
+                        <span className="italic text-slate-400">{t('archive_no_sender')}</span>
                        );
                       })()}
                       {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 ? (
@@ -6961,7 +8120,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     ) : (
                      <>
                       {(() => {
-                       const toAccount = clientAccountMap.get(txn.accountToId);
+                       const toAccount = clientAccountMap.get(txn.accountToId ?? -1);
                        const toClient = toAccount ? clientMap.get(toAccount.clientId) : null;
 
                        return toClient ? (
@@ -6972,10 +8131,12 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         >
                          {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </button>
-                       ) : (
+                       ) : txn.accountToId ? (
                         <div>
                          {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </div>
+                       ) : (
+                        <span className="italic text-slate-400">{t('archive_no_receiver')}</span>
                        );
                       })()}
                       {transactionTableSettings.showExchangeRate && txn.exchangeRateTo !== 1 ? (
@@ -7019,9 +8180,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                       </select>
                      </div>
                     ) : (
-                     <>
+                     <span className="whitespace-nowrap">
                       <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
-                     </>
+                     </span>
                     )}
                    </td>
                   ) : null}
@@ -7115,8 +8276,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      })()
                     ) : txn.charges ? (
                      <div>
-                      <span>{txn.charges.toLocaleString()}</span>
-                      {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
+                      <span className="whitespace-nowrap">
+                       <span>{txn.charges.toLocaleString()}</span>
+                       {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
+                      </span>
                       {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
                       {txn.chargesPayer && (
                        <div className="text-xs text-slate-500">{txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : ''}</div>
@@ -7196,22 +8359,68 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     )}
                    </td>
                   ) : null}
+                  {section === 'archive' ? (
+                   <td className="px-4 py-3 text-slate-600">
+                    {txn.isArchived ? (
+                     <span
+                      title={t('archive_only_badge_hint')}
+                      className="mb-1.5 inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                     >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                       <rect x="3" y="4" width="18" height="4" rx="1" />
+                       <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+                       <path d="M10 12h4" />
+                      </svg>
+                      {t('archive_only_badge')}
+                     </span>
+                    ) : null}
+                    {isEditingRow && draft ? (
+                     <input
+                      type="text"
+                      value={draft.archiveNote}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { archiveNote: event.target.value })}
+                      placeholder={t('archive_more_info_placeholder')}
+                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    ) : txn.archiveNote ? (
+                     txn.archiveNote
+                    ) : (
+                     <span className="text-slate-400">-</span>
+                    )}
+                   </td>
+                  ) : null}
                  </>
                 );
                })()}
               </tr>
              ))}
-             {transactionTableRows.length === 0 ? (
+             {displayedTransactionRows.length === 0 ? (
               <tr>
                <td
                 className="px-4 py-6 text-slate-500"
-                colSpan={visibleTransactionColumnCount}
+                colSpan={visibleTransactionColumnCount + (section === 'archive' ? 1 : 0)}
                >
-                {t('no_transactions')}
+                {section === 'archive' ? t('archive_empty') : t('no_transactions')}
                </td>
               </tr>
              ) : null}
             </tbody>
+            {section === 'archive' && archiveCurrencyTotals.length > 0 ? (
+             <tfoot>
+              <tr className="border-t-2 border-slate-300 bg-slate-50">
+               <td colSpan={visibleTransactionColumnCount + 1} className="px-4 py-3">
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                 <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t('archive_totals')}</span>
+                 {archiveCurrencyTotals.map((total) => (
+                  <span key={total.code} className="text-sm font-semibold text-slate-900">
+                   {total.total.toLocaleString()} <span className="font-normal text-slate-500">{total.symbol || total.code}</span>
+                  </span>
+                 ))}
+                </div>
+               </td>
+              </tr>
+             </tfoot>
+            ) : null}
            </table>
           </div>
           {transactionsPager}
@@ -7222,6 +8431,87 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      ) : null}
     </div>
    </main>
+
+   {showTransactionExportModal ? (
+    <div
+     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onClick={closeTransactionExportModal}
+    >
+     <div
+      className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      onClick={(event) => event.stopPropagation()}
+     >
+      <h2 className="text-lg font-semibold text-slate-900">{t('transactions_export_title')}</h2>
+      <p className="mt-1 text-sm text-slate-500">{t('transactions_export_hint')}</p>
+
+      <div className="mt-5 grid grid-cols-2 gap-4">
+       <div>
+        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_export_from')}</label>
+        <input
+         type="date"
+         value={transactionExportFrom}
+         max={transactionExportTo || undefined}
+         onChange={(event) => setTransactionExportFrom(event.target.value)}
+         className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        />
+       </div>
+       <div>
+        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_export_to')}</label>
+        <input
+         type="date"
+         value={transactionExportTo}
+         min={transactionExportFrom || undefined}
+         onChange={(event) => setTransactionExportTo(event.target.value)}
+         className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        />
+       </div>
+      </div>
+
+      <p className="mt-3 text-xs text-slate-500">
+       {t('transactions_export_count').replace('{count}', String(buildTransactionExportData(transactionExportFrom, transactionExportTo).count))}
+      </p>
+
+      <div className="mt-6 grid grid-cols-2 gap-3">
+       <button
+        type="button"
+        onClick={() => void onExportTransactionsPdf()}
+        disabled={isExportingTransactions}
+        className="flex items-center justify-center gap-2 rounded border border-red-600 bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+         <polyline points="14 2 14 8 20 8" />
+        </svg>
+        {t('transactions_export_pdf')}
+       </button>
+       <button
+        type="button"
+        onClick={() => void onExportTransactionsExcel()}
+        disabled={isExportingTransactions}
+        className="flex items-center justify-center gap-2 rounded border border-emerald-600 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+         <polyline points="14 2 14 8 20 8" />
+         <path d="M9 13l6 5M15 13l-6 5" />
+        </svg>
+        {t('transactions_export_excel')}
+       </button>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+       <button
+        type="button"
+        onClick={closeTransactionExportModal}
+        disabled={isExportingTransactions}
+        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        {t('cancel')}
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
 
    {showTransactionTableSettingsModal ? (
     <div
@@ -7299,6 +8589,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          </div>
         </div>
        </div>
+
       </div>
 
       <div className="mt-6 flex justify-end gap-2">
@@ -7527,7 +8818,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             <input
              type="date"
              value={pdfExportModal.fromDate}
-             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value } : prev))}
+             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev))}
              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
@@ -7536,10 +8827,67 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             <input
              type="date"
              value={pdfExportModal.toDate}
-             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value } : prev))}
+             onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev))}
              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
+
+           {/* Start picker lists only the From-date's transactions; End picker only the To-date's. */}
+           {(() => {
+            const startCandidates = ledger.entries.filter((e) => e.createdAt.slice(0, 10) === pdfExportModal.fromDate);
+            const endCandidates = ledger.entries.filter((e) => e.createdAt.slice(0, 10) === pdfExportModal.toDate);
+            if (startCandidates.length === 0 && endCandidates.length === 0) return null;
+            const startKey =
+             pdfExportModal.fromEntryKey && startCandidates.some((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)
+              ? pdfExportModal.fromEntryKey
+              : startCandidates[0]
+                ? ledgerEntryKey(startCandidates[0])
+                : '';
+            const endKey =
+             pdfExportModal.toEntryKey && endCandidates.some((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey)
+              ? pdfExportModal.toEntryKey
+              : endCandidates[endCandidates.length - 1]
+                ? ledgerEntryKey(endCandidates[endCandidates.length - 1])
+                : '';
+            const entryLabel = (e: ClientLedgerEntry) =>
+             `${formatDateValue(e.createdAt, pdfSettings.dateFormat)} · ${e.counterpartyName} · ${e.direction === 'outgoing' ? '−' : '+'}${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${e.currencySymbol || e.currencyCode}`;
+            return (
+             <>
+              {startCandidates.length > 0 ? (
+               <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_start_transaction')}</label>
+                <select
+                 value={startKey}
+                 onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromEntryKey: e.target.value } : prev))}
+                 className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                >
+                 {startCandidates.map((entry) => (
+                  <option key={ledgerEntryKey(entry)} value={ledgerEntryKey(entry)}>
+                   {entryLabel(entry)}
+                  </option>
+                 ))}
+                </select>
+               </div>
+              ) : null}
+              {endCandidates.length > 0 ? (
+               <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_end_transaction')}</label>
+                <select
+                 value={endKey}
+                 onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toEntryKey: e.target.value } : prev))}
+                 className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                >
+                 {endCandidates.map((entry) => (
+                  <option key={ledgerEntryKey(entry)} value={ledgerEntryKey(entry)}>
+                   {entryLabel(entry)}
+                  </option>
+                 ))}
+                </select>
+               </div>
+              ) : null}
+             </>
+            );
+           })()}
 
            {/* Column toggles */}
            <div>
@@ -7571,11 +8919,18 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            </div>
 
            {(() => {
-            const preBalance = ledger.startingBalance + ledger.entries.filter((e) => e.createdAt.slice(0, 10) < pdfExportModal.fromDate).reduce((sum, e) => sum + e.netChange, 0);
-            const count = ledger.entries.filter((e) => {
+            const candidates = ledger.entries.filter((e) => {
              const d = e.createdAt.slice(0, 10);
              return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
-            }).length;
+            });
+            const startIdx = pdfExportModal.fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)) : 0;
+            const endIdxRaw = pdfExportModal.toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey) : -1;
+            const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
+            const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
+            const firstSelected = selected[0];
+            const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
+            const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
+            const count = selected.length;
             return (
              <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
               <div className="flex justify-between">
@@ -7603,7 +8958,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            </button>
            <button
             type="button"
-            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols)}
+            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)}
             disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
             className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
@@ -7759,7 +9114,7 @@ export default function Home() {
  }
 
  if (status !== 'authenticated') {
-  return <LoginPage />;
+  return <HomePage />;
  }
 
  return <AuthenticatedHome />;

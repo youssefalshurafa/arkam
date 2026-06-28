@@ -17,6 +17,7 @@ const readOnlyActions = new Set([
  'listCurrencies',
  'listTransactions',
  'listClientAdjustments',
+ 'exportWorkspaceData',
 ]);
 
 const writeActions = new Set([
@@ -47,6 +48,7 @@ const writeActions = new Set([
  'createClientAdjustment',
  'updateClientAdjustment',
  'deleteClientAdjustment',
+ 'importWorkspaceData',
 ]);
 
 type Body = {
@@ -266,6 +268,10 @@ export async function POST(request: NextRequest) {
    case 'deleteClientAdjustment':
     await db.deleteClientAdjustment(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'exportWorkspaceData':
+    return NextResponse.json(await db.exportWorkspaceData(appLike));
+   case 'importWorkspaceData':
+    return NextResponse.json(await db.importWorkspaceData(appLike, payload));
    default:
     return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });
   }

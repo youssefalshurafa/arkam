@@ -21,6 +21,15 @@ const providers: NextAuthOptions['providers'] = [
     return null;
    }
 
+   // Gate login on approval status. Throwing surfaces the code to the client
+   // (LoginPage maps it to a localized message).
+   if (user.status === 'pending') {
+    throw new Error('PENDING_APPROVAL');
+   }
+   if (user.status === 'rejected') {
+    throw new Error('ACCESS_REJECTED');
+   }
+
    return {
     id: user.id,
     email: user.email,

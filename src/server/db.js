@@ -72,8 +72,17 @@ function getCurrencySymbol(code) {
     }
 }
 
+// Non-ISO currencies (crypto/stablecoins) that Intl doesn't know about.
+const EXTRA_CURRENCIES = [{ code: 'USDT', name: 'Tether (USDT)', symbol: '₮' }];
+
 async function seedCurrenciesForSchema(schema, executor) {
-    for (const code of getSupportedCurrencyCodes()) {
+    const isoCurrencies = getSupportedCurrencyCodes().map((code) => ({
+        code,
+        name: getCurrencyDisplayName(code),
+        symbol: getCurrencySymbol(code),
+    }));
+
+    for (const { code, name, symbol } of [...isoCurrencies, ...EXTRA_CURRENCIES]) {
         await query(
             `
                 INSERT INTO ${schema}.currencies (code, name, symbol)
@@ -82,7 +91,7 @@ async function seedCurrenciesForSchema(schema, executor) {
                     name = EXCLUDED.name,
                     symbol = EXCLUDED.symbol
             `,
-            [code, getCurrencyDisplayName(code), getCurrencySymbol(code)],
+            [code, name, symbol],
             executor,
         );
     }
@@ -423,10 +432,22 @@ async function updateCurrency(app, currency) {
     }
 
     const { schema } = await getSchemaInfo(app);
-    await query(
-        `UPDATE ${schema}.currencies SET code = $1, name = $2, symbol = $3 WHERE id = $4`,
-        [currency.code.trim().toUpperCase(), currency.name.trim(), currency.symbol?.trim() || '', currency.id],
-    );
+    const code = currency.code.trim().toUpperCase();
+    const symbol = currency.symbol?.trim() || '';
+
+    await withTransaction(async (client) => {
+        await query(
+            `UPDATE ${schema}.currencies SET code = $1, name = $2, symbol = $3 WHERE id = $4`,
+            [code, currency.name.trim(), symbol, currency.id],
+            client,
+        );
+        // client_adjustments stores a denormalized copy of the currency code/symbol; keep it in sync.
+        await query(
+            `UPDATE ${schema}.client_adjustments SET currency_code = $1, currency_symbol = $2 WHERE currency_id = $3`,
+            [code, symbol, currency.id],
+            client,
+        );
+    });
 }
 
 async function deleteCurrency(app, currencyId) {
@@ -471,13 +492,13 @@ async function listTransactions(app) {
         SELECT
             t.id,
             t.account_from_id AS "accountFromId",
-            c_from.name AS "clientFromName",
-            acur_from.code AS "accountFromCurrencyCode",
-            acur_from.symbol AS "accountFromCurrencySymbol",
+            COALESCE(c_from.name, '') AS "clientFromName",
+            COALESCE(acur_from.code, '') AS "accountFromCurrencyCode",
+            COALESCE(acur_from.symbol, '') AS "accountFromCurrencySymbol",
             t.account_to_id AS "accountToId",
-            c_to.name AS "clientToName",
-            acur_to.code AS "accountToCurrencyCode",
-            acur_to.symbol AS "accountToCurrencySymbol",
+            COALESCE(c_to.name, '') AS "clientToName",
+            COALESCE(acur_to.code, '') AS "accountToCurrencyCode",
+            COALESCE(acur_to.symbol, '') AS "accountToCurrencySymbol",
             t.currency_id AS "currencyId",
             cur.code AS "currencyCode",
             cur.symbol AS "currencySymbol",
@@ -497,14 +518,16 @@ async function listTransactions(app) {
             t.charges_exchange_rate AS "chargesExchangeRate",
             t.charges_description AS "chargesDescription",
             t.description,
+            COALESCE(t.archive_note, '') AS "archiveNote",
+            CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
             t.created_at AS "createdAt"
         FROM ${schema}.transactions t
-        JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
-        JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
-        JOIN ${schema}.currencies acur_from ON acur_from.id = ca_from.currency_id
-        JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
-        JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
-        JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
+        LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
+        LEFT JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
+        LEFT JOIN ${schema}.currencies acur_from ON acur_from.id = ca_from.currency_id
+        LEFT JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
+        LEFT JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
+        LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
         JOIN ${schema}.currencies cur ON cur.id = t.currency_id
         LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
         ORDER BY t.created_at DESC
@@ -513,14 +536,13 @@ async function listTransactions(app) {
 }
 
 async function createTransaction(app, txn) {
-    if (!txn.accountFromId || !txn.accountToId) {
-        throw new Error('Both accounts are required.');
+    const isArchived = Boolean(txn.isArchived);
+    // Archive-only records (pre-DB history) may have no party at all; normal transactions need at least one.
+    if (!isArchived && !txn.accountFromId && !txn.accountToId) {
+        throw new Error('At least one party (sender or receiver) is required.');
     }
     if (!txn.currencyId) {
         throw new Error('Amount currency is required.');
-    }
-    if (!txn.amount || txn.amount <= 0) {
-        throw new Error('Amount must be greater than zero.');
     }
 
     const { schema } = await getSchemaInfo(app);
@@ -547,15 +569,16 @@ async function createTransaction(app, txn) {
                     charges_exchange_rate,
                     charges_description,
                     description,
+                    is_archived,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             `,
             [
-                txn.accountFromId,
-                txn.accountToId,
+                txn.accountFromId || null,
+                txn.accountToId || null,
                 txn.currencyId,
-                txn.amount,
+                txn.amount || 0,
                 txn.type || 'exchange',
                 txn.exchangeRateFrom || 1,
                 txn.commissionFrom || 0,
@@ -569,6 +592,7 @@ async function createTransaction(app, txn) {
                 txn.chargesExchangeRate || 1,
                 txn.chargesDescription?.trim() || '',
                 txn.description?.trim() || '',
+                isArchived,
                 txn.createdAt.trim(),
             ],
         );
@@ -594,15 +618,16 @@ async function createTransaction(app, txn) {
                 charges_payer,
                 charges_exchange_rate,
                 charges_description,
-                description
+                description,
+                is_archived
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         `,
         [
-            txn.accountFromId,
-            txn.accountToId,
+            txn.accountFromId || null,
+            txn.accountToId || null,
             txn.currencyId,
-            txn.amount,
+            txn.amount || 0,
             txn.type || 'exchange',
             txn.exchangeRateFrom || 1,
             txn.commissionFrom || 0,
@@ -616,6 +641,7 @@ async function createTransaction(app, txn) {
             txn.chargesExchangeRate || 1,
             txn.chargesDescription?.trim() || '',
             txn.description?.trim() || '',
+            isArchived,
         ],
     );
 }
@@ -624,14 +650,11 @@ async function updateTransaction(app, txn) {
     if (!txn.id) {
         throw new Error('Transaction id is required.');
     }
-    if (!txn.accountFromId || !txn.accountToId) {
-        throw new Error('Both accounts are required.');
+    if (!txn.accountFromId && !txn.accountToId) {
+        throw new Error('At least one party (sender or receiver) is required.');
     }
     if (!txn.currencyId) {
         throw new Error('Amount currency is required.');
-    }
-    if (!txn.amount || txn.amount <= 0) {
-        throw new Error('Amount must be greater than zero.');
     }
 
     const { schema } = await getSchemaInfo(app);
@@ -655,14 +678,15 @@ async function updateTransaction(app, txn) {
                 charges_exchange_rate = $15,
                 charges_description = $16,
                 description = $17,
-                created_at = $18
-            WHERE id = $19
+                archive_note = COALESCE($18, archive_note),
+                created_at = $19
+            WHERE id = $20
         `,
         [
-            txn.accountFromId,
-            txn.accountToId,
+            txn.accountFromId || null,
+            txn.accountToId || null,
             txn.currencyId,
-            txn.amount,
+            txn.amount || 0,
             txn.type || 'exchange',
             txn.exchangeRateFrom || 1,
             txn.commissionFrom || 0,
@@ -676,6 +700,8 @@ async function updateTransaction(app, txn) {
             txn.chargesExchangeRate || 1,
             txn.chargesDescription?.trim() || '',
             txn.description?.trim() || '',
+            // Only the table inline-edit sends archiveNote; other paths leave it untouched via COALESCE.
+            txn.archiveNote === undefined || txn.archiveNote === null ? null : String(txn.archiveNote).trim(),
             txn.createdAt,
             txn.id,
         ],
@@ -751,6 +777,88 @@ async function deleteClientAdjustment(app, id) {
     await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
 }
 
+// Tables that make up a full workspace backup, listed in dependency order
+// (parents before children) so a restore can insert them sequentially.
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments'];
+
+const BACKUP_FORMAT = 'arkam-backup';
+const BACKUP_VERSION = 1;
+
+// Dumps every row of every workspace table (raw column names, original ids
+// preserved) so the result can later be re-imported by importWorkspaceData.
+async function exportWorkspaceData(app) {
+    const { schema, schemaName } = await getSchemaInfo(app);
+    const metadata = getDatabaseMetadata();
+
+    const tables = {};
+    for (const table of BACKUP_TABLES) {
+        const result = await query(`SELECT * FROM ${schema}.${quoteIdentifier(table)} ORDER BY id ASC`);
+        tables[table] = result.rows;
+    }
+
+    return {
+        format: BACKUP_FORMAT,
+        version: BACKUP_VERSION,
+        exportedAt: new Date().toISOString(),
+        database: metadata.database,
+        schema: schemaName,
+        tables,
+    };
+}
+
+// Replaces the entire workspace dataset with the contents of a backup produced
+// by exportWorkspaceData. Runs in a single transaction: every table is cleared
+// (children first) and rebuilt (parents first), then identity sequences are
+// realigned to the restored ids so future inserts don't collide.
+async function importWorkspaceData(app, backup) {
+    if (!backup || typeof backup !== 'object' || backup.format !== BACKUP_FORMAT || !backup.tables || typeof backup.tables !== 'object') {
+        throw new Error('Invalid or unrecognized backup file.');
+    }
+
+    const { schema, schemaName } = await getSchemaInfo(app);
+
+    await withTransaction(async (client) => {
+        // Clear existing data, children before parents, to satisfy FK constraints.
+        for (const table of [...BACKUP_TABLES].reverse()) {
+            await query(`DELETE FROM ${schema}.${quoteIdentifier(table)}`, [], client);
+        }
+
+        // Re-insert, parents before children, preserving original ids.
+        for (const table of BACKUP_TABLES) {
+            const rows = Array.isArray(backup.tables[table]) ? backup.tables[table] : [];
+
+            for (const row of rows) {
+                if (!row || typeof row !== 'object') continue;
+                const columns = Object.keys(row);
+                if (!columns.length) continue;
+
+                const quotedColumns = columns.map((column) => quoteIdentifier(column)).join(', ');
+                const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
+                const values = columns.map((column) => row[column]);
+
+                await query(
+                    `INSERT INTO ${schema}.${quoteIdentifier(table)} (${quotedColumns}) VALUES (${placeholders})`,
+                    values,
+                    client,
+                );
+            }
+
+            // Realign the identity sequence so the next generated id is max(id) + 1.
+            await query(
+                `SELECT setval(
+                    pg_get_serial_sequence($1, 'id'),
+                    (SELECT COALESCE(MAX(id), 0) FROM ${schema}.${quoteIdentifier(table)}) + 1,
+                    false
+                 )`,
+                [`${schemaName}.${table}`],
+                client,
+            );
+        }
+    });
+
+    return { ok: true };
+}
+
 module.exports = {
     getDbInfo,
     setDbDirectory,
@@ -787,4 +895,6 @@ module.exports = {
     createClientAdjustment,
     updateClientAdjustment,
     deleteClientAdjustment,
+    exportWorkspaceData,
+    importWorkspaceData,
 };
