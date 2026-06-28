@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPaymentConfig } from '@/config/plan';
+import { getPaymentConfig, getPlanTier, getTierAmountLabel } from '@/config/plan';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const token = String(formData.get('token') || '').trim();
   const password = String(formData.get('password') || '');
+  const planId = String(formData.get('plan') || '').trim();
   const txReference = String(formData.get('txReference') || '').trim();
   const screenshot = formData.get('screenshot');
 
@@ -39,14 +40,17 @@ export async function POST(request: NextRequest) {
   }
 
   const proofBuffer = Buffer.from(await screenshot.arrayBuffer());
-  const { amount, network, plan } = getPaymentConfig();
+  const { network } = getPaymentConfig();
+  const tier = getPlanTier(planId);
+  const amount = getTierAmountLabel(tier);
 
   const user = await authDb.consumeEmailVerificationAndCreatePendingUser({
    rawToken: token,
    password,
-   plan,
+   plan: tier.name,
    amount,
    network,
+   durationDays: tier.durationDays,
    txReference,
    proofMime: screenshot.type,
    proofBuffer,
@@ -61,7 +65,7 @@ export async function POST(request: NextRequest) {
      to: adminEmail,
      requesterName: user.name,
      requesterEmail: user.email,
-     plan,
+     plan: tier.name,
      amount,
      reviewUrl: `${request.nextUrl.origin}/admin`,
     });

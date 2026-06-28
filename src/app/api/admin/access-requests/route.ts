@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
-import { getPlanDurationDays } from '@/config/plan';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -44,15 +43,14 @@ export async function POST(request: NextRequest) {
   note?: string;
  };
 
- const durationDays = getPlanDurationDays();
-
  try {
-  // Renew/extend an existing user's subscription by one period.
+  // Renew/extend an existing user's subscription by one period (duration taken
+  // from the user's most recent paid request).
   if (action === 'renew') {
    if (!userId) {
     return NextResponse.json({ error: 'userId is required to renew.' }, { status: 400 });
    }
-   const result = await authDb.renewSubscription({ userId, durationDays });
+   const result = await authDb.renewSubscription({ userId });
    try {
     if (result.email) {
      await sendAccessApprovedEmail({
@@ -76,7 +74,6 @@ export async function POST(request: NextRequest) {
    action,
    reviewerUserId: session?.user?.id,
    note,
-   durationDays,
   });
 
   // Notify the requester (best-effort).

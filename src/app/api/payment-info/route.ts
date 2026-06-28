@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
-import { APP_PLAN, getPaymentConfig } from '@/config/plan';
+import { PLAN_TIERS, getPaymentConfig, getTierAmountLabel } from '@/config/plan';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Public endpoint that returns the USDT payment instructions plus a server-rendered
-// QR code (data URL) for the wallet address. The address lives in server env, so it
-// never ships in the client bundle.
+// Public endpoint: USDT payment instructions, a server-rendered QR for the wallet
+// address, and the list of selectable pricing tiers. The address lives in server
+// env so it never ships in the client bundle.
 export async function GET() {
- const { address, network, amount, plan } = getPaymentConfig();
+ const { address, network } = getPaymentConfig();
 
  let qrDataUrl = '';
  if (address) {
@@ -23,10 +23,15 @@ export async function GET() {
  return NextResponse.json({
   address,
   network,
-  amount,
-  plan,
-  planName: APP_PLAN.name,
   configured: Boolean(address),
   qrDataUrl,
+  tiers: PLAN_TIERS.map((tier) => ({
+   id: tier.id,
+   name: tier.name,
+   priceUsdt: tier.priceUsdt,
+   originalUsdt: tier.originalUsdt ?? null,
+   period: tier.period,
+   amount: getTierAmountLabel(tier),
+  })),
  });
 }

@@ -366,6 +366,8 @@
  "home_pricing_title": "Simple pricing",
  "home_pricing_subtitle": "One plan with everything included.",
  "home_pricing_note": "After signing up you'll pay in USDT and your access is activated once approved.",
+ "home_best_value": "Best value",
+ "home_save": "Save",
  "home_footer_tagline": "Accounting for currency exchange.",
  "login_pending_approval": "Your access request is awaiting approval. You'll get an email once it's approved.",
  "login_access_rejected": "Your access request was not approved. Please contact support.",

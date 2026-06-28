@@ -262,6 +262,7 @@ function AccessRequestsPanel({ requests, loading, reviewingId, onRefresh, onRevi
           {request.txReference && <div className="mt-1 text-xs text-gray-400 break-all">tx: {request.txReference}</div>}
          </td>
          <td className="px-4 py-3 hidden sm:table-cell">
+          {request.plan && <div className="text-gray-900 font-medium">{request.plan}</div>}
           <div className="text-gray-700">{request.amount || '—'}</div>
           <div className="text-xs text-gray-400">{request.network}</div>
          </td>

@@ -176,6 +176,10 @@ async function ensurePublicSchema() {
 
                     CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
                     CREATE INDEX IF NOT EXISTS idx_access_requests_user_id ON access_requests(user_id);
+
+                    -- Length (in days) of the plan tier the user paid for; drives the
+                    -- subscription window on approval and the extension on renewal.
+                    ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS duration_days INTEGER NOT NULL DEFAULT 30;
                 `);
             });
         })().catch((error) => {

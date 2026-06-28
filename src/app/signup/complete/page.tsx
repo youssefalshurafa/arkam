@@ -13,13 +13,21 @@ type VerifyResponse = {
  name: string;
 };
 
+type PlanTierInfo = {
+ id: string;
+ name: string;
+ priceUsdt: number;
+ originalUsdt: number | null;
+ period: string;
+ amount: string;
+};
+
 type PaymentInfo = {
  address: string;
  network: string;
- amount: string;
- planName: string;
  configured: boolean;
  qrDataUrl: string;
+ tiers: PlanTierInfo[];
 };
 
 const MAX_PROOF_BYTES = 5 * 1024 * 1024;
@@ -40,6 +48,7 @@ function CompleteForm() {
  const [showPassword, setShowPassword] = useState(false);
  const [txReference, setTxReference] = useState('');
  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
+ const [selectedPlanId, setSelectedPlanId] = useState('');
  const [proofFile, setProofFile] = useState<File | null>(null);
  const [proofPreview, setProofPreview] = useState('');
  const [addressCopied, setAddressCopied] = useState(false);
@@ -92,7 +101,11 @@ function CompleteForm() {
    try {
     const res = await fetch('/api/payment-info');
     if (!isMounted) return;
-    if (res.ok) setPaymentInfo((await res.json()) as PaymentInfo);
+    if (res.ok) {
+     const info = (await res.json()) as PaymentInfo;
+     setPaymentInfo(info);
+     setSelectedPlanId((current) => current || info.tiers?.[0]?.id || '');
+    }
    } catch {
     // Non-fatal: the form still works, payment block just won't render details.
    }
@@ -156,6 +169,7 @@ function CompleteForm() {
    const formData = new FormData();
    formData.append('token', token);
    formData.append('password', password);
+   formData.append('plan', selectedPlanId);
    formData.append('txReference', txReference);
    formData.append('screenshot', proofFile);
 
@@ -281,9 +295,31 @@ function CompleteForm() {
          {/* Payment block */}
          <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-4">
           <p className="text-sm font-semibold text-gray-900">{t('signup_payment_title')}</p>
-          <p className="mt-1 text-xs text-gray-600">
-           {t('signup_payment_amount_label')}: <span className="font-semibold text-gray-900">{paymentInfo?.amount ?? ''}</span>
-          </p>
+
+          {/* Plan tier selector */}
+          {paymentInfo?.tiers?.length ? (
+           <div className="mt-3 grid grid-cols-1 gap-2">
+            {paymentInfo.tiers.map((tier) => {
+             const selected = tier.id === selectedPlanId;
+             return (
+              <button
+               key={tier.id}
+               type="button"
+               onClick={() => setSelectedPlanId(tier.id)}
+               className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
+                selected ? 'border-blue-600 bg-white ring-1 ring-blue-600' : 'border-gray-300 bg-white hover:border-gray-400'
+               }`}
+              >
+               <span className="text-sm font-semibold text-gray-900">{tier.name}</span>
+               <span className="flex items-baseline gap-1.5">
+                {tier.originalUsdt && <span className="text-xs text-gray-400 line-through">{tier.originalUsdt}</span>}
+                <span className="text-sm font-bold text-gray-900">{tier.amount}</span>
+               </span>
+              </button>
+             );
+            })}
+           </div>
+          ) : null}
 
           {paymentInfo?.configured ? (
            <>

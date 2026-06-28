@@ -365,6 +365,8 @@
  "home_pricing_title": "Tarification simple",
  "home_pricing_subtitle": "Un seul plan, tout inclus.",
  "home_pricing_note": "Après l'inscription, vous payez en USDT et votre accès est activé après approbation.",
+ "home_best_value": "Meilleure offre",
+ "home_save": "Économisez",
  "home_footer_tagline": "La comptabilité pour le change de devises.",
  "login_pending_approval": "Votre demande d'accès est en attente d'approbation. Vous recevrez un e-mail une fois approuvée.",
  "login_access_rejected": "Votre demande d'accès n'a pas été approuvée. Veuillez contacter le support.",

@@ -508,6 +508,7 @@ async function consumeEmailVerificationAndCreatePendingUser({
     plan,
     amount,
     network,
+    durationDays,
     txReference,
     proofMime,
     proofBuffer,
@@ -552,14 +553,15 @@ async function consumeEmailVerificationAndCreatePendingUser({
 
         await runQuery(
             `INSERT INTO access_requests
-                (id, user_id, plan, amount, network, tx_reference, proof_mime, proof_data, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')`,
+                (id, user_id, plan, amount, network, duration_days, tx_reference, proof_mime, proof_data, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')`,
             [
                 generateId(),
                 userId,
                 String(plan || ''),
                 String(amount || ''),
                 String(network || ''),
+                Number(durationDays) > 0 ? Number(durationDays) : 30,
                 String(txReference || ''),
                 String(proofMime || ''),
                 proofBuffer || null,
@@ -633,7 +635,7 @@ async function getAccessRequestProof(id) {
 // Approves or rejects a request: updates the request audit fields and flips the
 // user's login gate accordingly. On approval the subscription window is set to
 // [now, now + durationDays]. Returns the requester's email/name for emailing.
-async function reviewAccessRequest({ id, action, reviewerUserId, note, durationDays = 30 }) {
+async function reviewAccessRequest({ id, action, reviewerUserId, note }) {
     await ensurePublicSchema();
 
     if (action !== 'approve' && action !== 'reject') {
@@ -644,7 +646,7 @@ async function reviewAccessRequest({ id, action, reviewerUserId, note, durationD
 
     return withTransaction(async (client) => {
         const request = await fetchOne(
-            'SELECT id, user_id AS "userId" FROM access_requests WHERE id = $1',
+            'SELECT id, user_id AS "userId", duration_days AS "durationDays" FROM access_requests WHERE id = $1',
             [id],
             client,
         );
@@ -662,8 +664,9 @@ async function reviewAccessRequest({ id, action, reviewerUserId, note, durationD
         );
 
         if (action === 'approve') {
+            const durationDays = Number(request.durationDays) > 0 ? Number(request.durationDays) : 30;
             const startedAt = new Date();
-            const endsAt = new Date(startedAt.getTime() + Number(durationDays) * 24 * 60 * 60 * 1000);
+            const endsAt = new Date(startedAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
             await runQuery(
                 'UPDATE users SET status = $1, subscription_started_at = $2, subscription_ends_at = $3 WHERE id = $4',
                 ['approved', startedAt.toISOString(), endsAt.toISOString(), request.userId],
@@ -682,7 +685,7 @@ async function reviewAccessRequest({ id, action, reviewerUserId, note, durationD
 // still active, the new period is appended to the existing end date; if it has
 // already lapsed (or never started), it runs from now. Also re-activates the
 // account (status='approved') in case it had been revoked/expired.
-async function renewSubscription({ userId, durationDays = 30 }) {
+async function renewSubscription({ userId, durationDays }) {
     await ensurePublicSchema();
 
     return withTransaction(async (client) => {
@@ -696,10 +699,22 @@ async function renewSubscription({ userId, durationDays = 30 }) {
             throw new Error('User not found.');
         }
 
+        // Use the explicit duration if provided, else the duration of the user's
+        // most recent paid request, else fall back to 30 days.
+        let days = Number(durationDays) > 0 ? Number(durationDays) : 0;
+        if (!days) {
+            const lastRequest = await fetchOne(
+                'SELECT duration_days AS "durationDays" FROM access_requests WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+                [userId],
+                client,
+            );
+            days = Number(lastRequest?.durationDays) > 0 ? Number(lastRequest.durationDays) : 30;
+        }
+
         const now = Date.now();
         const currentEnd = user.subscriptionEndsAt ? new Date(user.subscriptionEndsAt).getTime() : 0;
         const base = Math.max(now, currentEnd);
-        const endsAt = new Date(base + Number(durationDays) * 24 * 60 * 60 * 1000);
+        const endsAt = new Date(base + days * 24 * 60 * 60 * 1000);
         const startedAt = user.subscriptionStartedAt || new Date().toISOString();
 
         await runQuery(
