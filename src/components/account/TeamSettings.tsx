@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { confirmDialog } from '@/components/ui/AppDialog';
 import { accountingApi, type WorkspaceMember, type WorkspaceRole } from '@/lib/accountingApi';
 
 const ROLE_OPTIONS: WorkspaceRole[] = ['admin', 'member', 'viewer'];
@@ -129,7 +130,7 @@ export default function TeamSettings() {
 
  const onRemove = async (member: WorkspaceMember) => {
   if (!workspaceId) return;
-  if (!window.confirm(t('team_remove_confirm').replace('{name}', member.name || member.email))) return;
+  if (!(await confirmDialog({ message: t('team_remove_confirm').replace('{name}', member.name || member.email), confirmText: t('delete'), tone: 'danger' }))) return;
   setError('');
   setNotice('');
   setBusyUserId(member.id);

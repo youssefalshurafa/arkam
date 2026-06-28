@@ -9,6 +9,7 @@ import HomePage from '@/components/marketing/HomePage';
 import AccountSettings from '@/components/account/AccountSettings';
 import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
+import { confirmDialog } from '@/components/ui/AppDialog';
 import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
 
 type DbInfo = {
@@ -1786,7 +1787,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!window.confirm(t('organization_delete_confirm'))) {
+  if (!(await confirmDialog({ message: t('organization_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
    return;
   }
 
@@ -1815,7 +1816,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!window.confirm(t('client_delete_confirm'))) {
+  if (!(await confirmDialog({ message: t('client_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
    return;
   }
 
@@ -1849,7 +1850,12 @@ function AuthenticatedHome() {
    return;
   }
 
-  const firstConfirm = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('danger_delete_all_transactions_confirm')}`);
+  const firstConfirm = await confirmDialog({
+   title: t('danger_action_cannot_undo'),
+   message: t('danger_delete_all_transactions_confirm'),
+   confirmText: t('delete'),
+   tone: 'danger',
+  });
   if (!firstConfirm) {
    return;
   }
@@ -1879,7 +1885,12 @@ function AuthenticatedHome() {
    return;
   }
 
-  const firstConfirm = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('danger_delete_all_clients_confirm')}`);
+  const firstConfirm = await confirmDialog({
+   title: t('danger_action_cannot_undo'),
+   message: t('danger_delete_all_clients_confirm'),
+   confirmText: t('delete'),
+   tone: 'danger',
+  });
   if (!firstConfirm) {
    return;
   }
@@ -1958,7 +1969,11 @@ function AuthenticatedHome() {
    return;
   }
 
-  const confirmed = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('backup_restore_confirm')}`);
+  const confirmed = await confirmDialog({
+   title: t('danger_action_cannot_undo'),
+   message: t('backup_restore_confirm'),
+   tone: 'danger',
+  });
   if (!confirmed) return;
 
   setIsRestoringBackup(true);
@@ -2097,7 +2112,7 @@ function AuthenticatedHome() {
 
   const confirmMessage = isUsedInClientAccounts || isUsedInTransactions ? t('currency_disable_confirm_used') : t('currency_disable_confirm');
 
-  if (!window.confirm(confirmMessage)) {
+  if (!(await confirmDialog({ message: confirmMessage, tone: 'danger' }))) {
    return;
   }
 
@@ -2284,6 +2299,10 @@ function AuthenticatedHome() {
     descriptionColumn: detectColumnByAliases(headerAliases.description),
     currencyId: preferredCurrency?.id ?? null,
    });
+
+   // The import-setup mapping panel lives inside the "New Transaction" side
+   // panel, which is collapsed by default. Open it so the mapping UI is visible.
+   setIsNewTransactionSectionOpen(true);
   } catch (e) {
    setError(e instanceof Error ? e.message : 'Failed to read import file.');
   } finally {
@@ -2546,7 +2565,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!window.confirm(t('transaction_delete_confirm'))) {
+  if (!(await confirmDialog({ message: t('transaction_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
    return;
   }
 
@@ -2651,7 +2670,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!window.confirm(t('adjustment_delete_confirm'))) {
+  if (!(await confirmDialog({ message: t('adjustment_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
    return;
   }
 
@@ -2752,19 +2771,23 @@ function AuthenticatedHome() {
    return;
   }
 
-  const confirmed = window.confirm(`Delete ${idsToDelete.length} selected transactions?`);
+  const confirmed = await confirmDialog({
+   message: t('transactions_delete_selected_confirm', { count: idsToDelete.length }),
+   confirmText: t('delete'),
+   tone: 'danger',
+  });
   if (!confirmed) {
    return;
   }
 
+  // Negative ids represent adjustments (stored negated in the selection set);
+  // positive ids are real transactions. Send both groups in one bulk request
+  // instead of a request per row.
+  const adjustmentIds = idsToDelete.filter((id) => id < 0).map((id) => -id);
+  const transactionIds = idsToDelete.filter((id) => id > 0);
+
   try {
-   for (const transactionId of idsToDelete) {
-    if (transactionId < 0) {
-     await accountingApi.deleteClientAdjustment(-transactionId);
-    } else {
-     await accountingApi.deleteTransaction(transactionId);
-    }
-   }
+   await accountingApi.deleteTransactionsBulk({ transactionIds, adjustmentIds });
    setSelectedTransactionIds(new Set());
    setError('');
    await loadData();
@@ -3074,7 +3097,7 @@ function AuthenticatedHome() {
 
  async function onDeleteClientAccount(accountId: number) {
   if (!accountingApi) return;
-  if (!window.confirm(t('client_account_delete_confirm'))) return;
+  if (!(await confirmDialog({ message: t('client_account_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) return;
   try {
    await accountingApi.deleteClientAccount(accountId);
    await loadData();
@@ -5462,7 +5485,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    {/* Active tab content */}
    <div className="flex flex-col gap-4 p-4">
     {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
-    {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
+    {importSummary ? (
+        <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+         <span>{importSummary}</span>
+         <button
+          type="button"
+          onClick={() => setImportSummary('')}
+          aria-label={t('close')}
+          title={t('close')}
+          className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
+         >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+           <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+         </button>
+        </div>
+       ) : null}
     {settingsTab === 'account' ? <AccountSettings /> : null}
     {settingsTab === 'team' ? <TeamSettings /> : null}
     {settingsTab === 'database' ? databaseSection : null}
@@ -5675,7 +5713,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      {section !== 'settings' ? (
       <div className="flex flex-col gap-4 p-4">
        {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
-       {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
+       {importSummary ? (
+        <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+         <span>{importSummary}</span>
+         <button
+          type="button"
+          onClick={() => setImportSummary('')}
+          aria-label={t('close')}
+          title={t('close')}
+          className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
+         >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+           <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+         </button>
+        </div>
+       ) : null}
 
        {section === 'overview' ? (
         <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">

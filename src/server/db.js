@@ -777,6 +777,30 @@ async function deleteClientAdjustment(app, id) {
     await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
 }
 
+// Deletes many transactions and/or adjustments in a single round-trip so the UI
+// doesn't have to fire one request per selected row. Both deletes run inside one
+// transaction so the operation is atomic.
+async function deleteTransactionsBulk(app, payload) {
+    const { schema } = await getSchemaInfo(app);
+    const transactionIds = (payload?.transactionIds || []).map(Number).filter((id) => Number.isFinite(id));
+    const adjustmentIds = (payload?.adjustmentIds || []).map(Number).filter((id) => Number.isFinite(id));
+
+    if (!transactionIds.length && !adjustmentIds.length) {
+        return { ok: true, deleted: 0 };
+    }
+
+    await withTransaction(async (executor) => {
+        if (transactionIds.length) {
+            await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds], executor);
+        }
+        if (adjustmentIds.length) {
+            await query(`DELETE FROM ${schema}.client_adjustments WHERE id = ANY($1::bigint[])`, [adjustmentIds], executor);
+        }
+    });
+
+    return { ok: true, deleted: transactionIds.length + adjustmentIds.length };
+}
+
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
 const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments'];
@@ -823,24 +847,49 @@ async function importWorkspaceData(app, backup) {
             await query(`DELETE FROM ${schema}.${quoteIdentifier(table)}`, [], client);
         }
 
-        // Re-insert, parents before children, preserving original ids.
+        // Re-insert, parents before children, preserving original ids. Rows are
+        // grouped by column signature (normally one group since backups come from
+        // SELECT *) and inserted in batched multi-row statements so a large
+        // workspace restores in a few queries instead of one query per row.
         for (const table of BACKUP_TABLES) {
             const rows = Array.isArray(backup.tables[table]) ? backup.tables[table] : [];
 
+            const groups = new Map();
             for (const row of rows) {
                 if (!row || typeof row !== 'object') continue;
                 const columns = Object.keys(row);
                 if (!columns.length) continue;
+                const signature = columns.join(' ');
+                let group = groups.get(signature);
+                if (!group) {
+                    group = { columns, rows: [] };
+                    groups.set(signature, group);
+                }
+                group.rows.push(row);
+            }
 
+            for (const { columns, rows: groupRows } of groups.values()) {
                 const quotedColumns = columns.map((column) => quoteIdentifier(column)).join(', ');
-                const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
-                const values = columns.map((column) => row[column]);
+                // Stay under Postgres's 65535 bound-parameter limit per statement.
+                const maxRowsPerBatch = Math.max(1, Math.floor(60000 / columns.length));
 
-                await query(
-                    `INSERT INTO ${schema}.${quoteIdentifier(table)} (${quotedColumns}) VALUES (${placeholders})`,
-                    values,
-                    client,
-                );
+                for (let start = 0; start < groupRows.length; start += maxRowsPerBatch) {
+                    const batch = groupRows.slice(start, start + maxRowsPerBatch);
+                    const values = [];
+                    const tuples = batch.map((row) => {
+                        const placeholders = columns.map((column) => {
+                            values.push(row[column]);
+                            return `$${values.length}`;
+                        });
+                        return `(${placeholders.join(', ')})`;
+                    });
+
+                    await query(
+                        `INSERT INTO ${schema}.${quoteIdentifier(table)} (${quotedColumns}) VALUES ${tuples.join(', ')}`,
+                        values,
+                        client,
+                    );
+                }
             }
 
             // Realign the identity sequence so the next generated id is max(id) + 1.
@@ -890,6 +939,7 @@ module.exports = {
     createTransaction,
     updateTransaction,
     deleteTransaction,
+    deleteTransactionsBulk,
     deleteAllTransactions,
     listClientAdjustments,
     createClientAdjustment,

@@ -146,6 +146,8 @@ export const accountingApi = {
  createTransaction: (transaction: unknown) => request<{ ok: true }>({ action: 'createTransaction', payload: transaction }),
  updateTransaction: (transaction: unknown) => request<{ ok: true }>({ action: 'updateTransaction', payload: transaction }),
  deleteTransaction: (transactionId: number) => request<{ ok: true }>({ action: 'deleteTransaction', payload: transactionId }),
+ deleteTransactionsBulk: (payload: { transactionIds: number[]; adjustmentIds: number[] }) =>
+  request<{ ok: true; deleted: number }>({ action: 'deleteTransactionsBulk', payload }),
  deleteAllTransactions: () => request<{ ok: true }>({ action: 'deleteAllTransactions' }),
  listClientAdjustments: () => request<unknown[]>({ action: 'listClientAdjustments' }),
  createClientAdjustment: (payload: unknown) => request<{ id: number }>({ action: 'createClientAdjustment', payload }),

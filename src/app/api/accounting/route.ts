@@ -48,6 +48,7 @@ const writeActions = new Set([
  'createTransaction',
  'updateTransaction',
  'deleteTransaction',
+ 'deleteTransactionsBulk',
  'deleteAllTransactions',
  'createClientAdjustment',
  'updateClientAdjustment',
@@ -259,6 +260,8 @@ export async function POST(request: NextRequest) {
    case 'deleteTransaction':
     await db.deleteTransaction(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'deleteTransactionsBulk':
+    return NextResponse.json(await db.deleteTransactionsBulk(appLike, payload));
    case 'deleteAllTransactions':
     await db.deleteAllTransactions(appLike);
     return NextResponse.json({ ok: true });
