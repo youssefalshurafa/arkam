@@ -14,42 +14,71 @@ function getActiveWorkspaceId() {
  return stored?.trim() || null;
 }
 
+// --- Global request-activity tracking -------------------------------------
+// Every data load/mutation in the app funnels through request(), so counting
+// in-flight calls here lets a single global indicator show a spinner anywhere
+// work is happening, without wiring loading state into every button.
+let activeRequests = 0;
+const activityListeners = new Set<(active: boolean) => void>();
+
+function notifyActivity() {
+ const isActive = activeRequests > 0;
+ for (const listener of activityListeners) {
+  listener(isActive);
+ }
+}
+
+export function subscribeToApiActivity(listener: (active: boolean) => void): () => void {
+ activityListeners.add(listener);
+ listener(activeRequests > 0);
+ return () => {
+  activityListeners.delete(listener);
+ };
+}
+
 async function request<T>({ action, payload }: ApiOptions, hasRetried = false): Promise<T> {
- const workspaceId = getActiveWorkspaceId();
- const response = await fetch('/api/accounting', {
-  method: 'POST',
-  credentials: 'include',
-  headers: {
-   'Content-Type': 'application/json',
-   ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
-  },
-  body: JSON.stringify({ action, payload }),
- });
+ activeRequests += 1;
+ notifyActivity();
+ try {
+  const workspaceId = getActiveWorkspaceId();
+  const response = await fetch('/api/accounting', {
+   method: 'POST',
+   credentials: 'include',
+   headers: {
+    'Content-Type': 'application/json',
+    ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
+   },
+   body: JSON.stringify({ action, payload }),
+  });
 
- const data = await response.json();
+  const data = await response.json();
 
- if (response.status === 401 && !hasRetried) {
-  try {
-   const sessionResponse = await fetch('/api/auth/session', {
-    method: 'GET',
-    credentials: 'include',
-    cache: 'no-store',
-   });
-   const sessionPayload = (await sessionResponse.json()) as { user?: { id?: string } };
+  if (response.status === 401 && !hasRetried) {
+   try {
+    const sessionResponse = await fetch('/api/auth/session', {
+     method: 'GET',
+     credentials: 'include',
+     cache: 'no-store',
+    });
+    const sessionPayload = (await sessionResponse.json()) as { user?: { id?: string } };
 
-   if (sessionPayload?.user?.id) {
-    return request<T>({ action, payload }, true);
+    if (sessionPayload?.user?.id) {
+     return await request<T>({ action, payload }, true);
+    }
+   } catch {
+    // Fall through to the default error handling below.
    }
-  } catch {
-   // Fall through to the default error handling below.
   }
- }
 
- if (!response.ok) {
-  throw new Error(data?.error || 'Request failed.');
- }
+  if (!response.ok) {
+   throw new Error(data?.error || 'Request failed.');
+  }
 
- return data as T;
+  return data as T;
+ } finally {
+  activeRequests -= 1;
+  notifyActivity();
+ }
 }
 
 function exportHtmlAsPdfFallback(html: string, title: string): Promise<{ ok: boolean; filePath?: string }> {

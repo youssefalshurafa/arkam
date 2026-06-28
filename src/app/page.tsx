@@ -10,6 +10,7 @@ import AccountSettings from '@/components/account/AccountSettings';
 import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
 import { confirmDialog } from '@/components/ui/AppDialog';
+import { Spinner } from '@/components/ui/Spinner';
 import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
 
 type DbInfo = {
@@ -275,6 +276,23 @@ type PendingImportData = {
  fileName: string;
  rows: unknown[][];
  columnOptions: Array<{ index: number; label: string }>;
+};
+
+// One reviewable name derived from an imported sheet. Before anything is created
+// the user can: rename it, map it to an existing client, assign an organization,
+// open extra-currency accounts, or flag it as an expense (e.g. طريق) rather than
+// a real client.
+type ImportClientReview = {
+ key: string; // normalized original name from the sheet (stable id, matches parsed rows)
+ originalName: string;
+ isExpense: boolean; // when true this name is an expense marker, not a client
+ existingClientId: number | null; // when set, map to this existing client instead of creating one
+ existingAccountId: number | null; // which of the existing client's accounts this name feeds
+ name: string; // editable final name when creating a new client
+ organizationId: number | null; // org applied to a newly created client
+ accountCurrencyIds: number[]; // currency accounts to open for this client (user-controlled)
+ currencyId: number; // the import currency (used for the transactions themselves)
+ transactionCount: number; // how many imported rows reference this name
 };
 
 type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
@@ -672,6 +690,12 @@ function normalizeClientNameForCurrencySuffix(name: string, currency: Currency) 
  return normalized || compactName;
 }
 
+// Normalizes a sheet name to the same key used for ImportClientReview.key, so
+// parsed rows can be matched back to their review entry.
+function importNameKey(value: string) {
+ return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportMappingState, currency: Currency) {
  if (mapping.fromColumn == null || mapping.toColumn == null || mapping.amountColumn == null) {
   throw new Error('Please choose columns for From, To, and Amount.');
@@ -993,6 +1017,10 @@ function AuthenticatedHome() {
  const [newAccountBalanceType, setNewAccountBalanceType] = useState<'debit' | 'credit'>('debit');
  const [showAddAccountForm, setShowAddAccountForm] = useState(false);
  const [showCreateOrgDialog, setShowCreateOrgDialog] = useState(false);
+ const [isSavingOrg, setIsSavingOrg] = useState(false);
+ // When the create-organization popup is opened from an import-review row, this
+ // holds that row's key so the new org is assigned back to it (not the client form).
+ const [orgDialogTargetReviewKey, setOrgDialogTargetReviewKey] = useState<string | null>(null);
  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
  const [editingAccountCurrencyId, setEditingAccountCurrencyId] = useState<number | null>(null);
  const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
@@ -1050,6 +1078,13 @@ function AuthenticatedHome() {
   descriptionColumn: null,
   currencyId: null,
  });
+ const [importReview, setImportReview] = useState<ImportClientReview[] | null>(null);
+ // The parsed sheet rows backing the current review, plus per-row overrides for
+ // rows that involve an expense-marked name (expense vs. real transaction).
+ const [importParsedRows, setImportParsedRows] = useState<ImportedTransactionRow[]>([]);
+ const [importRowDispositions, setImportRowDispositions] = useState<Record<number, 'expense' | 'transaction'>>({});
+ // Currencies the "apply to all clients" control will open for every client.
+ const [bulkAccountCurrencyIds, setBulkAccountCurrencyIds] = useState<number[]>([]);
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
  const [isBackingUp, setIsBackingUp] = useState(false);
  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
@@ -1706,20 +1741,30 @@ function AuthenticatedHome() {
    return;
   }
   const newName = organizationForm.name.trim();
+  setIsSavingOrg(true);
   try {
    await accountingApi.createOrganization(organizationForm);
    await loadData();
-   // Auto-select the newly created org in the client form
+   // Auto-select the newly created org in whichever form opened the dialog.
    setOrganizations((freshOrgs) => {
     const newOrg = freshOrgs.find((o) => o.name === newName);
-    if (newOrg) setClientForm((current) => ({ ...current, organizationId: newOrg.id }));
+    if (newOrg) {
+     if (orgDialogTargetReviewKey) {
+      updateImportReviewEntry(orgDialogTargetReviewKey, { organizationId: newOrg.id });
+     } else {
+      setClientForm((current) => ({ ...current, organizationId: newOrg.id }));
+     }
+    }
     return freshOrgs;
    });
    setOrganizationForm(emptyOrganizationForm());
    setShowCreateOrgDialog(false);
+   setOrgDialogTargetReviewKey(null);
    setError('');
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsSavingOrg(false);
   }
  }
 
@@ -2300,9 +2345,8 @@ function AuthenticatedHome() {
     currencyId: preferredCurrency?.id ?? null,
    });
 
-   // The import-setup mapping panel lives inside the "New Transaction" side
-   // panel, which is collapsed by default. Open it so the mapping UI is visible.
-   setIsNewTransactionSectionOpen(true);
+   // pendingImportData drives the independent import-setup modal (rendered at the
+   // top level), so there's no need to expand the New Transaction side panel.
   } catch (e) {
    setError(e instanceof Error ? e.message : 'Failed to read import file.');
   } finally {
@@ -2310,6 +2354,89 @@ function AuthenticatedHome() {
     transactionsImportInputRef.current.value = '';
    }
   }
+ }
+
+ // Builds the per-client review list from the mapped sheet so the user can
+ // rename clients and assign organizations before anything is created.
+ function onPrepareImportReview() {
+  if (!pendingImportData) {
+   setError('No file is selected for import.');
+   return;
+  }
+
+  if (importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null) {
+   setError('Please answer the column mapping questions before importing.');
+   return;
+  }
+
+  if (!importMapping.currencyId) {
+   setError('Please choose a currency for this import.');
+   return;
+  }
+
+  const selectedCurrency = currencies.find((currency) => currency.id === importMapping.currencyId) ?? null;
+  if (!selectedCurrency) {
+   setError('Selected currency was not found. Please reselect it.');
+   return;
+  }
+
+  try {
+   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
+   const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+   const reviewMap = new Map<string, ImportClientReview>();
+
+   const registerName = (rawName: string) => {
+    const key = normalizeLookup(rawName);
+    if (!key) return;
+    let entry = reviewMap.get(key);
+    if (!entry) {
+     const existing = clients.find((client) => normalizeLookup(client.name) === key) ?? null;
+     // For an auto-matched existing client, default to its account in the import
+     // currency (if it has one) so the right account is preselected.
+     const existingImportAccount = existing
+      ? clientAccounts.find((account) => account.clientId === existing.id && account.currencyId === selectedCurrency.id) ?? null
+      : null;
+     entry = {
+      key,
+      originalName: rawName,
+      isExpense: false,
+      existingClientId: existing?.id ?? null,
+      existingAccountId: existingImportAccount?.id ?? null,
+      name: existing?.name ?? rawName,
+      organizationId: existing?.organizationId ?? (organizations[0]?.id ?? null),
+      accountCurrencyIds: [selectedCurrency.id],
+      currencyId: selectedCurrency.id,
+      transactionCount: 0,
+     };
+     reviewMap.set(key, entry);
+    }
+    entry.transactionCount += 1;
+   };
+
+   for (const row of importedRows) {
+    registerName(row.fromName);
+    registerName(row.toName);
+   }
+
+   if (!reviewMap.size) {
+    throw new Error('No clients were found in the selected columns.');
+   }
+
+   setError('');
+   setBulkAccountCurrencyIds([selectedCurrency.id]);
+   setImportParsedRows(importedRows);
+   setImportRowDispositions({});
+   setImportReview(Array.from(reviewMap.values()));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : 'Failed to read clients from the file.');
+  }
+ }
+
+ function updateImportReviewEntry(key: string, patch: Partial<ImportClientReview>) {
+  setImportReview((current) => {
+   if (!current) return current;
+   return current.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry));
+  });
  }
 
  async function onConfirmImportTransactions() {
@@ -2339,6 +2466,19 @@ function AuthenticatedHome() {
    return;
   }
 
+  if (!importReview || !importReview.length) {
+   setError('Please review the clients before importing.');
+   return;
+  }
+
+  // Only names that will create a brand-new client must be filled in.
+  if (importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && !entry.name.trim())) {
+   setError('Every new client must have a name before importing.');
+   return;
+  }
+
+  const reviewList = importReview;
+
   setIsImportingTransactions(true);
   setError('');
   setImportSummary('');
@@ -2347,6 +2487,8 @@ function AuthenticatedHome() {
    const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
 
    const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+   const reviewByKey = new Map(reviewList.map((entry) => [entry.key, entry] as const));
+
    let nextClients = [...clients];
    let nextCurrencies = [...currencies];
    let nextClientAccounts = [...clientAccounts];
@@ -2356,6 +2498,8 @@ function AuthenticatedHome() {
     enabledCurrencies: 0,
     createdAccounts: 0,
     createdTransactions: 0,
+    createdExpenses: 0,
+    skippedRows: 0,
    };
 
    const getClientByName = (name: string) => {
@@ -2367,65 +2511,144 @@ function AuthenticatedHome() {
     return nextClientAccounts.find((account) => account.clientId === clientId && account.currencyId === currencyId) ?? null;
    };
 
+   // Resolves the client id for a review entry: an explicitly mapped existing
+   // client, or the one created/found by its final name.
+   const resolveClientId = (entry: ImportClientReview) => {
+    if (entry.existingClientId != null) return entry.existingClientId;
+    return getClientByName(entry.name.trim())?.id ?? null;
+   };
+
    let importCurrency = nextCurrencies.find((currency) => currency.id === selectedCurrency.id) ?? selectedCurrency;
 
-   if (importCurrency.isEnabled !== 1) {
-    await accountingApi.enableCurrency(importCurrency.id);
-    nextCurrencies = nextCurrencies.map((currency) => (currency.id === importCurrency.id ? { ...currency, isEnabled: 1 } : currency));
-    importCurrency = { ...importCurrency, isEnabled: 1 };
-    stats.enabledCurrencies += 1;
+   const ensureCurrencyEnabled = async (currencyId: number) => {
+    const currency = nextCurrencies.find((item) => item.id === currencyId);
+    if (currency && currency.isEnabled !== 1) {
+     await accountingApi.enableCurrency(currencyId);
+     nextCurrencies = nextCurrencies.map((item) => (item.id === currencyId ? { ...item, isEnabled: 1 } : item));
+     if (currencyId === importCurrency.id) importCurrency = { ...importCurrency, isEnabled: 1 };
+     stats.enabledCurrencies += 1;
+    }
+   };
+
+   await ensureCurrencyEnabled(importCurrency.id);
+
+   // A row touching an expense-marked name that the user flipped to "transaction"
+   // means that name must act as a real client for those rows.
+   const expenseKeysNeedingClient = new Set<string>();
+   importedRows.forEach((row, index) => {
+    if (importRowDispositions[index] !== 'transaction') return;
+    const fromKey = normalizeLookup(row.fromName);
+    const toKey = normalizeLookup(row.toName);
+    if (reviewByKey.get(fromKey)?.isExpense) expenseKeysNeedingClient.add(fromKey);
+    if (reviewByKey.get(toKey)?.isExpense) expenseKeysNeedingClient.add(toKey);
+   });
+
+   // Create reviewed new clients (existing-client mappings are reused). Expense
+   // markers are skipped unless some row flips them to a real transaction.
+   for (const review of reviewList) {
+    if (review.existingClientId != null) continue;
+    if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
+    const finalName = review.name.trim();
+    if (!finalName || getClientByName(finalName)) continue;
+    await accountingApi.createClient({
+     organizationId: review.organizationId ?? null,
+     name: finalName,
+     email: '',
+     phone: '',
+     address: '',
+    });
+    nextClients = (await accountingApi.listClients()) as Client[];
+    stats.createdClients += 1;
    }
 
-   for (const row of importedRows) {
-    let fromClient = getClientByName(row.fromName);
-    if (!fromClient) {
-     await accountingApi.createClient({
-      organizationId: organizations[0]?.id ?? null,
-      name: row.fromName,
-      email: '',
-      phone: '',
-      address: '',
-     });
-     nextClients = (await accountingApi.listClients()) as Client[];
-     fromClient = getClientByName(row.fromName);
-     stats.createdClients += 1;
-    }
+   // Open accounts. Existing clients reuse a chosen account (or get an import
+   // account if they have none); new clients open the currencies the user picked.
+   for (const review of reviewList) {
+    if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
 
-    let toClient = getClientByName(row.toName);
-    if (!toClient) {
-     await accountingApi.createClient({
-      organizationId: organizations[0]?.id ?? null,
-      name: row.toName,
-      email: '',
-      phone: '',
-      address: '',
-     });
-     nextClients = (await accountingApi.listClients()) as Client[];
-     toClient = getClientByName(row.toName);
-     stats.createdClients += 1;
-    }
-
-    if (!fromClient || !toClient) {
+    if (review.existingClientId != null) {
+     // A specific account was selected, or the client already has the import one.
+     if (review.existingAccountId != null || getClientAccount(review.existingClientId, importCurrency.id)) continue;
+     await ensureCurrencyEnabled(importCurrency.id);
+     await accountingApi.createClientAccount({ clientId: review.existingClientId, currencyId: importCurrency.id, startingBalance: 0 });
+     nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
+     stats.createdAccounts += 1;
      continue;
     }
 
-    let fromAccount = getClientAccount(fromClient.id, importCurrency.id);
-    if (!fromAccount) {
-     await accountingApi.createClientAccount({ clientId: fromClient.id, currencyId: importCurrency.id, startingBalance: 0 });
+    const clientId = resolveClientId(review);
+    if (clientId == null) continue;
+    for (const currencyId of Array.from(new Set(review.accountCurrencyIds))) {
+     await ensureCurrencyEnabled(currencyId);
+     if (getClientAccount(clientId, currencyId)) continue;
+     await accountingApi.createClientAccount({ clientId, currencyId, startingBalance: 0 });
      nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
-     fromAccount = getClientAccount(fromClient.id, importCurrency.id);
      stats.createdAccounts += 1;
     }
+   }
 
-    let toAccount = getClientAccount(toClient.id, importCurrency.id);
-    if (!toAccount) {
-     await accountingApi.createClientAccount({ clientId: toClient.id, currencyId: importCurrency.id, startingBalance: 0 });
-     nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
-     toAccount = getClientAccount(toClient.id, importCurrency.id);
-     stats.createdAccounts += 1;
+   // Resolves the account a review entry's rows should post to: the chosen
+   // existing account, else the client's import-currency account.
+   const resolveAccount = (entry: ImportClientReview) => {
+    if (entry.existingClientId != null) {
+     if (entry.existingAccountId != null) {
+      return nextClientAccounts.find((account) => account.id === entry.existingAccountId) ?? null;
+     }
+     return getClientAccount(entry.existingClientId, importCurrency.id);
+    }
+    const clientId = resolveClientId(entry);
+    if (clientId == null) return null;
+    return getClientAccount(clientId, importCurrency.id);
+   };
+
+   // Walk the rows. A normal row is a transfer. A row touching an expense-marked
+   // name is, by default, a debit ("owes you") on the real client — unless the
+   // user flipped that specific row to "transaction", making it a normal transfer.
+   for (let index = 0; index < importedRows.length; index += 1) {
+    const row = importedRows[index];
+    const fromEntry = reviewByKey.get(normalizeLookup(row.fromName)) ?? null;
+    const toEntry = reviewByKey.get(normalizeLookup(row.toName)) ?? null;
+    const fromIsExpense = !!fromEntry?.isExpense;
+    const toIsExpense = !!toEntry?.isExpense;
+    const involvesExpense = fromIsExpense || toIsExpense;
+    const asExpense = involvesExpense && importRowDispositions[index] !== 'transaction';
+
+    if (asExpense) {
+     if (fromIsExpense && toIsExpense) {
+      continue; // both sides expenses, kept as expense — nothing to attribute.
+     }
+     const realEntry = fromIsExpense ? toEntry : fromEntry;
+     const markerEntry = fromIsExpense ? fromEntry : toEntry;
+     if (!realEntry) continue;
+     const account = resolveAccount(realEntry);
+     if (!account) {
+      // The client has no account to post this expense to.
+      stats.skippedRows += 1;
+      continue;
+     }
+
+     await accountingApi.createClientAdjustment({
+      accountId: account.id,
+      amount: row.amount,
+      direction: 'debit',
+      currencyId: importCurrency.id,
+      currencyCode: importCurrency.code,
+      currencySymbol: importCurrency.symbol,
+      exchangeRate: 1,
+      exchangeRateReversed: false,
+      description: row.description || markerEntry?.originalName || '',
+      createdAt: row.createdAt ?? undefined,
+     });
+     stats.createdExpenses += 1;
+     continue;
     }
 
+    if (!fromEntry || !toEntry) continue;
+    const fromAccount = resolveAccount(fromEntry);
+    const toAccount = resolveAccount(toEntry);
     if (!fromAccount || !toAccount) {
+     // One side has no account to post to (the user chose not to open one).
+     stats.skippedRows += 1;
      continue;
     }
 
@@ -2451,15 +2674,20 @@ function AuthenticatedHome() {
     stats.createdTransactions += 1;
    }
 
-   if (!stats.createdTransactions) {
-    throw new Error('No transactions were imported. Check the mapping questions and selected currency.');
+   if (!stats.createdTransactions && !stats.createdExpenses) {
+    throw new Error('Nothing was imported. Check the mapping questions, selected currency, and expense markers.');
    }
 
    await loadData();
    setImportSummary(
-    `Imported ${stats.createdTransactions} transactions from ${pendingImportData.fileName}. Created ${stats.createdClients} clients and ${stats.createdAccounts} accounts.`,
+    `Imported ${stats.createdTransactions} transactions${stats.createdExpenses ? ` and ${stats.createdExpenses} expenses` : ''} from ${pendingImportData.fileName}. Created ${stats.createdClients} clients and ${stats.createdAccounts} accounts.${
+     stats.skippedRows ? ` Skipped ${stats.skippedRows} rows whose clients had no ${selectedCurrency.code} account.` : ''
+    }`,
    );
    setPendingImportData(null);
+   setImportReview(null);
+   setImportParsedRows([]);
+   setImportRowDispositions({});
    setImportMapping({
     dateColumn: null,
     fromColumn: null,
@@ -2477,6 +2705,9 @@ function AuthenticatedHome() {
 
  function onCancelImportTransactions() {
   setPendingImportData(null);
+  setImportReview(null);
+  setImportParsedRows([]);
+  setImportRowDispositions({});
   setImportMapping({
    dateColumn: null,
    fromColumn: null,
@@ -6735,178 +6966,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            </div>
            <p className="mt-1 text-sm text-slate-600">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
 
-           {pendingImportData ? (
-            <div className="mt-5 rounded border border-blue-200 bg-blue-50/60 p-4">
-             <p className="text-sm font-semibold text-blue-900">Import Setup: {pendingImportData.fileName}</p>
-             <p className="mt-1 text-xs text-blue-700">Answer these questions before importing.</p>
-
-             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
-               <select
-                value={importMapping.dateColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  dateColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">No date column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
-               <select
-                value={importMapping.fromColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  fromColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">Select from column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
-               <select
-                value={importMapping.toColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  toColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">Select to column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
-               <select
-                value={importMapping.amountColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  amountColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">Select amount column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
-               <select
-                value={importMapping.descriptionColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  descriptionColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">No description column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
-               <select
-                value={importMapping.currencyId ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  currencyId: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">Select currency</option>
-                {currencies.map((currency) => (
-                 <option
-                  key={currency.id}
-                  value={currency.id}
-                 >
-                  {currency.code} - {currency.name}
-                 </option>
-                ))}
-               </select>
-              </label>
-             </div>
-
-             <div className="mt-4 flex flex-wrap gap-2">
-              <button
-               type="button"
-               onClick={() => void onConfirmImportTransactions()}
-               disabled={isImportingTransactions}
-               className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-               {isImportingTransactions ? 'Importing...' : 'Import Now'}
-              </button>
-              <button
-               type="button"
-               onClick={onCancelImportTransactions}
-               disabled={isImportingTransactions}
-               className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-               Cancel Import
-              </button>
-             </div>
-            </div>
-           ) : null}
-
            <form
             onSubmit={onTransactionSubmit}
             className="mt-5 max-w-md"
@@ -8717,6 +8776,450 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     </div>
    ) : null}
 
+   {pendingImportData && !importReview ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+     <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded bg-white shadow-2xl">
+      <div className="border-b border-slate-200 p-6">
+       <h3 className="text-lg font-semibold text-slate-900">Import setup</h3>
+       <p className="mt-1 text-sm text-slate-500">{pendingImportData.fileName} — match the sheet columns and pick a currency before reviewing clients.</p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6">
+       <div className="grid gap-3 md:grid-cols-2">
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
+         <select
+          value={importMapping.dateColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, dateColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">No date column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
+         <select
+          value={importMapping.fromColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, fromColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">Select from column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
+         <select
+          value={importMapping.toColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, toColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">Select to column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
+         <select
+          value={importMapping.amountColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, amountColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">Select amount column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
+         <select
+          value={importMapping.descriptionColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, descriptionColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">No description column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
+         <select
+          value={importMapping.currencyId ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, currencyId: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">Select currency</option>
+          {currencies.map((currency) => (
+           <option key={currency.id} value={currency.id}>
+            {currency.code} - {currency.name}
+           </option>
+          ))}
+         </select>
+        </label>
+       </div>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-6">
+       <button
+        type="button"
+        onClick={onCancelImportTransactions}
+        disabled={isImportingTransactions}
+        className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        Cancel Import
+       </button>
+       <button
+        type="button"
+        onClick={onPrepareImportReview}
+        disabled={isImportingTransactions}
+        className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        Review Clients
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
+
+   {importReview ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+     <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded bg-white shadow-2xl">
+      <div className="border-b border-slate-200 p-6">
+       <h3 className="text-lg font-semibold text-slate-900">Review imported names</h3>
+       <p className="mt-1 text-sm text-slate-500">
+        {importReview.length} names were read from {pendingImportData?.fileName ?? 'the file'}. For each one, create a new client, pick an existing client, choose
+        which currency accounts to open, or mark it as an expense (e.g. طريق) instead of a client.
+       </p>
+
+       <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
+        <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Open accounts for all clients (optional)</span>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+         {enabledCurrencies.map((currency) => {
+          const selected = bulkAccountCurrencyIds.includes(currency.id);
+          return (
+           <button
+            key={currency.id}
+            type="button"
+            onClick={() =>
+             setBulkAccountCurrencyIds((current) =>
+              current.includes(currency.id) ? current.filter((id) => id !== currency.id) : [...current, currency.id],
+             )
+            }
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
+             selected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+           >
+            {currency.code}
+           </button>
+          );
+         })}
+         <button
+          type="button"
+          onClick={() =>
+           setImportReview((current) =>
+            current ? current.map((entry) => (entry.isExpense ? entry : { ...entry, accountCurrencyIds: [...bulkAccountCurrencyIds] })) : current,
+           )
+          }
+          className="rounded border border-blue-600 bg-white px-3 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
+         >
+          Apply to all clients
+         </button>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-400">
+         Transactions need an account in the import currency on both sides — clients missing it are skipped.
+        </p>
+       </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6">
+       <div className="flex flex-col gap-3">
+        {importReview.map((entry) => {
+         const addableCurrencies = enabledCurrencies.filter((item) => !entry.accountCurrencyIds.includes(item.id));
+         return (
+          <div
+           key={entry.key}
+           className={`rounded border p-3 ${entry.isExpense ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'}`}
+          >
+           <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-slate-700">{entry.originalName}</span>
+            <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-600">
+             <input
+              type="checkbox"
+              checked={entry.isExpense}
+              onChange={(event) => updateImportReviewEntry(entry.key, { isExpense: event.target.checked })}
+             />
+             Expense (not a client)
+            </label>
+           </div>
+
+           {entry.isExpense ? (
+            <div className="mt-2">
+             <p className="text-xs text-amber-700">
+              Decide what each row containing “{entry.originalName}” should become. Each defaults to a debit (owes you) on the other party.
+             </p>
+             <div className="mt-2 flex flex-col gap-1.5">
+              {importParsedRows
+               .map((row, index) => ({ row, index }))
+               .filter(({ row }) => importNameKey(row.fromName) === entry.key || importNameKey(row.toName) === entry.key)
+               .map(({ row, index }) => {
+                const counterparty = importNameKey(row.fromName) === entry.key ? row.toName : row.fromName;
+                const disposition = importRowDispositions[index] ?? 'expense';
+                return (
+                 <div
+                  key={index}
+                  className="flex items-center justify-between gap-2 rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs"
+                 >
+                  <span className="min-w-0 flex-1 truncate text-slate-600">
+                   {counterparty || '—'} · {row.amount}
+                   {row.createdAt ? ` · ${row.createdAt.slice(0, 10)}` : ''}
+                  </span>
+                  <select
+                   value={disposition}
+                   onChange={(event) =>
+                    setImportRowDispositions((current) => ({ ...current, [index]: event.target.value as 'expense' | 'transaction' }))
+                   }
+                   className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                  >
+                   <option value="expense">Expense for {counterparty || 'other party'}</option>
+                   <option value="transaction">Transaction (2 clients)</option>
+                  </select>
+                 </div>
+                );
+               })}
+             </div>
+            </div>
+           ) : (
+            <>
+             <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
+              <label className="flex-1 text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Client</span>
+               <select
+                value={entry.existingClientId ?? '__new__'}
+                onChange={(event) => {
+                 if (event.target.value === '__new__') {
+                  updateImportReviewEntry(entry.key, { existingClientId: null, existingAccountId: null });
+                  return;
+                 }
+                 const clientId = Number(event.target.value);
+                 // Preselect the client's import-currency account, else its first account.
+                 const accountsForClient = clientAccounts.filter((account) => account.clientId === clientId);
+                 const defaultAccount =
+                  accountsForClient.find((account) => account.currencyId === entry.currencyId) ?? accountsForClient[0] ?? null;
+                 updateImportReviewEntry(entry.key, { existingClientId: clientId, existingAccountId: defaultAccount?.id ?? null });
+                }}
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="__new__">➕ Create new client</option>
+                {clients.map((client) => (
+                 <option
+                  key={client.id}
+                  value={client.id}
+                 >
+                  {client.name}
+                 </option>
+                ))}
+               </select>
+              </label>
+
+              {entry.existingClientId == null ? (
+               <label className="flex-1 text-sm text-slate-700">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">New client name</span>
+                <input
+                 type="text"
+                 value={entry.name}
+                 onChange={(event) => updateImportReviewEntry(entry.key, { name: event.target.value })}
+                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                />
+               </label>
+              ) : null}
+             </div>
+
+             {entry.existingClientId == null ? (
+              <label className="mt-3 block text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Organization</span>
+               <select
+                value={entry.organizationId ?? ''}
+                onChange={(event) => {
+                 if (event.target.value === '__create__') {
+                  setOrgDialogTargetReviewKey(entry.key);
+                  setOrganizationForm(emptyOrganizationForm());
+                  setShowCreateOrgDialog(true);
+                  return;
+                 }
+                 updateImportReviewEntry(entry.key, { organizationId: event.target.value === '' ? null : Number(event.target.value) });
+                }}
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="">No organization</option>
+                {organizations.map((organization) => (
+                 <option
+                  key={organization.id}
+                  value={organization.id}
+                 >
+                  {organization.name}
+                 </option>
+                ))}
+                <option value="__create__">{t('client_organization_create')}</option>
+               </select>
+              </label>
+             ) : null}
+
+             {entry.existingClientId != null ? (
+              <label className="mt-3 block text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Apply rows to which account</span>
+               {(() => {
+                const accountsForClient = clientAccounts.filter((account) => account.clientId === entry.existingClientId);
+                if (!accountsForClient.length) {
+                 return (
+                  <p className="mt-1 text-xs text-slate-400">
+                   This client has no accounts yet — a {currencies.find((item) => item.id === entry.currencyId)?.code ?? ''} account will be opened.
+                  </p>
+                 );
+                }
+                return (
+                 <select
+                  value={entry.existingAccountId ?? ''}
+                  onChange={(event) =>
+                   updateImportReviewEntry(entry.key, { existingAccountId: event.target.value === '' ? null : Number(event.target.value) })
+                  }
+                  className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 >
+                  {accountsForClient.map((account) => (
+                   <option
+                    key={account.id}
+                    value={account.id}
+                   >
+                    {account.currencyCode}
+                    {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                   </option>
+                  ))}
+                 </select>
+                );
+               })()}
+              </label>
+             ) : (
+              <div className="mt-3">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Accounts to open</span>
+               <div className="mt-1 flex flex-wrap items-center gap-2">
+                {entry.accountCurrencyIds.length === 0 ? <span className="text-xs text-slate-400">None — no account will be opened.</span> : null}
+               {entry.accountCurrencyIds.map((currencyId) => {
+                const currency = enabledCurrencies.find((item) => item.id === currencyId) ?? currencies.find((item) => item.id === currencyId);
+                return (
+                 <span
+                  key={currencyId}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                 >
+                  {currency ? currency.code : currencyId}
+                  <button
+                   type="button"
+                   onClick={() =>
+                    updateImportReviewEntry(entry.key, { accountCurrencyIds: entry.accountCurrencyIds.filter((id) => id !== currencyId) })
+                   }
+                   aria-label={t('close')}
+                   className="text-slate-400 transition hover:text-slate-700"
+                  >
+                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M18 6 6 18M6 6l12 12" />
+                   </svg>
+                  </button>
+                 </span>
+                );
+               })}
+               {addableCurrencies.length ? (
+                <select
+                 value=""
+                 onChange={(event) => {
+                  const currencyId = Number(event.target.value);
+                  if (!currencyId) return;
+                  updateImportReviewEntry(entry.key, { accountCurrencyIds: [...entry.accountCurrencyIds, currencyId] });
+                 }}
+                 className="rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600 outline-none ring-blue-300 focus:ring"
+                >
+                 <option value="">+ Add account</option>
+                 {addableCurrencies.map((currency) => (
+                  <option
+                   key={currency.id}
+                   value={currency.id}
+                  >
+                   {currency.code} - {currency.name}
+                  </option>
+                 ))}
+                </select>
+               ) : null}
+               </div>
+              </div>
+             )}
+            </>
+           )}
+
+           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            {entry.isExpense ? (
+             <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">Expense</span>
+            ) : entry.existingClientId != null ? (
+             <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">Existing client</span>
+            ) : (
+             <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">New client</span>
+            )}
+            <span className="text-slate-500">
+             {entry.transactionCount} row{entry.transactionCount === 1 ? '' : 's'}
+            </span>
+           </div>
+          </div>
+         );
+        })}
+       </div>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-6">
+       <button
+        type="button"
+        onClick={() => setImportReview(null)}
+        disabled={isImportingTransactions}
+        className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        Back
+       </button>
+       <button
+        type="button"
+        onClick={() => void onConfirmImportTransactions()}
+        disabled={
+         isImportingTransactions ||
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && !entry.name.trim())
+        }
+        className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        {isImportingTransactions ? 'Creating…' : 'Create transactions'}
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
+
    {adjustmentModal
     ? (() => {
        const ledger = selectedClientLedgers.find((l) => l.accountId === adjustmentModal.accountId);
@@ -9161,8 +9664,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    {/* Create Organization dialog */}
    {showCreateOrgDialog ? (
     <div
-     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-     onClick={() => setShowCreateOrgDialog(false)}
+     className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+     onClick={() => {
+      setShowCreateOrgDialog(false);
+      setOrgDialogTargetReviewKey(null);
+     }}
     >
      <div
       className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
@@ -9190,6 +9696,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          type="button"
          onClick={() => {
           setShowCreateOrgDialog(false);
+          setOrgDialogTargetReviewKey(null);
           setOrganizationForm(emptyOrganizationForm());
          }}
          className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
@@ -9198,8 +9705,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </button>
         <button
          type="submit"
-         className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition"
+         disabled={isSavingOrg}
+         className="inline-flex items-center gap-2 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
+         {isSavingOrg ? <Spinner className="text-base" /> : null}
          {t('save_organization')}
         </button>
        </div>

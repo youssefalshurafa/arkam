@@ -51,6 +51,19 @@ html[dir='rtl'] textarea {
  text-align: right;
 }
 
+/* Indeterminate top loading bar (GlobalLoadingBar) */
+@keyframes loading-bar {
+ 0% {
+  transform: translateX(-100%);
+ }
+ 50% {
+  transform: translateX(150%);
+ }
+ 100% {
+  transform: translateX(400%);
+ }
+}
+
 /* Classic app shell */
 .app-shell {
  display: flex;

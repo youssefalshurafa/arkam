@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Noto_Sans_Arabic } from 'next/font/google';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { AuthSessionProvider } from '@/components/providers/AuthSessionProvider';
 import { DialogHost } from '@/components/ui/AppDialog';
+import { GlobalLoadingBar } from '@/components/ui/GlobalLoadingBar';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -37,6 +38,7 @@ export default function RootLayout({
      <LanguageProvider>
       {children}
       <DialogHost />
+      <GlobalLoadingBar />
      </LanguageProvider>
     </AuthSessionProvider>
    </body>
