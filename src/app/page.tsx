@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import HomePage from '@/components/marketing/HomePage';
+import AccountSettings from '@/components/account/AccountSettings';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 
@@ -442,7 +443,7 @@ function getStoredPdfSettings(): PdfSettings {
  }
 }
 
-type SettingsTab = 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
+type SettingsTab = 'account' | 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive';
 
@@ -3364,6 +3365,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  ];
 
  const settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }> = [
+  { key: 'account', label: t('account_title'), icon: 'auth' },
   { key: 'database', label: t('settings_database_title'), icon: 'database' },
   { key: 'language', label: t('settings_language_title'), icon: 'settings' },
   { key: 'pdf', label: t('settings_pdf_title'), icon: 'settings' },
@@ -5371,6 +5373,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    <div className="flex flex-col gap-4 p-4">
     {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
     {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
+    {settingsTab === 'account' ? <AccountSettings /> : null}
     {settingsTab === 'database' ? databaseSection : null}
     {settingsTab === 'language' ? languageSection : null}
     {settingsTab === 'pdf' ? pdfSettingsSection : null}
@@ -5387,7 +5390,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    <main className="flex w-full">
     {/* Classic sidebar - desktop only */}
     <aside
-     className={`hidden lg:flex flex-col bg-[#1e3a5f] text-white border-r border-[#15304f] shrink-0 transition-[width] duration-200 ${isSidebarCollapsed ? 'w-16' : 'w-56'}`}
+     className={`hidden lg:flex flex-col text-white border-r shrink-0 transition-[width,background-color] duration-200 ${
+      section === 'settings' ? 'bg-[#3b2f63] border-[#2a2049]' : 'bg-[#1e3a5f] border-[#15304f]'
+     } ${isSidebarCollapsed ? 'w-16' : 'w-56'}`}
      style={{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}
     >
      {/* Brand */}
@@ -5421,7 +5426,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          aria-label={item.label}
          title={item.label}
          className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium transition ${
-          isActive ? 'bg-blue-600 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+          isActive ? (section === 'settings' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white') : 'text-blue-100 hover:bg-white/10 hover:text-white'
          } ${isSidebarCollapsed ? 'justify-center' : ''}`}
         >
          <span className="shrink-0">{renderIcon(item.icon, 'h-4 w-4')}</span>

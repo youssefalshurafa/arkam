@@ -665,11 +665,21 @@ async function reviewAccessRequest({ id, action, reviewerUserId, note }) {
 
         if (action === 'approve') {
             const durationDays = Number(request.durationDays) > 0 ? Number(request.durationDays) : 30;
-            const startedAt = new Date();
-            const endsAt = new Date(startedAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
+            // Extend from the later of "now" and the current end date so approving a
+            // renewal appends time instead of resetting it; a brand-new user starts now.
+            const current = await fetchOne(
+                'SELECT subscription_started_at AS "startedAt", subscription_ends_at AS "endsAt" FROM users WHERE id = $1',
+                [request.userId],
+                client,
+            );
+            const now = Date.now();
+            const currentEnd = current?.endsAt ? new Date(current.endsAt).getTime() : 0;
+            const base = Math.max(now, currentEnd);
+            const endsAt = new Date(base + durationDays * 24 * 60 * 60 * 1000);
+            const startedAt = current?.startedAt ? new Date(current.startedAt).toISOString() : new Date().toISOString();
             await runQuery(
                 'UPDATE users SET status = $1, subscription_started_at = $2, subscription_ends_at = $3 WHERE id = $4',
-                ['approved', startedAt.toISOString(), endsAt.toISOString(), request.userId],
+                ['approved', startedAt, endsAt.toISOString(), request.userId],
                 client,
             );
         } else {
@@ -725,6 +735,94 @@ async function renewSubscription({ userId, durationDays }) {
 
         return { email: user.email || '', name: user.name || '', endsAt: endsAt.toISOString() };
     });
+}
+
+// Changes a logged-in user's password. Verifies the current password for
+// credentials accounts; OAuth accounts (no password yet) may set one directly.
+async function changePassword({ userId, currentPassword, newPassword }) {
+    await ensurePublicSchema();
+
+    const user = await fetchOne('SELECT password_hash AS "passwordHash" FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    if (user.passwordHash) {
+        if (!bcrypt.compareSync(String(currentPassword || ''), user.passwordHash)) {
+            throw new Error('Current password is incorrect.');
+        }
+    }
+
+    const next = String(newPassword || '');
+    if (next.length < 8) {
+        throw new Error('New password must be at least 8 characters.');
+    }
+
+    const passwordHash = bcrypt.hashSync(next, 10);
+    await runQuery('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+
+    return { ok: true };
+}
+
+// Account/subscription snapshot for the logged-in user's settings page.
+async function getUserAccountInfo(userId) {
+    await ensurePublicSchema();
+
+    const user = await fetchOne(
+        `SELECT email, name, status,
+                subscription_started_at AS "subscriptionStartedAt",
+                subscription_ends_at AS "subscriptionEndsAt"
+         FROM users WHERE id = $1`,
+        [userId],
+    );
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    const pending = await fetchOne(
+        "SELECT id, plan, amount, created_at AS \"createdAt\" FROM access_requests WHERE user_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+        [userId],
+    );
+
+    return {
+        email: user.email,
+        name: user.name,
+        status: user.status,
+        subscriptionStartedAt: user.subscriptionStartedAt,
+        subscriptionEndsAt: user.subscriptionEndsAt,
+        pendingRenewal: pending || null,
+    };
+}
+
+// Records a self-service renewal payment for an existing user: a new pending
+// access request the super admin will approve (which extends the subscription).
+// Does not change the user's current status/subscription until approved.
+async function createRenewalRequest({ userId, plan, amount, network, durationDays, txReference, proofMime, proofBuffer }) {
+    await ensurePublicSchema();
+
+    const user = await fetchOne('SELECT id FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    await runQuery(
+        `INSERT INTO access_requests
+            (id, user_id, plan, amount, network, duration_days, tx_reference, proof_mime, proof_data, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')`,
+        [
+            generateId(),
+            userId,
+            String(plan || ''),
+            String(amount || ''),
+            String(network || ''),
+            Number(durationDays) > 0 ? Number(durationDays) : 30,
+            String(txReference || ''),
+            String(proofMime || ''),
+            proofBuffer || null,
+        ],
+    );
+
+    return { ok: true };
 }
 
 async function listAllUsers() {
@@ -807,5 +905,8 @@ module.exports = {
     getAccessRequestProof,
     reviewAccessRequest,
     renewSubscription,
+    changePassword,
+    getUserAccountInfo,
+    createRenewalRequest,
     getUserByEmail,
 };
