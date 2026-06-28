@@ -6,6 +6,7 @@ import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import HomePage from '@/components/marketing/HomePage';
 import AccountSettings from '@/components/account/AccountSettings';
+import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 
@@ -443,7 +444,7 @@ function getStoredPdfSettings(): PdfSettings {
  }
 }
 
-type SettingsTab = 'account' | 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
+type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive';
 
@@ -904,6 +905,8 @@ function AuthenticatedHome() {
  const [section, setSection] = useState<Section>('overview');
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+ const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
+ const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
@@ -1080,6 +1083,31 @@ function AuthenticatedHome() {
    window.clearTimeout(timeoutId);
   };
  }, [loadData]);
+
+ // Load the user's workspaces for the sidebar switcher (shown only when 2+).
+ useEffect(() => {
+  let mounted = true;
+  accountingApi
+   .listWorkspaces()
+   .then(({ workspaces, defaultWorkspaceId }) => {
+    if (!mounted) return;
+    setUserWorkspaces(workspaces);
+    setActiveWorkspaceIdState(accountingApi.getActiveWorkspaceId() || defaultWorkspaceId || workspaces[0]?.id || null);
+   })
+   .catch(() => {
+    /* non-fatal */
+   });
+  return () => {
+   mounted = false;
+  };
+ }, []);
+
+ const onSwitchWorkspace = (id: string) => {
+  if (!id || id === activeWorkspaceId) return;
+  accountingApi.setActiveWorkspaceId(id);
+  // Full reload to cleanly re-scope all workspace-bound state.
+  window.location.reload();
+ };
 
  useEffect(() => {
   const applyHashSection = () => {
@@ -3366,6 +3394,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
  const settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }> = [
   { key: 'account', label: t('account_title'), icon: 'auth' },
+  { key: 'team', label: t('team_title'), icon: 'clients' },
   { key: 'database', label: t('settings_database_title'), icon: 'database' },
   { key: 'language', label: t('settings_language_title'), icon: 'settings' },
   { key: 'pdf', label: t('settings_pdf_title'), icon: 'settings' },
@@ -5374,6 +5403,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
     {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
     {settingsTab === 'account' ? <AccountSettings /> : null}
+    {settingsTab === 'team' ? <TeamSettings /> : null}
     {settingsTab === 'database' ? databaseSection : null}
     {settingsTab === 'language' ? languageSection : null}
     {settingsTab === 'pdf' ? pdfSettingsSection : null}
@@ -5466,6 +5496,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        <span className="shrink-0">{renderIcon('auth', 'h-4 w-4')}</span>
        {isSidebarCollapsed ? null : <span>{t('sign_out')}</span>}
       </button>
+      {!isSidebarCollapsed && userWorkspaces.length > 1 ? (
+       <div className="px-3 pb-1 pt-1">
+        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-blue-300">{t('workspace_label')}</label>
+        <select
+         value={activeWorkspaceId ?? ''}
+         onChange={(event) => onSwitchWorkspace(event.target.value)}
+         className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
+        >
+         {userWorkspaces.map((workspace) => (
+          <option key={workspace.id} value={workspace.id}>
+           {workspace.name}
+          </option>
+         ))}
+        </select>
+       </div>
+      ) : null}
       {isSidebarCollapsed ? null : (
        <div className="px-3 pb-2 pt-1">
         <select

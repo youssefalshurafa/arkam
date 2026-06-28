@@ -308,6 +308,119 @@ async function listWorkspaceMembers({ workspaceId, userId }) {
     return result.rows;
 }
 
+// Invites a teammate into a workspace. Existing users are added/role-updated
+// immediately; brand-new people get an approved, password-less, workspace-less
+// account plus a set-password token to email them. Teammates skip the payment flow.
+async function inviteWorkspaceMember({ workspaceId, email, name, role, invitedByUserId }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const displayName = String(name || '').trim();
+    const normalizedRole = String(role || 'member').trim().toLowerCase();
+
+    if (!normalizedEmail) {
+        throw new Error('Email is required.');
+    }
+    if (!['admin', 'member', 'viewer'].includes(normalizedRole)) {
+        throw new Error('Role must be one of: admin, member, viewer.');
+    }
+
+    const actorRole = await assertWorkspaceAccess(invitedByUserId, workspaceId);
+    if (!['owner', 'admin'].includes(actorRole)) {
+        throw new Error('Only owners and admins can add workspace members.');
+    }
+
+    const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+
+    if (existing) {
+        await runQuery(
+            `INSERT INTO workspace_members (workspace_id, user_id, role)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (workspace_id, user_id)
+             DO UPDATE SET role = EXCLUDED.role
+             WHERE workspace_members.role <> 'owner'`,
+            [workspaceId, existing.id, normalizedRole],
+        );
+        return { status: 'added', email: normalizedEmail };
+    }
+
+    const userId = generateId();
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7-day invite window
+
+    await withTransaction(async (client) => {
+        await runQuery(
+            "INSERT INTO users (id, email, name, status) VALUES ($1, $2, $3, 'approved')",
+            [userId, normalizedEmail, displayName || normalizedEmail],
+            client,
+        );
+        await runQuery(
+            'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)',
+            [workspaceId, userId, normalizedRole],
+            client,
+        );
+        await runQuery(
+            'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
+            [generateId(), userId, tokenHash, expiresAt],
+            client,
+        );
+    });
+
+    return { status: 'invited', email: normalizedEmail, rawToken };
+}
+
+async function updateWorkspaceMemberRole({ workspaceId, targetUserId, role, actorUserId }) {
+    await ensurePublicSchema();
+
+    const normalizedRole = String(role || '').trim().toLowerCase();
+    if (!['admin', 'member', 'viewer'].includes(normalizedRole)) {
+        throw new Error('Role must be one of: admin, member, viewer.');
+    }
+
+    const actorRole = await assertWorkspaceAccess(actorUserId, workspaceId);
+    if (!['owner', 'admin'].includes(actorRole)) {
+        throw new Error('Only owners and admins can change member roles.');
+    }
+    if (targetUserId === actorUserId) {
+        throw new Error('You cannot change your own role.');
+    }
+
+    const target = await fetchOne('SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2', [workspaceId, targetUserId]);
+    if (!target) {
+        throw new Error('Member not found.');
+    }
+    if (target.role === 'owner') {
+        throw new Error('The workspace owner cannot be changed.');
+    }
+
+    await runQuery('UPDATE workspace_members SET role = $1 WHERE workspace_id = $2 AND user_id = $3', [normalizedRole, workspaceId, targetUserId]);
+    return { ok: true };
+}
+
+async function removeWorkspaceMember({ workspaceId, targetUserId, actorUserId }) {
+    await ensurePublicSchema();
+
+    const actorRole = await assertWorkspaceAccess(actorUserId, workspaceId);
+    if (!['owner', 'admin'].includes(actorRole)) {
+        throw new Error('Only owners and admins can remove members.');
+    }
+    if (targetUserId === actorUserId) {
+        throw new Error('You cannot remove yourself from the workspace.');
+    }
+
+    const target = await fetchOne('SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2', [workspaceId, targetUserId]);
+    if (!target) {
+        throw new Error('Member not found.');
+    }
+    if (target.role === 'owner') {
+        throw new Error('The workspace owner cannot be removed.');
+    }
+
+    await runQuery('DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2', [workspaceId, targetUserId]);
+    return { ok: true };
+}
+
 function hashResetToken(token) {
     return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
@@ -891,6 +1004,9 @@ module.exports = {
     assertWorkspaceAccess,
     createWorkspace,
     addWorkspaceMemberByEmail,
+    inviteWorkspaceMember,
+    updateWorkspaceMemberRole,
+    removeWorkspaceMember,
     listWorkspaceMembers,
     requestPasswordReset,
     validatePasswordResetToken,

@@ -114,6 +114,23 @@ async function sendAccessApprovedEmail({ to, name, loginUrl }) {
     await sendEmail({ to, subject, html, text, logLabel: 'ACCESS APPROVED' });
 }
 
+// Sent to a newly invited teammate with a link to set their password and join.
+async function sendWorkspaceInviteEmail({ to, name, inviterName, workspaceName, inviteUrl }) {
+    const subject = `You're invited to Arkam`;
+    const who = inviterName ? `${inviterName}` : 'A teammate';
+    const ws = workspaceName ? ` "${workspaceName}"` : '';
+    const text = `Hi ${name || ''},\n\n${who} invited you to join their Arkam workspace${ws}. Click the link below to set your password and get started:\n\n${inviteUrl}\n\nThis invite link expires in 7 days.`;
+    const html = buildBrandedHtml({
+        heading: "You're invited to Arkam",
+        bodyHtml: `
+            <p style="margin:0 0 24px;font-size:14px;color:#374151;">${who} invited you to join their Arkam workspace${ws ? ` <strong>${ws.trim().replace(/^"|"$/g, '')}</strong>` : ''}. Set your password to get started.</p>
+            <a href="${inviteUrl}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;">Set my password</a>
+            <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;">This invite link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
+        `,
+    });
+    await sendEmail({ to, subject, html, text, logLabel: 'WORKSPACE INVITE' });
+}
+
 // Sent to the user when the super admin rejects their request.
 async function sendAccessRejectedEmail({ to, name, note }) {
     const subject = 'Update on your Arkam access request';
@@ -218,6 +235,7 @@ module.exports = {
     sendAccessRequestNotification,
     sendAccessApprovedEmail,
     sendAccessRejectedEmail,
+    sendWorkspaceInviteEmail,
 };
 
 async function sendPasswordResetEmail({ to, name, resetUrl }) {

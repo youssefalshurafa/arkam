@@ -145,22 +145,67 @@ export const accountingApi = {
    }
    return data as { workspaces: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' | 'member' | 'viewer' }>; defaultWorkspaceId: string | null };
   }),
- addWorkspaceMember: ({ workspaceId, email, role }: { workspaceId: string; email: string; role: 'admin' | 'member' | 'viewer' }) =>
+ listWorkspaceMembers: (workspaceId: string) =>
+  fetch(`/api/workspaces/${workspaceId}/members`, { method: 'GET', credentials: 'include' }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to list members.');
+   }
+   return data as { members: WorkspaceMember[] };
+  }),
+ inviteWorkspaceMember: ({ workspaceId, name, email, role }: { workspaceId: string; name: string; email: string; role: WorkspaceRole }) =>
   fetch(`/api/workspaces/${workspaceId}/members`, {
    method: 'POST',
    credentials: 'include',
    headers: { 'Content-Type': 'application/json' },
-   body: JSON.stringify({ email, role }),
+   body: JSON.stringify({ name, email, role }),
   }).then(async (response) => {
    const data = await response.json();
    if (!response.ok) {
-    throw new Error(data?.error || 'Failed to add workspace member.');
+    throw new Error(data?.error || 'Failed to invite member.');
    }
-   return data as { ok: true; member: { userId: string; email: string; role: 'admin' | 'member' | 'viewer' } };
+   return data as { ok: true; status: 'invited' | 'added' };
+  }),
+ updateWorkspaceMemberRole: ({ workspaceId, targetUserId, role }: { workspaceId: string; targetUserId: string; role: WorkspaceRole }) =>
+  fetch(`/api/workspaces/${workspaceId}/members`, {
+   method: 'PATCH',
+   credentials: 'include',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ targetUserId, role }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to update role.');
+   }
+   return data as { ok: true };
+  }),
+ removeWorkspaceMember: ({ workspaceId, targetUserId }: { workspaceId: string; targetUserId: string }) =>
+  fetch(`/api/workspaces/${workspaceId}/members`, {
+   method: 'DELETE',
+   credentials: 'include',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ targetUserId }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to remove member.');
+   }
+   return data as { ok: true };
   }),
  exportLedgerPdf: ({ html, defaultFileName }: { html: string; defaultFileName: string }) => exportHtmlAsPdfFallback(html, defaultFileName),
  exportWorkspaceData: () => request<WorkspaceBackup>({ action: 'exportWorkspaceData' }),
  importWorkspaceData: (backup: WorkspaceBackup) => request<{ ok: true }>({ action: 'importWorkspaceData', payload: backup }),
+};
+
+export type WorkspaceRole = 'admin' | 'member' | 'viewer';
+
+export type WorkspaceMember = {
+ id: string;
+ email: string;
+ name: string;
+ image: string | null;
+ role: 'owner' | 'admin' | 'member' | 'viewer';
+ addedAt: string;
 };
 
 export type WorkspaceBackup = {
