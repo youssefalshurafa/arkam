@@ -371,7 +371,7 @@ export default function AccountSettings() {
       onClick={() => setPasswordOpen(true)}
       className="mt-5 rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
      >
-      {t('account_password_title')}
+      {t('account_password_change')}
      </button>
     ) : (
     <form onSubmit={(e) => void onChangePassword(e)} className="mt-5 max-w-sm space-y-4">

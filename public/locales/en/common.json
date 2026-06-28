@@ -442,6 +442,7 @@
  "account_password_changed": "Password changed successfully.",
  "account_password_failed": "Failed to change password.",
  "account_password_save": "Change password",
+ "account_password_change": "Change password",
  "account_password_saving": "Saving…",
  "team_title": "Team",
  "team_role_owner": "Owner",

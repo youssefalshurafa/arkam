@@ -441,6 +441,7 @@
  "account_password_changed": "Mot de passe modifié avec succès.",
  "account_password_failed": "Échec de la modification du mot de passe.",
  "account_password_save": "Modifier le mot de passe",
+ "account_password_change": "Modifier le mot de passe",
  "account_password_saving": "Enregistrement…",
  "team_title": "Équipe",
  "team_role_owner": "Propriétaire",

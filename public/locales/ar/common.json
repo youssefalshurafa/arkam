@@ -442,6 +442,7 @@
  "account_password_changed": "تم تغيير كلمة المرور بنجاح.",
  "account_password_failed": "فشل تغيير كلمة المرور.",
  "account_password_save": "تغيير كلمة المرور",
+ "account_password_change": "تغيير كلمة المرور",
  "account_password_saving": "جارٍ الحفظ…",
  "team_title": "الفريق",
  "team_role_owner": "المالك",
