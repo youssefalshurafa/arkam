@@ -1949,6 +1949,15 @@ function AuthenticatedHome() {
   const hours = Math.round(diffMs / 3600000);
   const days = Math.round(diffMs / 86400000);
 
+  const exact = new Date(lastBackupAt).toLocaleString(language, {
+   year: 'numeric',
+   month: 'short',
+   day: 'numeric',
+   hour: '2-digit',
+   minute: '2-digit',
+   second: '2-digit',
+  });
+
   let relative: string;
   try {
    const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
@@ -1957,10 +1966,10 @@ function AuthenticatedHome() {
    else if (Math.abs(minutes) >= 1) relative = rtf.format(-minutes, 'minute');
    else relative = rtf.format(0, 'minute');
   } catch {
-   relative = new Date(lastBackupAt).toLocaleString(language);
+   relative = exact;
   }
 
-  return t('backup_last_label').replace('{time}', relative);
+  return t('backup_last_label').replace('{time}', `${relative} (${exact})`);
  }
 
  function onStartEditCurrencySymbol(currency: Currency) {
