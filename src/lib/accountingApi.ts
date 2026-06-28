@@ -69,13 +69,27 @@ function exportHtmlAsPdfFallback(html: string, title: string): Promise<{ ok: boo
   popup.print();
  };
 
+ // Wait for the brand logo (and any other images) to finish loading so they render in the PDF.
+ const waitForImages = () => {
+  const images = Array.from(popup.document.images || []);
+  return Promise.all(
+   images.map((img) =>
+    img.complete
+     ? Promise.resolve()
+     : new Promise<void>((resolve) => {
+        img.addEventListener('load', () => resolve(), { once: true });
+        img.addEventListener('error', () => resolve(), { once: true });
+       }),
+   ),
+  );
+ };
+
  // Wait for web fonts (e.g. Cairo) to load before printing so they don't fall back to a system font.
  const popupFonts = (popup.document as Document & { fonts?: FontFaceSet }).fonts;
- if (popupFonts?.ready) {
-  popupFonts.ready.then(() => setTimeout(triggerPrint, 150)).catch(() => triggerPrint());
- } else {
-  setTimeout(triggerPrint, 400);
- }
+ const fontsReady = popupFonts?.ready ?? Promise.resolve();
+ Promise.all([fontsReady, waitForImages()])
+  .then(() => setTimeout(triggerPrint, 150))
+  .catch(() => setTimeout(triggerPrint, 400));
 
  return Promise.resolve({ ok: true });
 }

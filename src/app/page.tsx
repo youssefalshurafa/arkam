@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -3175,6 +3176,7 @@ function AuthenticatedHome() {
   const headerCells = visibleCols.map((col) => `<th${col.isNum ? ' class="num"' : ''}>${col.header}</th>`).join('');
 
   const dir = isRTL ? 'rtl' : 'ltr';
+  const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const clientName = selectedClientForLedger?.name ?? '';
   const exportDate = new Date().toLocaleDateString(language);
 
@@ -3200,6 +3202,8 @@ function AuthenticatedHome() {
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left { display: flex; align-items: center; gap: 14px; }
+ .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
@@ -3230,8 +3234,11 @@ function AuthenticatedHome() {
 <body>
 <div class="header">
  <div class="header-left">
-  <h1>Arkam Exchange</h1>
-  <p>${t('client_ledger_statement')}</p>
+  <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
+  <div>
+   <h1>Arkam Exchange</h1>
+   <p>${t('client_ledger_statement')}</p>
+  </div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
@@ -3314,6 +3321,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    .join('');
 
   const dir = isRTL ? 'rtl' : 'ltr';
+  const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const exportDate = new Date().toLocaleDateString(language);
 
   return `<!DOCTYPE html>
@@ -3327,6 +3335,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left { display: flex; align-items: center; gap: 14px; }
+ .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
@@ -3348,8 +3358,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 <body>
 <div class="header">
  <div class="header-left">
-  <h1>Arkam Exchange</h1>
-  <p>${esc(t('archive_title'))}</p>
+  <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
+  <div>
+   <h1>Arkam Exchange</h1>
+   <p>${esc(t('archive_title'))}</p>
+  </div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
@@ -3597,6 +3610,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   const esc = (value: string) =>
    String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
   const dir = isRTL ? 'rtl' : 'ltr';
+  const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const exportDate = new Date().toLocaleDateString(language);
   const rangeLabel = [transactionExportFrom, transactionExportTo].filter(Boolean).join(' → ');
   const headerCells = headers.map((header) => `<th>${esc(header)}</th>`).join('');
@@ -3615,6 +3629,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left { display: flex; align-items: center; gap: 14px; }
+ .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
@@ -3631,8 +3647,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 <body>
 <div class="header">
  <div class="header-left">
-  <h1>Arkam Exchange</h1>
-  <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
+  <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
+  <div>
+   <h1>Arkam Exchange</h1>
+   <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
+  </div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
@@ -5438,9 +5457,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      {/* Brand */}
      <div className={`flex items-center border-b border-white/10 px-3 py-3 ${isSidebarCollapsed ? 'justify-center' : 'justify-between gap-2'}`}>
       {!isSidebarCollapsed && (
-       <div className="min-w-0">
-        <span className="block text-xs font-bold tracking-widest text-white">ARKAM</span>
-        <span className="block truncate text-xs leading-tight text-blue-300">{t('app_description')}</span>
+       <div className="flex min-w-0 items-center rounded-lg bg-white px-2.5 py-1.5 shadow-sm">
+        <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} priority className="h-9 w-auto" />
        </div>
       )}
       <button
@@ -5542,7 +5560,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      {/* Top bar - mobile navigation */}
      <div className="border-b border-[#15304f] bg-[#1e3a5f] px-4 py-2 lg:hidden">
       <div className="flex flex-wrap items-center justify-between gap-2">
-       <span className="text-sm font-bold tracking-widest text-white">ARKAM</span>
+       <span className="inline-flex items-center rounded-md bg-white px-1.5 py-1 shadow-sm">
+        <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} className="h-7 w-auto" />
+       </span>
        <div className="flex flex-wrap items-center gap-1">
         {sidebarItems.map((item) => {
          const isActive = item.isActive;
