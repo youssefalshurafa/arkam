@@ -196,7 +196,11 @@ async function ensureWorkspaceSchema(workspaceId) {
     const existing = workspaceSchemaReadyPromises.get(schemaName);
 
     if (existing) {
-        return schemaName;
+        // Return the in-flight promise (not the bare name) so concurrent callers
+        // WAIT for the schema/tables to finish being created before querying them.
+        // Returning the name early caused a race: parallel queries on a workspace's
+        // first load could hit "relation ... does not exist".
+        return existing;
     }
 
     const schemaReadyPromise = (async () => {
