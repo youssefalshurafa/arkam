@@ -5591,11 +5591,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     <div className="flex min-w-0 flex-1 flex-col overflow-auto">
      {/* Top bar - mobile navigation */}
      <div className="border-b border-[#15304f] bg-[#1e3a5f] px-4 py-2 lg:hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-       <span className="inline-flex items-center rounded-md bg-white px-1.5 py-1 shadow-sm">
+      <div className="flex items-center justify-between gap-2 overflow-x-auto">
+       <span className="inline-flex shrink-0 items-center rounded-md bg-white px-1.5 py-1 shadow-sm">
         <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} className="h-7 w-auto" />
        </span>
-       <div className="flex flex-wrap items-center gap-1">
+       <div className="flex shrink-0 items-center gap-1">
         {sidebarItems.map((item) => {
          const isActive = item.isActive;
          return (
@@ -6302,7 +6302,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className="px-4 py-3 font-medium text-slate-900"
+                          className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap"
                          >
                           {entry.isAdjustment ? (
                            <span className="text-slate-400">-</span>
@@ -6593,7 +6593,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className="px-4 py-3 text-slate-500"
+                          className="px-4 py-3 text-slate-500 whitespace-nowrap"
                          >
                           {entry.isAdjustment ? (
                            entry.description || '-'
@@ -7943,7 +7943,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.description ? (
-                   <td className="px-4 py-3 text-slate-600">
+                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                     {isEditingRow && draft ? (
                      <input
                       type="text"
@@ -7958,7 +7958,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountFrom ? (
-                   <td className="px-4 py-3 font-medium text-slate-900">
+                   <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
                     {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <select
@@ -8084,7 +8084,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountTo ? (
-                   <td className="px-4 py-3 font-medium text-slate-900">
+                   <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
                     {isEditingRow && draft && txn.isAdjustment ? (
                      <div className="grid grid-cols-2 gap-2">
                       <button
