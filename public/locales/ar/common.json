@@ -55,6 +55,7 @@
  "backup_download_loading": "جارٍ التحضير…",
  "backup_download_success": "تم تنزيل النسخة الاحتياطية بنجاح.",
  "backup_last_label": "آخر نسخة احتياطية: {time}",
+ "backup_last_device": "آخر نسخة احتياطية: {time} · من {device}",
  "backup_last_never": "لم يتم تنزيل أي نسخة احتياطية بعد.",
  "backup_restore_title": "استعادة نسخة احتياطية",
  "backup_restore_hint": "ارفع ملف نسخة احتياطية نزّلته سابقاً. سيؤدي ذلك إلى استبدال جميع البيانات الحالية في مساحة العمل هذه.",

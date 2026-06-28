@@ -232,6 +232,27 @@ async function assertWorkspaceAccess(userId, workspaceId) {
     return role;
 }
 
+// Read the last-backup marker for a workspace (shared across all devices).
+async function getWorkspaceBackupInfo(workspaceId) {
+    await ensurePublicSchema();
+
+    const row = await fetchOne('SELECT last_backup_at, last_backup_device FROM workspaces WHERE id = $1 LIMIT 1', [workspaceId]);
+    return {
+        lastBackupAt: row?.last_backup_at ? new Date(row.last_backup_at).toISOString() : null,
+        lastBackupDevice: row?.last_backup_device || null,
+    };
+}
+
+// Stamp the workspace with the current time and the device the backup came from.
+async function recordWorkspaceBackup(workspaceId, device) {
+    await ensurePublicSchema();
+
+    const now = new Date().toISOString();
+    const deviceLabel = String(device || '').trim().slice(0, 120) || null;
+    await runQuery('UPDATE workspaces SET last_backup_at = $1, last_backup_device = $2 WHERE id = $3', [now, deviceLabel, workspaceId]);
+    return { lastBackupAt: now, lastBackupDevice: deviceLabel };
+}
+
 async function createWorkspace(ownerUserId, name) {
     const workspaceName = String(name || '').trim();
     if (!workspaceName) {
@@ -1002,6 +1023,8 @@ module.exports = {
     getDefaultWorkspaceIdByUserId,
     getWorkspaceRole,
     assertWorkspaceAccess,
+    getWorkspaceBackupInfo,
+    recordWorkspaceBackup,
     createWorkspace,
     addWorkspaceMemberByEmail,
     inviteWorkspaceMember,

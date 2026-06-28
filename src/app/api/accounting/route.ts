@@ -18,6 +18,10 @@ const readOnlyActions = new Set([
  'listTransactions',
  'listClientAdjustments',
  'exportWorkspaceData',
+ // Backup marker: reads + the post-download stamp. Allowed for anyone who can
+ // export (viewers included), so it stays out of the viewer-blocked writeActions.
+ 'getBackupInfo',
+ 'recordBackup',
 ]);
 
 const writeActions = new Set([
@@ -272,6 +276,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.exportWorkspaceData(appLike));
    case 'importWorkspaceData':
     return NextResponse.json(await db.importWorkspaceData(appLike, payload));
+   case 'getBackupInfo':
+    return NextResponse.json(await authDb.getWorkspaceBackupInfo(workspaceId));
+   case 'recordBackup':
+    return NextResponse.json(await authDb.recordWorkspaceBackup(workspaceId, (payload as { device?: string } | null)?.device));
    default:
     return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });
   }

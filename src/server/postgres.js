@@ -156,6 +156,12 @@ async function ensurePublicSchema() {
                     ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
                     ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
 
+                    -- Last data backup, stored on the workspace so the indicator syncs
+                    -- across every device the user signs in from (not just the browser
+                    -- that downloaded it). last_backup_device records where it came from.
+                    ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ;
+                    ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_backup_device TEXT;
+
                     -- One payment/approval request per signup. The payment screenshot is stored
                     -- inline as bytea and only served through the super-admin-gated proof endpoint.
                     CREATE TABLE IF NOT EXISTS access_requests (

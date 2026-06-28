@@ -55,6 +55,7 @@
  "backup_download_loading": "Préparation…",
  "backup_download_success": "Sauvegarde téléchargée avec succès.",
  "backup_last_label": "Dernière sauvegarde : {time}",
+ "backup_last_device": "Dernière sauvegarde : {time} · depuis {device}",
  "backup_last_never": "Aucune sauvegarde téléchargée pour le moment.",
  "backup_restore_title": "Restaurer la sauvegarde",
  "backup_restore_hint": "Importez un fichier de sauvegarde téléchargé précédemment. Cela remplace toutes les données actuelles de cet espace de travail.",

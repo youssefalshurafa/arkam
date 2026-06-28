@@ -209,6 +209,13 @@ export const accountingApi = {
  exportLedgerPdf: ({ html, defaultFileName }: { html: string; defaultFileName: string }) => exportHtmlAsPdfFallback(html, defaultFileName),
  exportWorkspaceData: () => request<WorkspaceBackup>({ action: 'exportWorkspaceData' }),
  importWorkspaceData: (backup: WorkspaceBackup) => request<{ ok: true }>({ action: 'importWorkspaceData', payload: backup }),
+ getBackupInfo: () => request<BackupInfo>({ action: 'getBackupInfo' }),
+ recordBackup: (device: string) => request<BackupInfo>({ action: 'recordBackup', payload: { device } }),
+};
+
+export type BackupInfo = {
+ lastBackupAt: string | null;
+ lastBackupDevice: string | null;
 };
 
 export type WorkspaceRole = 'admin' | 'member' | 'viewer';

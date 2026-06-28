@@ -56,6 +56,7 @@
  "backup_download_loading": "Preparing…",
  "backup_download_success": "Backup downloaded successfully.",
  "backup_last_label": "Last backup: {time}",
+ "backup_last_device": "Last backup: {time} · from {device}",
  "backup_last_never": "No backup downloaded yet.",
  "backup_restore_title": "Restore backup",
  "backup_restore_hint": "Upload a previously downloaded backup file. This replaces all current data in this workspace.",

@@ -9,7 +9,7 @@ import HomePage from '@/components/marketing/HomePage';
 import AccountSettings from '@/components/account/AccountSettings';
 import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
-import { accountingApi } from '@/lib/accountingApi';
+import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
 
 type DbInfo = {
  provider: string;
@@ -297,7 +297,29 @@ const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
 const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
-const lastBackupAtStorageKey = 'arkam:last-backup-at';
+
+// Friendly "Browser on OS" label for the device that downloaded a backup, so the
+// last-backup indicator can say where it came from. Best-effort UA parsing.
+function getDeviceLabel(): string {
+ if (typeof navigator === 'undefined') return 'Unknown device';
+ const ua = navigator.userAgent;
+ const os =
+  /Windows/i.test(ua) ? 'Windows'
+   : /iPhone/i.test(ua) ? 'iPhone'
+    : /iPad/i.test(ua) ? 'iPad'
+     : /Android/i.test(ua) ? 'Android'
+      : /Mac OS X|Macintosh/i.test(ua) ? 'Mac'
+       : /Linux/i.test(ua) ? 'Linux'
+        : 'device';
+ const browser =
+  /Edg\//i.test(ua) ? 'Edge'
+   : /OPR\/|Opera/i.test(ua) ? 'Opera'
+    : /Firefox/i.test(ua) ? 'Firefox'
+     : /Chrome/i.test(ua) ? 'Chrome'
+      : /Safari/i.test(ua) ? 'Safari'
+       : 'Browser';
+ return `${browser} on ${os}`;
+}
 
 type PdfColVisibility = Record<LedgerColumnKey, boolean>;
 
@@ -1031,12 +1053,8 @@ function AuthenticatedHome() {
  const [isBackingUp, setIsBackingUp] = useState(false);
  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
+ const [lastBackupDevice, setLastBackupDevice] = useState<string | null>(null);
  const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
-
- useEffect(() => {
-  if (typeof window === 'undefined') return;
-  setLastBackupAt(window.localStorage.getItem(lastBackupAtStorageKey));
- }, []);
 
  const loadData = useCallback(async () => {
   if (!accountingApi) {
@@ -1045,14 +1063,15 @@ function AuthenticatedHome() {
   }
 
   try {
-   const [organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows] = (await Promise.all([
+   const [organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows, backupInfo] = (await Promise.all([
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
     accountingApi.listTransactions(),
     accountingApi.listAllClientAccounts(),
     accountingApi.listClientAdjustments(),
-   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[]];
+    accountingApi.getBackupInfo(),
+   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[], BackupInfo];
 
    let nextCurrencies = currencyRows;
    if (!nextCurrencies.length) {
@@ -1066,6 +1085,8 @@ function AuthenticatedHome() {
    setTransactions(transactionRows);
    setAdjustments(adjustmentRows);
    setClientAccounts(clientAccountRows);
+   setLastBackupAt(backupInfo?.lastBackupAt ?? null);
+   setLastBackupDevice(backupInfo?.lastBackupDevice ?? null);
    setSelectedOrganizationForClients((current) => (current ? (organizationRows.find((organization) => organization.id === current.id) ?? null) : null));
    setSelectedClientForAccounts((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setSelectedClientForLedger((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
@@ -1908,9 +1929,16 @@ function AuthenticatedHome() {
    link.click();
    document.body.removeChild(link);
    URL.revokeObjectURL(url);
-   const now = new Date().toISOString();
-   if (typeof window !== 'undefined') window.localStorage.setItem(lastBackupAtStorageKey, now);
-   setLastBackupAt(now);
+   // Stamp the backup server-side so the indicator syncs to every device.
+   try {
+    const recorded = await accountingApi.recordBackup(getDeviceLabel());
+    setLastBackupAt(recorded.lastBackupAt);
+    setLastBackupDevice(recorded.lastBackupDevice);
+   } catch {
+    // Download already succeeded; a failed stamp is non-fatal.
+    setLastBackupAt(new Date().toISOString());
+    setLastBackupDevice(getDeviceLabel());
+   }
    setError('');
    setImportSummary(t('backup_download_success'));
   } catch (e) {
@@ -1999,7 +2027,11 @@ function AuthenticatedHome() {
    relative = exact;
   }
 
-  return t('backup_last_label').replace('{time}', `${relative} (${exact})`);
+  const time = `${relative} (${exact})`;
+  if (lastBackupDevice) {
+   return t('backup_last_device').replace('{time}', time).replace('{device}', lastBackupDevice);
+  }
+  return t('backup_last_label').replace('{time}', time);
  }
 
  function onStartEditCurrencySymbol(currency: Currency) {
