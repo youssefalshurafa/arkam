@@ -10,6 +10,9 @@ export const dynamic = 'force-dynamic';
 type RequestBody = {
  name?: string;
  email?: string;
+ phone?: string;
+ company?: string;
+ country?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -19,6 +22,9 @@ export async function POST(request: NextRequest) {
   const email = String(body.email || '')
    .trim()
    .toLowerCase();
+  const phone = String(body.phone || '').trim();
+  const company = String(body.company || '').trim();
+  const country = String(body.country || '').trim();
 
   if (!name) {
    return NextResponse.json({ error: 'Full name is required.' }, { status: 400 });
@@ -28,8 +34,10 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
   }
 
+  // Phone, company, and country are optional.
+
   // Always respond the same way whether the email exists or not (anti-enumeration)
-  const { rawToken } = await authDb.createEmailVerificationToken({ email, name });
+  const { rawToken } = await authDb.createEmailVerificationToken({ email, name, phone, company, country });
 
   const verificationUrl = `${request.nextUrl.origin}/verify-email/${rawToken}`;
   await sendVerificationEmail({ to: email, name, verificationUrl });

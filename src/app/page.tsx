@@ -4,7 +4,7 @@ import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, us
 import { useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import LoginPage from '@/components/auth/LoginPage';
+import HomePage from '@/components/marketing/HomePage';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 
@@ -9053,7 +9053,7 @@ export default function Home() {
  }
 
  if (status !== 'authenticated') {
-  return <LoginPage />;
+  return <HomePage />;
  }
 
  return <AuthenticatedHome />;

@@ -138,6 +138,44 @@ async function ensurePublicSchema() {
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
                     CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
+
+                    -- Access-approval gate: new signups are 'pending' until the super admin approves
+                    -- their payment. Existing users default to 'approved' so nobody is locked out.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
+
+                    -- Subscription window, set when the super admin approves/renews a payment.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMPTZ;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMPTZ;
+
+                    -- Extra profile details collected at signup (carried through the
+                    -- verification token, then persisted on the user).
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
+
+                    -- One payment/approval request per signup. The payment screenshot is stored
+                    -- inline as bytea and only served through the super-admin-gated proof endpoint.
+                    CREATE TABLE IF NOT EXISTS access_requests (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        plan TEXT NOT NULL DEFAULT '',
+                        amount TEXT NOT NULL DEFAULT '',
+                        network TEXT NOT NULL DEFAULT '',
+                        tx_reference TEXT NOT NULL DEFAULT '',
+                        proof_mime TEXT NOT NULL DEFAULT '',
+                        proof_data BYTEA,
+                        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+                        note TEXT NOT NULL DEFAULT '',
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        reviewed_at TIMESTAMPTZ,
+                        reviewed_by TEXT
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_access_requests_status ON access_requests(status);
+                    CREATE INDEX IF NOT EXISTS idx_access_requests_user_id ON access_requests(user_id);
                 `);
             });
         })().catch((error) => {
