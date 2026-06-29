@@ -204,6 +204,7 @@ type LedgerTransactionDraft = {
  direction: 'incoming' | 'outgoing';
  counterpartyAccountId: number | null;
  type: string;
+ currencyId: number;
  amount: string;
  exchangeRate: string;
  commission: string;
@@ -1545,6 +1546,7 @@ function AuthenticatedHome() {
    direction: isOutgoing ? 'outgoing' : 'incoming',
    counterpartyAccountId: isOutgoing ? transaction.accountToId : transaction.accountFromId,
    type: transaction.type,
+   currencyId: transaction.currencyId,
    amount: String(transaction.amount),
    exchangeRate: rateStr,
    commission: String(isOutgoing ? transaction.commissionFrom : transaction.commissionTo),
@@ -1719,7 +1721,7 @@ function AuthenticatedHome() {
    id: transaction.id,
    accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
    accountToId: draft.direction === 'outgoing' ? draft.counterpartyAccountId : draft.ledgerAccountId,
-   currencyId: transaction.currencyId,
+   currencyId: draft.currencyId,
    amount,
    type: draft.type,
    exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
@@ -7893,7 +7895,23 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           key={column.key}
                           className="px-4 py-3 text-slate-500 whitespace-nowrap"
                          >
-                          {entry.currencySymbol ? (
+                          {entry.isAdjustment ? (
+                           entry.currencySymbol ? (
+                            <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
+                           ) : (
+                            entry.currencyCode || '-'
+                           )
+                          ) : draft ? (
+                           <select
+                            value={draft.currencyId}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: Number(event.target.value) })}
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           >
+                            {enabledCurrencies.map((cur) => (
+                             <option key={cur.id} value={cur.id}>{cur.code}</option>
+                            ))}
+                           </select>
+                          ) : entry.currencySymbol ? (
                            <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
                           ) : (
                            entry.currencyCode || '-'
