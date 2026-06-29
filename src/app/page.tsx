@@ -1049,6 +1049,7 @@ function AuthenticatedHome() {
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
  const [editingRowIds, setEditingRowIds] = useState<Set<number>>(new Set());
+ const [isEditAllTransactions, setIsEditAllTransactions] = useState(false);
  const [dragRowId, setDragRowId] = useState<number | null>(null);
  const [dragOverRowId, setDragOverRowId] = useState<number | null>(null);
  const [dragOverHalf, setDragOverHalf] = useState<'top' | 'bottom'>('bottom');
@@ -3395,7 +3396,7 @@ function AuthenticatedHome() {
   return `${draftDate} ${timePart}`;
  }
 
- async function onSaveTransactionTableRow(transactionId: number) {
+ async function onSaveTransactionTableRow(transactionId: number, { skipReload = false } = {}) {
   if (!accountingApi) {
    setError(t('error_bridge'));
    return;
@@ -3410,11 +3411,13 @@ function AuthenticatedHome() {
 
   // No changes were made — just exit edit mode like cancel
   if (!draft) {
-   setEditingRowIds((prev) => {
-    const next = new Set(prev);
-    next.delete(transactionId);
-    return next;
-   });
+   if (!skipReload) {
+    setEditingRowIds((prev) => {
+     const next = new Set(prev);
+     next.delete(transactionId);
+     return next;
+    });
+   }
    return;
   }
 
@@ -3444,12 +3447,14 @@ function AuthenticatedHome() {
      createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
     });
     setError('');
-    await loadData();
-    setEditingRowIds((prev) => {
-     const next = new Set(prev);
-     next.delete(transactionId);
-     return next;
-    });
+    if (!skipReload) {
+     await loadData();
+     setEditingRowIds((prev) => {
+      const next = new Set(prev);
+      next.delete(transactionId);
+      return next;
+     });
+    }
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
    }
@@ -3486,15 +3491,39 @@ function AuthenticatedHome() {
     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    });
    setError('');
-   await loadData();
-   setEditingRowIds((prev) => {
-    const next = new Set(prev);
-    next.delete(transactionId);
-    return next;
-   });
+   if (!skipReload) {
+    await loadData();
+    setEditingRowIds((prev) => {
+     const next = new Set(prev);
+     next.delete(transactionId);
+     return next;
+    });
+   }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
+ }
+
+ function onEditAllTransactions() {
+  const newIds = paginatedTransactions.filter((tx) => !editingRowIds.has(tx.id)).map((tx) => tx.id);
+  setEditingRowIds((prev) => new Set([...prev, ...newIds]));
+  setIsEditAllTransactions(true);
+ }
+
+ function onCancelAllTransactions() {
+  const ids = paginatedTransactions.map((tx) => tx.id);
+  setEditingRowIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n; });
+  setTransactionTableDrafts((prev) => { const n = { ...prev }; ids.forEach((id) => delete n[id]); return n; });
+  setIsEditAllTransactions(false);
+ }
+
+ async function onSaveAllTransactions() {
+  const ids = paginatedTransactions.map((tx) => tx.id).filter((id) => editingRowIds.has(id));
+  await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true })));
+  await loadData();
+  setEditingRowIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n; });
+  setTransactionTableDrafts((prev) => { const n = { ...prev }; ids.forEach((id) => delete n[id]); return n; });
+  setIsEditAllTransactions(false);
  }
 
  async function onAddClientAccount(clientId: number) {
@@ -8841,7 +8870,37 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 className="h-4 w-4 cursor-pointer rounded border-slate-300"
                />
               </th>
-              <th className="px-2 py-3 w-10" />
+              <th className="px-2 py-3 w-10">
+               {isEditAllTransactions ? (
+                <div className="flex flex-col items-center gap-1">
+                 <button
+                  type="button"
+                  title={t('save_changes')}
+                  onClick={() => void onSaveAllTransactions()}
+                  className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                 >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                 </button>
+                 <button
+                  type="button"
+                  title={t('cancel')}
+                  onClick={() => onCancelAllTransactions()}
+                  className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                 >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                 </button>
+                </div>
+               ) : (
+                <button
+                 type="button"
+                 title="Edit all rows"
+                 onClick={() => onEditAllTransactions()}
+                 className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                >
+                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                </button>
+               )}
+              </th>
               {transactionTableSettings.columns.created ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
                 <button
