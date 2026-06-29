@@ -1044,8 +1044,10 @@ function AuthenticatedHome() {
  const [dragOverHalf, setDragOverHalf] = useState<'top' | 'bottom'>('bottom');
  const [manualRowOrder, setManualRowOrder] = useState<number[] | null>(null);
  const dragFromHandle = useRef(false);
- const [transactionsPage, setTransactionsPage] = useState(1);
+ const [transactionsPage, setTransactionsPage] = useState(99999);
  const [transactionsPageSize, setTransactionsPageSize] = useState(100);
+ const [ledgerPageState, setLedgerPageState] = useState<Record<number, number>>({});
+ const [ledgerPageSize, setLedgerPageSize] = useState(50);
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
  const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
@@ -1382,17 +1384,24 @@ function AuthenticatedHome() {
 
  const totalTransactionPages = Math.max(1, Math.ceil(displayedTransactionRows.length / transactionsPageSize));
  const paginatedTransactions = useMemo(() => {
-  const start = (transactionsPage - 1) * transactionsPageSize;
+  // Page 1 = oldest, page N = newest. Data is newest-first, so we reverse the slice.
+  const clampedPage = Math.max(1, Math.min(transactionsPage, totalTransactionPages));
+  const reversedPage = totalTransactionPages - clampedPage + 1;
+  const start = (reversedPage - 1) * transactionsPageSize;
   return displayedTransactionRows.slice(start, start + transactionsPageSize);
- }, [displayedTransactionRows, transactionsPage, transactionsPageSize]);
+ }, [displayedTransactionRows, transactionsPage, transactionsPageSize, totalTransactionPages]);
 
  useEffect(() => {
   setTransactionsPage((current) => Math.min(current, totalTransactionPages));
  }, [totalTransactionPages]);
 
  useEffect(() => {
-  setTransactionsPage(1);
+  setTransactionsPage(99999);
  }, [txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo]);
+
+ useEffect(() => {
+  setLedgerPageState({});
+ }, [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
@@ -2032,7 +2041,7 @@ function AuthenticatedHome() {
    setTransactionTableDrafts({});
    setCommissionExpandedTxns(new Set());
    setExpensesExpandedTxns(new Set());
-   setTransactionsPage(1);
+   setTransactionsPage(99999);
    setError('');
    await loadData();
   } catch (e) {
@@ -2165,7 +2174,7 @@ function AuthenticatedHome() {
    setSelectedClientForAccounts(null);
    setSelectedClientForLedger(null);
    setSelectedLedgerAccountId(null);
-   setTransactionsPage(1);
+   setTransactionsPage(99999);
    setError('');
    await loadData();
    setImportSummary(t('backup_restore_success'));
@@ -4508,15 +4517,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const panelClassName = 'border border-gray-200 bg-white p-5 shadow-sm';
  const mutedPanelClassName = 'border border-gray-200 bg-gray-50 p-4';
  const tableWrapClassName = 'mt-3 overflow-x-auto border border-gray-200 bg-white';
- const transactionsPager =
-  transactionTableRows.length > 0 ? (
+ const transactionsPager = (() => {
+  if (transactionTableRows.length === 0) return null;
+  const clampedPage = Math.max(1, Math.min(transactionsPage, totalTransactionPages));
+  // Derive the displayed row-range in "oldest-first" numbering:
+  // page 1 = oldest chunk, page N = newest chunk.
+  const reversedPage = totalTransactionPages - clampedPage + 1;
+  const chunkStart = (reversedPage - 1) * transactionsPageSize; // 0-indexed into newest-first array
+  const chunkEnd = Math.min(displayedTransactionRows.length, chunkStart + transactionsPageSize);
+  const totalRows = displayedTransactionRows.length;
+  // Row numbers in oldest-first order:
+  const fromRow = totalRows - chunkEnd + 1;
+  const toRow = totalRows - chunkStart;
+  return (
    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
     <div className="text-xs text-slate-600">
-     {(() => {
-      const from = (transactionsPage - 1) * transactionsPageSize + 1;
-      const to = Math.min(transactionsPage * transactionsPageSize, displayedTransactionRows.length);
-      return `${from}-${to} ${t('pagination_of')} ${displayedTransactionRows.length}`;
-     })()}
+     {fromRow}–{toRow} {t('pagination_of')} {totalRows}
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
      <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
@@ -4525,7 +4541,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       onChange={(event) => {
        const nextSize = Number(event.target.value);
        setTransactionsPageSize(nextSize);
-       setTransactionsPage(1);
+       setTransactionsPage(99999);
       }}
       className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
      >
@@ -4535,26 +4551,39 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      </select>
      <button
       type="button"
-      onClick={() => setTransactionsPage((current) => Math.max(1, current - 1))}
-      disabled={transactionsPage <= 1}
+      onClick={() => setTransactionsPage((current) => Math.max(1, Math.min(current, totalTransactionPages) - 1))}
+      disabled={clampedPage <= 1}
       className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
       {t('pagination_prev')}
      </button>
-     <span className="min-w-12 text-center text-xs font-semibold text-slate-700">
-      {transactionsPage} / {totalTransactionPages}
-     </span>
+     <input
+      key={clampedPage}
+      type="number"
+      min={1}
+      max={totalTransactionPages}
+      defaultValue={clampedPage}
+      onBlur={(event) => {
+       const n = parseInt(event.target.value, 10);
+       if (n >= 1 && n <= totalTransactionPages) setTransactionsPage(n);
+       else event.target.value = String(clampedPage);
+      }}
+      onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+      className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+     />
+     <span className="text-xs text-slate-500">/ {totalTransactionPages}</span>
      <button
       type="button"
-      onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, current + 1))}
-      disabled={transactionsPage >= totalTransactionPages}
+      onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, Math.min(current, totalTransactionPages) + 1))}
+      disabled={clampedPage >= totalTransactionPages}
       className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
       {t('pagination_next')}
      </button>
     </div>
    </div>
-  ) : null;
+  );
+ })();
  const databaseSection = (
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
@@ -6436,7 +6465,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 <div key={orgKey}>
                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{orgName}</h3>
                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {orgGroups.map((group) => {
+                  {orgGroups.filter((group) => group.total !== 0).map((group) => {
                    const flipped = isFlipped(group);
                    const rate = rateOf(group);
                    const converted = group.total * rate;
@@ -6502,7 +6531,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   {showMerged ? (
                    <div className="flex flex-col rounded border-2 border-blue-200 bg-blue-50/50">
                     <div className="border-b border-blue-200 bg-blue-100/60 px-3 py-2">
-                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_merged_total')}</p>
+                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{mainCurrency?.name ?? mainCode}</p>
                     </div>
                     {mergedReady ? (
                      <>
@@ -7104,7 +7133,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
                    })();
                    const q = ledgerFilterSearch.trim().toLowerCase();
-                   return ordered.filter((e) => {
+                   const visible = ordered.filter((e) => {
                     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                     if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                     if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
@@ -7116,6 +7145,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     }
                     return true;
                    });
+                   // Pagination: entries sorted oldest→newest; page N = newest (last chunk).
+                   const totalLedgerPages = Math.max(1, Math.ceil(visible.length / ledgerPageSize));
+                   const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+                   const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
+                   return visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
                   })()).map((entry, entryIdx) => (
                   <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                    <tr
@@ -7689,6 +7723,79 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 </tbody>
                </table>
               </div>
+              {(() => {
+               const order = manualLedgerRowOrder[ledger.accountId];
+               const ordered = (() => {
+                if (!order) return ledger.entries;
+                const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
+                return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
+               })();
+               const q = ledgerFilterSearch.trim().toLowerCase();
+               const visibleCount = ordered.filter((e) => {
+                if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                return true;
+               }).length;
+               if (visibleCount === 0) return null;
+               const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
+               if (totalLedgerPages <= 1) return null;
+               const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+               return (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                 <div className="text-xs text-slate-600">
+                  {((currentLedgerPage - 1) * ledgerPageSize + 1)}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                 </div>
+                 <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+                  <select
+                   value={ledgerPageSize}
+                   onChange={(event) => {
+                    setLedgerPageSize(Number(event.target.value));
+                    setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
+                   }}
+                   className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                  >
+                   <option value={25}>25</option>
+                   <option value={50}>50</option>
+                   <option value={100}>100</option>
+                  </select>
+                  <button
+                   type="button"
+                   onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
+                   disabled={currentLedgerPage <= 1}
+                   className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                   {t('pagination_prev')}
+                  </button>
+                  <input
+                   key={currentLedgerPage}
+                   type="number"
+                   min={1}
+                   max={totalLedgerPages}
+                   defaultValue={currentLedgerPage}
+                   onBlur={(event) => {
+                    const n = parseInt(event.target.value, 10);
+                    if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
+                    else event.target.value = String(currentLedgerPage);
+                   }}
+                   onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                   className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                  <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
+                  <button
+                   type="button"
+                   onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
+                   disabled={currentLedgerPage >= totalLedgerPages}
+                   className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                   {t('pagination_next')}
+                  </button>
+                 </div>
+                </div>
+               );
+              })()}
               </>
              )}
             </div>
