@@ -114,6 +114,8 @@ type Transaction = {
  chargesExchangeRate: number;
  chargesDescription: string;
  description: string;
+ descriptionFrom: string;
+ descriptionTo: string;
  archiveNote: string;
  isArchived: number;
  createdAt: string;
@@ -142,6 +144,8 @@ type TransactionForm = {
  chargesExchangeRate: string;
  chargesDescription: string;
  description: string;
+ descriptionFrom: string;
+ descriptionTo: string;
 };
 
 type TransactionUpdateInput = {
@@ -163,6 +167,8 @@ type TransactionUpdateInput = {
  chargesExchangeRate: number;
  chargesDescription: string;
  description: string;
+ descriptionFrom?: string;
+ descriptionTo?: string;
  archiveNote?: string;
  createdAt: string;
 };
@@ -997,6 +1003,8 @@ const emptyTransactionForm = (): TransactionForm => ({
  chargesExchangeRate: '1.00',
  chargesDescription: '',
  description: '',
+ descriptionFrom: '',
+ descriptionTo: '',
 });
 
 function AuthenticatedHome() {
@@ -1012,6 +1020,8 @@ function AuthenticatedHome() {
  const [clients, setClients] = useState<Client[]>([]);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [clientSearch, setClientSearch] = useState('');
+ const [clientsPage, setClientsPage] = useState(1);
+ const [clientsPageSize, setClientsPageSize] = useState(25);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
@@ -1092,6 +1102,9 @@ function AuthenticatedHome() {
  const [editingAccountCurrencyId, setEditingAccountCurrencyId] = useState<number | null>(null);
  const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
  const [editingAccountBalanceType, setEditingAccountBalanceType] = useState<'debit' | 'credit'>('debit');
+ // "Move all transactions to another account" picker, scoped to the account being edited.
+ const [moveTargetAccountId, setMoveTargetAccountId] = useState<number | null>(null);
+ const [isMovingAccount, setIsMovingAccount] = useState(false);
  const [pdfExportModal, setPdfExportModal] = useState<{
   accountId: number;
   fromDate: string;
@@ -1121,6 +1134,8 @@ function AuthenticatedHome() {
  const [openAccountOnCreate, setOpenAccountOnCreate] = useState(true);
  const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
+ // When enabled, the sender and receiver ledgers each get their own description override.
+ const [txSplitDescription, setTxSplitDescription] = useState(false);
  const [newTransactionDate, setNewTransactionDate] = useState(() => new Date().toISOString().slice(0, 10));
  const [copiedTransaction, setCopiedTransaction] = useState<TransactionTableRow | null>(null);
  const [txFromQuery, setTxFromQuery] = useState('');
@@ -2335,6 +2350,7 @@ function AuthenticatedHome() {
      createdAt: newTransactionCreatedAt,
     });
 
+    setTxSplitDescription(false);
     setTransactionForm(emptyTransactionForm());
     setTxFromQuery('');
     setTxFromOpen(false);
@@ -2379,9 +2395,12 @@ function AuthenticatedHome() {
     chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
     chargesDescription: transactionForm.chargesDescription,
     description: transactionForm.description,
+    descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
+    descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
     createdAt: newTransactionCreatedAt,
    });
 
+   setTxSplitDescription(false);
    setTransactionForm(emptyTransactionForm());
    setTxFromQuery('');
    setTxFromOpen(false);
@@ -3163,7 +3182,10 @@ function AuthenticatedHome() {
    chargesExchangeRate: String(row.chargesExchangeRate),
    chargesDescription: row.chargesDescription,
    description: row.description,
+   descriptionFrom: row.descriptionFrom ?? '',
+   descriptionTo: row.descriptionTo ?? '',
   });
+  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
   setTxFromRateReversed(fromReversed);
   setTxToRateReversed(toReversed);
   setTxFromQuery('');
@@ -3515,6 +3537,24 @@ function AuthenticatedHome() {
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ async function onMoveAccountTransactions(fromAccountId: number) {
+  if (!accountingApi || !moveTargetAccountId || moveTargetAccountId === fromAccountId) return;
+  const target = clientAccountMap.get(moveTargetAccountId);
+  const targetLabel = target ? `${target.clientName} · ${target.currencyCode}` : '';
+  if (!(await confirmDialog({ message: t('client_account_move_confirm', { target: targetLabel }), confirmText: t('client_account_move_action') }))) return;
+  setIsMovingAccount(true);
+  try {
+   await accountingApi.moveAccountTransactions({ fromAccountId, toAccountId: moveTargetAccountId });
+   setMoveTargetAccountId(null);
+   setEditingAccountId(null);
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsMovingAccount(false);
   }
  }
 
@@ -3938,6 +3978,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     (c.organizationName ?? '').toLowerCase().includes(q),
   );
  }, [clients, clientSort, clientSearch, language]);
+ const totalClientPages = Math.max(1, Math.ceil(sortedClients.length / clientsPageSize));
+ const clampedClientsPage = Math.min(clientsPage, totalClientPages);
+ const paginatedClients = useMemo(() => {
+  const start = (clampedClientsPage - 1) * clientsPageSize;
+  return sortedClients.slice(start, start + clientsPageSize);
+ }, [sortedClients, clampedClientsPage, clientsPageSize]);
+ // Jump back to the first page whenever the result set changes (search / sort / page size).
+ useEffect(() => {
+  setClientsPage(1);
+ }, [clientSearch, clientSort, clientsPageSize]);
  const toggleClientSort = useCallback((key: 'name' | 'organization') => {
   setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
  }, []);
@@ -4225,7 +4275,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          commission: transaction.commissionFrom,
          netChange: pendingRate ? 0 : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
          runningBalance: 0,
-         description: transaction.description,
+         description: transaction.descriptionFrom?.trim() || transaction.description,
          charges: transaction.charges,
          chargesCurrencyCode: transaction.chargesCurrencyCode,
          chargesPayer: transaction.chargesPayer,
@@ -4257,7 +4307,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          commission: transaction.commissionTo,
          netChange: pendingRate ? 0 : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
          runningBalance: 0,
-         description: transaction.description,
+         description: transaction.descriptionTo?.trim() || transaction.description,
          charges: transaction.charges,
          chargesCurrencyCode: transaction.chargesCurrencyCode,
          chargesPayer: transaction.chargesPayer,
@@ -5325,7 +5375,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </tr>
        </thead>
        <tbody>
-        {sortedClients.map((client) => (
+        {paginatedClients.map((client) => (
          <tr
           key={client.id}
           className="border-t border-slate-200 align-top"
@@ -5401,6 +5451,56 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        </tbody>
       </table>
      </div>
+     {sortedClients.length > clientsPageSize ? (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+       <div className="text-xs text-slate-600">
+        {(clampedClientsPage - 1) * clientsPageSize + 1}–{Math.min(sortedClients.length, clampedClientsPage * clientsPageSize)} {t('pagination_of')} {sortedClients.length}
+       </div>
+       <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+        <select
+         value={clientsPageSize}
+         onChange={(event) => setClientsPageSize(Number(event.target.value))}
+         className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+        >
+         <option value={25}>25</option>
+         <option value={50}>50</option>
+         <option value={100}>100</option>
+        </select>
+        <button
+         type="button"
+         onClick={() => setClientsPage((current) => Math.max(1, Math.min(current, totalClientPages) - 1))}
+         disabled={clampedClientsPage <= 1}
+         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+         {t('pagination_prev')}
+        </button>
+        <input
+         key={clampedClientsPage}
+         type="number"
+         min={1}
+         max={totalClientPages}
+         defaultValue={clampedClientsPage}
+         onBlur={(event) => {
+          const n = parseInt(event.target.value, 10);
+          if (n >= 1 && n <= totalClientPages) setClientsPage(n);
+          else event.target.value = String(clampedClientsPage);
+         }}
+         onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+         className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span className="text-xs text-slate-500">/ {totalClientPages}</span>
+        <button
+         type="button"
+         onClick={() => setClientsPage((current) => Math.min(totalClientPages, Math.min(current, totalClientPages) + 1))}
+         disabled={clampedClientsPage >= totalClientPages}
+         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+         {t('pagination_next')}
+        </button>
+       </div>
+      </div>
+     ) : null}
     </div>
 
     {selectedClientForAccounts ? (
@@ -5437,6 +5537,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             type="button"
             className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
             onClick={() => {
+             setMoveTargetAccountId(null);
              if (isEditing) {
               setEditingAccountId(null);
              } else {
@@ -5547,6 +5648,42 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 {t('cancel')}
                </button>
               </div>
+
+              {(() => {
+               const moveTargets = clientAccounts.filter((a) => a.id !== account.id && a.currencyId === account.currencyId);
+               return (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_account_move_title')}</p>
+                 <p className="mt-1 text-xs text-slate-400">{t('client_account_move_hint')}</p>
+                 {moveTargets.length === 0 ? (
+                  <p className="mt-2 text-xs text-slate-500">{t('client_account_move_no_targets')}</p>
+                 ) : (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                   <select
+                    value={moveTargetAccountId ?? ''}
+                    onChange={(event) => setMoveTargetAccountId(event.target.value ? Number(event.target.value) : null)}
+                    className="min-w-48 flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                   >
+                    <option value="">{t('client_account_move_select_placeholder')}</option>
+                    {moveTargets.map((target) => (
+                     <option key={target.id} value={target.id}>
+                      {target.clientName} · {target.currencyCode}
+                     </option>
+                    ))}
+                   </select>
+                   <button
+                    type="button"
+                    onClick={() => void onMoveAccountTransactions(account.id)}
+                    disabled={!moveTargetAccountId || isMovingAccount}
+                    className="rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                   >
+                    {t('client_account_move_action')}
+                   </button>
+                  </div>
+                 )}
+                </div>
+               );
+              })()}
              </div>
             </div>
            )}
@@ -6437,7 +6574,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              <div className="mt-5 space-y-6">
               {orgEntries.map(([orgKey, orgGroups]) => {
                const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
-               const showMerged = orgGroups.filter((g) => !g.isMain).length >= 2;
+               const showMerged = orgGroups.length >= 2;
                // Merged main-currency total for this org (sum of its currency cards).
                // Also build per-client converted balances across all currencies.
                let mergedTotal = 0;
@@ -6466,63 +6603,105 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{orgName}</h3>
                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {orgGroups.filter((group) => group.total !== 0).map((group) => {
-                   const flipped = isFlipped(group);
                    const rate = rateOf(group);
+                   const rateValid = !Number.isNaN(rate);
+                   // A card only shows its converted (back) face when flipped AND a valid rate exists.
+                   const flipped = isFlipped(group) && rateValid;
                    const converted = group.total * rate;
-                   const showConverted = flipped && !Number.isNaN(rate);
+                   const toggleFlip = () =>
+                    setOverviewFlipped((prev) => {
+                     const next = new Set(prev);
+                     if (next.has(group.key)) next.delete(group.key);
+                     else next.add(group.key);
+                     return next;
+                    });
+                   const flipIcon = (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                     <path d="M7 4 3 8l4 4M3 8h13.5" />
+                     <path d="M17 20l4-4-4-4m4 4H7.5" />
+                    </svg>
+                   );
                    return (
-                    <div key={group.key} className="flex flex-col rounded border border-slate-200 bg-white">
-                     <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
-                      <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
+                    <div key={group.key} className="[perspective:1200px]">
+                     <div
+                      className={`relative transition-transform duration-500 [transform-style:preserve-3d] ${flipped ? '[transform:rotateY(180deg)]' : ''}`}
+                     >
+                      {/* FRONT — original currency */}
+                      <div className="flex flex-col rounded border border-slate-200 bg-white [backface-visibility:hidden]">
+                       <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                        <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
+                        {!group.isMain ? (
+                         <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-1 text-xs text-slate-500">
+                           <span>{t('overview_rate_label', { currency: mainCode })}</span>
+                           <input
+                            type="text"
+                            inputMode="decimal"
+                            dir="ltr"
+                            value={overviewRates[group.currencyCode] ?? ''}
+                            onChange={(event) => updateOverviewRate(group.currencyCode, normalizeDecimalInput(event.target.value))}
+                            className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                           />
+                          </label>
+                          {rateValid ? (
+                           <button
+                            type="button"
+                            title={t('overview_show_in_main', { currency: mainCode })}
+                            onClick={toggleFlip}
+                            className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                           >
+                            {flipIcon}
+                           </button>
+                          ) : null}
+                         </div>
+                        ) : null}
+                       </div>
+
+                       <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+                        {group.clients.map((client) => (
+                         <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                          <span className="truncate text-slate-700">{client.clientName}</span>
+                          <span className={`shrink-0 font-medium ${balanceColor(client.balance)}`} dir="ltr">{fmt(client.balance)}</span>
+                         </div>
+                        ))}
+                       </div>
+
+                       <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_card_total')}</span>
+                        <span className={`font-bold ${balanceColor(group.total)}`} dir="ltr">{fmt(group.total)} {group.currencySymbol || group.currencyCode}</span>
+                       </div>
+                      </div>
+
+                      {/* BACK — converted to main currency */}
                       {!group.isMain ? (
-                       <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-1 text-xs text-slate-500">
-                         <span>{t('overview_rate_label', { currency: group.currencyCode })}</span>
-                         <input
-                          type="text"
-                          inputMode="decimal"
-                          dir="ltr"
-                          value={overviewRates[group.currencyCode] ?? ''}
-                          onChange={(event) => updateOverviewRate(group.currencyCode, normalizeDecimalInput(event.target.value))}
-                          className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
-                         />
-                        </label>
-                        <button
-                         type="button"
-                         title={t('overview_show_in_main', { currency: mainCode })}
-                         onClick={() =>
-                          setOverviewFlipped((prev) => {
-                           const next = new Set(prev);
-                           if (next.has(group.key)) next.delete(group.key);
-                           else next.add(group.key);
-                           return next;
-                          })
-                         }
-                         className={`rounded p-1 transition ${showConverted ? 'bg-blue-100 text-blue-700' : 'text-slate-400 hover:bg-slate-100 hover:text-blue-600'}`}
-                        >
-                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M7 4 3 8l4 4M3 8h13.5" />
-                          <path d="M17 20l4-4-4-4m4 4H7.5" />
-                         </svg>
-                        </button>
+                       <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                        <div className="flex items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-3 py-2">
+                         <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
+                         <button
+                          type="button"
+                          title={t('overview_show_original')}
+                          onClick={toggleFlip}
+                          className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
+                         >
+                          {flipIcon}
+                         </button>
+                        </div>
+
+                        <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+                         {group.clients.map((client) => (
+                          <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                           <span className="truncate text-slate-700">{client.clientName}</span>
+                           <span className={`shrink-0 font-medium ${balanceColor(client.balance * rate)}`} dir="ltr">{fmt(client.balance * rate)}</span>
+                          </div>
+                         ))}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-50 px-3 py-2">
+                         <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
+                         <span className={`font-bold ${balanceColor(converted)}`} dir="ltr">{fmt(converted)} {mainSymbol}</span>
+                        </div>
                        </div>
                       ) : null}
-                     </div>
-
-                     <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
-                      {group.clients.map((client) => (
-                       <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
-                        <span className="truncate text-slate-700">{client.clientName}</span>
-                        <span className={`shrink-0 font-medium ${balanceColor(client.balance)}`} dir="ltr">{fmt(client.balance)}</span>
-                       </div>
-                      ))}
-                     </div>
-
-                     <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_card_total')}</span>
-                      <span className={`font-bold ${balanceColor(showConverted ? converted : group.total)}`} dir="ltr">
-                       {showConverted ? `${fmt(converted)} ${mainSymbol}` : `${fmt(group.total)} ${group.currencySymbol || group.currencyCode}`}
-                      </span>
                      </div>
                     </div>
                    );
@@ -7233,6 +7412,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           </span>
                           <button type="button" title={t('edit')}
                            onClick={() => {
+                            // Expense (adjustment) rows have no transaction record, so they can't be
+                            // inline-edited like transfers — route them to the adjustment editor instead.
+                            if (entry.isAdjustment && entry.adjustmentId) {
+                             const adjustment = adjustments.find((a) => a.id === entry.adjustmentId);
+                             if (adjustment) openAdjustmentModal(ledger.accountId, adjustment);
+                             return;
+                            }
                             const draftKey = rowKey;
                             const transaction = transactions.find((tx) => tx.id === entry.transactionId);
                            if (transaction && !ledgerTransactionDrafts[draftKey]) {
@@ -7812,21 +7998,34 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
            <div className="flex items-start justify-between gap-3">
             <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
-            {copiedTransaction ? (
+            <div className="flex shrink-0 items-center gap-2">
+             {copiedTransaction ? (
+              <button
+               type="button"
+               onClick={onPasteCopiedTransaction}
+               title={t('paste_transaction')}
+               aria-label={t('paste_transaction')}
+               className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+              >
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+                <rect x="9" y="3" width="6" height="4" rx="1" />
+               </svg>
+               {t('paste_transaction')}
+              </button>
+             ) : null}
              <button
               type="button"
-              onClick={onPasteCopiedTransaction}
-              title={t('paste_transaction')}
-              aria-label={t('paste_transaction')}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+              onClick={() => setIsNewTransactionSectionOpen(false)}
+              title={t('transactions_hide_new')}
+              aria-label={t('transactions_hide_new')}
+              className="inline-flex shrink-0 items-center justify-center rounded border border-slate-300 p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
              >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-               <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
-               <rect x="9" y="3" width="6" height="4" rx="1" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <path d="M6 18L18 6M6 6l12 12" />
               </svg>
-              {t('paste_transaction')}
              </button>
-            ) : null}
+            </div>
            </div>
            <p className="mt-1 text-sm text-slate-600">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
 
@@ -8302,6 +8501,47 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              placeholder={t('transaction_description_placeholder')}
             />
 
+            {!isAdjustmentTransaction ? (
+             <div className="mt-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+               <input
+                type="checkbox"
+                checked={txSplitDescription}
+                onChange={(event) => setTxSplitDescription(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+               />
+               {t('transaction_description_split')}
+              </label>
+
+              {txSplitDescription ? (
+               <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                 <label className="block text-xs font-medium text-slate-500">
+                  {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? t('transaction_account_from')}
+                 </label>
+                 <textarea
+                  value={transactionForm.descriptionFrom}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionFrom: event.target.value }))}
+                  className="mt-1 min-h-16 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  placeholder={transactionForm.description || t('transaction_description_placeholder')}
+                 />
+                </div>
+                <div>
+                 <label className="block text-xs font-medium text-slate-500">
+                  {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? t('transaction_account_to')}
+                 </label>
+                 <textarea
+                  value={transactionForm.descriptionTo}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionTo: event.target.value }))}
+                  className="mt-1 min-h-16 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  placeholder={transactionForm.description || t('transaction_description_placeholder')}
+                 />
+                </div>
+               </div>
+              ) : null}
+             </div>
+            ) : null}
+
             <button
              type="submit"
              className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
@@ -8455,15 +8695,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               {selectedTransactionIds.size}
              </button>
             ) : null}
-            {section === 'transactions' || section === 'archive' ? (
+            {(section === 'transactions' || section === 'archive') && !isNewTransactionSectionOpen ? (
              <button
               type="button"
-              onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
+              onClick={() => setIsNewTransactionSectionOpen(true)}
               aria-expanded={isNewTransactionSectionOpen}
-              title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
-              className={`cursor-pointer rounded border p-2 transition ${
-               isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-              }`}
+              title={t('transactions_show_new')}
+              className="cursor-pointer rounded border border-blue-600 bg-blue-700 p-2 text-white transition hover:bg-blue-800"
              >
               <svg
                xmlns="http://www.w3.org/2000/svg"
@@ -8474,19 +8712,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                className="h-4 w-4"
                aria-hidden="true"
               >
-               {isNewTransactionSectionOpen ? (
-                <path
-                 strokeLinecap="round"
-                 strokeLinejoin="round"
-                 d="M6 18L18 6M6 6l12 12"
-                />
-               ) : (
-                <path
-                 strokeLinecap="round"
-                 strokeLinejoin="round"
-                 d="M12 4v16M4 12h16"
-                />
-               )}
+               <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 4v16M4 12h16"
+               />
               </svg>
              </button>
             ) : null}

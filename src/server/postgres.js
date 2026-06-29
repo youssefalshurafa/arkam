@@ -309,6 +309,10 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- Archive-only records: historical transactions from before the DB. They live only in the
                 -- Archive, never affect client balances/ledgers, and never appear in the main transactions list.
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
+                -- Optional per-side description overrides. When set, the sender ("from") and/or receiver ("to")
+                -- ledger shows this text instead of the shared description; empty means fall back to description.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS description_from TEXT NOT NULL DEFAULT '';
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS description_to TEXT NOT NULL DEFAULT '';
             `);
 
             // Non-ISO currencies (e.g. crypto/stablecoins) aren't in Intl's currency list,

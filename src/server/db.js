@@ -350,6 +350,45 @@ async function deleteClientAccount(app, accountId) {
     await query(`DELETE FROM ${schema}.client_accounts WHERE id = $1`, [accountId]);
 }
 
+// Re-points every transaction (both the "from" and "to" sides) and every adjustment from one
+// account onto another, then leaves the now-empty source account in place. Both accounts must
+// share the same currency: the stored per-side exchange rates convert into the original account's
+// currency, so moving to a different-currency account would silently corrupt the ledger.
+async function moveAccountTransactions(app, { fromAccountId, toAccountId }) {
+    const from = Number(fromAccountId);
+    const to = Number(toAccountId);
+    if (!from || !to) {
+        throw new Error('Source and destination accounts are required.');
+    }
+    if (from === to) {
+        throw new Error('Source and destination accounts must be different.');
+    }
+
+    const { schema } = await getSchemaInfo(app);
+    const accountsResult = await query(
+        `SELECT id, currency_id AS "currencyId" FROM ${schema}.client_accounts WHERE id = ANY($1::bigint[])`,
+        [[from, to]],
+    );
+    const fromAccount = accountsResult.rows.find((row) => Number(row.id) === from);
+    const toAccount = accountsResult.rows.find((row) => Number(row.id) === to);
+    if (!fromAccount || !toAccount) {
+        throw new Error('One of the selected accounts no longer exists.');
+    }
+    if (Number(fromAccount.currencyId) !== Number(toAccount.currencyId)) {
+        throw new Error('Both accounts must use the same currency.');
+    }
+
+    let moved = 0;
+    await withTransaction(async (executor) => {
+        const fromSide = await query(`UPDATE ${schema}.transactions SET account_from_id = $1 WHERE account_from_id = $2`, [to, from], executor);
+        const toSide = await query(`UPDATE ${schema}.transactions SET account_to_id = $1 WHERE account_to_id = $2`, [to, from], executor);
+        const adjustments = await query(`UPDATE ${schema}.client_adjustments SET account_id = $1 WHERE account_id = $2`, [to, from], executor);
+        moved = (fromSide.rowCount || 0) + (toSide.rowCount || 0) + (adjustments.rowCount || 0);
+    });
+
+    return { ok: true, moved };
+}
+
 async function listCurrencies(app) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(`
@@ -518,6 +557,8 @@ async function listTransactions(app) {
             t.charges_exchange_rate AS "chargesExchangeRate",
             t.charges_description AS "chargesDescription",
             t.description,
+            COALESCE(t.description_from, '') AS "descriptionFrom",
+            COALESCE(t.description_to, '') AS "descriptionTo",
             COALESCE(t.archive_note, '') AS "archiveNote",
             CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
             t.created_at AS "createdAt"
@@ -569,10 +610,12 @@ async function createTransaction(app, txn) {
                     charges_exchange_rate,
                     charges_description,
                     description,
+                    description_from,
+                    description_to,
                     is_archived,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             `,
             [
                 txn.accountFromId || null,
@@ -592,6 +635,8 @@ async function createTransaction(app, txn) {
                 txn.chargesExchangeRate || 1,
                 txn.chargesDescription?.trim() || '',
                 txn.description?.trim() || '',
+                txn.descriptionFrom?.trim() || '',
+                txn.descriptionTo?.trim() || '',
                 isArchived,
                 txn.createdAt.trim(),
             ],
@@ -619,9 +664,11 @@ async function createTransaction(app, txn) {
                 charges_exchange_rate,
                 charges_description,
                 description,
+                description_from,
+                description_to,
                 is_archived
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
         `,
         [
             txn.accountFromId || null,
@@ -641,6 +688,8 @@ async function createTransaction(app, txn) {
             txn.chargesExchangeRate || 1,
             txn.chargesDescription?.trim() || '',
             txn.description?.trim() || '',
+            txn.descriptionFrom?.trim() || '',
+            txn.descriptionTo?.trim() || '',
             isArchived,
         ],
     );
@@ -679,7 +728,11 @@ async function updateTransaction(app, txn) {
                 charges_description = $16,
                 description = $17,
                 archive_note = COALESCE($18, archive_note),
-                created_at = $19
+                created_at = $19,
+                -- Per-side overrides are preserved (COALESCE) when a caller omits them, so the
+                -- table inline-edit / reorder paths don't wipe descriptions set at creation time.
+                description_from = COALESCE($21, description_from),
+                description_to = COALESCE($22, description_to)
             WHERE id = $20
         `,
         [
@@ -704,6 +757,8 @@ async function updateTransaction(app, txn) {
             txn.archiveNote === undefined || txn.archiveNote === null ? null : String(txn.archiveNote).trim(),
             txn.createdAt,
             txn.id,
+            txn.descriptionFrom === undefined || txn.descriptionFrom === null ? null : String(txn.descriptionFrom).trim(),
+            txn.descriptionTo === undefined || txn.descriptionTo === null ? null : String(txn.descriptionTo).trim(),
         ],
     );
 }
@@ -1033,6 +1088,7 @@ module.exports = {
     updateClientAccountStartingBalance,
     updateClientAccount,
     deleteClientAccount,
+    moveAccountTransactions,
     listCurrencies,
     createCurrency,
     updateCurrency,
