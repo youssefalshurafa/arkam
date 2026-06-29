@@ -871,6 +871,40 @@ async function renewSubscription({ userId, durationDays }) {
     });
 }
 
+// Changes a logged-in user's email. Requires the current password for
+// credentials accounts. Rejects if the new email is already taken.
+async function changeEmail({ userId, currentPassword, newEmail }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(newEmail || '').trim().toLowerCase();
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        throw new Error('Please enter a valid email address.');
+    }
+
+    const user = await fetchOne('SELECT email, password_hash AS "passwordHash" FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    if (normalizedEmail === user.email) {
+        throw new Error('The new email is the same as your current email.');
+    }
+
+    if (user.passwordHash) {
+        if (!bcrypt.compareSync(String(currentPassword || ''), user.passwordHash)) {
+            throw new Error('Current password is incorrect.');
+        }
+    }
+
+    const taken = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (taken) {
+        throw new Error('This email is already in use.');
+    }
+
+    await runQuery('UPDATE users SET email = $1 WHERE id = $2', [normalizedEmail, userId]);
+    return { ok: true };
+}
+
 // Changes a logged-in user's password. Verifies the current password for
 // credentials accounts; OAuth accounts (no password yet) may set one directly.
 async function changePassword({ userId, currentPassword, newPassword }) {
@@ -1044,6 +1078,7 @@ module.exports = {
     getAccessRequestProof,
     reviewAccessRequest,
     renewSubscription,
+    changeEmail,
     changePassword,
     getUserAccountInfo,
     createRenewalRequest,
