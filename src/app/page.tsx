@@ -4430,7 +4430,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    currencyCode: group.currencyCode,
    currencySymbol: group.currencySymbol,
    isMain: group.isMain,
-   clients: Array.from(group.clientMap.values()).sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
+   clients: Array.from(group.clientMap.values()).filter((c) => c.balance !== 0).sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
    total: group.total,
   }));
 
@@ -6408,10 +6408,12 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              <div className="mt-5 space-y-6">
               {orgEntries.map(([orgKey, orgGroups]) => {
                const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
-               const showMerged = orgGroups.length >= 2;
+               const showMerged = orgGroups.filter((g) => !g.isMain).length >= 2;
                // Merged main-currency total for this org (sum of its currency cards).
+               // Also build per-client converted balances across all currencies.
                let mergedTotal = 0;
                let mergedReady = true;
+               const mergedClientMap = new Map<number, { clientId: number; clientName: string; balance: number }>();
                for (const group of orgGroups) {
                 const rate = rateOf(group);
                 if (Number.isNaN(rate)) {
@@ -6419,7 +6421,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                  break;
                 }
                 mergedTotal += group.total * rate;
+                for (const client of group.clients) {
+                 const existing = mergedClientMap.get(client.clientId);
+                 if (existing) {
+                  existing.balance += client.balance * rate;
+                 } else {
+                  mergedClientMap.set(client.clientId, { clientId: client.clientId, clientName: client.clientName, balance: client.balance * rate });
+                 }
+                }
                }
+               const mergedClients = Array.from(mergedClientMap.values()).filter((c) => c.balance !== 0).sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
 
                return (
                 <div key={orgKey}>
@@ -6489,12 +6500,27 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                   })}
 
                   {showMerged ? (
-                   <div className="flex flex-col justify-between rounded border-2 border-blue-200 bg-blue-50/50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_merged_total')}</p>
+                   <div className="flex flex-col rounded border-2 border-blue-200 bg-blue-50/50">
+                    <div className="border-b border-blue-200 bg-blue-100/60 px-3 py-2">
+                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_merged_total')}</p>
+                    </div>
                     {mergedReady ? (
-                     <p className={`mt-2 text-2xl font-bold ${balanceColor(mergedTotal)}`} dir="ltr">{fmt(mergedTotal)} {mainSymbol}</p>
+                     <>
+                      <div className="flex-1 divide-y divide-blue-100 px-3 py-1">
+                       {mergedClients.map((client) => (
+                        <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                         <span className="truncate text-slate-700">{client.clientName}</span>
+                         <span className={`shrink-0 font-medium ${balanceColor(client.balance)}`} dir="ltr">{fmt(client.balance)}</span>
+                        </div>
+                       ))}
+                      </div>
+                      <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-100/60 px-3 py-2">
+                       <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
+                       <span className={`font-bold ${balanceColor(mergedTotal)}`} dir="ltr">{fmt(mergedTotal)} {mainSymbol}</span>
+                      </div>
+                     </>
                     ) : (
-                     <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p>
+                     <p className="px-3 py-3 text-xs text-amber-600">{t('overview_set_rate')}</p>
                     )}
                    </div>
                   ) : null}
