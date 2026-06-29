@@ -259,6 +259,20 @@ type ClientAccountLedger = {
  entries: ClientLedgerEntry[];
 };
 
+// One overview balance card: all clients of an organization that hold accounts in
+// a given currency, with each client's net balance and the group total.
+type OverviewBalanceGroup = {
+ key: string;
+ organizationId: number | null;
+ organizationName: string | null;
+ currencyId: number;
+ currencyCode: string;
+ currencySymbol: string;
+ isMain: boolean;
+ clients: Array<{ clientId: number; clientName: string; balance: number }>;
+ total: number;
+};
+
 type ImportedTransactionRow = {
  fromName: string;
  toName: string;
@@ -331,6 +345,30 @@ const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
 const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
+
+// User-entered FX rates for the overview balance cards, keyed by currency code
+// (e.g. { EUR: '10.92', USD: '9.50' }). Stable across currency reseeds.
+const overviewRatesStorageKey = 'arkam:overview-rates';
+
+function getStoredOverviewRates(): Record<string, string> {
+ if (typeof window === 'undefined') return {};
+ try {
+  const raw = window.localStorage.getItem(overviewRatesStorageKey);
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+ } catch {
+  return {};
+ }
+}
+
+function saveOverviewRates(rates: Record<string, string>) {
+ try {
+  window.localStorage.setItem(overviewRatesStorageKey, JSON.stringify(rates));
+ } catch {
+  /* ignore */
+ }
+}
 
 // Friendly "Browser on OS" label for the device that downloaded a backup, so the
 // last-backup indicator can say where it came from. Best-effort UA parsing.
@@ -983,6 +1021,10 @@ function AuthenticatedHome() {
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [editingLedgerRowKeys, setEditingLedgerRowKeys] = useState<Set<string>>(new Set());
  const [editAllLedgerAccountIds, setEditAllLedgerAccountIds] = useState<Set<number>>(new Set());
+ // Overview "balances by organization" state.
+ const [overviewRates, setOverviewRates] = useState<Record<string, string>>(() => getStoredOverviewRates());
+ const [overviewFlipAll, setOverviewFlipAll] = useState(false);
+ const [overviewFlipped, setOverviewFlipped] = useState<Set<string>>(new Set());
  const [selectedLedgerEntryKeys, setSelectedLedgerEntryKeys] = useState<Set<string>>(new Set());
  const [showLedgerSettingsModal, setShowLedgerSettingsModal] = useState(false);
  const [ledgerFilterOpen, setLedgerFilterOpen] = useState(false);
@@ -4287,6 +4329,130 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
  }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
 
+ const mainCurrency = useMemo(() => currencies.find((currency) => currency.isMain === 1) ?? null, [currencies]);
+
+ function updateOverviewRate(currencyCode: string, value: string) {
+  setOverviewRates((current) => {
+   const next = { ...current, [currencyCode]: value };
+   saveOverviewRates(next);
+   return next;
+  });
+ }
+
+ // Net balance of every client account, grouped into (organization, currency) cards
+ // for the overview. Mirrors the netChange formula used by selectedClientLedgers,
+ // but in a single pass over all transactions/adjustments instead of per-account.
+ const overviewOrgBalances = useMemo(() => {
+  if (section !== 'overview') {
+   return { groups: [] as OverviewBalanceGroup[], byOrg: new Map<string, OverviewBalanceGroup[]>(), hasAccounts: false };
+  }
+
+  const balanceByAccount = new Map<number, number>();
+  for (const account of clientAccounts) {
+   balanceByAccount.set(account.id, account.startingBalance ?? 0);
+  }
+
+  for (const transaction of transactions) {
+   if (transaction.isArchived) continue;
+   if (transaction.accountFromId != null && balanceByAccount.has(transaction.accountFromId)) {
+    const account = clientAccountMap.get(transaction.accountFromId);
+    if (account) {
+     const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 1;
+     const netChange = pendingRate
+      ? 0
+      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
+     balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
+    }
+   }
+   if (transaction.accountToId != null && balanceByAccount.has(transaction.accountToId)) {
+    const account = clientAccountMap.get(transaction.accountToId);
+    if (account) {
+     const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 1;
+     const netChange = pendingRate
+      ? 0
+      : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
+     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
+    }
+   }
+  }
+
+  for (const adj of adjustments) {
+   if (!balanceByAccount.has(adj.accountId)) continue;
+   const account = clientAccountMap.get(adj.accountId);
+   if (!account) continue;
+   const pendingRate = adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1;
+   const netChange = pendingRate ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
+   balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
+  }
+
+  const clientById = new Map(clients.map((client) => [client.id, client]));
+  const groupMap = new Map<string, OverviewBalanceGroup & { clientMap: Map<number, { clientId: number; clientName: string; balance: number }> }>();
+
+  for (const account of clientAccounts) {
+   const client = clientById.get(account.clientId);
+   const organizationId = client?.organizationId ?? null;
+   const organizationName = client?.organizationName ?? null;
+   const currency = currencyMap.get(account.currencyId);
+   const key = `${organizationId ?? 'none'}:${account.currencyId}`;
+   const balance = balanceByAccount.get(account.id) ?? 0;
+
+   let group = groupMap.get(key);
+   if (!group) {
+    group = {
+     key,
+     organizationId,
+     organizationName,
+     currencyId: account.currencyId,
+     currencyCode: account.currencyCode,
+     currencySymbol: account.currencySymbol,
+     isMain: currency?.isMain === 1,
+     clients: [],
+     total: 0,
+     clientMap: new Map(),
+    };
+    groupMap.set(key, group);
+   }
+
+   const existingClient = group.clientMap.get(account.clientId);
+   if (existingClient) {
+    existingClient.balance += balance;
+   } else {
+    group.clientMap.set(account.clientId, { clientId: account.clientId, clientName: account.clientName, balance });
+   }
+   group.total += balance;
+  }
+
+  const groups: OverviewBalanceGroup[] = Array.from(groupMap.values()).map((group) => ({
+   key: group.key,
+   organizationId: group.organizationId,
+   organizationName: group.organizationName,
+   currencyId: group.currencyId,
+   currencyCode: group.currencyCode,
+   currencySymbol: group.currencySymbol,
+   isMain: group.isMain,
+   clients: Array.from(group.clientMap.values()).sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
+   total: group.total,
+  }));
+
+  // Main-currency cards first, then by organization name, then by currency code.
+  groups.sort((a, b) => {
+   if (a.isMain !== b.isMain) return a.isMain ? -1 : 1;
+   const orgCompare = (a.organizationName ?? '').localeCompare(b.organizationName ?? '', language, { sensitivity: 'base' });
+   if (orgCompare !== 0) return orgCompare;
+   return a.currencyCode.localeCompare(b.currencyCode);
+  });
+
+  const byOrg = new Map<string, OverviewBalanceGroup[]>();
+  for (const group of groups) {
+   const orgKey = String(group.organizationId ?? 'none');
+   const list = byOrg.get(orgKey);
+   if (list) list.push(group);
+   else byOrg.set(orgKey, [group]);
+  }
+
+  return { groups, byOrg, hasAccounts: clientAccounts.length > 0 };
+ }, [section, transactions, adjustments, clientAccounts, clients, clientAccountMap, currencyMap, language]);
+
  useEffect(() => {
   setManualLedgerRowOrder((current) => {
    let changed = false;
@@ -6139,12 +6305,24 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        ) : null}
 
        {section === 'overview' ? (
-        <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="flex flex-col gap-6">
          <div className={panelClassName}>
-          <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
-          <p className="mt-2 text-sm text-slate-600">{t('overview_description')}</p>
+          <div className="flex items-start justify-between gap-4">
+           <div>
+            <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
+            <p className="mt-2 text-sm text-slate-600">{t('overview_description')}</p>
+           </div>
+           <button
+            type="button"
+            onClick={() => navigateToSection('transactions')}
+            className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
+           >
+            {renderIcon('transactions', 'h-4 w-4')}
+            {t('overview_go_to_transactions')}
+           </button>
+          </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
            {overviewCards.map((card) => (
             <div
              key={card.label}
@@ -6155,40 +6333,180 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             </div>
            ))}
           </div>
-
-          <button
-           type="button"
-           onClick={() => navigateToSection('transactions')}
-           className="mt-6 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
-          >
-           {renderIcon('transactions', 'h-4 w-4')}
-           {t('overview_go_to_transactions')}
-          </button>
          </div>
 
-         <div className={panelClassName}>
-          <h2 className="text-xl font-semibold">{t('organizations_title')}</h2>
-          <div className="mt-4 space-y-3 text-sm text-slate-600">
-           {organizations.slice(0, 5).map((organization) => (
-            <div
-             key={organization.id}
-             className="rounded border border-slate-200 px-4 py-3"
-            >
-             <button
-              type="button"
-              onClick={() => openOrganizationClientsPage(organization)}
-              className="cursor-pointer font-semibold text-slate-900 transition hover:text-blue-700"
-             >
-              {organization.name}
-             </button>
-             <p>
-              {clients.filter((client) => client.organizationId === organization.id).length} {t('overview_clients')}
-             </p>
+         {(() => {
+          const mainCode = mainCurrency?.code ?? '';
+          const mainSymbol = mainCurrency?.symbol || mainCode;
+          const fmt = (n: number) => n.toLocaleString(language, { maximumFractionDigits: 2 });
+          const balanceColor = (n: number) => (n >= 0 ? 'text-emerald-600' : 'text-red-600');
+
+          // Resolve a group's FX rate. Main currency is always 1; others use the
+          // user-entered rate, or NaN when unset/invalid (excluded from conversions).
+          const rateOf = (group: OverviewBalanceGroup) => {
+           if (group.isMain) return 1;
+           const raw = overviewRates[group.currencyCode];
+           const value = raw != null ? Number(raw) : NaN;
+           return value > 0 ? value : NaN;
+          };
+          const isFlipped = (group: OverviewBalanceGroup) =>
+           !group.isMain && (overviewFlipAll || overviewFlipped.has(group.key));
+
+          // Grand total across every group, always in the main currency.
+          let grandTotal = 0;
+          let anyRateMissing = false;
+          for (const group of overviewOrgBalances.groups) {
+           const rate = rateOf(group);
+           if (Number.isNaN(rate)) {
+            anyRateMissing = true;
+            continue;
+           }
+           grandTotal += group.total * rate;
+          }
+
+          // Render orgs in their own labelled subsections: orgs that have a main-
+          // currency card first, then alphabetically, with "no organization" last.
+          const orgEntries = Array.from(overviewOrgBalances.byOrg.entries());
+          orgEntries.sort(([aKey, aGroups], [bKey, bGroups]) => {
+           const aMain = aGroups.some((g) => g.isMain);
+           const bMain = bGroups.some((g) => g.isMain);
+           if (aMain !== bMain) return aMain ? -1 : 1;
+           if (aKey === 'none') return 1;
+           if (bKey === 'none') return -1;
+           return (aGroups[0].organizationName ?? '').localeCompare(bGroups[0].organizationName ?? '', language, { sensitivity: 'base' });
+          });
+
+          return (
+           <div className={panelClassName}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+             <h2 className="text-xl font-semibold">{t('overview_balances_title')}</h2>
+             <div className="flex items-center gap-4">
+              <div className={`text-right ${balanceColor(grandTotal)}`}>
+               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('overview_grand_total')}</p>
+               <p className="text-lg font-bold" dir="ltr">{fmt(grandTotal)} {mainSymbol}</p>
+              </div>
+              <button
+               type="button"
+               onClick={() => {
+                setOverviewFlipAll((value) => !value);
+                setOverviewFlipped(new Set());
+               }}
+               className="shrink-0 rounded border border-blue-700 bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+              >
+               {overviewFlipAll ? t('overview_show_original') : t('overview_show_in_main', { currency: mainCode })}
+              </button>
+             </div>
             </div>
-           ))}
-           {organizations.length === 0 ? <p>{t('no_organizations')}</p> : null}
-          </div>
-         </div>
+
+            {anyRateMissing ? (
+             <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p>
+            ) : null}
+
+            {!overviewOrgBalances.hasAccounts ? (
+             <p className="mt-4 text-sm text-slate-600">{t('overview_no_balances')}</p>
+            ) : (
+             <div className="mt-5 space-y-6">
+              {orgEntries.map(([orgKey, orgGroups]) => {
+               const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
+               const showMerged = orgGroups.length >= 2;
+               // Merged main-currency total for this org (sum of its currency cards).
+               let mergedTotal = 0;
+               let mergedReady = true;
+               for (const group of orgGroups) {
+                const rate = rateOf(group);
+                if (Number.isNaN(rate)) {
+                 mergedReady = false;
+                 break;
+                }
+                mergedTotal += group.total * rate;
+               }
+
+               return (
+                <div key={orgKey}>
+                 <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{orgName}</h3>
+                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {orgGroups.map((group) => {
+                   const flipped = isFlipped(group);
+                   const rate = rateOf(group);
+                   const converted = group.total * rate;
+                   const showConverted = flipped && !Number.isNaN(rate);
+                   return (
+                    <div key={group.key} className="flex flex-col rounded border border-slate-200 bg-white">
+                     <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                      <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
+                      {!group.isMain ? (
+                       <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 text-xs text-slate-500">
+                         <span>{t('overview_rate_label', { currency: group.currencyCode })}</span>
+                         <input
+                          type="text"
+                          inputMode="decimal"
+                          dir="ltr"
+                          value={overviewRates[group.currencyCode] ?? ''}
+                          onChange={(event) => updateOverviewRate(group.currencyCode, normalizeDecimalInput(event.target.value))}
+                          className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                         />
+                        </label>
+                        <button
+                         type="button"
+                         title={t('overview_show_in_main', { currency: mainCode })}
+                         onClick={() =>
+                          setOverviewFlipped((prev) => {
+                           const next = new Set(prev);
+                           if (next.has(group.key)) next.delete(group.key);
+                           else next.add(group.key);
+                           return next;
+                          })
+                         }
+                         className={`rounded p-1 transition ${showConverted ? 'bg-blue-100 text-blue-700' : 'text-slate-400 hover:bg-slate-100 hover:text-blue-600'}`}
+                        >
+                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M7 4 3 8l4 4M3 8h13.5" />
+                          <path d="M17 20l4-4-4-4m4 4H7.5" />
+                         </svg>
+                        </button>
+                       </div>
+                      ) : null}
+                     </div>
+
+                     <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+                      {group.clients.map((client) => (
+                       <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                        <span className="truncate text-slate-700">{client.clientName}</span>
+                        <span className={`shrink-0 font-medium ${balanceColor(client.balance)}`} dir="ltr">{fmt(client.balance)}</span>
+                       </div>
+                      ))}
+                     </div>
+
+                     <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_card_total')}</span>
+                      <span className={`font-bold ${balanceColor(showConverted ? converted : group.total)}`} dir="ltr">
+                       {showConverted ? `${fmt(converted)} ${mainSymbol}` : `${fmt(group.total)} ${group.currencySymbol || group.currencyCode}`}
+                      </span>
+                     </div>
+                    </div>
+                   );
+                  })}
+
+                  {showMerged ? (
+                   <div className="flex flex-col justify-between rounded border-2 border-blue-200 bg-blue-50/50 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_merged_total')}</p>
+                    {mergedReady ? (
+                     <p className={`mt-2 text-2xl font-bold ${balanceColor(mergedTotal)}`} dir="ltr">{fmt(mergedTotal)} {mainSymbol}</p>
+                    ) : (
+                     <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p>
+                    )}
+                   </div>
+                  ) : null}
+                 </div>
+                </div>
+               );
+              })}
+             </div>
+            )}
+           </div>
+          );
+         })()}
         </section>
        ) : null}
 
