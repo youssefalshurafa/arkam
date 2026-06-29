@@ -1021,6 +1021,9 @@ function AuthenticatedHome() {
  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
+ // True until the first loadData() completes, so the overview can show spinners
+ // instead of misleading zeros before any data has been fetched.
+ const [isInitialLoading, setIsInitialLoading] = useState(true);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [clientSearch, setClientSearch] = useState('');
  const [clientsPage, setClientsPage] = useState(1);
@@ -1215,6 +1218,8 @@ function AuthenticatedHome() {
    setError('');
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
+  } finally {
+   setIsInitialLoading(false);
   }
  }, [t]);
 
@@ -6530,7 +6535,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              className={mutedPanelClassName}
             >
              <p className="text-sm text-slate-500">{card.label}</p>
-             <p className="mt-3 text-3xl font-bold text-slate-900">{card.value}</p>
+             <p className="mt-3 text-3xl font-bold text-slate-900">
+              {isInitialLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}
+             </p>
             </div>
            ))}
           </div>
