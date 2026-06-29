@@ -908,6 +908,113 @@ async function importWorkspaceData(app, backup) {
     return { ok: true };
 }
 
+// Maps a camelCase transaction payload field to the value for a given DB column.
+function txColValue(col, row, now) {
+    switch (col) {
+        case 'account_from_id': return row.accountFromId;
+        case 'account_to_id': return row.accountToId;
+        case 'currency_id': return row.currencyId ?? null;
+        case 'amount': return row.amount;
+        case 'type': return row.type || 'transfer';
+        case 'exchange_rate_from': return row.exchangeRateFrom ?? 1;
+        case 'commission_from': return row.commissionFrom ?? 0;
+        case 'exchange_rate_to': return row.exchangeRateTo ?? 1;
+        case 'commission_to': return row.commissionTo ?? 0;
+        case 'exchange_rate_from_reversed': return row.exchangeRateFromReversed ? true : false;
+        case 'exchange_rate_to_reversed': return row.exchangeRateToReversed ? true : false;
+        case 'charges': return row.charges ?? 0;
+        case 'charges_currency_id': return row.chargesCurrencyId ?? null;
+        case 'charges_payer': return row.chargesPayer || '';
+        case 'charges_exchange_rate': return row.chargesExchangeRate ?? 1;
+        case 'charges_description': return row.chargesDescription || '';
+        case 'description': return row.description?.trim() || '';
+        case 'is_archived': return 0;
+        case 'created_at': return row.createdAt ?? now;
+        default: return null;
+    }
+}
+
+// Maps a camelCase adjustment payload field to the value for a given DB column.
+function adjColValue(col, row, now) {
+    switch (col) {
+        case 'account_id': return row.accountId;
+        case 'amount': return row.amount;
+        case 'direction': return row.direction;
+        case 'currency_id': return row.currencyId ?? null;
+        case 'currency_code': return row.currencyCode || '';
+        case 'currency_symbol': return row.currencySymbol || '';
+        case 'exchange_rate': return row.exchangeRate ?? 1;
+        case 'exchange_rate_reversed': return row.exchangeRateReversed ? true : false;
+        case 'description': return row.description?.trim() || '';
+        case 'created_at': return row.createdAt ?? now;
+        default: return null;
+    }
+}
+
+// Inserts all reviewed import rows (transactions + adjustments) in bulk using
+// multi-row INSERTs, reducing ~1000 HTTP round-trips to a single request.
+async function bulkImportTransactions(app, { transactions = [], adjustments = [] } = {}) {
+    const { schema } = await getSchemaInfo(app);
+    const now = new Date();
+
+    await withTransaction(async (client) => {
+        if (transactions.length > 0) {
+            const cols = [
+                'account_from_id', 'account_to_id', 'currency_id', 'amount', 'type',
+                'exchange_rate_from', 'commission_from', 'exchange_rate_to', 'commission_to',
+                'exchange_rate_from_reversed', 'exchange_rate_to_reversed',
+                'charges', 'charges_currency_id', 'charges_payer', 'charges_exchange_rate',
+                'charges_description', 'description', 'is_archived', 'created_at',
+            ];
+            const quotedCols = cols.map((c) => `"${c}"`).join(', ');
+            const maxBatch = Math.max(1, Math.floor(60000 / cols.length));
+            for (let i = 0; i < transactions.length; i += maxBatch) {
+                const batch = transactions.slice(i, i + maxBatch);
+                const values = [];
+                const tuples = batch.map((row) => {
+                    const placeholders = cols.map((col) => {
+                        values.push(txColValue(col, row, now));
+                        return `$${values.length}`;
+                    });
+                    return `(${placeholders.join(', ')})`;
+                });
+                await query(
+                    `INSERT INTO ${schema}.transactions (${quotedCols}) VALUES ${tuples.join(', ')}`,
+                    values,
+                    client,
+                );
+            }
+        }
+
+        if (adjustments.length > 0) {
+            const cols = [
+                'account_id', 'amount', 'direction', 'currency_id', 'currency_code',
+                'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description', 'created_at',
+            ];
+            const quotedCols = cols.map((c) => `"${c}"`).join(', ');
+            const maxBatch = Math.max(1, Math.floor(60000 / cols.length));
+            for (let i = 0; i < adjustments.length; i += maxBatch) {
+                const batch = adjustments.slice(i, i + maxBatch);
+                const values = [];
+                const tuples = batch.map((row) => {
+                    const placeholders = cols.map((col) => {
+                        values.push(adjColValue(col, row, now));
+                        return `$${values.length}`;
+                    });
+                    return `(${placeholders.join(', ')})`;
+                });
+                await query(
+                    `INSERT INTO ${schema}.client_adjustments (${quotedCols}) VALUES ${tuples.join(', ')}`,
+                    values,
+                    client,
+                );
+            }
+        }
+    });
+
+    return { createdTransactions: transactions.length, createdAdjustments: adjustments.length };
+}
+
 module.exports = {
     getDbInfo,
     setDbDirectory,
@@ -947,4 +1054,5 @@ module.exports = {
     deleteClientAdjustment,
     exportWorkspaceData,
     importWorkspaceData,
+    bulkImportTransactions,
 };

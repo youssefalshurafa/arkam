@@ -54,6 +54,7 @@ const writeActions = new Set([
  'updateClientAdjustment',
  'deleteClientAdjustment',
  'importWorkspaceData',
+ 'bulkImportTransactions',
 ]);
 
 type Body = {
@@ -279,6 +280,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.exportWorkspaceData(appLike));
    case 'importWorkspaceData':
     return NextResponse.json(await db.importWorkspaceData(appLike, payload));
+   case 'bulkImportTransactions':
+    return NextResponse.json(await db.bulkImportTransactions(appLike, payload));
    case 'getBackupInfo':
     return NextResponse.json(await authDb.getWorkspaceBackupInfo(workspaceId));
    case 'recordBackup':

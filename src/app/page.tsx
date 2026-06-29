@@ -218,6 +218,10 @@ type ClientLedgerEntry = {
  currencySymbol: string;
  exchangeRate: number;
  exchangeRateReversed: boolean;
+ // True when the entry's amount is in a different currency than the account and no
+ // exchange rate has been entered yet. Such entries show a dash for the rate and are
+ // excluded from the running/accumulated balance (netChange forced to 0) until a rate is set.
+ pendingRate: boolean;
  commission: number;
  netChange: number;
  runningBalance: number;
@@ -288,6 +292,8 @@ type ImportClientReview = {
  isExpense: boolean; // when true this name is an expense marker, not a client
  existingClientId: number | null; // when set, map to this existing client instead of creating one
  existingAccountId: number | null; // which of the existing client's accounts this name feeds
+ pendingEntryKey: string | null; // when set, reuse the client being created by another review entry
+ targetCurrencyId: number | null; // for new/pending entries: which opened account receives the rows
  name: string; // editable final name when creating a new client
  organizationId: number | null; // org applied to a newly created client
  accountCurrencyIds: number[]; // currency accounts to open for this client (user-controlled)
@@ -967,6 +973,7 @@ function AuthenticatedHome() {
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
+ const [clientSearch, setClientSearch] = useState('');
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
@@ -975,8 +982,14 @@ function AuthenticatedHome() {
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [editingLedgerRowKeys, setEditingLedgerRowKeys] = useState<Set<string>>(new Set());
+ const [editAllLedgerAccountIds, setEditAllLedgerAccountIds] = useState<Set<number>>(new Set());
  const [selectedLedgerEntryKeys, setSelectedLedgerEntryKeys] = useState<Set<string>>(new Set());
  const [showLedgerSettingsModal, setShowLedgerSettingsModal] = useState(false);
+ const [ledgerFilterOpen, setLedgerFilterOpen] = useState(false);
+ const [ledgerFilterSearch, setLedgerFilterSearch] = useState('');
+ const [ledgerFilterCounterparty, setLedgerFilterCounterparty] = useState('');
+ const [ledgerFilterDateFrom, setLedgerFilterDateFrom] = useState('');
+ const [ledgerFilterDateTo, setLedgerFilterDateTo] = useState('');
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
@@ -1027,6 +1040,7 @@ function AuthenticatedHome() {
  const [showAddAccountForm, setShowAddAccountForm] = useState(false);
  const [showCreateOrgDialog, setShowCreateOrgDialog] = useState(false);
  const [isSavingOrg, setIsSavingOrg] = useState(false);
+ const [orgDialogError, setOrgDialogError] = useState('');
  // When the create-organization popup is opened from an import-review row, this
  // holds that row's key so the new org is assigned back to it (not the client form).
  const [orgDialogTargetReviewKey, setOrgDialogTargetReviewKey] = useState<string | null>(null);
@@ -1443,6 +1457,12 @@ function AuthenticatedHome() {
   const isOutgoing = transaction.accountFromId === ledgerAccountId;
   const rate = isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
   const reversed = isOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed;
+  // When the amount currency differs from the account currency and the stored rate is still
+  // 1 (no rate entered yet), leave the draft field empty so the input shows blank — matching
+  // the dash shown in read mode — rather than pre-filling '1'.
+  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
+  const isPending = account != null && transaction.currencyId !== account.currencyId && rate === 1;
+  const rateStr = isPending ? '' : reversed ? formatRateValue(1 / rate) : String(rate);
   return {
    transactionId: transaction.id,
    ledgerAccountId,
@@ -1451,7 +1471,7 @@ function AuthenticatedHome() {
    counterpartyAccountId: isOutgoing ? transaction.accountToId : transaction.accountFromId,
    type: transaction.type,
    amount: String(transaction.amount),
-   exchangeRate: reversed ? formatRateValue(1 / rate) : String(rate),
+   exchangeRate: rateStr,
    commission: String(isOutgoing ? transaction.commissionFrom : transaction.commissionTo),
    description: transaction.description,
   };
@@ -1595,7 +1615,7 @@ function AuthenticatedHome() {
   return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
  }
 
- async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number) {
+ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}) {
   if (!accountingApi) {
    setError(t('error_bridge'));
    return;
@@ -1647,7 +1667,7 @@ function AuthenticatedHome() {
   try {
    await accountingApi.updateTransaction(payload);
    setError('');
-   await loadData();
+   if (!skipReload) await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -1664,6 +1684,56 @@ function AuthenticatedHome() {
    ...current,
    [draftKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId),
   }));
+ }
+
+ function onEditAllLedger(ledger: ClientAccountLedger) {
+  const newDrafts: Record<string, LedgerTransactionDraft> = {};
+  const newRateReversed: Record<string, boolean> = {};
+  const newKeys: string[] = [];
+  for (const entry of ledger.entries) {
+   if (entry.isAdjustment) continue;
+   const tx = transactions.find((t) => t.id === entry.transactionId);
+   if (!tx) continue;
+   const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+   if (!ledgerTransactionDrafts[draftKey]) {
+    newDrafts[draftKey] = buildLedgerTransactionDraft(tx, ledger.accountId);
+    const isOutgoing = tx.accountFromId === ledger.accountId;
+    if (isOutgoing ? tx.exchangeRateFromReversed : tx.exchangeRateToReversed) {
+     newRateReversed[draftKey] = true;
+    }
+   }
+   newKeys.push(draftKey);
+  }
+  setLedgerTransactionDrafts((prev) => ({ ...prev, ...newDrafts }));
+  setLedgerRateReversed((prev) => ({ ...prev, ...newRateReversed }));
+  setEditingLedgerRowKeys((prev) => new Set([...prev, ...newKeys]));
+  setEditAllLedgerAccountIds((prev) => new Set([...prev, ledger.accountId]));
+ }
+
+ function onCancelAllLedger(ledger: ClientAccountLedger) {
+  const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n; });
+  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
+  setEditAllLedgerAccountIds((prev) => { const n = new Set(prev); n.delete(ledger.accountId); return n; });
+ }
+
+ async function onSaveAllLedger(ledger: ClientAccountLedger) {
+  const keys = ledger.entries
+   .filter((e) => !e.isAdjustment)
+   .map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId))
+   .filter((k) => editingLedgerRowKeys.has(k));
+  // Fire all saves in parallel so 100+ rows finish in one round-trip batch rather than sequentially.
+  await Promise.all(
+   keys.map((key) => {
+    const [txIdStr, accIdStr] = key.split(':');
+    return onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { skipReload: true });
+   }),
+  );
+  // Single data reload after all saves complete.
+  await loadData();
+  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n; });
+  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
+  setEditAllLedgerAccountIds((prev) => { const n = new Set(prev); n.delete(ledger.accountId); return n; });
  }
 
  async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
@@ -1746,11 +1816,12 @@ function AuthenticatedHome() {
  async function onCreateOrgFromDialog(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
   if (!accountingApi || !organizationForm.name.trim()) {
-   setError(t('organization_required'));
+   setOrgDialogError(t('organization_required'));
    return;
   }
   const newName = organizationForm.name.trim();
   setIsSavingOrg(true);
+  setOrgDialogError('');
   try {
    await accountingApi.createOrganization(organizationForm);
    await loadData();
@@ -1769,9 +1840,8 @@ function AuthenticatedHome() {
    setOrganizationForm(emptyOrganizationForm());
    setShowCreateOrgDialog(false);
    setOrgDialogTargetReviewKey(null);
-   setError('');
   } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
+   setOrgDialogError(e instanceof Error ? e.message : t('error_failed_save'));
   } finally {
    setIsSavingOrg(false);
   }
@@ -2411,9 +2481,11 @@ function AuthenticatedHome() {
       isExpense: false,
       existingClientId: existing?.id ?? null,
       existingAccountId: existingImportAccount?.id ?? null,
-      name: existing?.name ?? rawName,
+      pendingEntryKey: null,
+      targetCurrencyId: null,
+      name: rawName,
       organizationId: existing?.organizationId ?? (organizations[0]?.id ?? null),
-      accountCurrencyIds: [selectedCurrency.id],
+      accountCurrencyIds: [],
       currencyId: selectedCurrency.id,
       transactionCount: 0,
      };
@@ -2493,6 +2565,35 @@ function AuthenticatedHome() {
    return;
   }
 
+  // Every new client needs at least one account to post transactions to.
+  const missingAccount = importReview.find((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length === 0);
+  if (missingAccount) {
+   setError(`Please add at least one account for "${missingAccount.originalName}" before importing.`);
+   return;
+  }
+
+  // New clients with 2+ accounts need a target account selected.
+  const missingTarget = importReview.find((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null);
+  if (missingTarget) {
+   setError(`Please select which account "${missingTarget.originalName}" rows should post to.`);
+   return;
+  }
+
+  // Pending-entry refs with 2+ accounts need a target chosen.
+  const refAccountCount = (key: string) => importReview.find((e) => e.key === key)?.accountCurrencyIds.length ?? 0;
+  const missingPendingTarget = importReview.find((entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && refAccountCount(entry.pendingEntryKey!) >= 2);
+  if (missingPendingTarget) {
+   setError(`Please select which account "${missingPendingTarget.originalName}" rows should post to.`);
+   return;
+  }
+
+  // Existing clients with 2+ accounts need a selected account.
+  const missingExistingAccount = importReview.find((entry) => !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2);
+  if (missingExistingAccount) {
+   setError(`Please select an account for "${missingExistingAccount.originalName}" before importing.`);
+   return;
+  }
+
   const reviewList = importReview;
 
   setIsImportingTransactions(true);
@@ -2528,9 +2629,14 @@ function AuthenticatedHome() {
    };
 
    // Resolves the client id for a review entry: an explicitly mapped existing
-   // client, or the one created/found by its final name.
-   const resolveClientId = (entry: ImportClientReview) => {
+   // client, the client created by a referenced pending entry, or the one
+   // created/found by this entry's own name.
+   const resolveClientId = (entry: ImportClientReview): number | null => {
     if (entry.existingClientId != null) return entry.existingClientId;
+    if (entry.pendingEntryKey != null) {
+     const ref = reviewByKey.get(entry.pendingEntryKey);
+     return ref ? getClientByName(ref.name.trim())?.id ?? null : null;
+    }
     return getClientByName(entry.name.trim())?.id ?? null;
    };
 
@@ -2559,35 +2665,37 @@ function AuthenticatedHome() {
     if (reviewByKey.get(toKey)?.isExpense) expenseKeysNeedingClient.add(toKey);
    });
 
-   // Create reviewed new clients (existing-client mappings are reused). Expense
-   // markers are skipped unless some row flips them to a real transaction.
+   // Create reviewed new clients (existing-client mappings and pending-entry
+   // references are reused). Expense markers are skipped unless a row flips them.
    for (const review of reviewList) {
     if (review.existingClientId != null) continue;
+    if (review.pendingEntryKey != null) continue;
     if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
     const finalName = review.name.trim();
     if (!finalName || getClientByName(finalName)) continue;
-    await accountingApi.createClient({
+    const { clientId: newClientId } = (await accountingApi.createClient({
      organizationId: review.organizationId ?? null,
      name: finalName,
      email: '',
      phone: '',
      address: '',
-    });
-    nextClients = (await accountingApi.listClients()) as Client[];
+    })) as { ok: true; clientId: number };
+    nextClients = [...nextClients, { id: newClientId, name: finalName, organizationId: review.organizationId ?? null, organizationName: null, email: '', phone: '', address: '', accountCount: 0, createdAt: '', updatedAt: '' }];
     stats.createdClients += 1;
    }
 
    // Open accounts. Existing clients reuse a chosen account (or get an import
    // account if they have none); new clients open the currencies the user picked.
+   // Pending-entry references piggyback on the referenced entry's accounts.
    for (const review of reviewList) {
     if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
+    if (review.pendingEntryKey != null) continue;
 
     if (review.existingClientId != null) {
      // A specific account was selected, or the client already has the import one.
      if (review.existingAccountId != null || getClientAccount(review.existingClientId, importCurrency.id)) continue;
      await ensureCurrencyEnabled(importCurrency.id);
      await accountingApi.createClientAccount({ clientId: review.existingClientId, currencyId: importCurrency.id, startingBalance: 0 });
-     nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
      stats.createdAccounts += 1;
      continue;
     }
@@ -2598,13 +2706,15 @@ function AuthenticatedHome() {
      await ensureCurrencyEnabled(currencyId);
      if (getClientAccount(clientId, currencyId)) continue;
      await accountingApi.createClientAccount({ clientId, currencyId, startingBalance: 0 });
-     nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
      stats.createdAccounts += 1;
     }
    }
+   // One reload after all accounts are created so resolveAccount can find them.
+   if (stats.createdAccounts > 0) {
+    nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
+   }
 
-   // Resolves the account a review entry's rows should post to: the chosen
-   // existing account, else the client's import-currency account.
+   // Resolves the account a review entry's rows should post to.
    const resolveAccount = (entry: ImportClientReview) => {
     if (entry.existingClientId != null) {
      if (entry.existingAccountId != null) {
@@ -2614,12 +2724,16 @@ function AuthenticatedHome() {
     }
     const clientId = resolveClientId(entry);
     if (clientId == null) return null;
-    return getClientAccount(clientId, importCurrency.id);
+    // Use the user-chosen target currency, or fall back to the import currency.
+    const targetCurrencyId = entry.targetCurrencyId ?? importCurrency.id;
+    return getClientAccount(clientId, targetCurrencyId) ?? null;
    };
 
-   // Walk the rows. A normal row is a transfer. A row touching an expense-marked
-   // name is, by default, a debit ("owes you") on the real client — unless the
-   // user flipped that specific row to "transaction", making it a normal transfer.
+   // Walk the rows, building two accumulator arrays instead of firing one HTTP
+   // request per row. A single bulk call at the end inserts everything at once.
+   const transactionsToCreate: object[] = [];
+   const adjustmentsToCreate: object[] = [];
+
    for (let index = 0; index < importedRows.length; index += 1) {
     const row = importedRows[index];
     const fromEntry = reviewByKey.get(normalizeLookup(row.fromName)) ?? null;
@@ -2631,20 +2745,13 @@ function AuthenticatedHome() {
     const asExpense = involvesExpense && override.mode !== 'transaction';
 
     if (asExpense) {
-     if (fromIsExpense && toIsExpense) {
-      continue; // both sides expenses, kept as expense — nothing to attribute.
-     }
+     if (fromIsExpense && toIsExpense) continue;
      const realEntry = fromIsExpense ? toEntry : fromEntry;
      const markerEntry = fromIsExpense ? fromEntry : toEntry;
      if (!realEntry) continue;
      const account = resolveAccount(realEntry);
-     if (!account) {
-      // The client has no account to post this expense to.
-      stats.skippedRows += 1;
-      continue;
-     }
-
-     await accountingApi.createClientAdjustment({
+     if (!account) { stats.skippedRows += 1; continue; }
+     adjustmentsToCreate.push({
       accountId: account.id,
       amount: row.amount,
       direction: override.direction,
@@ -2654,25 +2761,19 @@ function AuthenticatedHome() {
       exchangeRate: 1,
       exchangeRateReversed: false,
       description: row.description || markerEntry?.originalName || '',
-      createdAt: row.createdAt ?? undefined,
+      createdAt: row.createdAt ?? null,
      });
-     stats.createdExpenses += 1;
      continue;
     }
 
-    // Transfer between two clients. The sheet's from/to can be swapped per row.
+    // Transfer between two clients.
     if (!fromEntry || !toEntry) continue;
     const sendEntry = override.swap ? toEntry : fromEntry;
     const receiveEntry = override.swap ? fromEntry : toEntry;
     const fromAccount = resolveAccount(sendEntry);
     const toAccount = resolveAccount(receiveEntry);
-    if (!fromAccount || !toAccount) {
-     // One side has no account to post to (the user chose not to open one).
-     stats.skippedRows += 1;
-     continue;
-    }
-
-    await accountingApi.createTransaction({
+    if (!fromAccount || !toAccount) { stats.skippedRows += 1; continue; }
+    transactionsToCreate.push({
      accountFromId: fromAccount.id,
      accountToId: toAccount.id,
      currencyId: importCurrency.id,
@@ -2682,16 +2783,25 @@ function AuthenticatedHome() {
      commissionFrom: 0,
      exchangeRateTo: 1,
      commissionTo: 0,
+     exchangeRateFromReversed: false,
+     exchangeRateToReversed: false,
      charges: 0,
      chargesCurrencyId: null,
      chargesPayer: '',
      chargesExchangeRate: 1,
      chargesDescription: '',
      description: row.description,
-     createdAt: row.createdAt ?? undefined,
+     createdAt: row.createdAt ?? null,
     });
+   }
 
-    stats.createdTransactions += 1;
+   if (transactionsToCreate.length > 0 || adjustmentsToCreate.length > 0) {
+    const bulkResult = await accountingApi.bulkImportTransactions({
+     transactions: transactionsToCreate,
+     adjustments: adjustmentsToCreate,
+    });
+    stats.createdTransactions = bulkResult.createdTransactions;
+    stats.createdExpenses = bulkResult.createdAdjustments;
    }
 
    if (!stats.createdTransactions && !stats.createdExpenses) {
@@ -3438,6 +3548,9 @@ function AuthenticatedHome() {
     header: t('exchange_rate'),
     isNum: true,
     cell: (e) => {
+     if (e.pendingRate) {
+      return '-';
+     }
      if (e.isAdjustment) {
       return e.exchangeRate && e.exchangeRate !== 1 ? formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : '-';
      }
@@ -3449,7 +3562,7 @@ function AuthenticatedHome() {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`),
    },
    {
     key: 'runningBalance',
@@ -3761,12 +3874,19 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const sortedClients = useMemo(() => {
   const factor = clientSort.dir === 'asc' ? 1 : -1;
-  return [...clients].sort((a, b) => {
+  const sorted = [...clients].sort((a, b) => {
    const aVal = clientSort.key === 'organization' ? a.organizationName || '' : a.name;
    const bVal = clientSort.key === 'organization' ? b.organizationName || '' : b.name;
    return aVal.localeCompare(bVal, language, { sensitivity: 'base' }) * factor;
   });
- }, [clients, clientSort, language]);
+  const q = clientSearch.trim().toLowerCase();
+  if (!q) return sorted;
+  return sorted.filter(
+   (c) =>
+    c.name.toLowerCase().includes(q) ||
+    (c.organizationName ?? '').toLowerCase().includes(q),
+  );
+ }, [clients, clientSort, clientSearch, language]);
  const toggleClientSort = useCallback((key: 'name' | 'organization') => {
   setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
  }, []);
@@ -4035,6 +4155,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       if (transaction.isArchived) return [];
       if (transaction.accountFromId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountToId ?? -1);
+       // Amount is in a different currency than this account and no rate entered yet → pending.
+       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 1;
        return [
         {
          transactionId: transaction.id,
@@ -4048,8 +4170,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          currencySymbol: transaction.currencySymbol,
          exchangeRate: transaction.exchangeRateFrom,
          exchangeRateReversed: !!transaction.exchangeRateFromReversed,
+         pendingRate,
          commission: transaction.commissionFrom,
-         netChange: transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
+         netChange: pendingRate ? 0 : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
          runningBalance: 0,
          description: transaction.description,
          charges: transaction.charges,
@@ -4064,6 +4187,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
       if (transaction.accountToId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountFromId ?? -1);
+       // Amount is in a different currency than this account and no rate entered yet → pending.
+       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 1;
        return [
         {
          transactionId: transaction.id,
@@ -4077,8 +4202,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          currencySymbol: transaction.currencySymbol,
          exchangeRate: transaction.exchangeRateTo,
          exchangeRateReversed: !!transaction.exchangeRateToReversed,
+         pendingRate,
          commission: transaction.commissionTo,
-         netChange: -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
+         netChange: pendingRate ? 0 : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
          runningBalance: 0,
          description: transaction.description,
          charges: transaction.charges,
@@ -4112,9 +4238,14 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         currencySymbol: adj.currencySymbol || account.currencySymbol,
         exchangeRate: adj.exchangeRate || 1,
         exchangeRateReversed: !!adj.exchangeRateReversed,
+        // Adjustment amount is in a different currency than the account and no rate set yet → pending.
+        pendingRate: adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1,
         commission: 0,
         // amount is in the adjustment's own currency; convert to account currency via exchangeRate
-        netChange: (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
+        netChange:
+         adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1
+          ? 0
+          : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
         runningBalance: 0,
         description: adj.description,
         charges: 0,
@@ -4973,7 +5104,21 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
    <div className="flex flex-col gap-4">
     <div className={panelClassName}>
-     <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
+     <div className="flex items-center justify-between gap-3">
+      <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
+      <div className="relative">
+       <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+       </svg>
+       <input
+        type="search"
+        value={clientSearch}
+        onChange={(e) => setClientSearch(e.target.value)}
+        placeholder={t('search')}
+        className="rounded border border-slate-300 py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
+       />
+      </div>
+     </div>
      <div className={tableWrapClassName}>
       <table className="w-full text-sm">
        <thead className="bg-slate-100 text-slate-700">
@@ -5051,12 +5196,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         ))}
         {clients.length === 0 ? (
          <tr>
-          <td
-           className="px-4 py-6 text-slate-500"
-           colSpan={4}
-          >
-           {t('no_clients')}
-          </td>
+          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_clients')}</td>
+         </tr>
+        ) : sortedClients.length === 0 ? (
+         <tr>
+          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_search_results')}</td>
          </tr>
         ) : null}
        </tbody>
@@ -5552,16 +5696,30 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      <div>
       <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
      </div>
-     <button
-      type="button"
-      onClick={() => {
-       setSettingsTab('clients');
-       navigateToSection('settings');
-      }}
-      className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-     >
-      {t('open_in_settings')}
-     </button>
+     <div className="flex items-center gap-2">
+      <div className="relative">
+       <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+       </svg>
+       <input
+        type="search"
+        value={clientSearch}
+        onChange={(e) => setClientSearch(e.target.value)}
+        placeholder={t('search')}
+        className="rounded border border-slate-300 py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
+       />
+      </div>
+      <button
+       type="button"
+       onClick={() => {
+        setSettingsTab('clients');
+        navigateToSection('settings');
+       }}
+       className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+      >
+       {t('open_in_settings')}
+      </button>
+     </div>
     </div>
 
     <div className={tableWrapClassName}>
@@ -5594,12 +5752,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        ))}
        {clients.length === 0 ? (
         <tr>
-         <td
-          className="px-4 py-6 text-slate-500"
-          colSpan={3}
-         >
-          {t('no_clients')}
-         </td>
+         <td className="px-4 py-6 text-slate-500" colSpan={3}>{t('no_clients')}</td>
+        </tr>
+       ) : sortedClients.length === 0 ? (
+        <tr>
+         <td className="px-4 py-6 text-slate-500" colSpan={3}>{t('no_search_results')}</td>
         </tr>
        ) : null}
       </tbody>
@@ -6277,6 +6434,19 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                  {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                 </p>
+                {(() => {
+                 const pendingCount = ledger.entries.filter((e) => e.pendingRate).length;
+                 if (pendingCount === 0) return null;
+                 return (
+                  <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-amber-600">
+                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <path d="M12 9v4M12 17h.01" />
+                   </svg>
+                   {t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
+                  </p>
+                 );
+                })()}
                </div>
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_transaction_count')}</p>
@@ -6288,6 +6458,89 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              {ledger.entries.length === 0 ? (
               <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
              ) : (
+              <>
+               {/* Filter bar */}
+               {(() => {
+                const counterpartyOptions = [...new Set(ledger.entries.map((e) => e.counterpartyName).filter(Boolean))].sort((a, b) => a.localeCompare(b, language));
+                const hasFilter = !!(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo);
+                const activeCount = [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo].filter(Boolean).length;
+                return (
+                 <div className="mt-4 rounded border border-slate-200 bg-slate-50">
+                  <button
+                   type="button"
+                   onClick={() => setLedgerFilterOpen((o) => !o)}
+                   className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                  >
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                   </svg>
+                   {t('tx_filter_toggle')}
+                   {hasFilter && (
+                    <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">{activeCount}</span>
+                   )}
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`ml-auto transition-transform ${ledgerFilterOpen ? 'rotate-180' : ''}`}>
+                    <path d="M6 9l6 6 6-6" />
+                   </svg>
+                  </button>
+                  {ledgerFilterOpen && (
+                   <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-3 py-3">
+                    <div className="flex min-w-36 flex-1 flex-col gap-1">
+                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_search')}</label>
+                     <input
+                      type="text"
+                      value={ledgerFilterSearch}
+                      onChange={(e) => setLedgerFilterSearch(e.target.value)}
+                      placeholder={t('tx_filter_search_placeholder')}
+                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    </div>
+                    {counterpartyOptions.length > 0 && (
+                     <div className="flex min-w-36 flex-1 flex-col gap-1">
+                      <label className="text-xs font-medium text-slate-500">{t('counterparty')}</label>
+                      <select
+                       value={ledgerFilterCounterparty}
+                       onChange={(e) => setLedgerFilterCounterparty(e.target.value)}
+                       className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                      >
+                       <option value="">{t('tx_filter_client_all')}</option>
+                       {counterpartyOptions.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                       ))}
+                      </select>
+                     </div>
+                    )}
+                    <div className="flex flex-col gap-1">
+                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_from')}</label>
+                     <input
+                      type="date"
+                      value={ledgerFilterDateFrom}
+                      onChange={(e) => setLedgerFilterDateFrom(e.target.value)}
+                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_to')}</label>
+                     <input
+                      type="date"
+                      value={ledgerFilterDateTo}
+                      onChange={(e) => setLedgerFilterDateTo(e.target.value)}
+                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    </div>
+                    {hasFilter && (
+                     <button
+                      type="button"
+                      onClick={() => { setLedgerFilterSearch(''); setLedgerFilterCounterparty(''); setLedgerFilterDateFrom(''); setLedgerFilterDateTo(''); }}
+                      className="self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
+                     >
+                      {t('tx_filter_clear')}
+                     </button>
+                    )}
+                   </div>
+                  )}
+                 </div>
+                );
+               })()}
               <div className={tableWrapClassName}>
                <table className="w-full text-sm">
                 <thead className="bg-slate-100 text-slate-700">
@@ -6304,7 +6557,37 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     className="cursor-pointer"
                    />
                   </th>
-                  <th className="w-10 px-2 py-3"></th>
+                  <th className="w-10 px-2 py-3">
+                   {editAllLedgerAccountIds.has(ledger.accountId) ? (
+                    <div className="flex flex-col items-center gap-1">
+                     <button
+                      type="button"
+                      title={t('save_changes')}
+                      onClick={() => void onSaveAllLedger(ledger)}
+                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                     >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                     </button>
+                     <button
+                      type="button"
+                      title={t('cancel')}
+                      onClick={() => onCancelAllLedger(ledger)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                     >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                     </button>
+                    </div>
+                   ) : (
+                    <button
+                     type="button"
+                     title="Edit all rows"
+                     onClick={() => onEditAllLedger(ledger)}
+                     className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                    >
+                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                    </button>
+                   )}
+                  </th>
                   {orderedLedgerColumnOptions.map((column) => {
                    if (!ledgerColumnVisibility[column.key]) {
                     return null;
@@ -6471,10 +6754,25 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 <tbody>
                  {((() => {
                    const order = manualLedgerRowOrder[ledger.accountId];
-                   if (!order) return ledger.entries;
-                   const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
-                   return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
-                  })()).map((entry) => (
+                   const ordered = (() => {
+                    if (!order) return ledger.entries;
+                    const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
+                    return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
+                   })();
+                   const q = ledgerFilterSearch.trim().toLowerCase();
+                   return ordered.filter((e) => {
+                    if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                    if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                    if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                    if (q) {
+                     const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                     const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                     const inAmount = String(e.amount).includes(q);
+                     if (!inCounterparty && !inDescription && !inAmount) return false;
+                    }
+                    return true;
+                   });
+                  })()).map((entry, entryIdx) => (
                   <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                    <tr
                     draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
@@ -6782,9 +7080,20 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                                inputMode="decimal"
                                dir="ltr"
                                value={draft.exchangeRate}
+                               data-ledger-rate-idx={entryIdx}
+                               data-ledger-account-id={ledger.accountId}
                                onChange={(event) =>
                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
                                }
+                               onKeyDown={(event) => {
+                                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                                event.preventDefault();
+                                const delta = event.key === 'ArrowDown' ? 1 : -1;
+                                const next = document.querySelector<HTMLInputElement>(
+                                 `[data-ledger-account-id="${ledger.accountId}"][data-ledger-rate-idx="${entryIdx + delta}"]`,
+                                );
+                                next?.focus();
+                               }}
                                className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                               />
                              </div>
@@ -6797,6 +7106,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                             const accCurr = ledger.currencyCode;
                             const defaultReversed = entry.exchangeRateReversed;
                             const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
+                            // Different currency but no rate entered yet: show a dash. This entry is
+                            // excluded from the balance until the user sets a rate.
+                            if (entry.pendingRate) {
+                             return <span className="text-amber-500" title={t('ledger_rate_pending')}>-</span>;
+                            }
                             if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
                              return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
                             }
@@ -6877,10 +7191,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.pendingRate ? 'text-amber-500' : entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
-                          {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                          {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                          {entry.pendingRate ? (
+                           <span title={t('ledger_rate_pending')}>-</span>
+                          ) : (
+                           <>
+                            {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                            {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                           </>
+                          )}
                          </td>
                         );
                        case 'runningBalance':
@@ -6950,9 +7270,28 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    )}
                   </Fragment>
                  ))}
+                 {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) && ledger.entries.length > 0 && (() => {
+                  const q = ledgerFilterSearch.trim().toLowerCase();
+                  const visibleCount = ledger.entries.filter((e) => {
+                   if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                   if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                   if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                   if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                   return true;
+                  }).length;
+                  if (visibleCount > 0) return null;
+                  return (
+                   <tr>
+                    <td colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3} className="px-4 py-6 text-sm text-slate-500">
+                     {t('no_search_results')}
+                    </td>
+                   </tr>
+                  );
+                 })()}
                 </tbody>
                </table>
               </div>
+              </>
              )}
             </div>
            ))
@@ -9066,38 +9405,66 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             </div>
            ) : (
             <>
+             {/* Client selector — DB clients + new clients being created in this import */}
              <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
               <label className="flex-1 text-sm text-slate-700">
                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Client</span>
                <select
-                value={entry.existingClientId ?? '__new__'}
+                value={
+                 entry.existingClientId != null
+                  ? String(entry.existingClientId)
+                  : entry.pendingEntryKey != null
+                   ? `__pending__${entry.pendingEntryKey}`
+                   : '__new__'
+                }
                 onChange={(event) => {
-                 if (event.target.value === '__new__') {
-                  updateImportReviewEntry(entry.key, { existingClientId: null, existingAccountId: null });
+                 const val = event.target.value;
+                 if (val === '__new__') {
+                  updateImportReviewEntry(entry.key, { existingClientId: null, existingAccountId: null, pendingEntryKey: null, targetCurrencyId: null });
                   return;
                  }
-                 const clientId = Number(event.target.value);
-                 // Preselect the client's import-currency account, else its first account.
+                 if (val.startsWith('__pending__')) {
+                  const refKey = val.slice('__pending__'.length);
+                  const refEntry = importReview!.find((e) => e.key === refKey);
+                  const firstCurrencyId = refEntry?.accountCurrencyIds[0] ?? null;
+                  updateImportReviewEntry(entry.key, { existingClientId: null, existingAccountId: null, pendingEntryKey: refKey, targetCurrencyId: firstCurrencyId });
+                  return;
+                 }
+                 const clientId = Number(val);
                  const accountsForClient = clientAccounts.filter((account) => account.clientId === clientId);
                  const defaultAccount =
                   accountsForClient.find((account) => account.currencyId === entry.currencyId) ?? accountsForClient[0] ?? null;
-                 updateImportReviewEntry(entry.key, { existingClientId: clientId, existingAccountId: defaultAccount?.id ?? null });
+                 updateImportReviewEntry(entry.key, { existingClientId: clientId, existingAccountId: defaultAccount?.id ?? null, pendingEntryKey: null, targetCurrencyId: null });
                 }}
                 className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                >
                 <option value="__new__">➕ Create new client</option>
-                {clients.map((client) => (
-                 <option
-                  key={client.id}
-                  value={client.id}
-                 >
-                  {client.name}
-                 </option>
-                ))}
+                {/* Other review entries whose new clients can be reused */}
+                {importReview!.filter((e) => e.key !== entry.key && !e.isExpense && e.existingClientId == null && e.pendingEntryKey == null && e.name.trim()).length > 0 ? (
+                 <optgroup label="From this import">
+                  {importReview!
+                   .filter((e) => e.key !== entry.key && !e.isExpense && e.existingClientId == null && e.pendingEntryKey == null && e.name.trim())
+                   .map((e) => (
+                    <option key={e.key} value={`__pending__${e.key}`}>
+                     {e.name.trim()}
+                    </option>
+                   ))}
+                 </optgroup>
+                ) : null}
+                {clients.length > 0 ? (
+                 <optgroup label="Existing clients">
+                  {clients.map((client) => (
+                   <option key={client.id} value={client.id}>
+                    {client.name}
+                   </option>
+                  ))}
+                 </optgroup>
+                ) : null}
                </select>
               </label>
 
-              {entry.existingClientId == null ? (
+              {/* New client name — only for entries creating a fresh client */}
+              {entry.existingClientId == null && entry.pendingEntryKey == null ? (
                <label className="flex-1 text-sm text-slate-700">
                 <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">New client name</span>
                 <input
@@ -9110,7 +9477,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               ) : null}
              </div>
 
-             {entry.existingClientId == null ? (
+             {/* Organization — only for new clients */}
+             {entry.existingClientId == null && entry.pendingEntryKey == null ? (
               <label className="mt-3 block text-sm text-slate-700">
                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Organization</span>
                <select
@@ -9128,10 +9496,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                >
                 <option value="">No organization</option>
                 {organizations.map((organization) => (
-                 <option
-                  key={organization.id}
-                  value={organization.id}
-                 >
+                 <option key={organization.id} value={organization.id}>
                   {organization.name}
                  </option>
                 ))}
@@ -9140,91 +9505,151 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               </label>
              ) : null}
 
-             {entry.existingClientId != null ? (
-              <label className="mt-3 block text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Apply rows to which account</span>
-               {(() => {
-                const accountsForClient = clientAccounts.filter((account) => account.clientId === entry.existingClientId);
-                if (!accountsForClient.length) {
-                 return (
-                  <p className="mt-1 text-xs text-slate-400">
-                   This client has no accounts yet — a {currencies.find((item) => item.id === entry.currencyId)?.code ?? ''} account will be opened.
-                  </p>
-                 );
-                }
-                return (
-                 <select
-                  value={entry.existingAccountId ?? ''}
-                  onChange={(event) =>
-                   updateImportReviewEntry(entry.key, { existingAccountId: event.target.value === '' ? null : Number(event.target.value) })
-                  }
-                  className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 >
-                  {accountsForClient.map((account) => (
-                   <option
-                    key={account.id}
-                    value={account.id}
-                   >
-                    {account.currencyCode}
-                    {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
-                   </option>
-                  ))}
-                 </select>
-                );
-               })()}
-              </label>
-             ) : (
-              <div className="mt-3">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Accounts to open</span>
-               <div className="mt-1 flex flex-wrap items-center gap-2">
-                {entry.accountCurrencyIds.length === 0 ? <span className="text-xs text-slate-400">None — no account will be opened.</span> : null}
-               {entry.accountCurrencyIds.map((currencyId) => {
-                const currency = enabledCurrencies.find((item) => item.id === currencyId) ?? currencies.find((item) => item.id === currencyId);
-                return (
-                 <span
-                  key={currencyId}
-                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
-                 >
-                  {currency ? currency.code : currencyId}
-                  <button
-                   type="button"
-                   onClick={() =>
-                    updateImportReviewEntry(entry.key, { accountCurrencyIds: entry.accountCurrencyIds.filter((id) => id !== currencyId) })
-                   }
-                   aria-label={t('close')}
-                   className="text-slate-400 transition hover:text-slate-700"
-                  >
-                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M18 6 6 18M6 6l12 12" />
-                   </svg>
-                  </button>
-                 </span>
-                );
-               })}
-               {addableCurrencies.length ? (
+             {/* Existing DB client — account selector (only when 2+ accounts) */}
+             {entry.existingClientId != null ? (() => {
+              const accountsForClient = clientAccounts.filter((account) => account.clientId === entry.existingClientId);
+              if (!accountsForClient.length) {
+               return (
+                <p className="mt-2 text-xs text-slate-400">
+                 This client has no accounts yet — a {currencies.find((item) => item.id === entry.currencyId)?.code ?? ''} account will be opened.
+                </p>
+               );
+              }
+              if (accountsForClient.length === 1) return null;
+              return (
+               <label className="mt-3 block text-sm text-slate-700">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Apply rows to which account</span>
                 <select
-                 value=""
-                 onChange={(event) => {
-                  const currencyId = Number(event.target.value);
-                  if (!currencyId) return;
-                  updateImportReviewEntry(entry.key, { accountCurrencyIds: [...entry.accountCurrencyIds, currencyId] });
-                 }}
-                 className="rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600 outline-none ring-blue-300 focus:ring"
+                 value={entry.existingAccountId ?? ''}
+                 onChange={(event) =>
+                  updateImportReviewEntry(entry.key, { existingAccountId: event.target.value === '' ? null : Number(event.target.value) })
+                 }
+                 className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.existingAccountId == null ? 'border-red-400' : 'border-slate-300'}`}
                 >
-                 <option value="">+ Add account</option>
-                 {addableCurrencies.map((currency) => (
-                  <option
-                   key={currency.id}
-                   value={currency.id}
-                  >
-                   {currency.code} - {currency.name}
+                 <option value="">— Select account —</option>
+                 {accountsForClient.map((account) => (
+                  <option key={account.id} value={account.id}>
+                   {account.currencyCode}
+                   {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
                   </option>
                  ))}
                 </select>
-               ) : null}
+               </label>
+              );
+             })() : null}
+
+             {/* Pending-entry reference — "post rows to" from the referenced entry's accounts */}
+             {entry.pendingEntryKey != null ? (() => {
+              const refEntry = importReview!.find((e) => e.key === entry.pendingEntryKey);
+              const refCurrencies = (refEntry?.accountCurrencyIds ?? []).map((id) => enabledCurrencies.find((c) => c.id === id) ?? currencies.find((c) => c.id === id)).filter(Boolean);
+              if (refCurrencies.length === 0) {
+               return (
+                <p className="mt-2 text-xs text-amber-600">The referenced client has no accounts yet — add accounts to "{refEntry?.name || refEntry?.originalName}" first.</p>
+               );
+              }
+              if (refCurrencies.length === 1) return null;
+              return (
+               <label className="mt-3 block text-sm text-slate-700">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Post rows to account</span>
+                <select
+                 value={entry.targetCurrencyId ?? ''}
+                 onChange={(event) =>
+                  updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })
+                 }
+                 className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
+                >
+                 <option value="">— Select account —</option>
+                 {refCurrencies.map((currency) => currency && (
+                  <option key={currency.id} value={currency.id}>
+                   {currency.code}{currency.symbol ? ` (${currency.symbol})` : ''}
+                  </option>
+                 ))}
+                </select>
+               </label>
+              );
+             })() : null}
+
+             {/* New client — accounts to open + which one to post rows to */}
+             {entry.existingClientId == null && entry.pendingEntryKey == null ? (
+              <div className="mt-3 space-y-2">
+               <div>
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Accounts to open</span>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                 {entry.accountCurrencyIds.length === 0 ? <span className="text-xs font-semibold text-red-500">Required — add at least one account.</span> : null}
+                 {entry.accountCurrencyIds.map((currencyId) => {
+                  const currency = enabledCurrencies.find((item) => item.id === currencyId) ?? currencies.find((item) => item.id === currencyId);
+                  return (
+                   <span
+                    key={currencyId}
+                    className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                   >
+                    {currency ? currency.code : currencyId}
+                    <button
+                     type="button"
+                     onClick={() => {
+                      const next = entry.accountCurrencyIds.filter((id) => id !== currencyId);
+                      updateImportReviewEntry(entry.key, {
+                       accountCurrencyIds: next,
+                       targetCurrencyId: entry.targetCurrencyId === currencyId ? (next[0] ?? null) : entry.targetCurrencyId,
+                      });
+                     }}
+                     aria-label={t('close')}
+                     className="text-slate-400 transition hover:text-slate-700"
+                    >
+                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M18 6 6 18M6 6l12 12" />
+                     </svg>
+                    </button>
+                   </span>
+                  );
+                 })}
+                 {addableCurrencies.length ? (
+                  <select
+                   value=""
+                   onChange={(event) => {
+                    const currencyId = Number(event.target.value);
+                    if (!currencyId) return;
+                    updateImportReviewEntry(entry.key, {
+                     accountCurrencyIds: [...entry.accountCurrencyIds, currencyId],
+                     targetCurrencyId: entry.targetCurrencyId ?? currencyId,
+                    });
+                   }}
+                   className="rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600 outline-none ring-blue-300 focus:ring"
+                  >
+                   <option value="">+ Add account</option>
+                   {addableCurrencies.map((currency) => (
+                    <option key={currency.id} value={currency.id}>
+                     {currency.code} - {currency.name}
+                    </option>
+                   ))}
+                  </select>
+                 ) : null}
+                </div>
                </div>
+               {entry.accountCurrencyIds.length >= 2 ? (
+                <label className="block text-sm text-slate-700">
+                 <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Post rows to account</span>
+                 <select
+                  value={entry.targetCurrencyId ?? ''}
+                  onChange={(event) =>
+                   updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })
+                  }
+                  className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
+                 >
+                  <option value="">— Select account —</option>
+                  {entry.accountCurrencyIds.map((currencyId) => {
+                   const currency = enabledCurrencies.find((c) => c.id === currencyId) ?? currencies.find((c) => c.id === currencyId);
+                   return currency ? (
+                    <option key={currencyId} value={currencyId}>
+                     {currency.code}{currency.symbol ? ` (${currency.symbol})` : ''}
+                    </option>
+                   ) : null;
+                  })}
+                 </select>
+                </label>
+               ) : null}
               </div>
-             )}
+             ) : null}
             </>
            )}
 
@@ -9233,6 +9658,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">Expense</span>
             ) : entry.existingClientId != null ? (
              <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">Existing client</span>
+            ) : entry.pendingEntryKey != null ? (
+             <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">New client (from import)</span>
             ) : (
              <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">New client</span>
             )}
@@ -9245,6 +9672,63 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         })}
        </div>
       </div>
+
+      {/* Live preview: count rows that will be skipped before the user clicks import */}
+      {(() => {
+       const normKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+       const reviewMap = new Map(importReview.map((e) => [e.key, e]));
+
+       // Returns true if the entry will have an account to post rows to after setup.
+       const willHaveAccount = (entry: ImportClientReview): boolean => {
+        if (entry.existingClientId != null) return true; // account creation loop ensures one exists
+        if (entry.pendingEntryKey != null) {
+         const ref = reviewMap.get(entry.pendingEntryKey);
+         if (!ref) return false;
+         const tid = entry.targetCurrencyId ?? importMapping.currencyId ?? 0;
+         return ref.accountCurrencyIds.includes(tid);
+        }
+        const tid = entry.targetCurrencyId ?? importMapping.currencyId ?? 0;
+        return entry.accountCurrencyIds.includes(tid);
+       };
+
+       let skipCount = 0;
+       const skipNames: string[] = [];
+       importParsedRows.forEach((row, index) => {
+        const fromEntry = reviewMap.get(normKey(row.fromName)) ?? null;
+        const toEntry = reviewMap.get(normKey(row.toName)) ?? null;
+        const fromIsExpense = !!fromEntry?.isExpense;
+        const toIsExpense = !!toEntry?.isExpense;
+        const override = importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE;
+        const asExpense = (fromIsExpense || toIsExpense) && override.mode !== 'transaction';
+
+        if (asExpense) {
+         if (fromIsExpense && toIsExpense) return;
+         const realEntry = fromIsExpense ? toEntry : fromEntry;
+         if (!realEntry || !willHaveAccount(realEntry)) {
+          skipCount += 1;
+          if (realEntry && !skipNames.includes(realEntry.originalName)) skipNames.push(realEntry.originalName);
+         }
+        } else {
+         if (!fromEntry || !toEntry) return;
+         const sendEntry = override.swap ? toEntry : fromEntry;
+         const receiveEntry = override.swap ? fromEntry : toEntry;
+         let skip = false;
+         if (!willHaveAccount(sendEntry)) { skip = true; if (!skipNames.includes(sendEntry.originalName)) skipNames.push(sendEntry.originalName); }
+         if (!willHaveAccount(receiveEntry)) { skip = true; if (!skipNames.includes(receiveEntry.originalName)) skipNames.push(receiveEntry.originalName); }
+         if (skip) skipCount += 1;
+        }
+       });
+
+       if (skipCount === 0) return null;
+       return (
+        <div className="border-t border-amber-200 bg-amber-50 px-6 py-3 text-xs text-amber-800">
+         <span className="font-semibold">{skipCount} row{skipCount === 1 ? '' : 's'} will be skipped</span>
+         {' — '}the following names have no account configured:{' '}
+         <span className="font-medium">{skipNames.join(', ')}</span>.
+         {' '}Go back and add accounts for them to avoid losing those rows.
+        </div>
+       );
+      })()}
 
       <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-6">
        <button
@@ -9260,7 +9744,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         onClick={() => void onConfirmImportTransactions()}
         disabled={
          isImportingTransactions ||
-         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && !entry.name.trim())
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && !entry.name.trim()) ||
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length === 0) ||
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null) ||
+         importReview.some((entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && (importReview.find((e) => e.key === entry.pendingEntryKey)?.accountCurrencyIds.length ?? 0) >= 2) ||
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2)
         }
         className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
        >
@@ -9719,6 +10207,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      onClick={() => {
       setShowCreateOrgDialog(false);
       setOrgDialogTargetReviewKey(null);
+      setOrgDialogError('');
      }}
     >
      <div
@@ -9726,6 +10215,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       onClick={(e) => e.stopPropagation()}
      >
       <h2 className="text-lg font-semibold text-slate-900">{t('new_organization')}</h2>
+      {orgDialogError ? (
+       <div className="mt-3 flex items-start gap-2 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+        <span className="flex-1">{orgDialogError}</span>
+        <button type="button" onClick={() => setOrgDialogError('')} className="shrink-0 text-red-400 hover:text-red-700" aria-label={t('close')}>
+         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M18 6 6 18M6 6l12 12" />
+         </svg>
+        </button>
+       </div>
+      ) : null}
       <form
        onSubmit={(e) => void onCreateOrgFromDialog(e)}
        className="mt-4 flex flex-col gap-4"
@@ -9749,6 +10248,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
           setShowCreateOrgDialog(false);
           setOrgDialogTargetReviewKey(null);
           setOrganizationForm(emptyOrganizationForm());
+          setOrgDialogError('');
          }}
          className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
         >

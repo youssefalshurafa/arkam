@@ -240,6 +240,8 @@ export const accountingApi = {
  exportLedgerPdf: ({ html, defaultFileName }: { html: string; defaultFileName: string }) => exportHtmlAsPdfFallback(html, defaultFileName),
  exportWorkspaceData: () => request<WorkspaceBackup>({ action: 'exportWorkspaceData' }),
  importWorkspaceData: (backup: WorkspaceBackup) => request<{ ok: true }>({ action: 'importWorkspaceData', payload: backup }),
+ bulkImportTransactions: (payload: { transactions: unknown[]; adjustments: unknown[] }) =>
+  request<{ createdTransactions: number; createdAdjustments: number }>({ action: 'bulkImportTransactions', payload }),
  getBackupInfo: () => request<BackupInfo>({ action: 'getBackupInfo' }),
  recordBackup: (device: string) => request<BackupInfo>({ action: 'recordBackup', payload: { device } }),
 };
