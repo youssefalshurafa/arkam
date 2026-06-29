@@ -156,6 +156,12 @@ async function ensurePublicSchema() {
                     ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
                     ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
 
+                    -- Last data backup, stored on the workspace so the indicator syncs
+                    -- across every device the user signs in from (not just the browser
+                    -- that downloaded it). last_backup_device records where it came from.
+                    ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ;
+                    ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_backup_device TEXT;
+
                     -- One payment/approval request per signup. The payment screenshot is stored
                     -- inline as bytea and only served through the super-admin-gated proof endpoint.
                     CREATE TABLE IF NOT EXISTS access_requests (
@@ -303,6 +309,10 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- Archive-only records: historical transactions from before the DB. They live only in the
                 -- Archive, never affect client balances/ledgers, and never appear in the main transactions list.
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
+                -- Optional per-side description overrides. When set, the sender ("from") and/or receiver ("to")
+                -- ledger shows this text instead of the shared description; empty means fall back to description.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS description_from TEXT NOT NULL DEFAULT '';
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS description_to TEXT NOT NULL DEFAULT '';
             `);
 
             // Non-ISO currencies (e.g. crypto/stablecoins) aren't in Intl's currency list,

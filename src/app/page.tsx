@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -8,7 +9,9 @@ import HomePage from '@/components/marketing/HomePage';
 import AccountSettings from '@/components/account/AccountSettings';
 import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
-import { accountingApi } from '@/lib/accountingApi';
+import { confirmDialog } from '@/components/ui/AppDialog';
+import { Spinner } from '@/components/ui/Spinner';
+import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
 
 type DbInfo = {
  provider: string;
@@ -111,6 +114,8 @@ type Transaction = {
  chargesExchangeRate: number;
  chargesDescription: string;
  description: string;
+ descriptionFrom: string;
+ descriptionTo: string;
  archiveNote: string;
  isArchived: number;
  createdAt: string;
@@ -139,6 +144,8 @@ type TransactionForm = {
  chargesExchangeRate: string;
  chargesDescription: string;
  description: string;
+ descriptionFrom: string;
+ descriptionTo: string;
 };
 
 type TransactionUpdateInput = {
@@ -160,6 +167,8 @@ type TransactionUpdateInput = {
  chargesExchangeRate: number;
  chargesDescription: string;
  description: string;
+ descriptionFrom?: string;
+ descriptionTo?: string;
  archiveNote?: string;
  createdAt: string;
 };
@@ -195,6 +204,7 @@ type LedgerTransactionDraft = {
  direction: 'incoming' | 'outgoing';
  counterpartyAccountId: number | null;
  type: string;
+ currencyId: number;
  amount: string;
  exchangeRate: string;
  commission: string;
@@ -215,6 +225,10 @@ type ClientLedgerEntry = {
  currencySymbol: string;
  exchangeRate: number;
  exchangeRateReversed: boolean;
+ // True when the entry's amount is in a different currency than the account and no
+ // exchange rate has been entered yet. Such entries show a dash for the rate and are
+ // excluded from the running/accumulated balance (netChange forced to 0) until a rate is set.
+ pendingRate: boolean;
  commission: number;
  netChange: number;
  runningBalance: number;
@@ -252,6 +266,20 @@ type ClientAccountLedger = {
  entries: ClientLedgerEntry[];
 };
 
+// One overview balance card: all clients of an organization that hold accounts in
+// a given currency, with each client's net balance and the group total.
+type OverviewBalanceGroup = {
+ key: string;
+ organizationId: number | null;
+ organizationName: string | null;
+ currencyId: number;
+ currencyCode: string;
+ currencySymbol: string;
+ isMain: boolean;
+ clients: Array<{ clientId: number; clientName: string; balance: number }>;
+ total: number;
+};
+
 type ImportedTransactionRow = {
  fromName: string;
  toName: string;
@@ -275,7 +303,35 @@ type PendingImportData = {
  columnOptions: Array<{ index: number; label: string }>;
 };
 
-type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
+// One reviewable name derived from an imported sheet. Before anything is created
+// the user can: rename it, map it to an existing client, assign an organization,
+// open extra-currency accounts, or flag it as an expense (e.g. طريق) rather than
+// a real client.
+type ImportClientReview = {
+ key: string; // normalized original name from the sheet (stable id, matches parsed rows)
+ originalName: string;
+ isExpense: boolean; // when true this name is an expense marker, not a client
+ existingClientId: number | null; // when set, map to this existing client instead of creating one
+ existingAccountId: number | null; // which of the existing client's accounts this name feeds
+ pendingEntryKey: string | null; // when set, reuse the client being created by another review entry
+ targetCurrencyId: number | null; // for new/pending entries: which opened account receives the rows
+ name: string; // editable final name when creating a new client
+ organizationId: number | null; // org applied to a newly created client
+ accountCurrencyIds: number[]; // currency accounts to open for this client (user-controlled)
+ currencyId: number; // the import currency (used for the transactions themselves)
+ transactionCount: number; // how many imported rows reference this name
+};
+
+// Per-row decision for a sheet row that involves an expense-marked name.
+type ImportRowOverride = {
+ mode: 'expense' | 'transaction'; // expense on one client, or a transfer between two
+ direction: 'debit' | 'credit'; // expense mode: debit (owes you) or credit (you owe)
+ swap: boolean; // transaction mode: swap the sheet's from/to direction
+};
+
+const DEFAULT_IMPORT_ROW_OVERRIDE: ImportRowOverride = { mode: 'expense', direction: 'debit', swap: false };
+
+type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'currency' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
 type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'charges' | 'commission';
 
 const defaultLedgerColumnOrder: LedgerColumnKey[] = [
@@ -284,6 +340,7 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
  'direction',
  'type',
  'amount',
+ 'currency',
  'exchangeRate',
  'commission',
  'netChange',
@@ -296,7 +353,53 @@ const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
 const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
-const lastBackupAtStorageKey = 'arkam:last-backup-at';
+
+// User-entered FX rates for the overview balance cards, keyed by currency code
+// (e.g. { EUR: '10.92', USD: '9.50' }). Stable across currency reseeds.
+const overviewRatesStorageKey = 'arkam:overview-rates';
+
+function getStoredOverviewRates(): Record<string, string> {
+ if (typeof window === 'undefined') return {};
+ try {
+  const raw = window.localStorage.getItem(overviewRatesStorageKey);
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+ } catch {
+  return {};
+ }
+}
+
+function saveOverviewRates(rates: Record<string, string>) {
+ try {
+  window.localStorage.setItem(overviewRatesStorageKey, JSON.stringify(rates));
+ } catch {
+  /* ignore */
+ }
+}
+
+// Friendly "Browser on OS" label for the device that downloaded a backup, so the
+// last-backup indicator can say where it came from. Best-effort UA parsing.
+function getDeviceLabel(): string {
+ if (typeof navigator === 'undefined') return 'Unknown device';
+ const ua = navigator.userAgent;
+ const os =
+  /Windows/i.test(ua) ? 'Windows'
+   : /iPhone/i.test(ua) ? 'iPhone'
+    : /iPad/i.test(ua) ? 'iPad'
+     : /Android/i.test(ua) ? 'Android'
+      : /Mac OS X|Macintosh/i.test(ua) ? 'Mac'
+       : /Linux/i.test(ua) ? 'Linux'
+        : 'device';
+ const browser =
+  /Edg\//i.test(ua) ? 'Edge'
+   : /OPR\/|Opera/i.test(ua) ? 'Opera'
+    : /Firefox/i.test(ua) ? 'Firefox'
+     : /Chrome/i.test(ua) ? 'Chrome'
+      : /Safari/i.test(ua) ? 'Safari'
+       : 'Browser';
+ return `${browser} on ${os}`;
+}
 
 type PdfColVisibility = Record<LedgerColumnKey, boolean>;
 
@@ -306,6 +409,7 @@ const defaultLedgerColumnVisibility: Record<LedgerColumnKey, boolean> = {
  direction: false,
  type: false,
  amount: true,
+ currency: false,
  exchangeRate: true,
  commission: true,
  netChange: true,
@@ -338,6 +442,7 @@ const defaultPdfColVisibility: PdfColVisibility = {
  direction: false,
  type: false,
  amount: true,
+ currency: false,
  exchangeRate: true,
  commission: true,
  netChange: true,
@@ -648,6 +753,12 @@ function normalizeClientNameForCurrencySuffix(name: string, currency: Currency) 
  return normalized || compactName;
 }
 
+// Normalizes a sheet name to the same key used for ImportClientReview.key, so
+// parsed rows can be matched back to their review entry.
+function importNameKey(value: string) {
+ return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportMappingState, currency: Currency) {
  if (mapping.fromColumn == null || mapping.toColumn == null || mapping.amountColumn == null) {
   throw new Error('Please choose columns for From, To, and Amount.');
@@ -896,6 +1007,8 @@ const emptyTransactionForm = (): TransactionForm => ({
  chargesExchangeRate: '1.00',
  chargesDescription: '',
  description: '',
+ descriptionFrom: '',
+ descriptionTo: '',
 });
 
 function AuthenticatedHome() {
@@ -909,7 +1022,13 @@ function AuthenticatedHome() {
  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
+ // True until the first loadData() completes, so the overview can show spinners
+ // instead of misleading zeros before any data has been fetched.
+ const [isInitialLoading, setIsInitialLoading] = useState(true);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
+ const [clientSearch, setClientSearch] = useState('');
+ const [clientsPage, setClientsPage] = useState(1);
+ const [clientsPageSize, setClientsPageSize] = useState(25);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
@@ -918,8 +1037,18 @@ function AuthenticatedHome() {
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [editingLedgerRowKeys, setEditingLedgerRowKeys] = useState<Set<string>>(new Set());
+ const [editAllLedgerAccountIds, setEditAllLedgerAccountIds] = useState<Set<number>>(new Set());
+ // Overview "balances by organization" state.
+ const [overviewRates, setOverviewRates] = useState<Record<string, string>>(() => getStoredOverviewRates());
+ const [overviewFlipAll, setOverviewFlipAll] = useState(false);
+ const [overviewFlipped, setOverviewFlipped] = useState<Set<string>>(new Set());
  const [selectedLedgerEntryKeys, setSelectedLedgerEntryKeys] = useState<Set<string>>(new Set());
  const [showLedgerSettingsModal, setShowLedgerSettingsModal] = useState(false);
+ const [ledgerFilterOpen, setLedgerFilterOpen] = useState(false);
+ const [ledgerFilterSearch, setLedgerFilterSearch] = useState('');
+ const [ledgerFilterCounterparty, setLedgerFilterCounterparty] = useState('');
+ const [ledgerFilterDateFrom, setLedgerFilterDateFrom] = useState('');
+ const [ledgerFilterDateTo, setLedgerFilterDateTo] = useState('');
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
@@ -927,13 +1056,16 @@ function AuthenticatedHome() {
  const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
  const [editingRowIds, setEditingRowIds] = useState<Set<number>>(new Set());
+ const [isEditAllTransactions, setIsEditAllTransactions] = useState(false);
  const [dragRowId, setDragRowId] = useState<number | null>(null);
  const [dragOverRowId, setDragOverRowId] = useState<number | null>(null);
  const [dragOverHalf, setDragOverHalf] = useState<'top' | 'bottom'>('bottom');
  const [manualRowOrder, setManualRowOrder] = useState<number[] | null>(null);
  const dragFromHandle = useRef(false);
- const [transactionsPage, setTransactionsPage] = useState(1);
+ const [transactionsPage, setTransactionsPage] = useState(99999);
  const [transactionsPageSize, setTransactionsPageSize] = useState(100);
+ const [ledgerPageState, setLedgerPageState] = useState<Record<number, number>>({});
+ const [ledgerPageSize, setLedgerPageSize] = useState(50);
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
  const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
@@ -969,10 +1101,18 @@ function AuthenticatedHome() {
  const [newAccountBalanceType, setNewAccountBalanceType] = useState<'debit' | 'credit'>('debit');
  const [showAddAccountForm, setShowAddAccountForm] = useState(false);
  const [showCreateOrgDialog, setShowCreateOrgDialog] = useState(false);
+ const [isSavingOrg, setIsSavingOrg] = useState(false);
+ const [orgDialogError, setOrgDialogError] = useState('');
+ // When the create-organization popup is opened from an import-review row, this
+ // holds that row's key so the new org is assigned back to it (not the client form).
+ const [orgDialogTargetReviewKey, setOrgDialogTargetReviewKey] = useState<string | null>(null);
  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
  const [editingAccountCurrencyId, setEditingAccountCurrencyId] = useState<number | null>(null);
  const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
  const [editingAccountBalanceType, setEditingAccountBalanceType] = useState<'debit' | 'credit'>('debit');
+ // "Move all transactions to another account" picker, scoped to the account being edited.
+ const [moveTargetAccountId, setMoveTargetAccountId] = useState<number | null>(null);
+ const [isMovingAccount, setIsMovingAccount] = useState(false);
  const [pdfExportModal, setPdfExportModal] = useState<{
   accountId: number;
   fromDate: string;
@@ -1002,6 +1142,8 @@ function AuthenticatedHome() {
  const [openAccountOnCreate, setOpenAccountOnCreate] = useState(true);
  const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
+ // When enabled, the sender and receiver ledgers each get their own description override.
+ const [txSplitDescription, setTxSplitDescription] = useState(false);
  const [newTransactionDate, setNewTransactionDate] = useState(() => new Date().toISOString().slice(0, 10));
  const [copiedTransaction, setCopiedTransaction] = useState<TransactionTableRow | null>(null);
  const [txFromQuery, setTxFromQuery] = useState('');
@@ -1026,16 +1168,19 @@ function AuthenticatedHome() {
   descriptionColumn: null,
   currencyId: null,
  });
+ const [importReview, setImportReview] = useState<ImportClientReview[] | null>(null);
+ // The parsed sheet rows backing the current review, plus per-row overrides for
+ // rows that involve an expense-marked name (expense vs. real transaction).
+ const [importParsedRows, setImportParsedRows] = useState<ImportedTransactionRow[]>([]);
+ const [importRowOverrides, setImportRowOverrides] = useState<Record<number, ImportRowOverride>>({});
+ // Currencies the "apply to all clients" control will open for every client.
+ const [bulkAccountCurrencyIds, setBulkAccountCurrencyIds] = useState<number[]>([]);
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
  const [isBackingUp, setIsBackingUp] = useState(false);
  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
+ const [lastBackupDevice, setLastBackupDevice] = useState<string | null>(null);
  const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
-
- useEffect(() => {
-  if (typeof window === 'undefined') return;
-  setLastBackupAt(window.localStorage.getItem(lastBackupAtStorageKey));
- }, []);
 
  const loadData = useCallback(async () => {
   if (!accountingApi) {
@@ -1044,14 +1189,15 @@ function AuthenticatedHome() {
   }
 
   try {
-   const [organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows] = (await Promise.all([
+   const [organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows, backupInfo] = (await Promise.all([
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
     accountingApi.listTransactions(),
     accountingApi.listAllClientAccounts(),
     accountingApi.listClientAdjustments(),
-   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[]];
+    accountingApi.getBackupInfo(),
+   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[], BackupInfo];
 
    let nextCurrencies = currencyRows;
    if (!nextCurrencies.length) {
@@ -1065,12 +1211,16 @@ function AuthenticatedHome() {
    setTransactions(transactionRows);
    setAdjustments(adjustmentRows);
    setClientAccounts(clientAccountRows);
+   setLastBackupAt(backupInfo?.lastBackupAt ?? null);
+   setLastBackupDevice(backupInfo?.lastBackupDevice ?? null);
    setSelectedOrganizationForClients((current) => (current ? (organizationRows.find((organization) => organization.id === current.id) ?? null) : null));
    setSelectedClientForAccounts((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setSelectedClientForLedger((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setError('');
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
+  } finally {
+   setIsInitialLoading(false);
   }
  }, [t]);
 
@@ -1259,17 +1409,24 @@ function AuthenticatedHome() {
 
  const totalTransactionPages = Math.max(1, Math.ceil(displayedTransactionRows.length / transactionsPageSize));
  const paginatedTransactions = useMemo(() => {
-  const start = (transactionsPage - 1) * transactionsPageSize;
+  // Page 1 = oldest, page N = newest. Data is newest-first, so we reverse the slice.
+  const clampedPage = Math.max(1, Math.min(transactionsPage, totalTransactionPages));
+  const reversedPage = totalTransactionPages - clampedPage + 1;
+  const start = (reversedPage - 1) * transactionsPageSize;
   return displayedTransactionRows.slice(start, start + transactionsPageSize);
- }, [displayedTransactionRows, transactionsPage, transactionsPageSize]);
+ }, [displayedTransactionRows, transactionsPage, transactionsPageSize, totalTransactionPages]);
 
  useEffect(() => {
   setTransactionsPage((current) => Math.min(current, totalTransactionPages));
  }, [totalTransactionPages]);
 
  useEffect(() => {
-  setTransactionsPage(1);
+  setTransactionsPage(99999);
  }, [txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo]);
+
+ useEffect(() => {
+  setLedgerPageState({});
+ }, [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
@@ -1376,6 +1533,12 @@ function AuthenticatedHome() {
   const isOutgoing = transaction.accountFromId === ledgerAccountId;
   const rate = isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
   const reversed = isOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed;
+  // When the amount currency differs from the account currency and the stored rate is still
+  // 1 (no rate entered yet), leave the draft field empty so the input shows blank — matching
+  // the dash shown in read mode — rather than pre-filling '1'.
+  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
+  const isPending = account != null && transaction.currencyId !== account.currencyId && rate === 1;
+  const rateStr = isPending ? '' : reversed ? formatRateValue(1 / rate) : String(rate);
   return {
    transactionId: transaction.id,
    ledgerAccountId,
@@ -1383,8 +1546,9 @@ function AuthenticatedHome() {
    direction: isOutgoing ? 'outgoing' : 'incoming',
    counterpartyAccountId: isOutgoing ? transaction.accountToId : transaction.accountFromId,
    type: transaction.type,
+   currencyId: transaction.currencyId,
    amount: String(transaction.amount),
-   exchangeRate: reversed ? formatRateValue(1 / rate) : String(rate),
+   exchangeRate: rateStr,
    commission: String(isOutgoing ? transaction.commissionFrom : transaction.commissionTo),
    description: transaction.description,
   };
@@ -1528,7 +1692,7 @@ function AuthenticatedHome() {
   return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
  }
 
- async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number) {
+ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}) {
   if (!accountingApi) {
    setError(t('error_bridge'));
    return;
@@ -1557,7 +1721,7 @@ function AuthenticatedHome() {
    id: transaction.id,
    accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
    accountToId: draft.direction === 'outgoing' ? draft.counterpartyAccountId : draft.ledgerAccountId,
-   currencyId: transaction.currencyId,
+   currencyId: draft.currencyId,
    amount,
    type: draft.type,
    exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
@@ -1580,7 +1744,7 @@ function AuthenticatedHome() {
   try {
    await accountingApi.updateTransaction(payload);
    setError('');
-   await loadData();
+   if (!skipReload) await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -1597,6 +1761,56 @@ function AuthenticatedHome() {
    ...current,
    [draftKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId),
   }));
+ }
+
+ function onEditAllLedger(ledger: ClientAccountLedger) {
+  const newDrafts: Record<string, LedgerTransactionDraft> = {};
+  const newRateReversed: Record<string, boolean> = {};
+  const newKeys: string[] = [];
+  for (const entry of ledger.entries) {
+   if (entry.isAdjustment) continue;
+   const tx = transactions.find((t) => t.id === entry.transactionId);
+   if (!tx) continue;
+   const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+   if (!ledgerTransactionDrafts[draftKey]) {
+    newDrafts[draftKey] = buildLedgerTransactionDraft(tx, ledger.accountId);
+    const isOutgoing = tx.accountFromId === ledger.accountId;
+    if (isOutgoing ? tx.exchangeRateFromReversed : tx.exchangeRateToReversed) {
+     newRateReversed[draftKey] = true;
+    }
+   }
+   newKeys.push(draftKey);
+  }
+  setLedgerTransactionDrafts((prev) => ({ ...prev, ...newDrafts }));
+  setLedgerRateReversed((prev) => ({ ...prev, ...newRateReversed }));
+  setEditingLedgerRowKeys((prev) => new Set([...prev, ...newKeys]));
+  setEditAllLedgerAccountIds((prev) => new Set([...prev, ledger.accountId]));
+ }
+
+ function onCancelAllLedger(ledger: ClientAccountLedger) {
+  const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n; });
+  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
+  setEditAllLedgerAccountIds((prev) => { const n = new Set(prev); n.delete(ledger.accountId); return n; });
+ }
+
+ async function onSaveAllLedger(ledger: ClientAccountLedger) {
+  const keys = ledger.entries
+   .filter((e) => !e.isAdjustment)
+   .map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId))
+   .filter((k) => editingLedgerRowKeys.has(k));
+  // Fire all saves in parallel so 100+ rows finish in one round-trip batch rather than sequentially.
+  await Promise.all(
+   keys.map((key) => {
+    const [txIdStr, accIdStr] = key.split(':');
+    return onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { skipReload: true });
+   }),
+  );
+  // Single data reload after all saves complete.
+  await loadData();
+  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n; });
+  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
+  setEditAllLedgerAccountIds((prev) => { const n = new Set(prev); n.delete(ledger.accountId); return n; });
  }
 
  async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
@@ -1679,24 +1893,34 @@ function AuthenticatedHome() {
  async function onCreateOrgFromDialog(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
   if (!accountingApi || !organizationForm.name.trim()) {
-   setError(t('organization_required'));
+   setOrgDialogError(t('organization_required'));
    return;
   }
   const newName = organizationForm.name.trim();
+  setIsSavingOrg(true);
+  setOrgDialogError('');
   try {
    await accountingApi.createOrganization(organizationForm);
    await loadData();
-   // Auto-select the newly created org in the client form
+   // Auto-select the newly created org in whichever form opened the dialog.
    setOrganizations((freshOrgs) => {
     const newOrg = freshOrgs.find((o) => o.name === newName);
-    if (newOrg) setClientForm((current) => ({ ...current, organizationId: newOrg.id }));
+    if (newOrg) {
+     if (orgDialogTargetReviewKey) {
+      updateImportReviewEntry(orgDialogTargetReviewKey, { organizationId: newOrg.id });
+     } else {
+      setClientForm((current) => ({ ...current, organizationId: newOrg.id }));
+     }
+    }
     return freshOrgs;
    });
    setOrganizationForm(emptyOrganizationForm());
    setShowCreateOrgDialog(false);
-   setError('');
+   setOrgDialogTargetReviewKey(null);
   } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
+   setOrgDialogError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsSavingOrg(false);
   }
  }
 
@@ -1764,7 +1988,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!window.confirm(t('organization_delete_confirm'))) {
+  if (!(await confirmDialog({ message: t('organization_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
    return;
   }
 
@@ -1793,7 +2017,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!window.confirm(t('client_delete_confirm'))) {
+  if (!(await confirmDialog({ message: t('client_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
    return;
   }
 
@@ -1827,7 +2051,12 @@ function AuthenticatedHome() {
    return;
   }
 
-  const firstConfirm = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('danger_delete_all_transactions_confirm')}`);
+  const firstConfirm = await confirmDialog({
+   title: t('danger_action_cannot_undo'),
+   message: t('danger_delete_all_transactions_confirm'),
+   confirmText: t('delete'),
+   tone: 'danger',
+  });
   if (!firstConfirm) {
    return;
   }
@@ -1838,7 +2067,7 @@ function AuthenticatedHome() {
    setTransactionTableDrafts({});
    setCommissionExpandedTxns(new Set());
    setExpensesExpandedTxns(new Set());
-   setTransactionsPage(1);
+   setTransactionsPage(99999);
    setError('');
    await loadData();
   } catch (e) {
@@ -1857,7 +2086,12 @@ function AuthenticatedHome() {
    return;
   }
 
-  const firstConfirm = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('danger_delete_all_clients_confirm')}`);
+  const firstConfirm = await confirmDialog({
+   title: t('danger_action_cannot_undo'),
+   message: t('danger_delete_all_clients_confirm'),
+   confirmText: t('delete'),
+   tone: 'danger',
+  });
   if (!firstConfirm) {
    return;
   }
@@ -1907,9 +2141,16 @@ function AuthenticatedHome() {
    link.click();
    document.body.removeChild(link);
    URL.revokeObjectURL(url);
-   const now = new Date().toISOString();
-   if (typeof window !== 'undefined') window.localStorage.setItem(lastBackupAtStorageKey, now);
-   setLastBackupAt(now);
+   // Stamp the backup server-side so the indicator syncs to every device.
+   try {
+    const recorded = await accountingApi.recordBackup(getDeviceLabel());
+    setLastBackupAt(recorded.lastBackupAt);
+    setLastBackupDevice(recorded.lastBackupDevice);
+   } catch {
+    // Download already succeeded; a failed stamp is non-fatal.
+    setLastBackupAt(new Date().toISOString());
+    setLastBackupDevice(getDeviceLabel());
+   }
    setError('');
    setImportSummary(t('backup_download_success'));
   } catch (e) {
@@ -1929,7 +2170,11 @@ function AuthenticatedHome() {
    return;
   }
 
-  const confirmed = window.confirm(`${t('danger_action_cannot_undo')}\n\n${t('backup_restore_confirm')}`);
+  const confirmed = await confirmDialog({
+   title: t('danger_action_cannot_undo'),
+   message: t('backup_restore_confirm'),
+   tone: 'danger',
+  });
   if (!confirmed) return;
 
   setIsRestoringBackup(true);
@@ -1955,7 +2200,7 @@ function AuthenticatedHome() {
    setSelectedClientForAccounts(null);
    setSelectedClientForLedger(null);
    setSelectedLedgerAccountId(null);
-   setTransactionsPage(1);
+   setTransactionsPage(99999);
    setError('');
    await loadData();
    setImportSummary(t('backup_restore_success'));
@@ -1998,7 +2243,11 @@ function AuthenticatedHome() {
    relative = exact;
   }
 
-  return t('backup_last_label').replace('{time}', `${relative} (${exact})`);
+  const time = `${relative} (${exact})`;
+  if (lastBackupDevice) {
+   return t('backup_last_device').replace('{time}', time).replace('{device}', lastBackupDevice);
+  }
+  return t('backup_last_label').replace('{time}', time);
  }
 
  function onStartEditCurrencySymbol(currency: Currency) {
@@ -2064,7 +2313,7 @@ function AuthenticatedHome() {
 
   const confirmMessage = isUsedInClientAccounts || isUsedInTransactions ? t('currency_disable_confirm_used') : t('currency_disable_confirm');
 
-  if (!window.confirm(confirmMessage)) {
+  if (!(await confirmDialog({ message: confirmMessage, tone: 'danger' }))) {
    return;
   }
 
@@ -2112,6 +2361,7 @@ function AuthenticatedHome() {
      createdAt: newTransactionCreatedAt,
     });
 
+    setTxSplitDescription(false);
     setTransactionForm(emptyTransactionForm());
     setTxFromQuery('');
     setTxFromOpen(false);
@@ -2156,9 +2406,12 @@ function AuthenticatedHome() {
     chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
     chargesDescription: transactionForm.chargesDescription,
     description: transactionForm.description,
+    descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
+    descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
     createdAt: newTransactionCreatedAt,
    });
 
+   setTxSplitDescription(false);
    setTransactionForm(emptyTransactionForm());
    setTxFromQuery('');
    setTxFromOpen(false);
@@ -2251,6 +2504,9 @@ function AuthenticatedHome() {
     descriptionColumn: detectColumnByAliases(headerAliases.description),
     currencyId: preferredCurrency?.id ?? null,
    });
+
+   // pendingImportData drives the independent import-setup modal (rendered at the
+   // top level), so there's no need to expand the New Transaction side panel.
   } catch (e) {
    setError(e instanceof Error ? e.message : 'Failed to read import file.');
   } finally {
@@ -2258,6 +2514,98 @@ function AuthenticatedHome() {
     transactionsImportInputRef.current.value = '';
    }
   }
+ }
+
+ // Builds the per-client review list from the mapped sheet so the user can
+ // rename clients and assign organizations before anything is created.
+ function onPrepareImportReview() {
+  if (!pendingImportData) {
+   setError('No file is selected for import.');
+   return;
+  }
+
+  if (importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null) {
+   setError('Please answer the column mapping questions before importing.');
+   return;
+  }
+
+  if (!importMapping.currencyId) {
+   setError('Please choose a currency for this import.');
+   return;
+  }
+
+  const selectedCurrency = currencies.find((currency) => currency.id === importMapping.currencyId) ?? null;
+  if (!selectedCurrency) {
+   setError('Selected currency was not found. Please reselect it.');
+   return;
+  }
+
+  try {
+   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
+   const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+   const reviewMap = new Map<string, ImportClientReview>();
+
+   const registerName = (rawName: string) => {
+    const key = normalizeLookup(rawName);
+    if (!key) return;
+    let entry = reviewMap.get(key);
+    if (!entry) {
+     const existing = clients.find((client) => normalizeLookup(client.name) === key) ?? null;
+     // For an auto-matched existing client, default to its account in the import
+     // currency (if it has one) so the right account is preselected.
+     const existingImportAccount = existing
+      ? clientAccounts.find((account) => account.clientId === existing.id && account.currencyId === selectedCurrency.id) ?? null
+      : null;
+     entry = {
+      key,
+      originalName: rawName,
+      isExpense: false,
+      existingClientId: existing?.id ?? null,
+      existingAccountId: existingImportAccount?.id ?? null,
+      pendingEntryKey: null,
+      targetCurrencyId: null,
+      name: rawName,
+      organizationId: existing?.organizationId ?? (organizations[0]?.id ?? null),
+      accountCurrencyIds: [],
+      currencyId: selectedCurrency.id,
+      transactionCount: 0,
+     };
+     reviewMap.set(key, entry);
+    }
+    entry.transactionCount += 1;
+   };
+
+   for (const row of importedRows) {
+    registerName(row.fromName);
+    registerName(row.toName);
+   }
+
+   if (!reviewMap.size) {
+    throw new Error('No clients were found in the selected columns.');
+   }
+
+   setError('');
+   setBulkAccountCurrencyIds([selectedCurrency.id]);
+   setImportParsedRows(importedRows);
+   setImportRowOverrides({});
+   setImportReview(Array.from(reviewMap.values()));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : 'Failed to read clients from the file.');
+  }
+ }
+
+ function updateImportReviewEntry(key: string, patch: Partial<ImportClientReview>) {
+  setImportReview((current) => {
+   if (!current) return current;
+   return current.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry));
+  });
+ }
+
+ function updateImportRowOverride(index: number, patch: Partial<ImportRowOverride>) {
+  setImportRowOverrides((current) => ({
+   ...current,
+   [index]: { ...(current[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE), ...patch },
+  }));
  }
 
  async function onConfirmImportTransactions() {
@@ -2287,6 +2635,48 @@ function AuthenticatedHome() {
    return;
   }
 
+  if (!importReview || !importReview.length) {
+   setError('Please review the clients before importing.');
+   return;
+  }
+
+  // Only names that will create a brand-new client must be filled in.
+  if (importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && !entry.name.trim())) {
+   setError('Every new client must have a name before importing.');
+   return;
+  }
+
+  // Every new client needs at least one account to post transactions to.
+  const missingAccount = importReview.find((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length === 0);
+  if (missingAccount) {
+   setError(`Please add at least one account for "${missingAccount.originalName}" before importing.`);
+   return;
+  }
+
+  // New clients with 2+ accounts need a target account selected.
+  const missingTarget = importReview.find((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null);
+  if (missingTarget) {
+   setError(`Please select which account "${missingTarget.originalName}" rows should post to.`);
+   return;
+  }
+
+  // Pending-entry refs with 2+ accounts need a target chosen.
+  const refAccountCount = (key: string) => importReview.find((e) => e.key === key)?.accountCurrencyIds.length ?? 0;
+  const missingPendingTarget = importReview.find((entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && refAccountCount(entry.pendingEntryKey!) >= 2);
+  if (missingPendingTarget) {
+   setError(`Please select which account "${missingPendingTarget.originalName}" rows should post to.`);
+   return;
+  }
+
+  // Existing clients with 2+ accounts need a selected account.
+  const missingExistingAccount = importReview.find((entry) => !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2);
+  if (missingExistingAccount) {
+   setError(`Please select an account for "${missingExistingAccount.originalName}" before importing.`);
+   return;
+  }
+
+  const reviewList = importReview;
+
   setIsImportingTransactions(true);
   setError('');
   setImportSummary('');
@@ -2295,6 +2685,8 @@ function AuthenticatedHome() {
    const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
 
    const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+   const reviewByKey = new Map(reviewList.map((entry) => [entry.key, entry] as const));
+
    let nextClients = [...clients];
    let nextCurrencies = [...currencies];
    let nextClientAccounts = [...clientAccounts];
@@ -2304,6 +2696,8 @@ function AuthenticatedHome() {
     enabledCurrencies: 0,
     createdAccounts: 0,
     createdTransactions: 0,
+    createdExpenses: 0,
+    skippedRows: 0,
    };
 
    const getClientByName = (name: string) => {
@@ -2315,69 +2709,152 @@ function AuthenticatedHome() {
     return nextClientAccounts.find((account) => account.clientId === clientId && account.currencyId === currencyId) ?? null;
    };
 
+   // Resolves the client id for a review entry: an explicitly mapped existing
+   // client, the client created by a referenced pending entry, or the one
+   // created/found by this entry's own name.
+   const resolveClientId = (entry: ImportClientReview): number | null => {
+    if (entry.existingClientId != null) return entry.existingClientId;
+    if (entry.pendingEntryKey != null) {
+     const ref = reviewByKey.get(entry.pendingEntryKey);
+     return ref ? getClientByName(ref.name.trim())?.id ?? null : null;
+    }
+    return getClientByName(entry.name.trim())?.id ?? null;
+   };
+
    let importCurrency = nextCurrencies.find((currency) => currency.id === selectedCurrency.id) ?? selectedCurrency;
 
-   if (importCurrency.isEnabled !== 1) {
-    await accountingApi.enableCurrency(importCurrency.id);
-    nextCurrencies = nextCurrencies.map((currency) => (currency.id === importCurrency.id ? { ...currency, isEnabled: 1 } : currency));
-    importCurrency = { ...importCurrency, isEnabled: 1 };
-    stats.enabledCurrencies += 1;
+   const ensureCurrencyEnabled = async (currencyId: number) => {
+    const currency = nextCurrencies.find((item) => item.id === currencyId);
+    if (currency && currency.isEnabled !== 1) {
+     await accountingApi.enableCurrency(currencyId);
+     nextCurrencies = nextCurrencies.map((item) => (item.id === currencyId ? { ...item, isEnabled: 1 } : item));
+     if (currencyId === importCurrency.id) importCurrency = { ...importCurrency, isEnabled: 1 };
+     stats.enabledCurrencies += 1;
+    }
+   };
+
+   await ensureCurrencyEnabled(importCurrency.id);
+
+   // A row touching an expense-marked name that the user flipped to "transaction"
+   // means that name must act as a real client for those rows.
+   const expenseKeysNeedingClient = new Set<string>();
+   importedRows.forEach((row, index) => {
+    if ((importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE).mode !== 'transaction') return;
+    const fromKey = normalizeLookup(row.fromName);
+    const toKey = normalizeLookup(row.toName);
+    if (reviewByKey.get(fromKey)?.isExpense) expenseKeysNeedingClient.add(fromKey);
+    if (reviewByKey.get(toKey)?.isExpense) expenseKeysNeedingClient.add(toKey);
+   });
+
+   // Create reviewed new clients (existing-client mappings and pending-entry
+   // references are reused). Expense markers are skipped unless a row flips them.
+   for (const review of reviewList) {
+    if (review.existingClientId != null) continue;
+    if (review.pendingEntryKey != null) continue;
+    if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
+    const finalName = review.name.trim();
+    if (!finalName || getClientByName(finalName)) continue;
+    const { clientId: newClientId } = (await accountingApi.createClient({
+     organizationId: review.organizationId ?? null,
+     name: finalName,
+     email: '',
+     phone: '',
+     address: '',
+    })) as { ok: true; clientId: number };
+    nextClients = [...nextClients, { id: newClientId, name: finalName, organizationId: review.organizationId ?? null, organizationName: null, email: '', phone: '', address: '', accountCount: 0, createdAt: '', updatedAt: '' }];
+    stats.createdClients += 1;
    }
 
-   for (const row of importedRows) {
-    let fromClient = getClientByName(row.fromName);
-    if (!fromClient) {
-     await accountingApi.createClient({
-      organizationId: organizations[0]?.id ?? null,
-      name: row.fromName,
-      email: '',
-      phone: '',
-      address: '',
-     });
-     nextClients = (await accountingApi.listClients()) as Client[];
-     fromClient = getClientByName(row.fromName);
-     stats.createdClients += 1;
-    }
+   // Open accounts. Existing clients reuse a chosen account (or get an import
+   // account if they have none); new clients open the currencies the user picked.
+   // Pending-entry references piggyback on the referenced entry's accounts.
+   for (const review of reviewList) {
+    if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
+    if (review.pendingEntryKey != null) continue;
 
-    let toClient = getClientByName(row.toName);
-    if (!toClient) {
-     await accountingApi.createClient({
-      organizationId: organizations[0]?.id ?? null,
-      name: row.toName,
-      email: '',
-      phone: '',
-      address: '',
-     });
-     nextClients = (await accountingApi.listClients()) as Client[];
-     toClient = getClientByName(row.toName);
-     stats.createdClients += 1;
-    }
-
-    if (!fromClient || !toClient) {
+    if (review.existingClientId != null) {
+     // A specific account was selected, or the client already has the import one.
+     if (review.existingAccountId != null || getClientAccount(review.existingClientId, importCurrency.id)) continue;
+     await ensureCurrencyEnabled(importCurrency.id);
+     await accountingApi.createClientAccount({ clientId: review.existingClientId, currencyId: importCurrency.id, startingBalance: 0 });
+     stats.createdAccounts += 1;
      continue;
     }
 
-    let fromAccount = getClientAccount(fromClient.id, importCurrency.id);
-    if (!fromAccount) {
-     await accountingApi.createClientAccount({ clientId: fromClient.id, currencyId: importCurrency.id, startingBalance: 0 });
-     nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
-     fromAccount = getClientAccount(fromClient.id, importCurrency.id);
+    const clientId = resolveClientId(review);
+    if (clientId == null) continue;
+    for (const currencyId of Array.from(new Set(review.accountCurrencyIds))) {
+     await ensureCurrencyEnabled(currencyId);
+     if (getClientAccount(clientId, currencyId)) continue;
+     await accountingApi.createClientAccount({ clientId, currencyId, startingBalance: 0 });
      stats.createdAccounts += 1;
     }
+   }
+   // One reload after all accounts are created so resolveAccount can find them.
+   if (stats.createdAccounts > 0) {
+    nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
+   }
 
-    let toAccount = getClientAccount(toClient.id, importCurrency.id);
-    if (!toAccount) {
-     await accountingApi.createClientAccount({ clientId: toClient.id, currencyId: importCurrency.id, startingBalance: 0 });
-     nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
-     toAccount = getClientAccount(toClient.id, importCurrency.id);
-     stats.createdAccounts += 1;
+   // Resolves the account a review entry's rows should post to.
+   const resolveAccount = (entry: ImportClientReview) => {
+    if (entry.existingClientId != null) {
+     if (entry.existingAccountId != null) {
+      return nextClientAccounts.find((account) => account.id === entry.existingAccountId) ?? null;
+     }
+     return getClientAccount(entry.existingClientId, importCurrency.id);
     }
+    const clientId = resolveClientId(entry);
+    if (clientId == null) return null;
+    // Use the user-chosen target currency, or fall back to the import currency.
+    const targetCurrencyId = entry.targetCurrencyId ?? importCurrency.id;
+    return getClientAccount(clientId, targetCurrencyId) ?? null;
+   };
 
-    if (!fromAccount || !toAccount) {
+   // Walk the rows, building two accumulator arrays instead of firing one HTTP
+   // request per row. A single bulk call at the end inserts everything at once.
+   const transactionsToCreate: object[] = [];
+   const adjustmentsToCreate: object[] = [];
+
+   for (let index = 0; index < importedRows.length; index += 1) {
+    const row = importedRows[index];
+    const fromEntry = reviewByKey.get(normalizeLookup(row.fromName)) ?? null;
+    const toEntry = reviewByKey.get(normalizeLookup(row.toName)) ?? null;
+    const fromIsExpense = !!fromEntry?.isExpense;
+    const toIsExpense = !!toEntry?.isExpense;
+    const involvesExpense = fromIsExpense || toIsExpense;
+    const override = importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE;
+    const asExpense = involvesExpense && override.mode !== 'transaction';
+
+    if (asExpense) {
+     if (fromIsExpense && toIsExpense) continue;
+     const realEntry = fromIsExpense ? toEntry : fromEntry;
+     const markerEntry = fromIsExpense ? fromEntry : toEntry;
+     if (!realEntry) continue;
+     const account = resolveAccount(realEntry);
+     if (!account) { stats.skippedRows += 1; continue; }
+     adjustmentsToCreate.push({
+      accountId: account.id,
+      amount: row.amount,
+      direction: override.direction,
+      currencyId: importCurrency.id,
+      currencyCode: importCurrency.code,
+      currencySymbol: importCurrency.symbol,
+      exchangeRate: 1,
+      exchangeRateReversed: false,
+      description: row.description || markerEntry?.originalName || '',
+      createdAt: row.createdAt ?? null,
+     });
      continue;
     }
 
-    await accountingApi.createTransaction({
+    // Transfer between two clients.
+    if (!fromEntry || !toEntry) continue;
+    const sendEntry = override.swap ? toEntry : fromEntry;
+    const receiveEntry = override.swap ? fromEntry : toEntry;
+    const fromAccount = resolveAccount(sendEntry);
+    const toAccount = resolveAccount(receiveEntry);
+    if (!fromAccount || !toAccount) { stats.skippedRows += 1; continue; }
+    transactionsToCreate.push({
      accountFromId: fromAccount.id,
      accountToId: toAccount.id,
      currencyId: importCurrency.id,
@@ -2387,27 +2864,41 @@ function AuthenticatedHome() {
      commissionFrom: 0,
      exchangeRateTo: 1,
      commissionTo: 0,
+     exchangeRateFromReversed: false,
+     exchangeRateToReversed: false,
      charges: 0,
      chargesCurrencyId: null,
      chargesPayer: '',
      chargesExchangeRate: 1,
      chargesDescription: '',
      description: row.description,
-     createdAt: row.createdAt ?? undefined,
+     createdAt: row.createdAt ?? null,
     });
-
-    stats.createdTransactions += 1;
    }
 
-   if (!stats.createdTransactions) {
-    throw new Error('No transactions were imported. Check the mapping questions and selected currency.');
+   if (transactionsToCreate.length > 0 || adjustmentsToCreate.length > 0) {
+    const bulkResult = await accountingApi.bulkImportTransactions({
+     transactions: transactionsToCreate,
+     adjustments: adjustmentsToCreate,
+    });
+    stats.createdTransactions = bulkResult.createdTransactions;
+    stats.createdExpenses = bulkResult.createdAdjustments;
+   }
+
+   if (!stats.createdTransactions && !stats.createdExpenses) {
+    throw new Error('Nothing was imported. Check the mapping questions, selected currency, and expense markers.');
    }
 
    await loadData();
    setImportSummary(
-    `Imported ${stats.createdTransactions} transactions from ${pendingImportData.fileName}. Created ${stats.createdClients} clients and ${stats.createdAccounts} accounts.`,
+    `Imported ${stats.createdTransactions} transactions${stats.createdExpenses ? ` and ${stats.createdExpenses} expenses` : ''} from ${pendingImportData.fileName}. Created ${stats.createdClients} clients and ${stats.createdAccounts} accounts.${
+     stats.skippedRows ? ` Skipped ${stats.skippedRows} rows whose clients had no ${selectedCurrency.code} account.` : ''
+    }`,
    );
    setPendingImportData(null);
+   setImportReview(null);
+   setImportParsedRows([]);
+   setImportRowOverrides({});
    setImportMapping({
     dateColumn: null,
     fromColumn: null,
@@ -2425,6 +2916,9 @@ function AuthenticatedHome() {
 
  function onCancelImportTransactions() {
   setPendingImportData(null);
+  setImportReview(null);
+  setImportParsedRows([]);
+  setImportRowOverrides({});
   setImportMapping({
    dateColumn: null,
    fromColumn: null,
@@ -2513,7 +3007,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!window.confirm(t('transaction_delete_confirm'))) {
+  if (!(await confirmDialog({ message: t('transaction_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
    return;
   }
 
@@ -2618,7 +3112,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!window.confirm(t('adjustment_delete_confirm'))) {
+  if (!(await confirmDialog({ message: t('adjustment_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
    return;
   }
 
@@ -2699,7 +3193,10 @@ function AuthenticatedHome() {
    chargesExchangeRate: String(row.chargesExchangeRate),
    chargesDescription: row.chargesDescription,
    description: row.description,
+   descriptionFrom: row.descriptionFrom ?? '',
+   descriptionTo: row.descriptionTo ?? '',
   });
+  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
   setTxFromRateReversed(fromReversed);
   setTxToRateReversed(toReversed);
   setTxFromQuery('');
@@ -2719,19 +3216,23 @@ function AuthenticatedHome() {
    return;
   }
 
-  const confirmed = window.confirm(`Delete ${idsToDelete.length} selected transactions?`);
+  const confirmed = await confirmDialog({
+   message: t('transactions_delete_selected_confirm', { count: idsToDelete.length }),
+   confirmText: t('delete'),
+   tone: 'danger',
+  });
   if (!confirmed) {
    return;
   }
 
+  // Negative ids represent adjustments (stored negated in the selection set);
+  // positive ids are real transactions. Send both groups in one bulk request
+  // instead of a request per row.
+  const adjustmentIds = idsToDelete.filter((id) => id < 0).map((id) => -id);
+  const transactionIds = idsToDelete.filter((id) => id > 0);
+
   try {
-   for (const transactionId of idsToDelete) {
-    if (transactionId < 0) {
-     await accountingApi.deleteClientAdjustment(-transactionId);
-    } else {
-     await accountingApi.deleteTransaction(transactionId);
-    }
-   }
+   await accountingApi.deleteTransactionsBulk({ transactionIds, adjustmentIds });
    setSelectedTransactionIds(new Set());
    setError('');
    await loadData();
@@ -2905,7 +3406,7 @@ function AuthenticatedHome() {
   return `${draftDate} ${timePart}`;
  }
 
- async function onSaveTransactionTableRow(transactionId: number) {
+ async function onSaveTransactionTableRow(transactionId: number, { skipReload = false } = {}) {
   if (!accountingApi) {
    setError(t('error_bridge'));
    return;
@@ -2920,11 +3421,13 @@ function AuthenticatedHome() {
 
   // No changes were made — just exit edit mode like cancel
   if (!draft) {
-   setEditingRowIds((prev) => {
-    const next = new Set(prev);
-    next.delete(transactionId);
-    return next;
-   });
+   if (!skipReload) {
+    setEditingRowIds((prev) => {
+     const next = new Set(prev);
+     next.delete(transactionId);
+     return next;
+    });
+   }
    return;
   }
 
@@ -2954,12 +3457,14 @@ function AuthenticatedHome() {
      createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
     });
     setError('');
-    await loadData();
-    setEditingRowIds((prev) => {
-     const next = new Set(prev);
-     next.delete(transactionId);
-     return next;
-    });
+    if (!skipReload) {
+     await loadData();
+     setEditingRowIds((prev) => {
+      const next = new Set(prev);
+      next.delete(transactionId);
+      return next;
+     });
+    }
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
    }
@@ -2996,15 +3501,39 @@ function AuthenticatedHome() {
     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    });
    setError('');
-   await loadData();
-   setEditingRowIds((prev) => {
-    const next = new Set(prev);
-    next.delete(transactionId);
-    return next;
-   });
+   if (!skipReload) {
+    await loadData();
+    setEditingRowIds((prev) => {
+     const next = new Set(prev);
+     next.delete(transactionId);
+     return next;
+    });
+   }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
+ }
+
+ function onEditAllTransactions() {
+  const newIds = paginatedTransactions.filter((tx) => !editingRowIds.has(tx.id)).map((tx) => tx.id);
+  setEditingRowIds((prev) => new Set([...prev, ...newIds]));
+  setIsEditAllTransactions(true);
+ }
+
+ function onCancelAllTransactions() {
+  const ids = paginatedTransactions.map((tx) => tx.id);
+  setEditingRowIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n; });
+  setTransactionTableDrafts((prev) => { const n = { ...prev }; ids.forEach((id) => delete n[id]); return n; });
+  setIsEditAllTransactions(false);
+ }
+
+ async function onSaveAllTransactions() {
+  const ids = paginatedTransactions.map((tx) => tx.id).filter((id) => editingRowIds.has(id));
+  await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true })));
+  await loadData();
+  setEditingRowIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n; });
+  setTransactionTableDrafts((prev) => { const n = { ...prev }; ids.forEach((id) => delete n[id]); return n; });
+  setIsEditAllTransactions(false);
  }
 
  async function onAddClientAccount(clientId: number) {
@@ -3041,12 +3570,30 @@ function AuthenticatedHome() {
 
  async function onDeleteClientAccount(accountId: number) {
   if (!accountingApi) return;
-  if (!window.confirm(t('client_account_delete_confirm'))) return;
+  if (!(await confirmDialog({ message: t('client_account_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) return;
   try {
    await accountingApi.deleteClientAccount(accountId);
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ async function onMoveAccountTransactions(fromAccountId: number) {
+  if (!accountingApi || !moveTargetAccountId || moveTargetAccountId === fromAccountId) return;
+  const target = clientAccountMap.get(moveTargetAccountId);
+  const targetLabel = target ? `${target.clientName} · ${target.currencyCode}` : '';
+  if (!(await confirmDialog({ message: t('client_account_move_confirm', { target: targetLabel }), confirmText: t('client_account_move_action') }))) return;
+  setIsMovingAccount(true);
+  try {
+   await accountingApi.moveAccountTransactions({ fromAccountId, toAccountId: moveTargetAccountId });
+   setMoveTargetAccountId(null);
+   setEditingAccountId(null);
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setIsMovingAccount(false);
   }
  }
 
@@ -3131,6 +3678,9 @@ function AuthenticatedHome() {
     header: t('exchange_rate'),
     isNum: true,
     cell: (e) => {
+     if (e.pendingRate) {
+      return '-';
+     }
      if (e.isAdjustment) {
       return e.exchangeRate && e.exchangeRate !== 1 ? formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : '-';
      }
@@ -3142,7 +3692,7 @@ function AuthenticatedHome() {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`),
    },
    {
     key: 'runningBalance',
@@ -3150,6 +3700,7 @@ function AuthenticatedHome() {
     isNum: true,
     cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
+   { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
   ];
   const visibleCols = ledgerColumnOrder
@@ -3175,6 +3726,7 @@ function AuthenticatedHome() {
   const headerCells = visibleCols.map((col) => `<th${col.isNum ? ' class="num"' : ''}>${col.header}</th>`).join('');
 
   const dir = isRTL ? 'rtl' : 'ltr';
+  const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const clientName = selectedClientForLedger?.name ?? '';
   const exportDate = new Date().toLocaleDateString(language);
 
@@ -3200,6 +3752,8 @@ function AuthenticatedHome() {
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left { display: flex; align-items: center; gap: 14px; }
+ .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
@@ -3230,8 +3784,11 @@ function AuthenticatedHome() {
 <body>
 <div class="header">
  <div class="header-left">
-  <h1>Arkam Exchange</h1>
-  <p>${t('client_ledger_statement')}</p>
+  <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
+  <div>
+   <h1>Arkam Exchange</h1>
+   <p>${t('client_ledger_statement')}</p>
+  </div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
@@ -3314,6 +3871,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    .join('');
 
   const dir = isRTL ? 'rtl' : 'ltr';
+  const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const exportDate = new Date().toLocaleDateString(language);
 
   return `<!DOCTYPE html>
@@ -3327,6 +3885,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left { display: flex; align-items: center; gap: 14px; }
+ .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
@@ -3348,8 +3908,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 <body>
 <div class="header">
  <div class="header-left">
-  <h1>Arkam Exchange</h1>
-  <p>${esc(t('archive_title'))}</p>
+  <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
+  <div>
+   <h1>Arkam Exchange</h1>
+   <p>${esc(t('archive_title'))}</p>
+  </div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
@@ -3442,12 +4005,29 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const sortedClients = useMemo(() => {
   const factor = clientSort.dir === 'asc' ? 1 : -1;
-  return [...clients].sort((a, b) => {
+  const sorted = [...clients].sort((a, b) => {
    const aVal = clientSort.key === 'organization' ? a.organizationName || '' : a.name;
    const bVal = clientSort.key === 'organization' ? b.organizationName || '' : b.name;
    return aVal.localeCompare(bVal, language, { sensitivity: 'base' }) * factor;
   });
- }, [clients, clientSort, language]);
+  const q = clientSearch.trim().toLowerCase();
+  if (!q) return sorted;
+  return sorted.filter(
+   (c) =>
+    c.name.toLowerCase().includes(q) ||
+    (c.organizationName ?? '').toLowerCase().includes(q),
+  );
+ }, [clients, clientSort, clientSearch, language]);
+ const totalClientPages = Math.max(1, Math.ceil(sortedClients.length / clientsPageSize));
+ const clampedClientsPage = Math.min(clientsPage, totalClientPages);
+ const paginatedClients = useMemo(() => {
+  const start = (clampedClientsPage - 1) * clientsPageSize;
+  return sortedClients.slice(start, start + clientsPageSize);
+ }, [sortedClients, clampedClientsPage, clientsPageSize]);
+ // Jump back to the first page whenever the result set changes (search / sort / page size).
+ useEffect(() => {
+  setClientsPage(1);
+ }, [clientSearch, clientSort, clientsPageSize]);
  const toggleClientSort = useCallback((key: 'name' | 'organization') => {
   setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
  }, []);
@@ -3597,6 +4177,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   const esc = (value: string) =>
    String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
   const dir = isRTL ? 'rtl' : 'ltr';
+  const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const exportDate = new Date().toLocaleDateString(language);
   const rangeLabel = [transactionExportFrom, transactionExportTo].filter(Boolean).join(' → ');
   const headerCells = headers.map((header) => `<th>${esc(header)}</th>`).join('');
@@ -3615,6 +4196,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  * { box-sizing: border-box; margin: 0; padding: 0; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left { display: flex; align-items: center; gap: 14px; }
+ .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
@@ -3631,8 +4214,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 <body>
 <div class="header">
  <div class="header-left">
-  <h1>Arkam Exchange</h1>
-  <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
+  <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
+  <div>
+   <h1>Arkam Exchange</h1>
+   <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
+  </div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
@@ -3710,6 +4296,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       if (transaction.isArchived) return [];
       if (transaction.accountFromId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountToId ?? -1);
+       // Amount is in a different currency than this account and no rate entered yet → pending.
+       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 1;
        return [
         {
          transactionId: transaction.id,
@@ -3723,10 +4311,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          currencySymbol: transaction.currencySymbol,
          exchangeRate: transaction.exchangeRateFrom,
          exchangeRateReversed: !!transaction.exchangeRateFromReversed,
+         pendingRate,
          commission: transaction.commissionFrom,
-         netChange: transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
+         netChange: pendingRate ? 0 : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
          runningBalance: 0,
-         description: transaction.description,
+         description: transaction.descriptionFrom?.trim() || transaction.description,
          charges: transaction.charges,
          chargesCurrencyCode: transaction.chargesCurrencyCode,
          chargesPayer: transaction.chargesPayer,
@@ -3739,6 +4328,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
       if (transaction.accountToId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountFromId ?? -1);
+       // Amount is in a different currency than this account and no rate entered yet → pending.
+       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 1;
        return [
         {
          transactionId: transaction.id,
@@ -3752,10 +4343,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          currencySymbol: transaction.currencySymbol,
          exchangeRate: transaction.exchangeRateTo,
          exchangeRateReversed: !!transaction.exchangeRateToReversed,
+         pendingRate,
          commission: transaction.commissionTo,
-         netChange: -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
+         netChange: pendingRate ? 0 : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
          runningBalance: 0,
-         description: transaction.description,
+         description: transaction.descriptionTo?.trim() || transaction.description,
          charges: transaction.charges,
          chargesCurrencyCode: transaction.chargesCurrencyCode,
          chargesPayer: transaction.chargesPayer,
@@ -3787,9 +4379,14 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         currencySymbol: adj.currencySymbol || account.currencySymbol,
         exchangeRate: adj.exchangeRate || 1,
         exchangeRateReversed: !!adj.exchangeRateReversed,
+        // Adjustment amount is in a different currency than the account and no rate set yet → pending.
+        pendingRate: adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1,
         commission: 0,
         // amount is in the adjustment's own currency; convert to account currency via exchangeRate
-        netChange: (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
+        netChange:
+         adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1
+          ? 0
+          : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
         runningBalance: 0,
         description: adj.description,
         charges: 0,
@@ -3830,6 +4427,130 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
  }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
+
+ const mainCurrency = useMemo(() => currencies.find((currency) => currency.isMain === 1) ?? null, [currencies]);
+
+ function updateOverviewRate(currencyCode: string, value: string) {
+  setOverviewRates((current) => {
+   const next = { ...current, [currencyCode]: value };
+   saveOverviewRates(next);
+   return next;
+  });
+ }
+
+ // Net balance of every client account, grouped into (organization, currency) cards
+ // for the overview. Mirrors the netChange formula used by selectedClientLedgers,
+ // but in a single pass over all transactions/adjustments instead of per-account.
+ const overviewOrgBalances = useMemo(() => {
+  if (section !== 'overview') {
+   return { groups: [] as OverviewBalanceGroup[], byOrg: new Map<string, OverviewBalanceGroup[]>(), hasAccounts: false };
+  }
+
+  const balanceByAccount = new Map<number, number>();
+  for (const account of clientAccounts) {
+   balanceByAccount.set(account.id, account.startingBalance ?? 0);
+  }
+
+  for (const transaction of transactions) {
+   if (transaction.isArchived) continue;
+   if (transaction.accountFromId != null && balanceByAccount.has(transaction.accountFromId)) {
+    const account = clientAccountMap.get(transaction.accountFromId);
+    if (account) {
+     const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 1;
+     const netChange = pendingRate
+      ? 0
+      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
+     balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
+    }
+   }
+   if (transaction.accountToId != null && balanceByAccount.has(transaction.accountToId)) {
+    const account = clientAccountMap.get(transaction.accountToId);
+    if (account) {
+     const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 1;
+     const netChange = pendingRate
+      ? 0
+      : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
+     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
+    }
+   }
+  }
+
+  for (const adj of adjustments) {
+   if (!balanceByAccount.has(adj.accountId)) continue;
+   const account = clientAccountMap.get(adj.accountId);
+   if (!account) continue;
+   const pendingRate = adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1;
+   const netChange = pendingRate ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
+   balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
+  }
+
+  const clientById = new Map(clients.map((client) => [client.id, client]));
+  const groupMap = new Map<string, OverviewBalanceGroup & { clientMap: Map<number, { clientId: number; clientName: string; balance: number }> }>();
+
+  for (const account of clientAccounts) {
+   const client = clientById.get(account.clientId);
+   const organizationId = client?.organizationId ?? null;
+   const organizationName = client?.organizationName ?? null;
+   const currency = currencyMap.get(account.currencyId);
+   const key = `${organizationId ?? 'none'}:${account.currencyId}`;
+   const balance = balanceByAccount.get(account.id) ?? 0;
+
+   let group = groupMap.get(key);
+   if (!group) {
+    group = {
+     key,
+     organizationId,
+     organizationName,
+     currencyId: account.currencyId,
+     currencyCode: account.currencyCode,
+     currencySymbol: account.currencySymbol,
+     isMain: currency?.isMain === 1,
+     clients: [],
+     total: 0,
+     clientMap: new Map(),
+    };
+    groupMap.set(key, group);
+   }
+
+   const existingClient = group.clientMap.get(account.clientId);
+   if (existingClient) {
+    existingClient.balance += balance;
+   } else {
+    group.clientMap.set(account.clientId, { clientId: account.clientId, clientName: account.clientName, balance });
+   }
+   group.total += balance;
+  }
+
+  const groups: OverviewBalanceGroup[] = Array.from(groupMap.values()).map((group) => ({
+   key: group.key,
+   organizationId: group.organizationId,
+   organizationName: group.organizationName,
+   currencyId: group.currencyId,
+   currencyCode: group.currencyCode,
+   currencySymbol: group.currencySymbol,
+   isMain: group.isMain,
+   clients: Array.from(group.clientMap.values()).filter((c) => c.balance !== 0).sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
+   total: group.total,
+  }));
+
+  // Main-currency cards first, then by organization name, then by currency code.
+  groups.sort((a, b) => {
+   if (a.isMain !== b.isMain) return a.isMain ? -1 : 1;
+   const orgCompare = (a.organizationName ?? '').localeCompare(b.organizationName ?? '', language, { sensitivity: 'base' });
+   if (orgCompare !== 0) return orgCompare;
+   return a.currencyCode.localeCompare(b.currencyCode);
+  });
+
+  const byOrg = new Map<string, OverviewBalanceGroup[]>();
+  for (const group of groups) {
+   const orgKey = String(group.organizationId ?? 'none');
+   const list = byOrg.get(orgKey);
+   if (list) list.push(group);
+   else byOrg.set(orgKey, [group]);
+  }
+
+  return { groups, byOrg, hasAccounts: clientAccounts.length > 0 };
+ }, [section, transactions, adjustments, clientAccounts, clients, clientAccountMap, currencyMap, language]);
 
  useEffect(() => {
   setManualLedgerRowOrder((current) => {
@@ -3873,6 +4594,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   { key: 'direction', label: t('direction') },
   { key: 'type', label: t('transaction_type') },
   { key: 'amount', label: t('transaction_amount') },
+  { key: 'currency', label: t('currency') },
   { key: 'exchangeRate', label: t('transaction_exchange_rate') },
   { key: 'commission', label: t('commission') },
   { key: 'netChange', label: t('net_change') },
@@ -3886,15 +4608,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const panelClassName = 'border border-gray-200 bg-white p-5 shadow-sm';
  const mutedPanelClassName = 'border border-gray-200 bg-gray-50 p-4';
  const tableWrapClassName = 'mt-3 overflow-x-auto border border-gray-200 bg-white';
- const transactionsPager =
-  transactionTableRows.length > 0 ? (
+ const transactionsPager = (() => {
+  if (transactionTableRows.length === 0) return null;
+  const clampedPage = Math.max(1, Math.min(transactionsPage, totalTransactionPages));
+  // Derive the displayed row-range in "oldest-first" numbering:
+  // page 1 = oldest chunk, page N = newest chunk.
+  const reversedPage = totalTransactionPages - clampedPage + 1;
+  const chunkStart = (reversedPage - 1) * transactionsPageSize; // 0-indexed into newest-first array
+  const chunkEnd = Math.min(displayedTransactionRows.length, chunkStart + transactionsPageSize);
+  const totalRows = displayedTransactionRows.length;
+  // Row numbers in oldest-first order:
+  const fromRow = totalRows - chunkEnd + 1;
+  const toRow = totalRows - chunkStart;
+  return (
    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
     <div className="text-xs text-slate-600">
-     {(() => {
-      const from = (transactionsPage - 1) * transactionsPageSize + 1;
-      const to = Math.min(transactionsPage * transactionsPageSize, displayedTransactionRows.length);
-      return `${from}-${to} ${t('pagination_of')} ${displayedTransactionRows.length}`;
-     })()}
+     {fromRow}–{toRow} {t('pagination_of')} {totalRows}
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
      <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
@@ -3903,7 +4632,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       onChange={(event) => {
        const nextSize = Number(event.target.value);
        setTransactionsPageSize(nextSize);
-       setTransactionsPage(1);
+       setTransactionsPage(99999);
       }}
       className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
      >
@@ -3913,26 +4642,39 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      </select>
      <button
       type="button"
-      onClick={() => setTransactionsPage((current) => Math.max(1, current - 1))}
-      disabled={transactionsPage <= 1}
+      onClick={() => setTransactionsPage((current) => Math.max(1, Math.min(current, totalTransactionPages) - 1))}
+      disabled={clampedPage <= 1}
       className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
       {t('pagination_prev')}
      </button>
-     <span className="min-w-12 text-center text-xs font-semibold text-slate-700">
-      {transactionsPage} / {totalTransactionPages}
-     </span>
+     <input
+      key={clampedPage}
+      type="number"
+      min={1}
+      max={totalTransactionPages}
+      defaultValue={clampedPage}
+      onBlur={(event) => {
+       const n = parseInt(event.target.value, 10);
+       if (n >= 1 && n <= totalTransactionPages) setTransactionsPage(n);
+       else event.target.value = String(clampedPage);
+      }}
+      onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+      className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+     />
+     <span className="text-xs text-slate-500">/ {totalTransactionPages}</span>
      <button
       type="button"
-      onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, current + 1))}
-      disabled={transactionsPage >= totalTransactionPages}
+      onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, Math.min(current, totalTransactionPages) + 1))}
+      disabled={clampedPage >= totalTransactionPages}
       className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
      >
       {t('pagination_next')}
      </button>
     </div>
    </div>
-  ) : null;
+  );
+ })();
  const databaseSection = (
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
@@ -4191,6 +4933,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   { key: 'direction', label: t('direction') },
   { key: 'type', label: t('transaction_type') },
   { key: 'amount', label: t('amount') },
+  { key: 'currency', label: t('currency') },
   { key: 'exchangeRate', label: t('exchange_rate') },
   { key: 'commission', label: t('commission') },
   { key: 'netChange', label: t('net_change') },
@@ -4648,7 +5391,21 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
    <div className="flex flex-col gap-4">
     <div className={panelClassName}>
-     <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
+     <div className="flex items-center justify-between gap-3">
+      <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
+      <div className="relative">
+       <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+       </svg>
+       <input
+        type="search"
+        value={clientSearch}
+        onChange={(e) => setClientSearch(e.target.value)}
+        placeholder={t('search')}
+        className="rounded border border-slate-300 py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
+       />
+      </div>
+     </div>
      <div className={tableWrapClassName}>
       <table className="w-full text-sm">
        <thead className="bg-slate-100 text-slate-700">
@@ -4660,7 +5417,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </tr>
        </thead>
        <tbody>
-        {sortedClients.map((client) => (
+        {paginatedClients.map((client) => (
          <tr
           key={client.id}
           className="border-t border-slate-200 align-top"
@@ -4726,17 +5483,66 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         ))}
         {clients.length === 0 ? (
          <tr>
-          <td
-           className="px-4 py-6 text-slate-500"
-           colSpan={4}
-          >
-           {t('no_clients')}
-          </td>
+          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_clients')}</td>
+         </tr>
+        ) : sortedClients.length === 0 ? (
+         <tr>
+          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_search_results')}</td>
          </tr>
         ) : null}
        </tbody>
       </table>
      </div>
+     {sortedClients.length > clientsPageSize ? (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+       <div className="text-xs text-slate-600">
+        {(clampedClientsPage - 1) * clientsPageSize + 1}–{Math.min(sortedClients.length, clampedClientsPage * clientsPageSize)} {t('pagination_of')} {sortedClients.length}
+       </div>
+       <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+        <select
+         value={clientsPageSize}
+         onChange={(event) => setClientsPageSize(Number(event.target.value))}
+         className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+        >
+         <option value={25}>25</option>
+         <option value={50}>50</option>
+         <option value={100}>100</option>
+        </select>
+        <button
+         type="button"
+         onClick={() => setClientsPage((current) => Math.max(1, Math.min(current, totalClientPages) - 1))}
+         disabled={clampedClientsPage <= 1}
+         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+         {t('pagination_prev')}
+        </button>
+        <input
+         key={clampedClientsPage}
+         type="number"
+         min={1}
+         max={totalClientPages}
+         defaultValue={clampedClientsPage}
+         onBlur={(event) => {
+          const n = parseInt(event.target.value, 10);
+          if (n >= 1 && n <= totalClientPages) setClientsPage(n);
+          else event.target.value = String(clampedClientsPage);
+         }}
+         onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+         className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span className="text-xs text-slate-500">/ {totalClientPages}</span>
+        <button
+         type="button"
+         onClick={() => setClientsPage((current) => Math.min(totalClientPages, Math.min(current, totalClientPages) + 1))}
+         disabled={clampedClientsPage >= totalClientPages}
+         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+         {t('pagination_next')}
+        </button>
+       </div>
+      </div>
+     ) : null}
     </div>
 
     {selectedClientForAccounts ? (
@@ -4773,6 +5579,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             type="button"
             className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
             onClick={() => {
+             setMoveTargetAccountId(null);
              if (isEditing) {
               setEditingAccountId(null);
              } else {
@@ -4883,6 +5690,42 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 {t('cancel')}
                </button>
               </div>
+
+              {(() => {
+               const moveTargets = clientAccounts.filter((a) => a.id !== account.id && a.currencyId === account.currencyId);
+               return (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_account_move_title')}</p>
+                 <p className="mt-1 text-xs text-slate-400">{t('client_account_move_hint')}</p>
+                 {moveTargets.length === 0 ? (
+                  <p className="mt-2 text-xs text-slate-500">{t('client_account_move_no_targets')}</p>
+                 ) : (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                   <select
+                    value={moveTargetAccountId ?? ''}
+                    onChange={(event) => setMoveTargetAccountId(event.target.value ? Number(event.target.value) : null)}
+                    className="min-w-48 flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                   >
+                    <option value="">{t('client_account_move_select_placeholder')}</option>
+                    {moveTargets.map((target) => (
+                     <option key={target.id} value={target.id}>
+                      {target.clientName} · {target.currencyCode}
+                     </option>
+                    ))}
+                   </select>
+                   <button
+                    type="button"
+                    onClick={() => void onMoveAccountTransactions(account.id)}
+                    disabled={!moveTargetAccountId || isMovingAccount}
+                    className="rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                   >
+                    {t('client_account_move_action')}
+                   </button>
+                  </div>
+                 )}
+                </div>
+               );
+              })()}
              </div>
             </div>
            )}
@@ -5227,16 +6070,30 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      <div>
       <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
      </div>
-     <button
-      type="button"
-      onClick={() => {
-       setSettingsTab('clients');
-       navigateToSection('settings');
-      }}
-      className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-     >
-      {t('open_in_settings')}
-     </button>
+     <div className="flex items-center gap-2">
+      <div className="relative">
+       <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+       </svg>
+       <input
+        type="search"
+        value={clientSearch}
+        onChange={(e) => setClientSearch(e.target.value)}
+        placeholder={t('search')}
+        className="rounded border border-slate-300 py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
+       />
+      </div>
+      <button
+       type="button"
+       onClick={() => {
+        setSettingsTab('clients');
+        navigateToSection('settings');
+       }}
+       className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+      >
+       {t('open_in_settings')}
+      </button>
+     </div>
     </div>
 
     <div className={tableWrapClassName}>
@@ -5269,12 +6126,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        ))}
        {clients.length === 0 ? (
         <tr>
-         <td
-          className="px-4 py-6 text-slate-500"
-          colSpan={3}
-         >
-          {t('no_clients')}
-         </td>
+         <td className="px-4 py-6 text-slate-500" colSpan={3}>{t('no_clients')}</td>
+        </tr>
+       ) : sortedClients.length === 0 ? (
+        <tr>
+         <td className="px-4 py-6 text-slate-500" colSpan={3}>{t('no_search_results')}</td>
         </tr>
        ) : null}
       </tbody>
@@ -5411,7 +6267,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    {/* Active tab content */}
    <div className="flex flex-col gap-4 p-4">
     {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
-    {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
+    {importSummary ? (
+        <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+         <span>{importSummary}</span>
+         <button
+          type="button"
+          onClick={() => setImportSummary('')}
+          aria-label={t('close')}
+          title={t('close')}
+          className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
+         >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+           <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+         </button>
+        </div>
+       ) : null}
     {settingsTab === 'account' ? <AccountSettings /> : null}
     {settingsTab === 'team' ? <TeamSettings /> : null}
     {settingsTab === 'database' ? databaseSection : null}
@@ -5438,9 +6309,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      {/* Brand */}
      <div className={`flex items-center border-b border-white/10 px-3 py-3 ${isSidebarCollapsed ? 'justify-center' : 'justify-between gap-2'}`}>
       {!isSidebarCollapsed && (
-       <div className="min-w-0">
-        <span className="block text-xs font-bold tracking-widest text-white">ARKAM</span>
-        <span className="block truncate text-xs leading-tight text-blue-300">{t('app_description')}</span>
+       <div className="flex min-w-0 items-center rounded-lg bg-white px-2.5 py-1.5 shadow-sm">
+        <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} priority className="h-9 w-auto" />
        </div>
       )}
       <button
@@ -5541,9 +6411,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     <div className="flex min-w-0 flex-1 flex-col overflow-auto">
      {/* Top bar - mobile navigation */}
      <div className="border-b border-[#15304f] bg-[#1e3a5f] px-4 py-2 lg:hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-       <span className="text-sm font-bold tracking-widest text-white">ARKAM</span>
-       <div className="flex flex-wrap items-center gap-1">
+      <div className="flex items-center justify-between gap-2 overflow-x-auto">
+       <span className="inline-flex shrink-0 items-center rounded-md bg-white px-1.5 py-1 shadow-sm">
+        <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} className="h-7 w-auto" />
+       </span>
+       <div className="flex shrink-0 items-center gap-1">
         {sidebarItems.map((item) => {
          const isActive = item.isActive;
          return (
@@ -5623,59 +6495,296 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      {section !== 'settings' ? (
       <div className="flex flex-col gap-4 p-4">
        {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
-       {importSummary ? <div className="rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{importSummary}</div> : null}
+       {importSummary ? (
+        <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+         <span>{importSummary}</span>
+         <button
+          type="button"
+          onClick={() => setImportSummary('')}
+          aria-label={t('close')}
+          title={t('close')}
+          className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
+         >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+           <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+         </button>
+        </div>
+       ) : null}
 
        {section === 'overview' ? (
-        <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="flex flex-col gap-6">
          <div className={panelClassName}>
-          <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
-          <p className="mt-2 text-sm text-slate-600">{t('overview_description')}</p>
+          <div className="flex items-start justify-between gap-4">
+           <div>
+            <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
+            <p className="mt-2 text-sm text-slate-600">{t('overview_description')}</p>
+           </div>
+           <button
+            type="button"
+            onClick={() => navigateToSection('transactions')}
+            className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
+           >
+            {renderIcon('transactions', 'h-4 w-4')}
+            {t('overview_go_to_transactions')}
+           </button>
+          </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
            {overviewCards.map((card) => (
             <div
              key={card.label}
              className={mutedPanelClassName}
             >
              <p className="text-sm text-slate-500">{card.label}</p>
-             <p className="mt-3 text-3xl font-bold text-slate-900">{card.value}</p>
-            </div>
-           ))}
-          </div>
-
-          <button
-           type="button"
-           onClick={() => navigateToSection('transactions')}
-           className="mt-6 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
-          >
-           {renderIcon('transactions', 'h-4 w-4')}
-           {t('overview_go_to_transactions')}
-          </button>
-         </div>
-
-         <div className={panelClassName}>
-          <h2 className="text-xl font-semibold">{t('organizations_title')}</h2>
-          <div className="mt-4 space-y-3 text-sm text-slate-600">
-           {organizations.slice(0, 5).map((organization) => (
-            <div
-             key={organization.id}
-             className="rounded border border-slate-200 px-4 py-3"
-            >
-             <button
-              type="button"
-              onClick={() => openOrganizationClientsPage(organization)}
-              className="cursor-pointer font-semibold text-slate-900 transition hover:text-blue-700"
-             >
-              {organization.name}
-             </button>
-             <p>
-              {clients.filter((client) => client.organizationId === organization.id).length} {t('overview_clients')}
+             <p className="mt-3 text-3xl font-bold text-slate-900">
+              {isInitialLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}
              </p>
             </div>
            ))}
-           {organizations.length === 0 ? <p>{t('no_organizations')}</p> : null}
           </div>
          </div>
+
+         {(() => {
+          const mainCode = mainCurrency?.code ?? '';
+          const mainSymbol = mainCurrency?.symbol || mainCode;
+          const fmt = (n: number) => n.toLocaleString(language, { maximumFractionDigits: 2 });
+          const balanceColor = (n: number) => (n >= 0 ? 'text-emerald-600' : 'text-red-600');
+
+          // Resolve a group's FX rate. Main currency is always 1; others use the
+          // user-entered rate, or NaN when unset/invalid (excluded from conversions).
+          const rateOf = (group: OverviewBalanceGroup) => {
+           if (group.isMain) return 1;
+           const raw = overviewRates[group.currencyCode];
+           const value = raw != null ? Number(raw) : NaN;
+           return value > 0 ? value : NaN;
+          };
+          const isFlipped = (group: OverviewBalanceGroup) =>
+           !group.isMain && (overviewFlipAll || overviewFlipped.has(group.key));
+
+          // Grand total across every group, always in the main currency.
+          let grandTotal = 0;
+          let anyRateMissing = false;
+          for (const group of overviewOrgBalances.groups) {
+           const rate = rateOf(group);
+           if (Number.isNaN(rate)) {
+            anyRateMissing = true;
+            continue;
+           }
+           grandTotal += group.total * rate;
+          }
+
+          // Render orgs in their own labelled subsections: orgs that have a main-
+          // currency card first, then alphabetically, with "no organization" last.
+          const orgEntries = Array.from(overviewOrgBalances.byOrg.entries());
+          orgEntries.sort(([aKey, aGroups], [bKey, bGroups]) => {
+           const aMain = aGroups.some((g) => g.isMain);
+           const bMain = bGroups.some((g) => g.isMain);
+           if (aMain !== bMain) return aMain ? -1 : 1;
+           if (aKey === 'none') return 1;
+           if (bKey === 'none') return -1;
+           return (aGroups[0].organizationName ?? '').localeCompare(bGroups[0].organizationName ?? '', language, { sensitivity: 'base' });
+          });
+
+          return (
+           <div className={panelClassName}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+             <h2 className="text-xl font-semibold">{t('overview_balances_title')}</h2>
+             <div className="flex items-center gap-4">
+              <div className={`text-right ${balanceColor(grandTotal)}`}>
+               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('overview_grand_total')}</p>
+               <p className="text-lg font-bold" dir="ltr">{fmt(grandTotal)} {mainSymbol}</p>
+              </div>
+              <button
+               type="button"
+               onClick={() => {
+                setOverviewFlipAll((value) => !value);
+                setOverviewFlipped(new Set());
+               }}
+               className="shrink-0 rounded border border-blue-700 bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+              >
+               {overviewFlipAll ? t('overview_show_original') : t('overview_show_in_main', { currency: mainCode })}
+              </button>
+             </div>
+            </div>
+
+            {anyRateMissing ? (
+             <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p>
+            ) : null}
+
+            {!overviewOrgBalances.hasAccounts ? (
+             <p className="mt-4 text-sm text-slate-600">{t('overview_no_balances')}</p>
+            ) : (
+             <div className="mt-5 space-y-6">
+              {orgEntries.map(([orgKey, orgGroups]) => {
+               const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
+               const showMerged = orgGroups.length >= 2;
+               // Merged main-currency total for this org (sum of its currency cards).
+               // Also build per-client converted balances across all currencies.
+               let mergedTotal = 0;
+               let mergedReady = true;
+               const mergedClientMap = new Map<number, { clientId: number; clientName: string; balance: number }>();
+               for (const group of orgGroups) {
+                const rate = rateOf(group);
+                if (Number.isNaN(rate)) {
+                 mergedReady = false;
+                 break;
+                }
+                mergedTotal += group.total * rate;
+                for (const client of group.clients) {
+                 const existing = mergedClientMap.get(client.clientId);
+                 if (existing) {
+                  existing.balance += client.balance * rate;
+                 } else {
+                  mergedClientMap.set(client.clientId, { clientId: client.clientId, clientName: client.clientName, balance: client.balance * rate });
+                 }
+                }
+               }
+               const mergedClients = Array.from(mergedClientMap.values()).filter((c) => c.balance !== 0).sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
+
+               return (
+                <div key={orgKey}>
+                 <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{orgName}</h3>
+                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {orgGroups.filter((group) => group.total !== 0).map((group) => {
+                   const rate = rateOf(group);
+                   const rateValid = !Number.isNaN(rate);
+                   // A card only shows its converted (back) face when flipped AND a valid rate exists.
+                   const flipped = isFlipped(group) && rateValid;
+                   const converted = group.total * rate;
+                   const toggleFlip = () =>
+                    setOverviewFlipped((prev) => {
+                     const next = new Set(prev);
+                     if (next.has(group.key)) next.delete(group.key);
+                     else next.add(group.key);
+                     return next;
+                    });
+                   const flipIcon = (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                     <path d="M7 4 3 8l4 4M3 8h13.5" />
+                     <path d="M17 20l4-4-4-4m4 4H7.5" />
+                    </svg>
+                   );
+                   return (
+                    <div key={group.key} className="[perspective:1200px]">
+                     <div
+                      className={`relative transition-transform duration-500 [transform-style:preserve-3d] ${flipped ? '[transform:rotateY(180deg)]' : ''}`}
+                     >
+                      {/* FRONT — original currency */}
+                      <div className="flex flex-col rounded border border-slate-200 bg-white [backface-visibility:hidden]">
+                       <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                        <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
+                        {!group.isMain ? (
+                         <div className="flex items-center gap-2">
+                          <label className="flex items-center gap-1 text-xs text-slate-500">
+                           <span>{t('overview_rate_label', { currency: mainCode })}</span>
+                           <input
+                            type="text"
+                            inputMode="decimal"
+                            dir="ltr"
+                            value={overviewRates[group.currencyCode] ?? ''}
+                            onChange={(event) => updateOverviewRate(group.currencyCode, normalizeDecimalInput(event.target.value))}
+                            className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                           />
+                          </label>
+                          {rateValid ? (
+                           <button
+                            type="button"
+                            title={t('overview_show_in_main', { currency: mainCode })}
+                            onClick={toggleFlip}
+                            className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                           >
+                            {flipIcon}
+                           </button>
+                          ) : null}
+                         </div>
+                        ) : null}
+                       </div>
+
+                       <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+                        {group.clients.map((client) => (
+                         <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                          <span className="truncate text-slate-700">{client.clientName}</span>
+                          <span className={`shrink-0 font-medium ${balanceColor(client.balance)}`} dir="ltr">{fmt(client.balance)}</span>
+                         </div>
+                        ))}
+                       </div>
+
+                       <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_card_total')}</span>
+                        <span className={`font-bold ${balanceColor(group.total)}`} dir="ltr">{fmt(group.total)} {group.currencySymbol || group.currencyCode}</span>
+                       </div>
+                      </div>
+
+                      {/* BACK — converted to main currency */}
+                      {!group.isMain ? (
+                       <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                        <div className="flex items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-3 py-2">
+                         <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
+                         <button
+                          type="button"
+                          title={t('overview_show_original')}
+                          onClick={toggleFlip}
+                          className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
+                         >
+                          {flipIcon}
+                         </button>
+                        </div>
+
+                        <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+                         {group.clients.map((client) => (
+                          <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                           <span className="truncate text-slate-700">{client.clientName}</span>
+                           <span className={`shrink-0 font-medium ${balanceColor(client.balance * rate)}`} dir="ltr">{fmt(client.balance * rate)}</span>
+                          </div>
+                         ))}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-50 px-3 py-2">
+                         <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
+                         <span className={`font-bold ${balanceColor(converted)}`} dir="ltr">{fmt(converted)} {mainSymbol}</span>
+                        </div>
+                       </div>
+                      ) : null}
+                     </div>
+                    </div>
+                   );
+                  })}
+
+                  {showMerged ? (
+                   <div className="flex flex-col rounded border-2 border-blue-200 bg-blue-50/50">
+                    <div className="border-b border-blue-200 bg-blue-100/60 px-3 py-2">
+                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{mainCurrency?.name ?? mainCode}</p>
+                    </div>
+                    {mergedReady ? (
+                     <>
+                      <div className="flex-1 divide-y divide-blue-100 px-3 py-1">
+                       {mergedClients.map((client) => (
+                        <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                         <span className="truncate text-slate-700">{client.clientName}</span>
+                         <span className={`shrink-0 font-medium ${balanceColor(client.balance)}`} dir="ltr">{fmt(client.balance)}</span>
+                        </div>
+                       ))}
+                      </div>
+                      <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-100/60 px-3 py-2">
+                       <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
+                       <span className={`font-bold ${balanceColor(mergedTotal)}`} dir="ltr">{fmt(mergedTotal)} {mainSymbol}</span>
+                      </div>
+                     </>
+                    ) : (
+                     <p className="px-3 py-3 text-xs text-amber-600">{t('overview_set_rate')}</p>
+                    )}
+                   </div>
+                  ) : null}
+                 </div>
+                </div>
+               );
+              })}
+             </div>
+            )}
+           </div>
+          );
+         })()}
         </section>
        ) : null}
 
@@ -5921,6 +7030,19 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                  {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                 </p>
+                {(() => {
+                 const pendingCount = ledger.entries.filter((e) => e.pendingRate).length;
+                 if (pendingCount === 0) return null;
+                 return (
+                  <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-amber-600">
+                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <path d="M12 9v4M12 17h.01" />
+                   </svg>
+                   {t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
+                  </p>
+                 );
+                })()}
                </div>
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_transaction_count')}</p>
@@ -5932,6 +7054,89 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              {ledger.entries.length === 0 ? (
               <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
              ) : (
+              <>
+               {/* Filter bar */}
+               {(() => {
+                const counterpartyOptions = [...new Set(ledger.entries.map((e) => e.counterpartyName).filter(Boolean))].sort((a, b) => a.localeCompare(b, language));
+                const hasFilter = !!(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo);
+                const activeCount = [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo].filter(Boolean).length;
+                return (
+                 <div className="mt-4 rounded border border-slate-200 bg-slate-50">
+                  <button
+                   type="button"
+                   onClick={() => setLedgerFilterOpen((o) => !o)}
+                   className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                  >
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                   </svg>
+                   {t('tx_filter_toggle')}
+                   {hasFilter && (
+                    <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">{activeCount}</span>
+                   )}
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`ml-auto transition-transform ${ledgerFilterOpen ? 'rotate-180' : ''}`}>
+                    <path d="M6 9l6 6 6-6" />
+                   </svg>
+                  </button>
+                  {ledgerFilterOpen && (
+                   <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-3 py-3">
+                    <div className="flex min-w-36 flex-1 flex-col gap-1">
+                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_search')}</label>
+                     <input
+                      type="text"
+                      value={ledgerFilterSearch}
+                      onChange={(e) => setLedgerFilterSearch(e.target.value)}
+                      placeholder={t('tx_filter_search_placeholder')}
+                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    </div>
+                    {counterpartyOptions.length > 0 && (
+                     <div className="flex min-w-36 flex-1 flex-col gap-1">
+                      <label className="text-xs font-medium text-slate-500">{t('counterparty')}</label>
+                      <select
+                       value={ledgerFilterCounterparty}
+                       onChange={(e) => setLedgerFilterCounterparty(e.target.value)}
+                       className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                      >
+                       <option value="">{t('tx_filter_client_all')}</option>
+                       {counterpartyOptions.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                       ))}
+                      </select>
+                     </div>
+                    )}
+                    <div className="flex flex-col gap-1">
+                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_from')}</label>
+                     <input
+                      type="date"
+                      value={ledgerFilterDateFrom}
+                      onChange={(e) => setLedgerFilterDateFrom(e.target.value)}
+                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_to')}</label>
+                     <input
+                      type="date"
+                      value={ledgerFilterDateTo}
+                      onChange={(e) => setLedgerFilterDateTo(e.target.value)}
+                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    </div>
+                    {hasFilter && (
+                     <button
+                      type="button"
+                      onClick={() => { setLedgerFilterSearch(''); setLedgerFilterCounterparty(''); setLedgerFilterDateFrom(''); setLedgerFilterDateTo(''); }}
+                      className="self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
+                     >
+                      {t('tx_filter_clear')}
+                     </button>
+                    )}
+                   </div>
+                  )}
+                 </div>
+                );
+               })()}
               <div className={tableWrapClassName}>
                <table className="w-full text-sm">
                 <thead className="bg-slate-100 text-slate-700">
@@ -5948,7 +7153,37 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                     className="cursor-pointer"
                    />
                   </th>
-                  <th className="w-10 px-2 py-3"></th>
+                  <th className="w-10 px-2 py-3">
+                   {editAllLedgerAccountIds.has(ledger.accountId) ? (
+                    <div className="flex flex-col items-center gap-1">
+                     <button
+                      type="button"
+                      title={t('save_changes')}
+                      onClick={() => void onSaveAllLedger(ledger)}
+                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                     >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                     </button>
+                     <button
+                      type="button"
+                      title={t('cancel')}
+                      onClick={() => onCancelAllLedger(ledger)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                     >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                     </button>
+                    </div>
+                   ) : (
+                    <button
+                     type="button"
+                     title="Edit all rows"
+                     onClick={() => onEditAllLedger(ledger)}
+                     className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                    >
+                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                    </button>
+                   )}
+                  </th>
                   {orderedLedgerColumnOptions.map((column) => {
                    if (!ledgerColumnVisibility[column.key]) {
                     return null;
@@ -6094,6 +7329,20 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        {headerContent}
                       </th>
                      );
+                    case 'currency':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
                     case 'description':
                      return (
                       <th
@@ -6115,10 +7364,30 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 <tbody>
                  {((() => {
                    const order = manualLedgerRowOrder[ledger.accountId];
-                   if (!order) return ledger.entries;
-                   const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
-                   return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
-                  })()).map((entry) => (
+                   const ordered = (() => {
+                    if (!order) return ledger.entries;
+                    const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
+                    return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
+                   })();
+                   const q = ledgerFilterSearch.trim().toLowerCase();
+                   const visible = ordered.filter((e) => {
+                    if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                    if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                    if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                    if (q) {
+                     const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                     const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                     const inAmount = String(e.amount).includes(q);
+                     if (!inCounterparty && !inDescription && !inAmount) return false;
+                    }
+                    return true;
+                   });
+                   // Pagination: entries sorted oldest→newest; page N = newest (last chunk).
+                   const totalLedgerPages = Math.max(1, Math.ceil(visible.length / ledgerPageSize));
+                   const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+                   const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
+                   return visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
+                  })()).map((entry, entryIdx) => (
                   <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                    <tr
                     draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
@@ -6201,6 +7470,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           </span>
                           <button type="button" title={t('edit')}
                            onClick={() => {
+                            // Expense (adjustment) rows have no transaction record, so they can't be
+                            // inline-edited like transfers — route them to the adjustment editor instead.
+                            if (entry.isAdjustment && entry.adjustmentId) {
+                             const adjustment = adjustments.find((a) => a.id === entry.adjustmentId);
+                             if (adjustment) openAdjustmentModal(ledger.accountId, adjustment);
+                             return;
+                            }
                             const draftKey = rowKey;
                             const transaction = transactions.find((tx) => tx.id === entry.transactionId);
                            if (transaction && !ledgerTransactionDrafts[draftKey]) {
@@ -6250,7 +7526,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className="px-4 py-3 font-medium text-slate-900"
+                          className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap"
                          >
                           {entry.isAdjustment ? (
                            <span className="text-slate-400">-</span>
@@ -6426,9 +7702,74 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                                inputMode="decimal"
                                dir="ltr"
                                value={draft.exchangeRate}
+                               data-ledger-rate-idx={entryIdx}
+                               data-ledger-account-id={ledger.accountId}
                                onChange={(event) =>
                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
                                }
+                               onPaste={(event) => {
+                                const text = event.clipboardData.getData('text');
+                                const values = text
+                                 .split(/[\r\n]+/)
+                                 .map((v) => v.trim())
+                                 .filter((v) => v.length > 0);
+                                // Single value: let the browser paste normally into this one input.
+                                if (values.length <= 1) return;
+                                event.preventDefault();
+
+                                // Rebuild the same ordered + filtered visible list the table renders,
+                                // so we can map row positions to transaction drafts.
+                                const order = manualLedgerRowOrder[ledger.accountId];
+                                const ordered = (() => {
+                                 if (!order) return ledger.entries;
+                                 const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
+                                 return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
+                                })();
+                                const q = ledgerFilterSearch.trim().toLowerCase();
+                                const visible = ordered.filter((e) => {
+                                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                                 if (q) {
+                                  const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                                  const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                                  const inAmount = String(e.amount).includes(q);
+                                  if (!inCounterparty && !inDescription && !inAmount) return false;
+                                 }
+                                 return true;
+                                });
+
+                                // Spread each pasted value down consecutive editable rate inputs,
+                                // starting at the row that received the paste. Adjustment rows and
+                                // rows not in edit mode have no rate input, so they are skipped.
+                                const patches: Record<string, string> = {};
+                                let valueIdx = 0;
+                                for (let i = entryIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                                 const target = visible[i];
+                                 if (target.isAdjustment) continue;
+                                 const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
+                                 if (!editingLedgerRowKeys.has(key)) continue;
+                                 patches[key] = normalizeDecimalInput(values[valueIdx]);
+                                 valueIdx += 1;
+                                }
+                                if (Object.keys(patches).length === 0) return;
+                                setLedgerTransactionDrafts((prev) => {
+                                 const next = { ...prev };
+                                 for (const [key, rate] of Object.entries(patches)) {
+                                  if (next[key]) next[key] = { ...next[key], exchangeRate: rate };
+                                 }
+                                 return next;
+                                });
+                               }}
+                               onKeyDown={(event) => {
+                                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                                event.preventDefault();
+                                const delta = event.key === 'ArrowDown' ? 1 : -1;
+                                const next = document.querySelector<HTMLInputElement>(
+                                 `[data-ledger-account-id="${ledger.accountId}"][data-ledger-rate-idx="${entryIdx + delta}"]`,
+                                );
+                                next?.focus();
+                               }}
                                className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                               />
                              </div>
@@ -6441,6 +7782,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                             const accCurr = ledger.currencyCode;
                             const defaultReversed = entry.exchangeRateReversed;
                             const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
+                            // Different currency but no rate entered yet: show a dash. This entry is
+                            // excluded from the balance until the user sets a rate.
+                            if (entry.pendingRate) {
+                             return <span className="text-amber-500" title={t('ledger_rate_pending')}>-</span>;
+                            }
                             if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
                              return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
                             }
@@ -6521,10 +7867,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                         return (
                          <td
                           key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.pendingRate ? 'text-amber-500' : entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
-                          {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                          {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                          {entry.pendingRate ? (
+                           <span title={t('ledger_rate_pending')}>-</span>
+                          ) : (
+                           <>
+                            {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                            {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                           </>
+                          )}
                          </td>
                         );
                        case 'runningBalance':
@@ -6537,11 +7889,40 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                          </td>
                         );
+                       case 'currency':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 text-slate-500 whitespace-nowrap"
+                         >
+                          {entry.isAdjustment ? (
+                           entry.currencySymbol ? (
+                            <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
+                           ) : (
+                            entry.currencyCode || '-'
+                           )
+                          ) : draft ? (
+                           <select
+                            value={draft.currencyId}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: Number(event.target.value) })}
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           >
+                            {enabledCurrencies.map((cur) => (
+                             <option key={cur.id} value={cur.id}>{cur.code}</option>
+                            ))}
+                           </select>
+                          ) : entry.currencySymbol ? (
+                           <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
+                          ) : (
+                           entry.currencyCode || '-'
+                          )}
+                         </td>
+                        );
                        case 'description':
                         return (
                          <td
                           key={column.key}
-                          className="px-4 py-3 text-slate-500"
+                          className="px-4 py-3 text-slate-500 whitespace-nowrap"
                          >
                           {entry.isAdjustment ? (
                            entry.description || '-'
@@ -6594,9 +7975,101 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    )}
                   </Fragment>
                  ))}
+                 {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) && ledger.entries.length > 0 && (() => {
+                  const q = ledgerFilterSearch.trim().toLowerCase();
+                  const visibleCount = ledger.entries.filter((e) => {
+                   if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                   if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                   if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                   if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                   return true;
+                  }).length;
+                  if (visibleCount > 0) return null;
+                  return (
+                   <tr>
+                    <td colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3} className="px-4 py-6 text-sm text-slate-500">
+                     {t('no_search_results')}
+                    </td>
+                   </tr>
+                  );
+                 })()}
                 </tbody>
                </table>
               </div>
+              {(() => {
+               const order = manualLedgerRowOrder[ledger.accountId];
+               const ordered = (() => {
+                if (!order) return ledger.entries;
+                const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
+                return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
+               })();
+               const q = ledgerFilterSearch.trim().toLowerCase();
+               const visibleCount = ordered.filter((e) => {
+                if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                return true;
+               }).length;
+               if (visibleCount === 0) return null;
+               const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
+               if (totalLedgerPages <= 1) return null;
+               const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+               return (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                 <div className="text-xs text-slate-600">
+                  {((currentLedgerPage - 1) * ledgerPageSize + 1)}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                 </div>
+                 <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+                  <select
+                   value={ledgerPageSize}
+                   onChange={(event) => {
+                    setLedgerPageSize(Number(event.target.value));
+                    setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
+                   }}
+                   className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                  >
+                   <option value={25}>25</option>
+                   <option value={50}>50</option>
+                   <option value={100}>100</option>
+                  </select>
+                  <button
+                   type="button"
+                   onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
+                   disabled={currentLedgerPage <= 1}
+                   className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                   {t('pagination_prev')}
+                  </button>
+                  <input
+                   key={currentLedgerPage}
+                   type="number"
+                   min={1}
+                   max={totalLedgerPages}
+                   defaultValue={currentLedgerPage}
+                   onBlur={(event) => {
+                    const n = parseInt(event.target.value, 10);
+                    if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
+                    else event.target.value = String(currentLedgerPage);
+                   }}
+                   onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                   className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
+                  <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
+                  <button
+                   type="button"
+                   onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
+                   disabled={currentLedgerPage >= totalLedgerPages}
+                   className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                   {t('pagination_next')}
+                  </button>
+                 </div>
+                </div>
+               );
+              })()}
+              </>
              )}
             </div>
            ))
@@ -6612,195 +8085,36 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
            <div className="flex items-start justify-between gap-3">
             <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
-            {copiedTransaction ? (
+            <div className="flex shrink-0 items-center gap-2">
+             {copiedTransaction ? (
+              <button
+               type="button"
+               onClick={onPasteCopiedTransaction}
+               title={t('paste_transaction')}
+               aria-label={t('paste_transaction')}
+               className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+              >
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+                <rect x="9" y="3" width="6" height="4" rx="1" />
+               </svg>
+               {t('paste_transaction')}
+              </button>
+             ) : null}
              <button
               type="button"
-              onClick={onPasteCopiedTransaction}
-              title={t('paste_transaction')}
-              aria-label={t('paste_transaction')}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+              onClick={() => setIsNewTransactionSectionOpen(false)}
+              title={t('transactions_hide_new')}
+              aria-label={t('transactions_hide_new')}
+              className="inline-flex shrink-0 items-center justify-center rounded border border-slate-300 p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
              >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-               <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
-               <rect x="9" y="3" width="6" height="4" rx="1" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <path d="M6 18L18 6M6 6l12 12" />
               </svg>
-              {t('paste_transaction')}
              </button>
-            ) : null}
+            </div>
            </div>
            <p className="mt-1 text-sm text-slate-600">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
-
-           {pendingImportData ? (
-            <div className="mt-5 rounded border border-blue-200 bg-blue-50/60 p-4">
-             <p className="text-sm font-semibold text-blue-900">Import Setup: {pendingImportData.fileName}</p>
-             <p className="mt-1 text-xs text-blue-700">Answer these questions before importing.</p>
-
-             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
-               <select
-                value={importMapping.dateColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  dateColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">No date column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
-               <select
-                value={importMapping.fromColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  fromColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">Select from column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
-               <select
-                value={importMapping.toColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  toColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">Select to column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
-               <select
-                value={importMapping.amountColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  amountColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">Select amount column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
-               <select
-                value={importMapping.descriptionColumn ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  descriptionColumn: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">No description column</option>
-                {pendingImportData.columnOptions.map((option) => (
-                 <option
-                  key={option.index}
-                  value={option.index}
-                 >
-                  {option.label}
-                 </option>
-                ))}
-               </select>
-              </label>
-
-              <label className="text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
-               <select
-                value={importMapping.currencyId ?? ''}
-                onChange={(event) =>
-                 setImportMapping((current) => ({
-                  ...current,
-                  currencyId: event.target.value === '' ? null : Number(event.target.value),
-                 }))
-                }
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               >
-                <option value="">Select currency</option>
-                {currencies.map((currency) => (
-                 <option
-                  key={currency.id}
-                  value={currency.id}
-                 >
-                  {currency.code} - {currency.name}
-                 </option>
-                ))}
-               </select>
-              </label>
-             </div>
-
-             <div className="mt-4 flex flex-wrap gap-2">
-              <button
-               type="button"
-               onClick={() => void onConfirmImportTransactions()}
-               disabled={isImportingTransactions}
-               className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-               {isImportingTransactions ? 'Importing...' : 'Import Now'}
-              </button>
-              <button
-               type="button"
-               onClick={onCancelImportTransactions}
-               disabled={isImportingTransactions}
-               className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-               Cancel Import
-              </button>
-             </div>
-            </div>
-           ) : null}
 
            <form
             onSubmit={onTransactionSubmit}
@@ -7274,6 +8588,47 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              placeholder={t('transaction_description_placeholder')}
             />
 
+            {!isAdjustmentTransaction ? (
+             <div className="mt-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+               <input
+                type="checkbox"
+                checked={txSplitDescription}
+                onChange={(event) => setTxSplitDescription(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+               />
+               {t('transaction_description_split')}
+              </label>
+
+              {txSplitDescription ? (
+               <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div>
+                 <label className="block text-xs font-medium text-slate-500">
+                  {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? t('transaction_account_from')}
+                 </label>
+                 <textarea
+                  value={transactionForm.descriptionFrom}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionFrom: event.target.value }))}
+                  className="mt-1 min-h-16 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  placeholder={transactionForm.description || t('transaction_description_placeholder')}
+                 />
+                </div>
+                <div>
+                 <label className="block text-xs font-medium text-slate-500">
+                  {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? t('transaction_account_to')}
+                 </label>
+                 <textarea
+                  value={transactionForm.descriptionTo}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionTo: event.target.value }))}
+                  className="mt-1 min-h-16 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  placeholder={transactionForm.description || t('transaction_description_placeholder')}
+                 />
+                </div>
+               </div>
+              ) : null}
+             </div>
+            ) : null}
+
             <button
              type="submit"
              className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
@@ -7427,15 +8782,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               {selectedTransactionIds.size}
              </button>
             ) : null}
-            {section === 'transactions' || section === 'archive' ? (
+            {(section === 'transactions' || section === 'archive') && !isNewTransactionSectionOpen ? (
              <button
               type="button"
-              onClick={() => setIsNewTransactionSectionOpen((current) => !current)}
+              onClick={() => setIsNewTransactionSectionOpen(true)}
               aria-expanded={isNewTransactionSectionOpen}
-              title={isNewTransactionSectionOpen ? t('transactions_hide_new') : t('transactions_show_new')}
-              className={`cursor-pointer rounded border p-2 transition ${
-               isNewTransactionSectionOpen ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' : 'border-blue-600 bg-blue-700 text-white hover:bg-blue-800'
-              }`}
+              title={t('transactions_show_new')}
+              className="cursor-pointer rounded border border-blue-600 bg-blue-700 p-2 text-white transition hover:bg-blue-800"
              >
               <svg
                xmlns="http://www.w3.org/2000/svg"
@@ -7446,19 +8799,11 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                className="h-4 w-4"
                aria-hidden="true"
               >
-               {isNewTransactionSectionOpen ? (
-                <path
-                 strokeLinecap="round"
-                 strokeLinejoin="round"
-                 d="M6 18L18 6M6 6l12 12"
-                />
-               ) : (
-                <path
-                 strokeLinecap="round"
-                 strokeLinejoin="round"
-                 d="M12 4v16M4 12h16"
-                />
-               )}
+               <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 4v16M4 12h16"
+               />
               </svg>
              </button>
             ) : null}
@@ -7583,7 +8928,37 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 className="h-4 w-4 cursor-pointer rounded border-slate-300"
                />
               </th>
-              <th className="px-2 py-3 w-10" />
+              <th className="px-2 py-3 w-10">
+               {isEditAllTransactions ? (
+                <div className="flex flex-col items-center gap-1">
+                 <button
+                  type="button"
+                  title={t('save_changes')}
+                  onClick={() => void onSaveAllTransactions()}
+                  className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                 >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                 </button>
+                 <button
+                  type="button"
+                  title={t('cancel')}
+                  onClick={() => onCancelAllTransactions()}
+                  className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                 >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                 </button>
+                </div>
+               ) : (
+                <button
+                 type="button"
+                 title="Edit all rows"
+                 onClick={() => onEditAllTransactions()}
+                 className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                >
+                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                </button>
+               )}
+              </th>
               {transactionTableSettings.columns.created ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
                 <button
@@ -7891,7 +9266,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.description ? (
-                   <td className="px-4 py-3 text-slate-600">
+                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                     {isEditingRow && draft ? (
                      <input
                       type="text"
@@ -7906,7 +9281,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountFrom ? (
-                   <td className="px-4 py-3 font-medium text-slate-900">
+                   <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
                     {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <select
@@ -8032,7 +9407,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountTo ? (
-                   <td className="px-4 py-3 font-medium text-slate-900">
+                   <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
                     {isEditingRow && draft && txn.isAdjustment ? (
                      <div className="grid grid-cols-2 gap-2">
                       <button
@@ -8612,6 +9987,630 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     </div>
    ) : null}
 
+   {pendingImportData && !importReview ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+     <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded bg-white shadow-2xl">
+      <div className="border-b border-slate-200 p-6">
+       <h3 className="text-lg font-semibold text-slate-900">Import setup</h3>
+       <p className="mt-1 text-sm text-slate-500">{pendingImportData.fileName} — match the sheet columns and pick a currency before reviewing clients.</p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6">
+       <div className="grid gap-3 md:grid-cols-2">
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
+         <select
+          value={importMapping.dateColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, dateColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">No date column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
+         <select
+          value={importMapping.fromColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, fromColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">Select from column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
+         <select
+          value={importMapping.toColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, toColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">Select to column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
+         <select
+          value={importMapping.amountColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, amountColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">Select amount column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
+         <select
+          value={importMapping.descriptionColumn ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, descriptionColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">No description column</option>
+          {pendingImportData.columnOptions.map((option) => (
+           <option key={option.index} value={option.index}>
+            {option.label}
+           </option>
+          ))}
+         </select>
+        </label>
+
+        <label className="text-sm text-slate-700">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
+         <select
+          value={importMapping.currencyId ?? ''}
+          onChange={(event) => setImportMapping((current) => ({ ...current, currencyId: event.target.value === '' ? null : Number(event.target.value) }))}
+          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">Select currency</option>
+          {currencies.map((currency) => (
+           <option key={currency.id} value={currency.id}>
+            {currency.code} - {currency.name}
+           </option>
+          ))}
+         </select>
+        </label>
+       </div>
+      </div>
+
+      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-6">
+       <button
+        type="button"
+        onClick={onCancelImportTransactions}
+        disabled={isImportingTransactions}
+        className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        Cancel Import
+       </button>
+       <button
+        type="button"
+        onClick={onPrepareImportReview}
+        disabled={isImportingTransactions}
+        className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        Review Clients
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
+
+   {importReview ? (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+     <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded bg-white shadow-2xl">
+      <div className="border-b border-slate-200 p-6">
+       <h3 className="text-lg font-semibold text-slate-900">Review imported names</h3>
+       <p className="mt-1 text-sm text-slate-500">
+        {importReview.length} names were read from {pendingImportData?.fileName ?? 'the file'}. For each one, create a new client, pick an existing client, choose
+        which currency accounts to open, or mark it as an expense (e.g. طريق) instead of a client.
+       </p>
+
+       <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
+        <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Open accounts for all clients (optional)</span>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+         {enabledCurrencies.map((currency) => {
+          const selected = bulkAccountCurrencyIds.includes(currency.id);
+          return (
+           <button
+            key={currency.id}
+            type="button"
+            onClick={() =>
+             setBulkAccountCurrencyIds((current) =>
+              current.includes(currency.id) ? current.filter((id) => id !== currency.id) : [...current, currency.id],
+             )
+            }
+            className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
+             selected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+           >
+            {currency.code}
+           </button>
+          );
+         })}
+         <button
+          type="button"
+          onClick={() =>
+           setImportReview((current) =>
+            current ? current.map((entry) => (entry.isExpense ? entry : { ...entry, accountCurrencyIds: [...bulkAccountCurrencyIds] })) : current,
+           )
+          }
+          className="rounded border border-blue-600 bg-white px-3 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
+         >
+          Apply to all clients
+         </button>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-400">
+         Transactions need an account in the import currency on both sides — clients missing it are skipped.
+        </p>
+       </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-6">
+       <div className="flex flex-col gap-3">
+        {importReview.map((entry) => {
+         const addableCurrencies = enabledCurrencies.filter((item) => !entry.accountCurrencyIds.includes(item.id));
+         return (
+          <div
+           key={entry.key}
+           className={`rounded border p-3 ${entry.isExpense ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'}`}
+          >
+           <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-slate-700">{entry.originalName}</span>
+            <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-600">
+             <input
+              type="checkbox"
+              checked={entry.isExpense}
+              onChange={(event) => updateImportReviewEntry(entry.key, { isExpense: event.target.checked })}
+             />
+             Expense (not a client)
+            </label>
+           </div>
+
+           {entry.isExpense ? (
+            <div className="mt-2">
+             <p className="text-xs text-amber-700">
+              Decide what each row containing “{entry.originalName}” should become. Each defaults to a debit (owes you) on the other party.
+             </p>
+             <div className="mt-2 flex flex-col gap-1.5">
+              {importParsedRows
+               .map((row, index) => ({ row, index }))
+               .filter(({ row }) => importNameKey(row.fromName) === entry.key || importNameKey(row.toName) === entry.key)
+               .map(({ row, index }) => {
+                const counterparty = importNameKey(row.fromName) === entry.key ? row.toName : row.fromName;
+                const override = importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE;
+                const sendName = override.swap ? row.toName : row.fromName;
+                const receiveName = override.swap ? row.fromName : row.toName;
+                return (
+                 <div
+                  key={index}
+                  className="rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs"
+                 >
+                  <div className="flex items-center justify-between gap-2">
+                   <span className="min-w-0 flex-1 truncate text-slate-600">
+                    {row.fromName} → {row.toName} · {row.amount}
+                    {row.createdAt ? ` · ${row.createdAt.slice(0, 10)}` : ''}
+                   </span>
+                   <select
+                    value={override.mode}
+                    onChange={(event) => updateImportRowOverride(index, { mode: event.target.value as ImportRowOverride['mode'] })}
+                    className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                   >
+                    <option value="expense">Expense (1 client)</option>
+                    <option value="transaction">Transaction (2 clients)</option>
+                   </select>
+                  </div>
+
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                   {override.mode === 'expense' ? (
+                    <>
+                     <span className="text-slate-500">On {counterparty || 'other party'}:</span>
+                     <select
+                      value={override.direction}
+                      onChange={(event) => updateImportRowOverride(index, { direction: event.target.value as ImportRowOverride['direction'] })}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                     >
+                      <option value="debit">Debit (owes you)</option>
+                      <option value="credit">Credit (you owe)</option>
+                     </select>
+                    </>
+                   ) : (
+                    <>
+                     <span className="text-slate-600">
+                      From <span className="font-semibold">{sendName}</span> → To <span className="font-semibold">{receiveName}</span>
+                     </span>
+                     <button
+                      type="button"
+                      onClick={() => updateImportRowOverride(index, { swap: !override.swap })}
+                      className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 font-semibold text-slate-600 transition hover:bg-slate-50"
+                     >
+                      ⇄ Swap
+                     </button>
+                    </>
+                   )}
+                  </div>
+                 </div>
+                );
+               })}
+             </div>
+            </div>
+           ) : (
+            <>
+             {/* Client selector — DB clients + new clients being created in this import */}
+             <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
+              <label className="flex-1 text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Client</span>
+               <select
+                value={
+                 entry.existingClientId != null
+                  ? String(entry.existingClientId)
+                  : entry.pendingEntryKey != null
+                   ? `__pending__${entry.pendingEntryKey}`
+                   : '__new__'
+                }
+                onChange={(event) => {
+                 const val = event.target.value;
+                 if (val === '__new__') {
+                  updateImportReviewEntry(entry.key, { existingClientId: null, existingAccountId: null, pendingEntryKey: null, targetCurrencyId: null });
+                  return;
+                 }
+                 if (val.startsWith('__pending__')) {
+                  const refKey = val.slice('__pending__'.length);
+                  const refEntry = importReview!.find((e) => e.key === refKey);
+                  const firstCurrencyId = refEntry?.accountCurrencyIds[0] ?? null;
+                  updateImportReviewEntry(entry.key, { existingClientId: null, existingAccountId: null, pendingEntryKey: refKey, targetCurrencyId: firstCurrencyId });
+                  return;
+                 }
+                 const clientId = Number(val);
+                 const accountsForClient = clientAccounts.filter((account) => account.clientId === clientId);
+                 const defaultAccount =
+                  accountsForClient.find((account) => account.currencyId === entry.currencyId) ?? accountsForClient[0] ?? null;
+                 updateImportReviewEntry(entry.key, { existingClientId: clientId, existingAccountId: defaultAccount?.id ?? null, pendingEntryKey: null, targetCurrencyId: null });
+                }}
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="__new__">➕ Create new client</option>
+                {/* Other review entries whose new clients can be reused */}
+                {importReview!.filter((e) => e.key !== entry.key && !e.isExpense && e.existingClientId == null && e.pendingEntryKey == null && e.name.trim()).length > 0 ? (
+                 <optgroup label="From this import">
+                  {importReview!
+                   .filter((e) => e.key !== entry.key && !e.isExpense && e.existingClientId == null && e.pendingEntryKey == null && e.name.trim())
+                   .map((e) => (
+                    <option key={e.key} value={`__pending__${e.key}`}>
+                     {e.name.trim()}
+                    </option>
+                   ))}
+                 </optgroup>
+                ) : null}
+                {clients.length > 0 ? (
+                 <optgroup label="Existing clients">
+                  {clients.map((client) => (
+                   <option key={client.id} value={client.id}>
+                    {client.name}
+                   </option>
+                  ))}
+                 </optgroup>
+                ) : null}
+               </select>
+              </label>
+
+              {/* New client name — only for entries creating a fresh client */}
+              {entry.existingClientId == null && entry.pendingEntryKey == null ? (
+               <label className="flex-1 text-sm text-slate-700">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">New client name</span>
+                <input
+                 type="text"
+                 value={entry.name}
+                 onChange={(event) => updateImportReviewEntry(entry.key, { name: event.target.value })}
+                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                />
+               </label>
+              ) : null}
+             </div>
+
+             {/* Organization — only for new clients */}
+             {entry.existingClientId == null && entry.pendingEntryKey == null ? (
+              <label className="mt-3 block text-sm text-slate-700">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Organization</span>
+               <select
+                value={entry.organizationId ?? ''}
+                onChange={(event) => {
+                 if (event.target.value === '__create__') {
+                  setOrgDialogTargetReviewKey(entry.key);
+                  setOrganizationForm(emptyOrganizationForm());
+                  setShowCreateOrgDialog(true);
+                  return;
+                 }
+                 updateImportReviewEntry(entry.key, { organizationId: event.target.value === '' ? null : Number(event.target.value) });
+                }}
+                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               >
+                <option value="">No organization</option>
+                {organizations.map((organization) => (
+                 <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                 </option>
+                ))}
+                <option value="__create__">{t('client_organization_create')}</option>
+               </select>
+              </label>
+             ) : null}
+
+             {/* Existing DB client — account selector (only when 2+ accounts) */}
+             {entry.existingClientId != null ? (() => {
+              const accountsForClient = clientAccounts.filter((account) => account.clientId === entry.existingClientId);
+              if (!accountsForClient.length) {
+               return (
+                <p className="mt-2 text-xs text-slate-400">
+                 This client has no accounts yet — a {currencies.find((item) => item.id === entry.currencyId)?.code ?? ''} account will be opened.
+                </p>
+               );
+              }
+              if (accountsForClient.length === 1) return null;
+              return (
+               <label className="mt-3 block text-sm text-slate-700">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Apply rows to which account</span>
+                <select
+                 value={entry.existingAccountId ?? ''}
+                 onChange={(event) =>
+                  updateImportReviewEntry(entry.key, { existingAccountId: event.target.value === '' ? null : Number(event.target.value) })
+                 }
+                 className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.existingAccountId == null ? 'border-red-400' : 'border-slate-300'}`}
+                >
+                 <option value="">— Select account —</option>
+                 {accountsForClient.map((account) => (
+                  <option key={account.id} value={account.id}>
+                   {account.currencyCode}
+                   {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                  </option>
+                 ))}
+                </select>
+               </label>
+              );
+             })() : null}
+
+             {/* Pending-entry reference — "post rows to" from the referenced entry's accounts */}
+             {entry.pendingEntryKey != null ? (() => {
+              const refEntry = importReview!.find((e) => e.key === entry.pendingEntryKey);
+              const refCurrencies = (refEntry?.accountCurrencyIds ?? []).map((id) => enabledCurrencies.find((c) => c.id === id) ?? currencies.find((c) => c.id === id)).filter(Boolean);
+              if (refCurrencies.length === 0) {
+               return (
+                <p className="mt-2 text-xs text-amber-600">The referenced client has no accounts yet — add accounts to "{refEntry?.name || refEntry?.originalName}" first.</p>
+               );
+              }
+              if (refCurrencies.length === 1) return null;
+              return (
+               <label className="mt-3 block text-sm text-slate-700">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Post rows to account</span>
+                <select
+                 value={entry.targetCurrencyId ?? ''}
+                 onChange={(event) =>
+                  updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })
+                 }
+                 className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
+                >
+                 <option value="">— Select account —</option>
+                 {refCurrencies.map((currency) => currency && (
+                  <option key={currency.id} value={currency.id}>
+                   {currency.code}{currency.symbol ? ` (${currency.symbol})` : ''}
+                  </option>
+                 ))}
+                </select>
+               </label>
+              );
+             })() : null}
+
+             {/* New client — accounts to open + which one to post rows to */}
+             {entry.existingClientId == null && entry.pendingEntryKey == null ? (
+              <div className="mt-3 space-y-2">
+               <div>
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Accounts to open</span>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                 {entry.accountCurrencyIds.length === 0 ? <span className="text-xs font-semibold text-red-500">Required — add at least one account.</span> : null}
+                 {entry.accountCurrencyIds.map((currencyId) => {
+                  const currency = enabledCurrencies.find((item) => item.id === currencyId) ?? currencies.find((item) => item.id === currencyId);
+                  return (
+                   <span
+                    key={currencyId}
+                    className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                   >
+                    {currency ? currency.code : currencyId}
+                    <button
+                     type="button"
+                     onClick={() => {
+                      const next = entry.accountCurrencyIds.filter((id) => id !== currencyId);
+                      updateImportReviewEntry(entry.key, {
+                       accountCurrencyIds: next,
+                       targetCurrencyId: entry.targetCurrencyId === currencyId ? (next[0] ?? null) : entry.targetCurrencyId,
+                      });
+                     }}
+                     aria-label={t('close')}
+                     className="text-slate-400 transition hover:text-slate-700"
+                    >
+                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M18 6 6 18M6 6l12 12" />
+                     </svg>
+                    </button>
+                   </span>
+                  );
+                 })}
+                 {addableCurrencies.length ? (
+                  <select
+                   value=""
+                   onChange={(event) => {
+                    const currencyId = Number(event.target.value);
+                    if (!currencyId) return;
+                    updateImportReviewEntry(entry.key, {
+                     accountCurrencyIds: [...entry.accountCurrencyIds, currencyId],
+                     targetCurrencyId: entry.targetCurrencyId ?? currencyId,
+                    });
+                   }}
+                   className="rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600 outline-none ring-blue-300 focus:ring"
+                  >
+                   <option value="">+ Add account</option>
+                   {addableCurrencies.map((currency) => (
+                    <option key={currency.id} value={currency.id}>
+                     {currency.code} - {currency.name}
+                    </option>
+                   ))}
+                  </select>
+                 ) : null}
+                </div>
+               </div>
+               {entry.accountCurrencyIds.length >= 2 ? (
+                <label className="block text-sm text-slate-700">
+                 <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Post rows to account</span>
+                 <select
+                  value={entry.targetCurrencyId ?? ''}
+                  onChange={(event) =>
+                   updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })
+                  }
+                  className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
+                 >
+                  <option value="">— Select account —</option>
+                  {entry.accountCurrencyIds.map((currencyId) => {
+                   const currency = enabledCurrencies.find((c) => c.id === currencyId) ?? currencies.find((c) => c.id === currencyId);
+                   return currency ? (
+                    <option key={currencyId} value={currencyId}>
+                     {currency.code}{currency.symbol ? ` (${currency.symbol})` : ''}
+                    </option>
+                   ) : null;
+                  })}
+                 </select>
+                </label>
+               ) : null}
+              </div>
+             ) : null}
+            </>
+           )}
+
+           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            {entry.isExpense ? (
+             <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">Expense</span>
+            ) : entry.existingClientId != null ? (
+             <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">Existing client</span>
+            ) : entry.pendingEntryKey != null ? (
+             <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">New client (from import)</span>
+            ) : (
+             <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">New client</span>
+            )}
+            <span className="text-slate-500">
+             {entry.transactionCount} row{entry.transactionCount === 1 ? '' : 's'}
+            </span>
+           </div>
+          </div>
+         );
+        })}
+       </div>
+      </div>
+
+      {/* Live preview: count rows that will be skipped before the user clicks import */}
+      {(() => {
+       const normKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+       const reviewMap = new Map(importReview.map((e) => [e.key, e]));
+
+       // Returns true if the entry will have an account to post rows to after setup.
+       const willHaveAccount = (entry: ImportClientReview): boolean => {
+        if (entry.existingClientId != null) return true; // account creation loop ensures one exists
+        if (entry.pendingEntryKey != null) {
+         const ref = reviewMap.get(entry.pendingEntryKey);
+         if (!ref) return false;
+         const tid = entry.targetCurrencyId ?? importMapping.currencyId ?? 0;
+         return ref.accountCurrencyIds.includes(tid);
+        }
+        const tid = entry.targetCurrencyId ?? importMapping.currencyId ?? 0;
+        return entry.accountCurrencyIds.includes(tid);
+       };
+
+       let skipCount = 0;
+       const skipNames: string[] = [];
+       importParsedRows.forEach((row, index) => {
+        const fromEntry = reviewMap.get(normKey(row.fromName)) ?? null;
+        const toEntry = reviewMap.get(normKey(row.toName)) ?? null;
+        const fromIsExpense = !!fromEntry?.isExpense;
+        const toIsExpense = !!toEntry?.isExpense;
+        const override = importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE;
+        const asExpense = (fromIsExpense || toIsExpense) && override.mode !== 'transaction';
+
+        if (asExpense) {
+         if (fromIsExpense && toIsExpense) return;
+         const realEntry = fromIsExpense ? toEntry : fromEntry;
+         if (!realEntry || !willHaveAccount(realEntry)) {
+          skipCount += 1;
+          if (realEntry && !skipNames.includes(realEntry.originalName)) skipNames.push(realEntry.originalName);
+         }
+        } else {
+         if (!fromEntry || !toEntry) return;
+         const sendEntry = override.swap ? toEntry : fromEntry;
+         const receiveEntry = override.swap ? fromEntry : toEntry;
+         let skip = false;
+         if (!willHaveAccount(sendEntry)) { skip = true; if (!skipNames.includes(sendEntry.originalName)) skipNames.push(sendEntry.originalName); }
+         if (!willHaveAccount(receiveEntry)) { skip = true; if (!skipNames.includes(receiveEntry.originalName)) skipNames.push(receiveEntry.originalName); }
+         if (skip) skipCount += 1;
+        }
+       });
+
+       if (skipCount === 0) return null;
+       return (
+        <div className="border-t border-amber-200 bg-amber-50 px-6 py-3 text-xs text-amber-800">
+         <span className="font-semibold">{skipCount} row{skipCount === 1 ? '' : 's'} will be skipped</span>
+         {' — '}the following names have no account configured:{' '}
+         <span className="font-medium">{skipNames.join(', ')}</span>.
+         {' '}Go back and add accounts for them to avoid losing those rows.
+        </div>
+       );
+      })()}
+
+      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-6">
+       <button
+        type="button"
+        onClick={() => setImportReview(null)}
+        disabled={isImportingTransactions}
+        className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        Back
+       </button>
+       <button
+        type="button"
+        onClick={() => void onConfirmImportTransactions()}
+        disabled={
+         isImportingTransactions ||
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && !entry.name.trim()) ||
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length === 0) ||
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null) ||
+         importReview.some((entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && (importReview.find((e) => e.key === entry.pendingEntryKey)?.accountCurrencyIds.length ?? 0) >= 2) ||
+         importReview.some((entry) => !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2)
+        }
+        className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+       >
+        {isImportingTransactions ? 'Creating…' : 'Create transactions'}
+       </button>
+      </div>
+     </div>
+    </div>
+   ) : null}
+
    {adjustmentModal
     ? (() => {
        const ledger = selectedClientLedgers.find((l) => l.accountId === adjustmentModal.accountId);
@@ -9056,14 +11055,28 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    {/* Create Organization dialog */}
    {showCreateOrgDialog ? (
     <div
-     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-     onClick={() => setShowCreateOrgDialog(false)}
+     className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+     onClick={() => {
+      setShowCreateOrgDialog(false);
+      setOrgDialogTargetReviewKey(null);
+      setOrgDialogError('');
+     }}
     >
      <div
       className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
       onClick={(e) => e.stopPropagation()}
      >
       <h2 className="text-lg font-semibold text-slate-900">{t('new_organization')}</h2>
+      {orgDialogError ? (
+       <div className="mt-3 flex items-start gap-2 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+        <span className="flex-1">{orgDialogError}</span>
+        <button type="button" onClick={() => setOrgDialogError('')} className="shrink-0 text-red-400 hover:text-red-700" aria-label={t('close')}>
+         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M18 6 6 18M6 6l12 12" />
+         </svg>
+        </button>
+       </div>
+      ) : null}
       <form
        onSubmit={(e) => void onCreateOrgFromDialog(e)}
        className="mt-4 flex flex-col gap-4"
@@ -9085,7 +11098,9 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
          type="button"
          onClick={() => {
           setShowCreateOrgDialog(false);
+          setOrgDialogTargetReviewKey(null);
           setOrganizationForm(emptyOrganizationForm());
+          setOrgDialogError('');
          }}
          className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
         >
@@ -9093,8 +11108,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </button>
         <button
          type="submit"
-         className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition"
+         disabled={isSavingOrg}
+         className="inline-flex items-center gap-2 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
+         {isSavingOrg ? <Spinner className="text-base" /> : null}
          {t('save_organization')}
         </button>
        </div>

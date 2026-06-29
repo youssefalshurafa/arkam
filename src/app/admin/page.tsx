@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { confirmDialog, alertDialog, promptDialog } from '@/components/ui/AppDialog';
 
 type Workspace = {
  id: string;
@@ -392,11 +393,16 @@ export default function AdminPage() {
  const reviewRequest = async (request: AccessRequest, action: 'approve' | 'reject' | 'renew') => {
   let note = '';
   if (action === 'reject') {
-   note = window.prompt('Reason for rejection (optional, shown to the user):') ?? '';
+   const reason = await promptDialog({
+    title: 'Reject access request',
+    message: 'Reason for rejection (optional, shown to the user):',
+   });
+   if (reason === null) return;
+   note = reason;
   } else if (action === 'approve') {
-   if (!window.confirm(`Approve access for ${request.name} (${request.email})?`)) return;
+   if (!(await confirmDialog({ message: `Approve access for ${request.name} (${request.email})?` }))) return;
   } else if (action === 'renew') {
-   if (!window.confirm(`Renew subscription for ${request.name} by one period?`)) return;
+   if (!(await confirmDialog({ message: `Renew subscription for ${request.name} by one period?` }))) return;
   }
 
   setReviewingId(request.id);
@@ -408,7 +414,7 @@ export default function AdminPage() {
    });
    const data = (await res.json()) as { ok?: boolean; status?: string; subscriptionEndsAt?: string; error?: string };
    if (!res.ok || !data.ok) {
-    alert(data.error || 'Failed to update request.');
+    await alertDialog({ title: 'Error', message: data.error || 'Failed to update request.' });
     return;
    }
    setRequests((prev) =>
@@ -425,7 +431,7 @@ export default function AdminPage() {
    // Re-sync subscription dates set server-side on approve/renew.
    void fetchRequests();
   } catch {
-   alert('Network error. Please try again.');
+   await alertDialog({ title: 'Error', message: 'Network error. Please try again.' });
   } finally {
    setReviewingId(null);
   }
@@ -474,13 +480,13 @@ export default function AdminPage() {
    });
    const data = (await res.json()) as { error?: string };
    if (!res.ok) {
-    alert(data.error || 'Failed to delete user.');
+    await alertDialog({ title: 'Error', message: data.error || 'Failed to delete user.' });
     return;
    }
    setUsers((prev) => prev.filter((u) => u.id !== pendingDelete.id));
    setPendingDelete(null);
   } catch {
-   alert('Network error. Please try again.');
+   await alertDialog({ title: 'Error', message: 'Network error. Please try again.' });
   } finally {
    setIsDeleting(false);
   }

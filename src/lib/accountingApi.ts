@@ -14,42 +14,71 @@ function getActiveWorkspaceId() {
  return stored?.trim() || null;
 }
 
+// --- Global request-activity tracking -------------------------------------
+// Every data load/mutation in the app funnels through request(), so counting
+// in-flight calls here lets a single global indicator show a spinner anywhere
+// work is happening, without wiring loading state into every button.
+let activeRequests = 0;
+const activityListeners = new Set<(active: boolean) => void>();
+
+function notifyActivity() {
+ const isActive = activeRequests > 0;
+ for (const listener of activityListeners) {
+  listener(isActive);
+ }
+}
+
+export function subscribeToApiActivity(listener: (active: boolean) => void): () => void {
+ activityListeners.add(listener);
+ listener(activeRequests > 0);
+ return () => {
+  activityListeners.delete(listener);
+ };
+}
+
 async function request<T>({ action, payload }: ApiOptions, hasRetried = false): Promise<T> {
- const workspaceId = getActiveWorkspaceId();
- const response = await fetch('/api/accounting', {
-  method: 'POST',
-  credentials: 'include',
-  headers: {
-   'Content-Type': 'application/json',
-   ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
-  },
-  body: JSON.stringify({ action, payload }),
- });
+ activeRequests += 1;
+ notifyActivity();
+ try {
+  const workspaceId = getActiveWorkspaceId();
+  const response = await fetch('/api/accounting', {
+   method: 'POST',
+   credentials: 'include',
+   headers: {
+    'Content-Type': 'application/json',
+    ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
+   },
+   body: JSON.stringify({ action, payload }),
+  });
 
- const data = await response.json();
+  const data = await response.json();
 
- if (response.status === 401 && !hasRetried) {
-  try {
-   const sessionResponse = await fetch('/api/auth/session', {
-    method: 'GET',
-    credentials: 'include',
-    cache: 'no-store',
-   });
-   const sessionPayload = (await sessionResponse.json()) as { user?: { id?: string } };
+  if (response.status === 401 && !hasRetried) {
+   try {
+    const sessionResponse = await fetch('/api/auth/session', {
+     method: 'GET',
+     credentials: 'include',
+     cache: 'no-store',
+    });
+    const sessionPayload = (await sessionResponse.json()) as { user?: { id?: string } };
 
-   if (sessionPayload?.user?.id) {
-    return request<T>({ action, payload }, true);
+    if (sessionPayload?.user?.id) {
+     return await request<T>({ action, payload }, true);
+    }
+   } catch {
+    // Fall through to the default error handling below.
    }
-  } catch {
-   // Fall through to the default error handling below.
   }
- }
 
- if (!response.ok) {
-  throw new Error(data?.error || 'Request failed.');
- }
+  if (!response.ok) {
+   throw new Error(data?.error || 'Request failed.');
+  }
 
- return data as T;
+  return data as T;
+ } finally {
+  activeRequests -= 1;
+  notifyActivity();
+ }
 }
 
 function exportHtmlAsPdfFallback(html: string, title: string): Promise<{ ok: boolean; filePath?: string }> {
@@ -69,13 +98,27 @@ function exportHtmlAsPdfFallback(html: string, title: string): Promise<{ ok: boo
   popup.print();
  };
 
+ // Wait for the brand logo (and any other images) to finish loading so they render in the PDF.
+ const waitForImages = () => {
+  const images = Array.from(popup.document.images || []);
+  return Promise.all(
+   images.map((img) =>
+    img.complete
+     ? Promise.resolve()
+     : new Promise<void>((resolve) => {
+        img.addEventListener('load', () => resolve(), { once: true });
+        img.addEventListener('error', () => resolve(), { once: true });
+       }),
+   ),
+  );
+ };
+
  // Wait for web fonts (e.g. Cairo) to load before printing so they don't fall back to a system font.
  const popupFonts = (popup.document as Document & { fonts?: FontFaceSet }).fonts;
- if (popupFonts?.ready) {
-  popupFonts.ready.then(() => setTimeout(triggerPrint, 150)).catch(() => triggerPrint());
- } else {
-  setTimeout(triggerPrint, 400);
- }
+ const fontsReady = popupFonts?.ready ?? Promise.resolve();
+ Promise.all([fontsReady, waitForImages()])
+  .then(() => setTimeout(triggerPrint, 150))
+  .catch(() => setTimeout(triggerPrint, 400));
 
  return Promise.resolve({ ok: true });
 }
@@ -119,6 +162,8 @@ export const accountingApi = {
  updateClientAccountStartingBalance: (payload: unknown) => request<{ ok: true }>({ action: 'updateClientAccountStartingBalance', payload }),
  updateClientAccount: (payload: unknown) => request<{ ok: true }>({ action: 'updateClientAccount', payload }),
  deleteClientAccount: (accountId: number) => request<{ ok: true }>({ action: 'deleteClientAccount', payload: accountId }),
+ moveAccountTransactions: (payload: { fromAccountId: number; toAccountId: number }) =>
+  request<{ ok: true; moved: number }>({ action: 'moveAccountTransactions', payload }),
  listCurrencies: () => request<unknown[]>({ action: 'listCurrencies' }),
  createCurrency: (currency: unknown) => request<{ ok: true }>({ action: 'createCurrency', payload: currency }),
  updateCurrency: (currency: unknown) => request<{ ok: true }>({ action: 'updateCurrency', payload: currency }),
@@ -132,6 +177,8 @@ export const accountingApi = {
  createTransaction: (transaction: unknown) => request<{ ok: true }>({ action: 'createTransaction', payload: transaction }),
  updateTransaction: (transaction: unknown) => request<{ ok: true }>({ action: 'updateTransaction', payload: transaction }),
  deleteTransaction: (transactionId: number) => request<{ ok: true }>({ action: 'deleteTransaction', payload: transactionId }),
+ deleteTransactionsBulk: (payload: { transactionIds: number[]; adjustmentIds: number[] }) =>
+  request<{ ok: true; deleted: number }>({ action: 'deleteTransactionsBulk', payload }),
  deleteAllTransactions: () => request<{ ok: true }>({ action: 'deleteAllTransactions' }),
  listClientAdjustments: () => request<unknown[]>({ action: 'listClientAdjustments' }),
  createClientAdjustment: (payload: unknown) => request<{ id: number }>({ action: 'createClientAdjustment', payload }),
@@ -195,6 +242,15 @@ export const accountingApi = {
  exportLedgerPdf: ({ html, defaultFileName }: { html: string; defaultFileName: string }) => exportHtmlAsPdfFallback(html, defaultFileName),
  exportWorkspaceData: () => request<WorkspaceBackup>({ action: 'exportWorkspaceData' }),
  importWorkspaceData: (backup: WorkspaceBackup) => request<{ ok: true }>({ action: 'importWorkspaceData', payload: backup }),
+ bulkImportTransactions: (payload: { transactions: unknown[]; adjustments: unknown[] }) =>
+  request<{ createdTransactions: number; createdAdjustments: number }>({ action: 'bulkImportTransactions', payload }),
+ getBackupInfo: () => request<BackupInfo>({ action: 'getBackupInfo' }),
+ recordBackup: (device: string) => request<BackupInfo>({ action: 'recordBackup', payload: { device } }),
+};
+
+export type BackupInfo = {
+ lastBackupAt: string | null;
+ lastBackupDevice: string | null;
 };
 
 export type WorkspaceRole = 'admin' | 'member' | 'viewer';

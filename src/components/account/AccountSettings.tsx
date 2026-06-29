@@ -41,6 +41,15 @@ export default function AccountSettings() {
 
  const [info, setInfo] = useState<AccountInfo | null>(null);
 
+ // Change email state
+ const [emailOpen, setEmailOpen] = useState(false);
+ const [newEmail, setNewEmail] = useState('');
+ const [confirmEmail, setConfirmEmail] = useState('');
+ const [emailPassword, setEmailPassword] = useState('');
+ const [emailError, setEmailError] = useState('');
+ const [emailSuccess, setEmailSuccess] = useState('');
+ const [emailSubmitting, setEmailSubmitting] = useState(false);
+
  // Change password state
  const [currentPassword, setCurrentPassword] = useState('');
  const [newPassword, setNewPassword] = useState('');
@@ -48,6 +57,7 @@ export default function AccountSettings() {
  const [pwdError, setPwdError] = useState('');
  const [pwdSuccess, setPwdSuccess] = useState('');
  const [pwdSubmitting, setPwdSubmitting] = useState(false);
+ const [passwordOpen, setPasswordOpen] = useState(false);
 
  // Renew state
  const [showRenew, setShowRenew] = useState(false);
@@ -103,6 +113,43 @@ export default function AccountSettings() {
 
  const formatDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString(language, { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+
+ const onChangeEmail = async (event: FormEvent) => {
+  event.preventDefault();
+  setEmailError('');
+  setEmailSuccess('');
+
+  if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim())) {
+   setEmailError(t('account_email_invalid'));
+   return;
+  }
+  if (newEmail.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+   setEmailError(t('account_email_mismatch'));
+   return;
+  }
+
+  setEmailSubmitting(true);
+  try {
+   const res = await fetch('/api/auth/change-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword: emailPassword, newEmail: newEmail.trim() }),
+   });
+   const data = (await res.json()) as { ok?: boolean; error?: string };
+   if (!res.ok || !data.ok) {
+    throw new Error(data.error || t('account_email_failed'));
+   }
+   setEmailSuccess(t('account_email_changed'));
+   setNewEmail('');
+   setConfirmEmail('');
+   setEmailPassword('');
+   void fetchInfo();
+  } catch (err) {
+   setEmailError(err instanceof Error ? err.message : t('account_email_failed'));
+  } finally {
+   setEmailSubmitting(false);
+  }
+ };
 
  const onChangePassword = async (event: FormEvent) => {
   event.preventDefault();
@@ -359,11 +406,103 @@ export default function AccountSettings() {
     )}
    </div>
 
+   {/* Change email */}
+   <div className={panelClass}>
+    <h2 className="text-2xl font-semibold">{t('account_email_title')}</h2>
+    <p className="mt-2 text-sm text-slate-600">{t('account_email_desc')}</p>
+    {info?.email ? (
+     <p className="mt-2 text-sm text-slate-900">
+      <span className="font-mono">{info.email}</span>
+     </p>
+    ) : null}
+
+    {!emailOpen ? (
+     <button
+      type="button"
+      onClick={() => setEmailOpen(true)}
+      className="mt-5 rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+     >
+      {t('account_email_change')}
+     </button>
+    ) : (
+     <form onSubmit={(e) => void onChangeEmail(e)} className="mt-5 max-w-sm space-y-4">
+      <div>
+       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_email_new')}</label>
+       <input
+        type="email"
+        value={newEmail}
+        onChange={(e) => setNewEmail(e.target.value)}
+        className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        autoComplete="email"
+        required
+       />
+      </div>
+      <div>
+       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_email_confirm')}</label>
+       <input
+        type="email"
+        value={confirmEmail}
+        onChange={(e) => setConfirmEmail(e.target.value)}
+        className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        autoComplete="email"
+        required
+       />
+      </div>
+      <div>
+       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_current_password')}</label>
+       <input
+        type="password"
+        value={emailPassword}
+        onChange={(e) => setEmailPassword(e.target.value)}
+        className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        autoComplete="current-password"
+       />
+      </div>
+
+      {emailError && <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{emailError}</p>}
+      {emailSuccess && <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{emailSuccess}</p>}
+
+      <div className="flex items-center gap-3">
+       <button
+        type="submit"
+        disabled={emailSubmitting}
+        className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+       >
+        {emailSubmitting ? t('account_email_saving') : t('account_email_save')}
+       </button>
+       <button
+        type="button"
+        onClick={() => {
+         setEmailOpen(false);
+         setEmailError('');
+         setEmailSuccess('');
+         setNewEmail('');
+         setConfirmEmail('');
+         setEmailPassword('');
+        }}
+        className="text-sm font-semibold text-slate-500 transition hover:text-slate-700"
+       >
+        {t('cancel')}
+       </button>
+      </div>
+     </form>
+    )}
+   </div>
+
    {/* Change password */}
    <div className={panelClass}>
     <h2 className="text-2xl font-semibold">{t('account_password_title')}</h2>
     <p className="mt-2 text-sm text-slate-600">{t('account_password_desc')}</p>
 
+    {!passwordOpen ? (
+     <button
+      type="button"
+      onClick={() => setPasswordOpen(true)}
+      className="mt-5 rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+     >
+      {t('account_password_change')}
+     </button>
+    ) : (
     <form onSubmit={(e) => void onChangePassword(e)} className="mt-5 max-w-sm space-y-4">
      <div>
       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_current_password')}</label>
@@ -403,14 +542,31 @@ export default function AccountSettings() {
      {pwdError && <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{pwdError}</p>}
      {pwdSuccess && <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{pwdSuccess}</p>}
 
-     <button
-      type="submit"
-      disabled={pwdSubmitting}
-      className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-     >
-      {pwdSubmitting ? t('account_password_saving') : t('account_password_save')}
-     </button>
+     <div className="flex items-center gap-3">
+      <button
+       type="submit"
+       disabled={pwdSubmitting}
+       className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+       {pwdSubmitting ? t('account_password_saving') : t('account_password_save')}
+      </button>
+      <button
+       type="button"
+       onClick={() => {
+        setPasswordOpen(false);
+        setPwdError('');
+        setPwdSuccess('');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+       }}
+       className="text-sm font-semibold text-slate-500 transition hover:text-slate-700"
+      >
+       {t('cancel')}
+      </button>
+     </div>
     </form>
+    )}
    </div>
   </section>
  );

@@ -350,6 +350,45 @@ async function deleteClientAccount(app, accountId) {
     await query(`DELETE FROM ${schema}.client_accounts WHERE id = $1`, [accountId]);
 }
 
+// Re-points every transaction (both the "from" and "to" sides) and every adjustment from one
+// account onto another, then leaves the now-empty source account in place. Both accounts must
+// share the same currency: the stored per-side exchange rates convert into the original account's
+// currency, so moving to a different-currency account would silently corrupt the ledger.
+async function moveAccountTransactions(app, { fromAccountId, toAccountId }) {
+    const from = Number(fromAccountId);
+    const to = Number(toAccountId);
+    if (!from || !to) {
+        throw new Error('Source and destination accounts are required.');
+    }
+    if (from === to) {
+        throw new Error('Source and destination accounts must be different.');
+    }
+
+    const { schema } = await getSchemaInfo(app);
+    const accountsResult = await query(
+        `SELECT id, currency_id AS "currencyId" FROM ${schema}.client_accounts WHERE id = ANY($1::bigint[])`,
+        [[from, to]],
+    );
+    const fromAccount = accountsResult.rows.find((row) => Number(row.id) === from);
+    const toAccount = accountsResult.rows.find((row) => Number(row.id) === to);
+    if (!fromAccount || !toAccount) {
+        throw new Error('One of the selected accounts no longer exists.');
+    }
+    if (Number(fromAccount.currencyId) !== Number(toAccount.currencyId)) {
+        throw new Error('Both accounts must use the same currency.');
+    }
+
+    let moved = 0;
+    await withTransaction(async (executor) => {
+        const fromSide = await query(`UPDATE ${schema}.transactions SET account_from_id = $1 WHERE account_from_id = $2`, [to, from], executor);
+        const toSide = await query(`UPDATE ${schema}.transactions SET account_to_id = $1 WHERE account_to_id = $2`, [to, from], executor);
+        const adjustments = await query(`UPDATE ${schema}.client_adjustments SET account_id = $1 WHERE account_id = $2`, [to, from], executor);
+        moved = (fromSide.rowCount || 0) + (toSide.rowCount || 0) + (adjustments.rowCount || 0);
+    });
+
+    return { ok: true, moved };
+}
+
 async function listCurrencies(app) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(`
@@ -518,6 +557,8 @@ async function listTransactions(app) {
             t.charges_exchange_rate AS "chargesExchangeRate",
             t.charges_description AS "chargesDescription",
             t.description,
+            COALESCE(t.description_from, '') AS "descriptionFrom",
+            COALESCE(t.description_to, '') AS "descriptionTo",
             COALESCE(t.archive_note, '') AS "archiveNote",
             CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
             t.created_at AS "createdAt"
@@ -569,10 +610,12 @@ async function createTransaction(app, txn) {
                     charges_exchange_rate,
                     charges_description,
                     description,
+                    description_from,
+                    description_to,
                     is_archived,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
             `,
             [
                 txn.accountFromId || null,
@@ -592,6 +635,8 @@ async function createTransaction(app, txn) {
                 txn.chargesExchangeRate || 1,
                 txn.chargesDescription?.trim() || '',
                 txn.description?.trim() || '',
+                txn.descriptionFrom?.trim() || '',
+                txn.descriptionTo?.trim() || '',
                 isArchived,
                 txn.createdAt.trim(),
             ],
@@ -619,9 +664,11 @@ async function createTransaction(app, txn) {
                 charges_exchange_rate,
                 charges_description,
                 description,
+                description_from,
+                description_to,
                 is_archived
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
         `,
         [
             txn.accountFromId || null,
@@ -641,6 +688,8 @@ async function createTransaction(app, txn) {
             txn.chargesExchangeRate || 1,
             txn.chargesDescription?.trim() || '',
             txn.description?.trim() || '',
+            txn.descriptionFrom?.trim() || '',
+            txn.descriptionTo?.trim() || '',
             isArchived,
         ],
     );
@@ -679,7 +728,11 @@ async function updateTransaction(app, txn) {
                 charges_description = $16,
                 description = $17,
                 archive_note = COALESCE($18, archive_note),
-                created_at = $19
+                created_at = $19,
+                -- Per-side overrides are preserved (COALESCE) when a caller omits them, so the
+                -- table inline-edit / reorder paths don't wipe descriptions set at creation time.
+                description_from = COALESCE($21, description_from),
+                description_to = COALESCE($22, description_to)
             WHERE id = $20
         `,
         [
@@ -704,6 +757,8 @@ async function updateTransaction(app, txn) {
             txn.archiveNote === undefined || txn.archiveNote === null ? null : String(txn.archiveNote).trim(),
             txn.createdAt,
             txn.id,
+            txn.descriptionFrom === undefined || txn.descriptionFrom === null ? null : String(txn.descriptionFrom).trim(),
+            txn.descriptionTo === undefined || txn.descriptionTo === null ? null : String(txn.descriptionTo).trim(),
         ],
     );
 }
@@ -777,6 +832,30 @@ async function deleteClientAdjustment(app, id) {
     await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
 }
 
+// Deletes many transactions and/or adjustments in a single round-trip so the UI
+// doesn't have to fire one request per selected row. Both deletes run inside one
+// transaction so the operation is atomic.
+async function deleteTransactionsBulk(app, payload) {
+    const { schema } = await getSchemaInfo(app);
+    const transactionIds = (payload?.transactionIds || []).map(Number).filter((id) => Number.isFinite(id));
+    const adjustmentIds = (payload?.adjustmentIds || []).map(Number).filter((id) => Number.isFinite(id));
+
+    if (!transactionIds.length && !adjustmentIds.length) {
+        return { ok: true, deleted: 0 };
+    }
+
+    await withTransaction(async (executor) => {
+        if (transactionIds.length) {
+            await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds], executor);
+        }
+        if (adjustmentIds.length) {
+            await query(`DELETE FROM ${schema}.client_adjustments WHERE id = ANY($1::bigint[])`, [adjustmentIds], executor);
+        }
+    });
+
+    return { ok: true, deleted: transactionIds.length + adjustmentIds.length };
+}
+
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
 const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments'];
@@ -823,24 +902,49 @@ async function importWorkspaceData(app, backup) {
             await query(`DELETE FROM ${schema}.${quoteIdentifier(table)}`, [], client);
         }
 
-        // Re-insert, parents before children, preserving original ids.
+        // Re-insert, parents before children, preserving original ids. Rows are
+        // grouped by column signature (normally one group since backups come from
+        // SELECT *) and inserted in batched multi-row statements so a large
+        // workspace restores in a few queries instead of one query per row.
         for (const table of BACKUP_TABLES) {
             const rows = Array.isArray(backup.tables[table]) ? backup.tables[table] : [];
 
+            const groups = new Map();
             for (const row of rows) {
                 if (!row || typeof row !== 'object') continue;
                 const columns = Object.keys(row);
                 if (!columns.length) continue;
+                const signature = columns.join(' ');
+                let group = groups.get(signature);
+                if (!group) {
+                    group = { columns, rows: [] };
+                    groups.set(signature, group);
+                }
+                group.rows.push(row);
+            }
 
+            for (const { columns, rows: groupRows } of groups.values()) {
                 const quotedColumns = columns.map((column) => quoteIdentifier(column)).join(', ');
-                const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
-                const values = columns.map((column) => row[column]);
+                // Stay under Postgres's 65535 bound-parameter limit per statement.
+                const maxRowsPerBatch = Math.max(1, Math.floor(60000 / columns.length));
 
-                await query(
-                    `INSERT INTO ${schema}.${quoteIdentifier(table)} (${quotedColumns}) VALUES (${placeholders})`,
-                    values,
-                    client,
-                );
+                for (let start = 0; start < groupRows.length; start += maxRowsPerBatch) {
+                    const batch = groupRows.slice(start, start + maxRowsPerBatch);
+                    const values = [];
+                    const tuples = batch.map((row) => {
+                        const placeholders = columns.map((column) => {
+                            values.push(row[column]);
+                            return `$${values.length}`;
+                        });
+                        return `(${placeholders.join(', ')})`;
+                    });
+
+                    await query(
+                        `INSERT INTO ${schema}.${quoteIdentifier(table)} (${quotedColumns}) VALUES ${tuples.join(', ')}`,
+                        values,
+                        client,
+                    );
+                }
             }
 
             // Realign the identity sequence so the next generated id is max(id) + 1.
@@ -857,6 +961,113 @@ async function importWorkspaceData(app, backup) {
     });
 
     return { ok: true };
+}
+
+// Maps a camelCase transaction payload field to the value for a given DB column.
+function txColValue(col, row, now) {
+    switch (col) {
+        case 'account_from_id': return row.accountFromId;
+        case 'account_to_id': return row.accountToId;
+        case 'currency_id': return row.currencyId ?? null;
+        case 'amount': return row.amount;
+        case 'type': return row.type || 'transfer';
+        case 'exchange_rate_from': return row.exchangeRateFrom ?? 1;
+        case 'commission_from': return row.commissionFrom ?? 0;
+        case 'exchange_rate_to': return row.exchangeRateTo ?? 1;
+        case 'commission_to': return row.commissionTo ?? 0;
+        case 'exchange_rate_from_reversed': return row.exchangeRateFromReversed ? true : false;
+        case 'exchange_rate_to_reversed': return row.exchangeRateToReversed ? true : false;
+        case 'charges': return row.charges ?? 0;
+        case 'charges_currency_id': return row.chargesCurrencyId ?? null;
+        case 'charges_payer': return row.chargesPayer || '';
+        case 'charges_exchange_rate': return row.chargesExchangeRate ?? 1;
+        case 'charges_description': return row.chargesDescription || '';
+        case 'description': return row.description?.trim() || '';
+        case 'is_archived': return 0;
+        case 'created_at': return row.createdAt ?? now;
+        default: return null;
+    }
+}
+
+// Maps a camelCase adjustment payload field to the value for a given DB column.
+function adjColValue(col, row, now) {
+    switch (col) {
+        case 'account_id': return row.accountId;
+        case 'amount': return row.amount;
+        case 'direction': return row.direction;
+        case 'currency_id': return row.currencyId ?? null;
+        case 'currency_code': return row.currencyCode || '';
+        case 'currency_symbol': return row.currencySymbol || '';
+        case 'exchange_rate': return row.exchangeRate ?? 1;
+        case 'exchange_rate_reversed': return row.exchangeRateReversed ? true : false;
+        case 'description': return row.description?.trim() || '';
+        case 'created_at': return row.createdAt ?? now;
+        default: return null;
+    }
+}
+
+// Inserts all reviewed import rows (transactions + adjustments) in bulk using
+// multi-row INSERTs, reducing ~1000 HTTP round-trips to a single request.
+async function bulkImportTransactions(app, { transactions = [], adjustments = [] } = {}) {
+    const { schema } = await getSchemaInfo(app);
+    const now = new Date();
+
+    await withTransaction(async (client) => {
+        if (transactions.length > 0) {
+            const cols = [
+                'account_from_id', 'account_to_id', 'currency_id', 'amount', 'type',
+                'exchange_rate_from', 'commission_from', 'exchange_rate_to', 'commission_to',
+                'exchange_rate_from_reversed', 'exchange_rate_to_reversed',
+                'charges', 'charges_currency_id', 'charges_payer', 'charges_exchange_rate',
+                'charges_description', 'description', 'is_archived', 'created_at',
+            ];
+            const quotedCols = cols.map((c) => `"${c}"`).join(', ');
+            const maxBatch = Math.max(1, Math.floor(60000 / cols.length));
+            for (let i = 0; i < transactions.length; i += maxBatch) {
+                const batch = transactions.slice(i, i + maxBatch);
+                const values = [];
+                const tuples = batch.map((row) => {
+                    const placeholders = cols.map((col) => {
+                        values.push(txColValue(col, row, now));
+                        return `$${values.length}`;
+                    });
+                    return `(${placeholders.join(', ')})`;
+                });
+                await query(
+                    `INSERT INTO ${schema}.transactions (${quotedCols}) VALUES ${tuples.join(', ')}`,
+                    values,
+                    client,
+                );
+            }
+        }
+
+        if (adjustments.length > 0) {
+            const cols = [
+                'account_id', 'amount', 'direction', 'currency_id', 'currency_code',
+                'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description', 'created_at',
+            ];
+            const quotedCols = cols.map((c) => `"${c}"`).join(', ');
+            const maxBatch = Math.max(1, Math.floor(60000 / cols.length));
+            for (let i = 0; i < adjustments.length; i += maxBatch) {
+                const batch = adjustments.slice(i, i + maxBatch);
+                const values = [];
+                const tuples = batch.map((row) => {
+                    const placeholders = cols.map((col) => {
+                        values.push(adjColValue(col, row, now));
+                        return `$${values.length}`;
+                    });
+                    return `(${placeholders.join(', ')})`;
+                });
+                await query(
+                    `INSERT INTO ${schema}.client_adjustments (${quotedCols}) VALUES ${tuples.join(', ')}`,
+                    values,
+                    client,
+                );
+            }
+        }
+    });
+
+    return { createdTransactions: transactions.length, createdAdjustments: adjustments.length };
 }
 
 module.exports = {
@@ -877,6 +1088,7 @@ module.exports = {
     updateClientAccountStartingBalance,
     updateClientAccount,
     deleteClientAccount,
+    moveAccountTransactions,
     listCurrencies,
     createCurrency,
     updateCurrency,
@@ -890,6 +1102,7 @@ module.exports = {
     createTransaction,
     updateTransaction,
     deleteTransaction,
+    deleteTransactionsBulk,
     deleteAllTransactions,
     listClientAdjustments,
     createClientAdjustment,
@@ -897,4 +1110,5 @@ module.exports = {
     deleteClientAdjustment,
     exportWorkspaceData,
     importWorkspaceData,
+    bulkImportTransactions,
 };

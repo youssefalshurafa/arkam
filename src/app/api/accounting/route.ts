@@ -18,6 +18,10 @@ const readOnlyActions = new Set([
  'listTransactions',
  'listClientAdjustments',
  'exportWorkspaceData',
+ // Backup marker: reads + the post-download stamp. Allowed for anyone who can
+ // export (viewers included), so it stays out of the viewer-blocked writeActions.
+ 'getBackupInfo',
+ 'recordBackup',
 ]);
 
 const writeActions = new Set([
@@ -33,6 +37,7 @@ const writeActions = new Set([
  'updateClientAccountStartingBalance',
  'updateClientAccount',
  'deleteClientAccount',
+ 'moveAccountTransactions',
  'createCurrency',
  'updateCurrency',
  'deleteCurrency',
@@ -44,11 +49,13 @@ const writeActions = new Set([
  'createTransaction',
  'updateTransaction',
  'deleteTransaction',
+ 'deleteTransactionsBulk',
  'deleteAllTransactions',
  'createClientAdjustment',
  'updateClientAdjustment',
  'deleteClientAdjustment',
  'importWorkspaceData',
+ 'bulkImportTransactions',
 ]);
 
 type Body = {
@@ -218,6 +225,8 @@ export async function POST(request: NextRequest) {
    case 'deleteClientAccount':
     await db.deleteClientAccount(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'moveAccountTransactions':
+    return NextResponse.json(await db.moveAccountTransactions(appLike, payload));
    case 'listCurrencies':
     return NextResponse.json(await db.listCurrencies(appLike));
    case 'createCurrency':
@@ -255,6 +264,8 @@ export async function POST(request: NextRequest) {
    case 'deleteTransaction':
     await db.deleteTransaction(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'deleteTransactionsBulk':
+    return NextResponse.json(await db.deleteTransactionsBulk(appLike, payload));
    case 'deleteAllTransactions':
     await db.deleteAllTransactions(appLike);
     return NextResponse.json({ ok: true });
@@ -272,6 +283,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.exportWorkspaceData(appLike));
    case 'importWorkspaceData':
     return NextResponse.json(await db.importWorkspaceData(appLike, payload));
+   case 'bulkImportTransactions':
+    return NextResponse.json(await db.bulkImportTransactions(appLike, payload));
+   case 'getBackupInfo':
+    return NextResponse.json(await authDb.getWorkspaceBackupInfo(workspaceId));
+   case 'recordBackup':
+    return NextResponse.json(await authDb.recordWorkspaceBackup(workspaceId, (payload as { device?: string } | null)?.device));
    default:
     return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });
   }

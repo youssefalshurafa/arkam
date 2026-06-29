@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -26,9 +27,9 @@ export default function SiteLayout({ children, hideSignIn = false }: { children:
      onClick={() => router.push('/')}
      title={t('home_back_home')}
      aria-label={t('home_back_home')}
-     className="inline-flex items-center justify-center rounded bg-blue-800 px-3 py-1.5 transition hover:bg-blue-900"
+     className="inline-flex items-center justify-center rounded transition hover:opacity-80"
     >
-     <span className="text-base font-bold tracking-widest text-white">ARKAM</span>
+     <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} priority className="h-11 w-auto" />
     </button>
     <div className="flex items-center gap-3">
      <div className="flex items-center gap-1 rounded border border-gray-200 p-0.5">

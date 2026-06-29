@@ -232,6 +232,27 @@ async function assertWorkspaceAccess(userId, workspaceId) {
     return role;
 }
 
+// Read the last-backup marker for a workspace (shared across all devices).
+async function getWorkspaceBackupInfo(workspaceId) {
+    await ensurePublicSchema();
+
+    const row = await fetchOne('SELECT last_backup_at, last_backup_device FROM workspaces WHERE id = $1 LIMIT 1', [workspaceId]);
+    return {
+        lastBackupAt: row?.last_backup_at ? new Date(row.last_backup_at).toISOString() : null,
+        lastBackupDevice: row?.last_backup_device || null,
+    };
+}
+
+// Stamp the workspace with the current time and the device the backup came from.
+async function recordWorkspaceBackup(workspaceId, device) {
+    await ensurePublicSchema();
+
+    const now = new Date().toISOString();
+    const deviceLabel = String(device || '').trim().slice(0, 120) || null;
+    await runQuery('UPDATE workspaces SET last_backup_at = $1, last_backup_device = $2 WHERE id = $3', [now, deviceLabel, workspaceId]);
+    return { lastBackupAt: now, lastBackupDevice: deviceLabel };
+}
+
 async function createWorkspace(ownerUserId, name) {
     const workspaceName = String(name || '').trim();
     if (!workspaceName) {
@@ -850,6 +871,40 @@ async function renewSubscription({ userId, durationDays }) {
     });
 }
 
+// Changes a logged-in user's email. Requires the current password for
+// credentials accounts. Rejects if the new email is already taken.
+async function changeEmail({ userId, currentPassword, newEmail }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(newEmail || '').trim().toLowerCase();
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        throw new Error('Please enter a valid email address.');
+    }
+
+    const user = await fetchOne('SELECT email, password_hash AS "passwordHash" FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    if (normalizedEmail === user.email) {
+        throw new Error('The new email is the same as your current email.');
+    }
+
+    if (user.passwordHash) {
+        if (!bcrypt.compareSync(String(currentPassword || ''), user.passwordHash)) {
+            throw new Error('Current password is incorrect.');
+        }
+    }
+
+    const taken = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (taken) {
+        throw new Error('This email is already in use.');
+    }
+
+    await runQuery('UPDATE users SET email = $1 WHERE id = $2', [normalizedEmail, userId]);
+    return { ok: true };
+}
+
 // Changes a logged-in user's password. Verifies the current password for
 // credentials accounts; OAuth accounts (no password yet) may set one directly.
 async function changePassword({ userId, currentPassword, newPassword }) {
@@ -1002,6 +1057,8 @@ module.exports = {
     getDefaultWorkspaceIdByUserId,
     getWorkspaceRole,
     assertWorkspaceAccess,
+    getWorkspaceBackupInfo,
+    recordWorkspaceBackup,
     createWorkspace,
     addWorkspaceMemberByEmail,
     inviteWorkspaceMember,
@@ -1021,6 +1078,7 @@ module.exports = {
     getAccessRequestProof,
     reviewAccessRequest,
     renewSubscription,
+    changeEmail,
     changePassword,
     getUserAccountInfo,
     createRenewalRequest,

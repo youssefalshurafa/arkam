@@ -24,7 +24,7 @@ function getSmtpTransporter() {
 // Shared send pipeline: Resend → SMTP → console fallback (dev). Used by the
 // access-approval emails below.
 async function sendEmail({ to, subject, html, text, logLabel }) {
-    const from = process.env.EMAIL_FROM || 'Arkam <onboarding@resend.dev>';
+    const from = process.env.EMAIL_FROM || 'Arkam <noreply@arkam.app>';
 
     if (isResendConfigured()) {
         const { Resend } = require('resend');
@@ -148,7 +148,7 @@ async function sendAccessRejectedEmail({ to, name, note }) {
 }
 
 async function sendVerificationEmail({ to, name, verificationUrl }) {
-    const from = process.env.EMAIL_FROM || 'Arkam <onboarding@resend.dev>';
+    const from = process.env.EMAIL_FROM || 'Arkam <noreply@arkam.app>';
 
     if (isResendConfigured()) {
         const { Resend } = require('resend');
@@ -239,7 +239,7 @@ module.exports = {
 };
 
 async function sendPasswordResetEmail({ to, name, resetUrl }) {
-    const from = process.env.EMAIL_FROM || 'Arkam <onboarding@resend.dev>';
+    const from = process.env.EMAIL_FROM || 'Arkam <noreply@arkam.app>';
 
     const subject = 'Reset your password — Arkam';
     const text = `Hi ${name},\n\nYou requested a password reset. Click the link below to set a new password:\n\n${resetUrl}\n\nThis link expires in 1 hour.\n\nIf you didn't request this, you can safely ignore this email.`;
