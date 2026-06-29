@@ -295,6 +295,15 @@ type ImportClientReview = {
  transactionCount: number; // how many imported rows reference this name
 };
 
+// Per-row decision for a sheet row that involves an expense-marked name.
+type ImportRowOverride = {
+ mode: 'expense' | 'transaction'; // expense on one client, or a transfer between two
+ direction: 'debit' | 'credit'; // expense mode: debit (owes you) or credit (you owe)
+ swap: boolean; // transaction mode: swap the sheet's from/to direction
+};
+
+const DEFAULT_IMPORT_ROW_OVERRIDE: ImportRowOverride = { mode: 'expense', direction: 'debit', swap: false };
+
 type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
 type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'charges' | 'commission';
 
@@ -1082,7 +1091,7 @@ function AuthenticatedHome() {
  // The parsed sheet rows backing the current review, plus per-row overrides for
  // rows that involve an expense-marked name (expense vs. real transaction).
  const [importParsedRows, setImportParsedRows] = useState<ImportedTransactionRow[]>([]);
- const [importRowDispositions, setImportRowDispositions] = useState<Record<number, 'expense' | 'transaction'>>({});
+ const [importRowOverrides, setImportRowOverrides] = useState<Record<number, ImportRowOverride>>({});
  // Currencies the "apply to all clients" control will open for every client.
  const [bulkAccountCurrencyIds, setBulkAccountCurrencyIds] = useState<number[]>([]);
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -2425,7 +2434,7 @@ function AuthenticatedHome() {
    setError('');
    setBulkAccountCurrencyIds([selectedCurrency.id]);
    setImportParsedRows(importedRows);
-   setImportRowDispositions({});
+   setImportRowOverrides({});
    setImportReview(Array.from(reviewMap.values()));
   } catch (e) {
    setError(e instanceof Error ? e.message : 'Failed to read clients from the file.');
@@ -2437,6 +2446,13 @@ function AuthenticatedHome() {
    if (!current) return current;
    return current.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry));
   });
+ }
+
+ function updateImportRowOverride(index: number, patch: Partial<ImportRowOverride>) {
+  setImportRowOverrides((current) => ({
+   ...current,
+   [index]: { ...(current[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE), ...patch },
+  }));
  }
 
  async function onConfirmImportTransactions() {
@@ -2536,7 +2552,7 @@ function AuthenticatedHome() {
    // means that name must act as a real client for those rows.
    const expenseKeysNeedingClient = new Set<string>();
    importedRows.forEach((row, index) => {
-    if (importRowDispositions[index] !== 'transaction') return;
+    if ((importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE).mode !== 'transaction') return;
     const fromKey = normalizeLookup(row.fromName);
     const toKey = normalizeLookup(row.toName);
     if (reviewByKey.get(fromKey)?.isExpense) expenseKeysNeedingClient.add(fromKey);
@@ -2611,7 +2627,8 @@ function AuthenticatedHome() {
     const fromIsExpense = !!fromEntry?.isExpense;
     const toIsExpense = !!toEntry?.isExpense;
     const involvesExpense = fromIsExpense || toIsExpense;
-    const asExpense = involvesExpense && importRowDispositions[index] !== 'transaction';
+    const override = importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE;
+    const asExpense = involvesExpense && override.mode !== 'transaction';
 
     if (asExpense) {
      if (fromIsExpense && toIsExpense) {
@@ -2630,7 +2647,7 @@ function AuthenticatedHome() {
      await accountingApi.createClientAdjustment({
       accountId: account.id,
       amount: row.amount,
-      direction: 'debit',
+      direction: override.direction,
       currencyId: importCurrency.id,
       currencyCode: importCurrency.code,
       currencySymbol: importCurrency.symbol,
@@ -2643,9 +2660,12 @@ function AuthenticatedHome() {
      continue;
     }
 
+    // Transfer between two clients. The sheet's from/to can be swapped per row.
     if (!fromEntry || !toEntry) continue;
-    const fromAccount = resolveAccount(fromEntry);
-    const toAccount = resolveAccount(toEntry);
+    const sendEntry = override.swap ? toEntry : fromEntry;
+    const receiveEntry = override.swap ? fromEntry : toEntry;
+    const fromAccount = resolveAccount(sendEntry);
+    const toAccount = resolveAccount(receiveEntry);
     if (!fromAccount || !toAccount) {
      // One side has no account to post to (the user chose not to open one).
      stats.skippedRows += 1;
@@ -2687,7 +2707,7 @@ function AuthenticatedHome() {
    setPendingImportData(null);
    setImportReview(null);
    setImportParsedRows([]);
-   setImportRowDispositions({});
+   setImportRowOverrides({});
    setImportMapping({
     dateColumn: null,
     fromColumn: null,
@@ -2707,7 +2727,7 @@ function AuthenticatedHome() {
   setPendingImportData(null);
   setImportReview(null);
   setImportParsedRows([]);
-  setImportRowDispositions({});
+  setImportRowOverrides({});
   setImportMapping({
    dateColumn: null,
    fromColumn: null,
@@ -8988,26 +9008,57 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                .filter(({ row }) => importNameKey(row.fromName) === entry.key || importNameKey(row.toName) === entry.key)
                .map(({ row, index }) => {
                 const counterparty = importNameKey(row.fromName) === entry.key ? row.toName : row.fromName;
-                const disposition = importRowDispositions[index] ?? 'expense';
+                const override = importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE;
+                const sendName = override.swap ? row.toName : row.fromName;
+                const receiveName = override.swap ? row.fromName : row.toName;
                 return (
                  <div
                   key={index}
-                  className="flex items-center justify-between gap-2 rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs"
+                  className="rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs"
                  >
-                  <span className="min-w-0 flex-1 truncate text-slate-600">
-                   {counterparty || '—'} · {row.amount}
-                   {row.createdAt ? ` · ${row.createdAt.slice(0, 10)}` : ''}
-                  </span>
-                  <select
-                   value={disposition}
-                   onChange={(event) =>
-                    setImportRowDispositions((current) => ({ ...current, [index]: event.target.value as 'expense' | 'transaction' }))
-                   }
-                   className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
-                  >
-                   <option value="expense">Expense for {counterparty || 'other party'}</option>
-                   <option value="transaction">Transaction (2 clients)</option>
-                  </select>
+                  <div className="flex items-center justify-between gap-2">
+                   <span className="min-w-0 flex-1 truncate text-slate-600">
+                    {row.fromName} → {row.toName} · {row.amount}
+                    {row.createdAt ? ` · ${row.createdAt.slice(0, 10)}` : ''}
+                   </span>
+                   <select
+                    value={override.mode}
+                    onChange={(event) => updateImportRowOverride(index, { mode: event.target.value as ImportRowOverride['mode'] })}
+                    className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                   >
+                    <option value="expense">Expense (1 client)</option>
+                    <option value="transaction">Transaction (2 clients)</option>
+                   </select>
+                  </div>
+
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                   {override.mode === 'expense' ? (
+                    <>
+                     <span className="text-slate-500">On {counterparty || 'other party'}:</span>
+                     <select
+                      value={override.direction}
+                      onChange={(event) => updateImportRowOverride(index, { direction: event.target.value as ImportRowOverride['direction'] })}
+                      className="rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                     >
+                      <option value="debit">Debit (owes you)</option>
+                      <option value="credit">Credit (you owe)</option>
+                     </select>
+                    </>
+                   ) : (
+                    <>
+                     <span className="text-slate-600">
+                      From <span className="font-semibold">{sendName}</span> → To <span className="font-semibold">{receiveName}</span>
+                     </span>
+                     <button
+                      type="button"
+                      onClick={() => updateImportRowOverride(index, { swap: !override.swap })}
+                      className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 font-semibold text-slate-600 transition hover:bg-slate-50"
+                     >
+                      ⇄ Swap
+                     </button>
+                    </>
+                   )}
+                  </div>
                  </div>
                 );
                })}
