@@ -330,7 +330,7 @@ type ImportRowOverride = {
 
 const DEFAULT_IMPORT_ROW_OVERRIDE: ImportRowOverride = { mode: 'expense', direction: 'debit', swap: false };
 
-type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
+type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'currency' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
 type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'charges' | 'commission';
 
 const defaultLedgerColumnOrder: LedgerColumnKey[] = [
@@ -339,6 +339,7 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
  'direction',
  'type',
  'amount',
+ 'currency',
  'exchangeRate',
  'commission',
  'netChange',
@@ -407,6 +408,7 @@ const defaultLedgerColumnVisibility: Record<LedgerColumnKey, boolean> = {
  direction: false,
  type: false,
  amount: true,
+ currency: false,
  exchangeRate: true,
  commission: true,
  netChange: true,
@@ -439,6 +441,7 @@ const defaultPdfColVisibility: PdfColVisibility = {
  direction: false,
  type: false,
  amount: true,
+ currency: false,
  exchangeRate: true,
  commission: true,
  netChange: true,
@@ -3690,6 +3693,7 @@ function AuthenticatedHome() {
     isNum: true,
     cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
+   { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
   ];
   const visibleCols = ledgerColumnOrder
@@ -4583,6 +4587,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   { key: 'direction', label: t('direction') },
   { key: 'type', label: t('transaction_type') },
   { key: 'amount', label: t('transaction_amount') },
+  { key: 'currency', label: t('currency') },
   { key: 'exchangeRate', label: t('transaction_exchange_rate') },
   { key: 'commission', label: t('commission') },
   { key: 'netChange', label: t('net_change') },
@@ -4921,6 +4926,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   { key: 'direction', label: t('direction') },
   { key: 'type', label: t('transaction_type') },
   { key: 'amount', label: t('amount') },
+  { key: 'currency', label: t('currency') },
   { key: 'exchangeRate', label: t('exchange_rate') },
   { key: 'commission', label: t('commission') },
   { key: 'netChange', label: t('net_change') },
@@ -7314,6 +7320,20 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                        {headerContent}
                       </th>
                      );
+                    case 'currency':
+                     return (
+                      <th
+                       key={column.key}
+                       draggable
+                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                       onDragOver={(event) => event.preventDefault()}
+                       onDrop={() => onLedgerColumnDrop(column.key)}
+                       onDragEnd={() => setDraggedLedgerColumn(null)}
+                       className={headerClassName}
+                      >
+                       {headerContent}
+                      </th>
+                     );
                     case 'description':
                      return (
                       <th
@@ -7858,6 +7878,19 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                          >
                           {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                         </td>
+                        );
+                       case 'currency':
+                        return (
+                         <td
+                          key={column.key}
+                          className="px-4 py-3 text-slate-500 whitespace-nowrap"
+                         >
+                          {entry.currencySymbol ? (
+                           <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
+                          ) : (
+                           entry.currencyCode || '-'
+                          )}
                          </td>
                         );
                        case 'description':
