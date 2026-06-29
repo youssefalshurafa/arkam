@@ -7085,6 +7085,60 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                                onChange={(event) =>
                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
                                }
+                               onPaste={(event) => {
+                                const text = event.clipboardData.getData('text');
+                                const values = text
+                                 .split(/[\r\n]+/)
+                                 .map((v) => v.trim())
+                                 .filter((v) => v.length > 0);
+                                // Single value: let the browser paste normally into this one input.
+                                if (values.length <= 1) return;
+                                event.preventDefault();
+
+                                // Rebuild the same ordered + filtered visible list the table renders,
+                                // so we can map row positions to transaction drafts.
+                                const order = manualLedgerRowOrder[ledger.accountId];
+                                const ordered = (() => {
+                                 if (!order) return ledger.entries;
+                                 const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
+                                 return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
+                                })();
+                                const q = ledgerFilterSearch.trim().toLowerCase();
+                                const visible = ordered.filter((e) => {
+                                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                                 if (q) {
+                                  const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                                  const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                                  const inAmount = String(e.amount).includes(q);
+                                  if (!inCounterparty && !inDescription && !inAmount) return false;
+                                 }
+                                 return true;
+                                });
+
+                                // Spread each pasted value down consecutive editable rate inputs,
+                                // starting at the row that received the paste. Adjustment rows and
+                                // rows not in edit mode have no rate input, so they are skipped.
+                                const patches: Record<string, string> = {};
+                                let valueIdx = 0;
+                                for (let i = entryIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                                 const target = visible[i];
+                                 if (target.isAdjustment) continue;
+                                 const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
+                                 if (!editingLedgerRowKeys.has(key)) continue;
+                                 patches[key] = normalizeDecimalInput(values[valueIdx]);
+                                 valueIdx += 1;
+                                }
+                                if (Object.keys(patches).length === 0) return;
+                                setLedgerTransactionDrafts((prev) => {
+                                 const next = { ...prev };
+                                 for (const [key, rate] of Object.entries(patches)) {
+                                  if (next[key]) next[key] = { ...next[key], exchangeRate: rate };
+                                 }
+                                 return next;
+                                });
+                               }}
                                onKeyDown={(event) => {
                                 if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
                                 event.preventDefault();
