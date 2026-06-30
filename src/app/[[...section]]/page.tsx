@@ -2,7 +2,7 @@
 
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import HomePage from '@/components/marketing/HomePage';
@@ -353,6 +353,31 @@ const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
 
+// Remembers the last ledger account the user viewed per client, so refreshing the
+// page (or revisiting the client) restores that account instead of jumping to the first.
+const ledgerLastAccountStorageKeyPrefix = 'arkam:ledger-last-account:';
+
+function getStoredLedgerAccountId(clientId: number): number | null {
+ if (typeof window === 'undefined') return null;
+ try {
+  const raw = window.localStorage.getItem(ledgerLastAccountStorageKeyPrefix + clientId);
+  if (!raw) return null;
+  const parsed = parseInt(raw, 10);
+  return isNaN(parsed) ? null : parsed;
+ } catch {
+  return null;
+ }
+}
+
+function setStoredLedgerAccountId(clientId: number, accountId: number) {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(ledgerLastAccountStorageKeyPrefix + clientId, String(accountId));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+
 // User-entered FX rates for the overview balance cards, keyed by currency code
 // (e.g. { EUR: '10.92', USD: '9.50' }). Stable across currency reseeds.
 const overviewRatesStorageKey = 'arkam:overview-rates';
@@ -552,11 +577,16 @@ type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'clients' | 'o
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive';
 
-const allowedSections: Section[] = ['overview', 'settings', 'organizations', 'organization-clients', 'clients', 'client-ledger', 'currencies', 'transactions', 'archive'];
+const mainSections: Section[] = ['overview', 'settings', 'organizations', 'clients', 'currencies', 'transactions', 'archive'];
 
-function getSectionFromHash(hash: string): Section {
- const normalized = hash.replace('#', '');
- return allowedSections.includes(normalized as Section) ? (normalized as Section) : 'overview';
+function getSectionFromPath(pathname: string): { section: Section; subId?: string } {
+ const parts = pathname.split('/').filter(Boolean);
+ const first = parts[0] ?? '';
+ const second = parts[1];
+ if (first === 'clients' && second) return { section: 'client-ledger', subId: second };
+ if (first === 'organizations' && second) return { section: 'organization-clients', subId: second };
+ const section = mainSections.includes(first as Section) ? (first as Section) : 'overview';
+ return { section };
 }
 
 function normalizeDecimalInput(value: string) {
@@ -1010,11 +1040,82 @@ const emptyTransactionForm = (): TransactionForm => ({
  descriptionTo: '',
 });
 
+// ─── Skeleton primitives ──────────────────────────────────────────────────
+
+function SkBar({ w = 'w-1/2', h = 'h-3.5' }: { w?: string; h?: string }) {
+ return <div className={`${h} ${w} animate-pulse rounded bg-slate-200`} />;
+}
+
+function SkTableRows({ cols, rows = 7 }: { cols: string[]; rows?: number }) {
+ return (
+  <>
+   {Array.from({ length: rows }, (_, i) => (
+    <tr key={i} className="border-t border-slate-100">
+     {cols.map((w, j) => (
+      <td key={j} className="px-4 py-3">
+       <SkBar w={w} />
+      </td>
+     ))}
+    </tr>
+   ))}
+  </>
+ );
+}
+
+function SkTablePanel({
+ panelClassName,
+ tableWrapClassName,
+ titleWidth = 'w-44',
+ cols,
+ rows = 7,
+}: {
+ panelClassName: string;
+ tableWrapClassName: string;
+ titleWidth?: string;
+ cols: string[];
+ rows?: number;
+}) {
+ return (
+  <div className={panelClassName}>
+   <div className="mb-4 flex items-center justify-between gap-4">
+    <SkBar w={titleWidth} h="h-6" />
+    <div className="flex gap-2">
+     <SkBar w="w-8" h="h-8" />
+     <SkBar w="w-8" h="h-8" />
+    </div>
+   </div>
+   <div className={tableWrapClassName}>
+    <table className="w-full text-sm">
+     <thead className="bg-slate-50">
+      <tr>
+       {cols.map((_, i) => (
+        <th key={i} className="px-4 py-3">
+         <SkBar w="w-12" h="h-3" />
+        </th>
+       ))}
+      </tr>
+     </thead>
+     <tbody>
+      <SkTableRows cols={cols} rows={rows} />
+     </tbody>
+    </table>
+   </div>
+  </div>
+ );
+}
+
+const SK_TX = ['w-24', 'w-28', 'w-28', 'w-20', 'w-14', 'w-14', 'w-20', 'w-24', 'w-8'];
+const SK_LEDGER = ['w-20', 'w-28', 'w-14', 'w-14', 'w-20', 'w-16', 'w-16', 'w-20', 'w-8'];
+const SK_CLIENTS = ['w-36', 'w-28', 'w-20', 'w-8'];
+const SK_ORGS = ['w-40', 'w-16', 'w-8'];
+const SK_CURRENCIES = ['w-12', 'w-40', 'w-10', 'w-16', 'w-8'];
+
 function AuthenticatedHome() {
  const router = useRouter();
+ const pathname = usePathname();
  const { language, setLanguage, isRTL } = useLanguage();
  const { t } = useTranslation(language);
- const [section, setSection] = useState<Section>('overview');
+ const [section, setSection] = useState<Section>(() => getSectionFromPath(pathname).section);
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
  const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
@@ -1176,7 +1277,10 @@ function AuthenticatedHome() {
  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
  const [lastBackupDevice, setLastBackupDevice] = useState<string | null>(null);
+ const [isLoading, setIsLoading] = useState(true);
  const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
+ const lastInitializedSubIdRef = useRef<string>('');
+ const hasLoadedRef = useRef(false);
 
  const loadData = useCallback(async () => {
   if (!accountingApi) {
@@ -1213,8 +1317,16 @@ function AuthenticatedHome() {
    setSelectedClientForAccounts((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setSelectedClientForLedger((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setError('');
+   if (!hasLoadedRef.current) {
+    hasLoadedRef.current = true;
+    setIsLoading(false);
+   }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
+   if (!hasLoadedRef.current) {
+    hasLoadedRef.current = true;
+    setIsLoading(false);
+   }
   }
  }, [t]);
 
@@ -1254,17 +1366,61 @@ function AuthenticatedHome() {
  };
 
  useEffect(() => {
-  const applyHashSection = () => {
-   setSection(getSectionFromHash(window.location.hash));
-  };
+  setSection(getSectionFromPath(pathname).section);
+ }, [pathname]);
 
-  applyHashSection();
-  window.addEventListener('hashchange', applyHashSection);
+ // Resolve the client/organization from the URL path. Intentionally does NOT depend on
+ // clientAccounts or touch the selected account — that would reset the user's chosen account
+ // on every data reload after a save. Account selection is handled by the effect below.
+ useEffect(() => {
+  const { section: pathSection, subId } = getSectionFromPath(pathname);
+  if (pathSection === 'client-ledger' && subId) {
+   const clientId = parseInt(subId, 10);
+   if (!isNaN(clientId) && clients.length > 0) {
+    const client = clients.find((c) => c.id === clientId);
+    if (client) {
+     if (lastInitializedSubIdRef.current !== subId) {
+      setLedgerTransactionDrafts({});
+      lastInitializedSubIdRef.current = subId;
+     }
+     setSelectedClientForLedger(client);
+    }
+   }
+  } else if (pathSection === 'organization-clients' && subId) {
+   const orgId = parseInt(subId, 10);
+   if (!isNaN(orgId) && organizations.length > 0) {
+    const org = organizations.find((o) => o.id === orgId);
+    if (org) setSelectedOrganizationForClients(org);
+   }
+  }
+ }, [pathname, clients, organizations]);
 
-  return () => {
-   window.removeEventListener('hashchange', applyHashSection);
-  };
- }, []);
+ // Choose the active ledger account for the open client. Keeps the current selection if it is
+ // still valid (so reloads after a save don't jump to the first account); otherwise restores the
+ // last-viewed account from localStorage, falling back to the first account.
+ useEffect(() => {
+  const clientId = selectedClientForLedger?.id;
+  if (!clientId) return;
+  const accounts = clientAccounts.filter((a) => a.clientId === clientId);
+  if (accounts.length === 0) return;
+  setSelectedLedgerAccountId((current) => {
+   if (current != null && accounts.some((a) => a.id === current)) return current;
+   const stored = getStoredLedgerAccountId(clientId);
+   if (stored != null && accounts.some((a) => a.id === stored)) return stored;
+   return accounts[0].id;
+  });
+ }, [selectedClientForLedger?.id, clientAccounts]);
+
+ // Persist the active ledger account so a refresh restores it. Guard against persisting an
+ // account that doesn't belong to the current client during the brief cross-client transition.
+ useEffect(() => {
+  const clientId = selectedClientForLedger?.id;
+  if (!clientId || selectedLedgerAccountId == null) return;
+  const account = clientAccounts.find((a) => a.id === selectedLedgerAccountId);
+  if (account && account.clientId === clientId) {
+   setStoredLedgerAccountId(clientId, selectedLedgerAccountId);
+  }
+ }, [selectedClientForLedger?.id, selectedLedgerAccountId, clientAccounts]);
 
  useEffect(() => {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
@@ -1452,21 +1608,24 @@ function AuthenticatedHome() {
 
  function navigateToSection(nextSection: Section) {
   setSection(nextSection);
-  window.history.replaceState(null, '', `#${nextSection}`);
+  if (nextSection === 'client-ledger' || nextSection === 'organization-clients') return;
+  router.replace(nextSection === 'overview' ? '/' : `/${nextSection}`);
  }
 
  function openOrganizationClientsPage(organization: Organization) {
   setSelectedOrganizationForClients(organization);
-  navigateToSection('organization-clients');
+  setSection('organization-clients');
+  router.push(`/organizations/${organization.id}`);
  }
 
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients') {
   setClientLedgerBackSection(origin);
   setLedgerTransactionDrafts({});
   setSelectedClientForLedger(client);
-  const firstAccount = clientAccounts.find((account) => account.clientId === client.id);
-  setSelectedLedgerAccountId(firstAccount?.id ?? null);
-  navigateToSection('client-ledger');
+  // Account selection (restore last-viewed or default to first) is handled by the
+  // ledger-account effect, which keys off selectedClientForLedger.
+  setSection('client-ledger');
+  router.push(`/clients/${client.id}`);
  }
 
  function toggleLedgerColumn(column: LedgerColumnKey) {
@@ -1685,6 +1844,58 @@ function AuthenticatedHome() {
   return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
  }
 
+ // Apply a transaction update to local state immediately so edits appear instantly,
+ // re-resolving the derived display fields (client names, currency code/symbol) from the
+ // current account/currency maps. A background loadData() later reconciles with the server.
+ function applyTransactionPatch(input: TransactionUpdateInput) {
+  const fromAccount = input.accountFromId != null ? clientAccountMap.get(input.accountFromId) : undefined;
+  const toAccount = input.accountToId != null ? clientAccountMap.get(input.accountToId) : undefined;
+  const currency = currencyMap.get(input.currencyId);
+  const chargesCurrency = input.chargesCurrencyId != null ? currencyMap.get(input.chargesCurrencyId) : null;
+  setTransactions((prev) =>
+   prev.map((tx) =>
+    tx.id === input.id
+     ? {
+        ...tx,
+        accountFromId: input.accountFromId,
+        accountToId: input.accountToId,
+        clientFromName: fromAccount?.clientName ?? tx.clientFromName,
+        accountFromCurrencyCode: fromAccount?.currencyCode ?? tx.accountFromCurrencyCode,
+        accountFromCurrencySymbol: fromAccount?.currencySymbol ?? tx.accountFromCurrencySymbol,
+        clientToName: toAccount?.clientName ?? tx.clientToName,
+        accountToCurrencyCode: toAccount?.currencyCode ?? tx.accountToCurrencyCode,
+        accountToCurrencySymbol: toAccount?.currencySymbol ?? tx.accountToCurrencySymbol,
+        currencyId: input.currencyId,
+        currencyCode: currency?.code ?? tx.currencyCode,
+        currencySymbol: currency?.symbol ?? tx.currencySymbol,
+        amount: input.amount,
+        type: input.type,
+        exchangeRateFrom: input.exchangeRateFrom,
+        commissionFrom: input.commissionFrom,
+        exchangeRateTo: input.exchangeRateTo,
+        commissionTo: input.commissionTo,
+        exchangeRateFromReversed: input.exchangeRateFromReversed ?? tx.exchangeRateFromReversed,
+        exchangeRateToReversed: input.exchangeRateToReversed ?? tx.exchangeRateToReversed,
+        charges: input.charges,
+        chargesCurrencyId: input.chargesCurrencyId,
+        chargesCurrencyCode: chargesCurrency?.code ?? null,
+        chargesCurrencySymbol: chargesCurrency?.symbol ?? null,
+        chargesPayer: input.chargesPayer,
+        chargesExchangeRate: input.chargesExchangeRate,
+        chargesDescription: input.chargesDescription,
+        description: input.description,
+        createdAt: input.createdAt,
+       }
+     : tx,
+   ),
+  );
+ }
+
+ // Same idea for an adjustment row edited from the transaction table.
+ function applyAdjustmentPatch(input: ClientAdjustment) {
+  setAdjustments((prev) => prev.map((adjustment) => (adjustment.id === input.id ? { ...adjustment, ...input } : adjustment)));
+ }
+
  async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}) {
   if (!accountingApi) {
    setError(t('error_bridge'));
@@ -1737,7 +1948,10 @@ function AuthenticatedHome() {
   try {
    await accountingApi.updateTransaction(payload);
    setError('');
-   if (!skipReload) await loadData();
+   // Optimistically reflect the edit so the ledger updates instantly (no page-wide reload,
+   // no account jump). The batch saver passes skipReload and reconciles once at the end.
+   applyTransactionPatch(payload);
+   if (!skipReload) void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -1793,17 +2007,18 @@ function AuthenticatedHome() {
    .map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId))
    .filter((k) => editingLedgerRowKeys.has(k));
   // Fire all saves in parallel so 100+ rows finish in one round-trip batch rather than sequentially.
+  // Each save applies its optimistic patch, so the table is already up to date here.
   await Promise.all(
    keys.map((key) => {
     const [txIdStr, accIdStr] = key.split(':');
     return onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { skipReload: true });
    }),
   );
-  // Single data reload after all saves complete.
-  await loadData();
+  // Exit edit mode immediately; reconcile with the server in the background.
   setEditingLedgerRowKeys((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n; });
   setLedgerTransactionDrafts((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
   setEditAllLedgerAccountIds((prev) => { const n = new Set(prev); n.delete(ledger.accountId); return n; });
+  void loadData();
  }
 
  async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
@@ -2258,12 +2473,14 @@ function AuthenticatedHome() {
    setError(t('error_bridge'));
    return;
   }
+  const symbol = editingCurrencySymbolValue.trim();
   try {
-   await accountingApi.updateCurrency({ id: currency.id, code: currency.code, name: currency.name, symbol: editingCurrencySymbolValue.trim() });
+   await accountingApi.updateCurrency({ id: currency.id, code: currency.code, name: currency.name, symbol });
    setEditingCurrencySymbolId(null);
    setEditingCurrencySymbolValue('');
    setError('');
-   await loadData();
+   setCurrencies((prev) => prev.map((c) => (c.id === currency.id ? { ...c, symbol } : c)));
+   void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -3435,28 +3652,31 @@ function AuthenticatedHome() {
    const selectedCurrency = currencyMap.get(draft.currencyId);
    const account = clientAccountMap.get(draft.accountFromId);
 
+   const adjustmentPayload: ClientAdjustment = {
+    id: draft.adjustmentId,
+    accountId: draft.accountFromId,
+    amount,
+    direction: draft.adjustmentDirection ?? 'debit',
+    currencyId: draft.currencyId,
+    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+    exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+    exchangeRateReversed: !!tableRateFromReversed[transactionId],
+    description: draft.description,
+    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
+   };
+
    try {
-    await accountingApi.updateClientAdjustment({
-     id: draft.adjustmentId,
-     accountId: draft.accountFromId,
-     amount,
-     direction: draft.adjustmentDirection ?? 'debit',
-     currencyId: draft.currencyId,
-     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-     exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
-     exchangeRateReversed: !!tableRateFromReversed[transactionId],
-     description: draft.description,
-     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-    });
+    await accountingApi.updateClientAdjustment(adjustmentPayload);
     setError('');
+    applyAdjustmentPatch(adjustmentPayload);
     if (!skipReload) {
-     await loadData();
      setEditingRowIds((prev) => {
       const next = new Set(prev);
       next.delete(transactionId);
       return next;
      });
+     void loadData();
     }
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -3471,36 +3691,39 @@ function AuthenticatedHome() {
    return;
   }
 
+  const transactionPayload: TransactionUpdateInput = {
+   id: transaction.id,
+   accountFromId: draft.accountFromId,
+   accountToId: draft.accountToId,
+   currencyId: draft.currencyId,
+   amount,
+   type: draft.type,
+   exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+   commissionFrom: parseFloat(draft.commissionFrom) || 0,
+   exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
+   commissionTo: parseFloat(draft.commissionTo) || 0,
+   exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
+   exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
+   charges: parseFloat(draft.charges) || 0,
+   chargesCurrencyId: draft.chargesCurrencyId || null,
+   chargesPayer: draft.chargesPayer,
+   chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
+   chargesDescription: draft.chargesDescription,
+   description: draft.description,
+   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
+  };
+
   try {
-   await accountingApi.updateTransaction({
-    id: transaction.id,
-    accountFromId: draft.accountFromId,
-    accountToId: draft.accountToId,
-    currencyId: draft.currencyId,
-    amount,
-    type: draft.type,
-    exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
-    commissionFrom: parseFloat(draft.commissionFrom) || 0,
-    exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
-    commissionTo: parseFloat(draft.commissionTo) || 0,
-    exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
-    exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
-    charges: parseFloat(draft.charges) || 0,
-    chargesCurrencyId: draft.chargesCurrencyId || null,
-    chargesPayer: draft.chargesPayer,
-    chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
-    chargesDescription: draft.chargesDescription,
-    description: draft.description,
-    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-   });
+   await accountingApi.updateTransaction(transactionPayload);
    setError('');
+   applyTransactionPatch(transactionPayload);
    if (!skipReload) {
-    await loadData();
     setEditingRowIds((prev) => {
      const next = new Set(prev);
      next.delete(transactionId);
      return next;
     });
+    void loadData();
    }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -3522,11 +3745,12 @@ function AuthenticatedHome() {
 
  async function onSaveAllTransactions() {
   const ids = paginatedTransactions.map((tx) => tx.id).filter((id) => editingRowIds.has(id));
+  // Each row save applies its optimistic patch; exit edit mode immediately and reconcile in the background.
   await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true })));
-  await loadData();
   setEditingRowIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n; });
   setTransactionTableDrafts((prev) => { const n = { ...prev }; ids.forEach((id) => delete n[id]); return n; });
   setIsEditAllTransactions(false);
+  void loadData();
  }
 
  async function onAddClientAccount(clientId: number) {
@@ -3549,12 +3773,22 @@ function AuthenticatedHome() {
 
  async function onSaveEditAccount() {
   if (!accountingApi || !editingAccountId || !editingAccountCurrencyId) return;
+  const accountId = editingAccountId;
+  const currencyId = editingAccountCurrencyId;
   try {
    const abs = Math.abs(parseFloat(editingAccountBalance.replace(/,/g, '')) || 0);
    const startingBalance = editingAccountBalanceType === 'debit' ? -abs : abs;
-   await accountingApi.updateClientAccount({ accountId: editingAccountId, currencyId: editingAccountCurrencyId, startingBalance });
+   await accountingApi.updateClientAccount({ accountId, currencyId, startingBalance });
    setEditingAccountId(null);
-   await loadData();
+   const currency = currencyMap.get(currencyId);
+   setClientAccounts((prev) =>
+    prev.map((account) =>
+     account.id === accountId
+      ? { ...account, currencyId, startingBalance, currencyCode: currency?.code ?? account.currencyCode, currencySymbol: currency?.symbol ?? account.currencySymbol }
+      : account,
+    ),
+   );
+   void loadData();
    setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -3592,9 +3826,11 @@ function AuthenticatedHome() {
 
  async function onUpdateAccountStartingBalance(accountId: number, value: string) {
   if (!accountingApi) return;
+  const startingBalance = parseFloat(value) || 0;
   try {
-   await accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance: parseFloat(value) || 0 });
-   await loadData();
+   await accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance });
+   setClientAccounts((prev) => prev.map((account) => (account.id === accountId ? { ...account, startingBalance } : account)));
+   void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
@@ -3779,7 +4015,6 @@ function AuthenticatedHome() {
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
-   <h1>Arkam Exchange</h1>
    <p>${t('client_ledger_statement')}</p>
   </div>
  </div>
@@ -3799,7 +4034,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
-${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
  }
@@ -3903,7 +4138,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
-   <h1>Arkam Exchange</h1>
    <p>${esc(t('archive_title'))}</p>
   </div>
  </div>
@@ -3922,7 +4156,7 @@ ${
 ${totalsHtml ? `<div class="totals"><span class="totals-label">${esc(t('archive_totals'))}</span>${totalsHtml}</div>` : ''}`
   : `<div class="empty">${esc(t('archive_empty'))}</div>`
 }
-${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
  }
@@ -4209,7 +4443,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
-   <h1>Arkam Exchange</h1>
    <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
   </div>
  </div>
@@ -4227,7 +4460,7 @@ ${
 </table>`
   : `<div class="empty">${esc(t('transactions_export_empty'))}</div>`
 }
-${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
  }
@@ -6505,7 +6738,35 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </div>
        ) : null}
 
-       {section === 'overview' ? (
+       {section === 'overview' && isLoading ? (
+        <section className="flex flex-col gap-6">
+         <div className={panelClassName}>
+          <div className="flex items-start justify-between gap-4">
+           <div className="flex flex-col gap-2"><SkBar w="w-48" h="h-7" /><SkBar w="w-72" h="h-3.5" /></div>
+           <SkBar w="w-40" h="h-9" />
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
+           {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="rounded border border-slate-200 bg-slate-50 p-4 flex flex-col gap-2">
+             <SkBar w="w-24" h="h-3" /><SkBar w="w-16" h="h-7" />
+            </div>
+           ))}
+          </div>
+         </div>
+         <div className={panelClassName}>
+          <SkBar w="w-56" h="h-6" />
+          <div className="mt-4 flex flex-col gap-3">
+           {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="rounded border border-slate-200 p-4 flex flex-col gap-2">
+             <SkBar w="w-40" h="h-4" /><SkBar w="w-64" h="h-3" />
+            </div>
+           ))}
+          </div>
+         </div>
+        </section>
+       ) : null}
+
+       {section === 'overview' && !isLoading ? (
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex items-start justify-between gap-4">
@@ -6779,9 +7040,25 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </section>
        ) : null}
 
-       {section === 'organizations' ? organizationsReadOnlySection : null}
+       {section === 'organizations' && isLoading ? (
+        <div className={panelClassName}>
+         <div className="mb-4 flex items-center justify-between gap-4"><SkBar w="w-44" h="h-6" /><SkBar w="w-28" h="h-8" /></div>
+         <div className="flex flex-col gap-2 mt-2">
+          {Array.from({ length: 5 }, (_, i) => (
+           <div key={i} className="flex items-center gap-3 py-2"><SkBar w="w-40" h="h-4" /><SkBar w="w-12" h="h-4" /></div>
+          ))}
+         </div>
+        </div>
+       ) : null}
+       {section === 'organizations' && !isLoading ? organizationsReadOnlySection : null}
 
-       {section === 'organization-clients' ? (
+       {section === 'organization-clients' && isLoading ? (
+        <div className={panelClassName}>
+         <div className="mb-4 flex items-center justify-between gap-4"><SkBar w="w-52" h="h-6" /><SkBar w="w-28" h="h-8" /></div>
+         <SkTablePanel panelClassName="" tableWrapClassName="border border-gray-200" cols={SK_CLIENTS} rows={6} />
+        </div>
+       ) : null}
+       {section === 'organization-clients' && !isLoading ? (
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -6859,9 +7136,32 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </section>
        ) : null}
 
-       {section === 'clients' ? clientsReadOnlySection : null}
+       {section === 'clients' && isLoading ? (
+        <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_CLIENTS} titleWidth="w-32" rows={8} />
+       ) : null}
+       {section === 'clients' && !isLoading ? clientsReadOnlySection : null}
 
-       {section === 'client-ledger' ? (
+       {section === 'client-ledger' && isLoading ? (
+        <section className="flex flex-col gap-6">
+         <div className={panelClassName}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+           <div className="flex flex-col gap-2">
+            <SkBar w="w-20" h="h-3" /><SkBar w="w-44" h="h-7" /><SkBar w="w-64" h="h-3.5" />
+           </div>
+           <SkBar w="w-28" h="h-9" />
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+           {Array.from({ length: 2 }, (_, i) => (
+            <div key={i} className="rounded border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col gap-2">
+             <SkBar w="w-24" h="h-3" /><SkBar w="w-28" h="h-7" />
+            </div>
+           ))}
+          </div>
+         </div>
+         <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_LEDGER} titleWidth="w-36" rows={8} />
+        </section>
+       ) : null}
+       {section === 'client-ledger' && !isLoading ? (
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -6873,7 +7173,14 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
            <button
             type="button"
-            onClick={() => navigateToSection(clientLedgerBackSection)}
+            onClick={() => {
+             if (clientLedgerBackSection === 'organization-clients' && selectedOrganizationForClients) {
+              setSection('organization-clients');
+              router.replace(`/organizations/${selectedOrganizationForClients.id}`);
+             } else {
+              navigateToSection('clients');
+             }
+            }}
             className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
            >
             {clientLedgerBackSection === 'organization-clients' ? t('organization_page_back') : t('client_page_back')}
@@ -6981,7 +7288,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                    if (!isNaN(value) && accountingApi) {
                     try {
                      await accountingApi.updateClientAccountStartingBalance({ accountId: ledger.accountId, startingBalance: value });
-                     await loadData();
+                     setClientAccounts((prev) => prev.map((account) => (account.id === ledger.accountId ? { ...account, startingBalance: value } : account)));
+                     void loadData();
                     } catch (e) {
                      setError(e instanceof Error ? e.message : t('error_failed_update'));
                     }
@@ -8052,9 +8360,17 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </section>
        ) : null}
 
-       {section === 'currencies' ? currenciesReadOnlySection : null}
+       {section === 'currencies' && isLoading ? (
+        <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_CURRENCIES} titleWidth="w-36" rows={8} />
+       ) : null}
+       {section === 'currencies' && !isLoading ? currenciesReadOnlySection : null}
 
-       {section === 'transactions' || section === 'archive' ? (
+       {(section === 'transactions' || section === 'archive') && isLoading ? (
+        <section className="flex flex-col gap-6">
+         <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_TX} titleWidth="w-40" rows={10} />
+        </section>
+       ) : null}
+       {(section === 'transactions' || section === 'archive') && !isLoading ? (
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
          {(section === 'transactions' || section === 'archive') && isNewTransactionSectionOpen ? (
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
