@@ -793,7 +793,7 @@ function importNameKey(value: string) {
 
 function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportMappingState, currency: Currency) {
  if (mapping.fromColumn == null || mapping.toColumn == null || mapping.amountColumn == null) {
-  throw new Error('Please choose columns for From, To, and Amount.');
+  throw new Error('Please choose columns for Sender, Receiver, and Amount.');
  }
 
  const parsedRows: ImportedTransactionRow[] = [];
@@ -10585,13 +10585,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the from column?</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the sender column?</span>
          <select
           value={importMapping.fromColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, fromColumn: event.target.value === '' ? null : Number(event.target.value) }))}
           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
-          <option value="">Select from column</option>
+          <option value="">Select sender column</option>
           {pendingImportData.columnOptions.map((option) => (
            <option key={option.index} value={option.index}>
             {option.label}
@@ -10601,13 +10601,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the to column?</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the receiver column?</span>
          <select
           value={importMapping.toColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, toColumn: event.target.value === '' ? null : Number(event.target.value) }))}
           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
-          <option value="">Select to column</option>
+          <option value="">Select receiver column</option>
           {pendingImportData.columnOptions.map((option) => (
            <option key={option.index} value={option.index}>
             {option.label}
