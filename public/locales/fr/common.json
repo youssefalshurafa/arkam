@@ -327,6 +327,8 @@
  "pdf_show_meta_period_hint": "Afficher la plage de dates dans les cartes récapitulatives.",
  "pdf_show_generated_on": "Date de génération",
  "pdf_show_generated_on_hint": "Afficher la date de génération du PDF dans l'en-tête.",
+ "pdf_show_currency_symbol": "Symbole de devise",
+ "pdf_show_currency_symbol_hint": "Afficher le symbole de devise à côté des montants et des soldes.",
  "pdf_show_footer": "Pied de page",
  "pdf_show_footer_hint": "Afficher le pied de page Arkam Exchange en bas.",
  "export_pdf": "Exporter PDF",

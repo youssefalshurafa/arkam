@@ -546,6 +546,7 @@ type PdfSettings = {
  showMetaPeriod: boolean;
  showFooter: boolean;
  showGeneratedOn: boolean;
+ showCurrencySymbol: boolean;
 };
 
 const defaultPdfSettings: PdfSettings = {
@@ -560,6 +561,7 @@ const defaultPdfSettings: PdfSettings = {
  showMetaPeriod: true,
  showFooter: true,
  showGeneratedOn: true,
+ showCurrencySymbol: true,
 };
 
 function getStoredPdfSettings(): PdfSettings {
@@ -3971,7 +3973,7 @@ function AuthenticatedHome() {
     key: 'amount',
     header: t('amount'),
     isNum: true,
-    cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`,
    },
    {
     key: 'exchangeRate',
@@ -3992,13 +3994,13 @@ function AuthenticatedHome() {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`),
+    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>`),
    },
    {
     key: 'runningBalance',
     header: t('running_balance'),
     isNum: true,
-    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>`,
    },
    { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
@@ -4092,7 +4094,7 @@ function AuthenticatedHome() {
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span></div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
@@ -4102,7 +4104,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  </tbody>
 </table>
 <div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span>
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
 ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
@@ -4151,7 +4153,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      ? `${esc(tx.clientToName)} <span style="color:#64748b">${esc(tx.accountToCurrencyCode)}</span>`
      : `<span class="muted">${esc(t('archive_no_receiver'))}</span>`;
     const amount = tx.amount
-     ? `${tx.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${esc(tx.currencySymbol || tx.currencyCode)}`
+     ? `${tx.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(tx.currencySymbol || tx.currencyCode)}` : ''}`
      : '-';
     return `<tr><td>${formatDateValue(tx.createdAt, pdfSettings.dateFormat)}</td><td>${from}</td><td>${to}</td><td class="num">${amount}</td><td>${esc(tx.archiveNote)}</td><td>${esc(tx.description)}</td></tr>`;
    })
@@ -4166,7 +4168,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    else totals.set(key, { code: tx.currencyCode, symbol: tx.currencySymbol, total: tx.amount });
   }
   const totalsHtml = [...totals.values()]
-   .map((total) => `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} <span style="color:#64748b">${esc(total.symbol || total.code)}</span></span>`)
+   .map((total) => `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` <span style="color:#64748b">${esc(total.symbol || total.code)}</span>` : ''}</span>`)
    .join('');
 
   const dir = isRTL ? 'rtl' : 'ltr';
@@ -4453,7 +4455,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     );
    }
    if (columns.amount) {
-    cells.push(txn.amount ? `${txn.amount.toLocaleString(language)} ${txn.currencySymbol || txn.currencyCode}` : '-');
+    cells.push(txn.amount ? `${txn.amount.toLocaleString(language)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
    }
    if (columns.charges) {
     if (txn.isAdjustment || !txn.charges) {
@@ -5149,43 +5151,15 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   { label: t('overview_currencies'), value: enabledCurrencies.length },
  ];
 
- const sidebarItems: Array<{ id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void }> =
-  section === 'settings'
-   ? [
-      {
-       id: 'home',
-       label: t('nav_home'),
-       icon: 'home',
-       isActive: false,
-       onClick: () => navigateToSection('overview'),
-      },
-      ...settingsTabs.map((tab) => ({
-       id: tab.key,
-       label: tab.label,
-       icon: tab.icon,
-       isActive: settingsTab === tab.key,
-       onClick: () => {
-        navigateToSection('settings');
-        setSettingsTab(tab.key);
-       },
-      })),
-     ]
-   : [
-      ...navItems.map((item) => ({
-       id: item.key,
-       label: item.label,
-       icon: item.icon,
-       isActive: section === item.key,
-       onClick: () => navigateToSection(item.key),
-      })),
-      {
-       id: 'settings',
-       label: t('settings_title'),
-       icon: 'settings',
-       isActive: false,
-       onClick: () => navigateToSection('settings'),
-      },
-     ];
+ // The sidebar always shows the main navigation. The Settings entry expands its
+ // sub-tabs in place (rendered after this list) rather than replacing the whole sidebar.
+ const sidebarItems: Array<{ id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void }> = navItems.map((item) => ({
+  id: item.key,
+  label: item.label,
+  icon: item.icon,
+  isActive: section === item.key,
+  onClick: () => navigateToSection(item.key),
+ }));
 
  const organizationsSection = (
   <section className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
@@ -5432,6 +5406,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         { key: 'showMetaCurrency', labelKey: 'pdf_show_meta_currency', hintKey: 'pdf_show_meta_currency_hint' },
         { key: 'showMetaPeriod', labelKey: 'pdf_show_meta_period', hintKey: 'pdf_show_meta_period_hint' },
         { key: 'showGeneratedOn', labelKey: 'pdf_show_generated_on', hintKey: 'pdf_show_generated_on_hint' },
+        { key: 'showCurrencySymbol', labelKey: 'pdf_show_currency_symbol', hintKey: 'pdf_show_currency_symbol_hint' },
         { key: 'showFooter', labelKey: 'pdf_show_footer', hintKey: 'pdf_show_footer_hint' },
        ] as Array<{ key: keyof Omit<PdfSettings, 'decimals' | 'fontFamily' | 'fontSize'>; labelKey: string; hintKey: string }>
       ).map(({ key, labelKey, hintKey }) => (
@@ -5558,6 +5533,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
  const clientsSection = (
   <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
+   <div className="flex flex-col gap-6">
    <form
     onSubmit={onClientSubmit}
     className={panelClassName}
@@ -5754,171 +5730,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      {clientForm.id ? t('update_client') : t('save_client')}
     </button>
    </form>
-
-   <div className="flex flex-col gap-4">
-    <div className={panelClassName}>
-     <div className="flex items-center justify-between gap-3">
-      <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
-      <div className="relative">
-       <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-       </svg>
-       <input
-        type="search"
-        value={clientSearch}
-        onChange={(e) => setClientSearch(e.target.value)}
-        placeholder={t('search')}
-        className="rounded border border-slate-300 py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
-       />
-      </div>
-     </div>
-     <div className={tableWrapClassName}>
-      <table className="w-full text-sm">
-       <thead className="bg-slate-100 text-slate-700">
-        <tr>
-         {clientSortHeader('name', t('name'))}
-         {clientSortHeader('organization', t('client_organization'))}
-         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
-         <th className="px-4 py-3" />
-        </tr>
-       </thead>
-       <tbody>
-        {paginatedClients.map((client, index) => (
-         <tr
-          key={client.id}
-          className={`border-t border-slate-200 align-top ${index % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100`}
-         >
-          <td className="px-4 py-3 font-medium text-slate-900">
-           <button
-            type="button"
-            onClick={() => openClientLedger(client, 'clients')}
-            className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
-           >
-            {client.name}
-           </button>
-          </td>
-          <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
-          <td className="px-4 py-3">
-           {(() => {
-            const accts = clientAccounts.filter((a) => a.clientId === client.id);
-            if (accts.length === 0) return <span className="text-xs text-slate-400">—</span>;
-            return (
-             <div className="flex flex-wrap items-center gap-1">
-              {accts.map((a) => (
-               <span
-                key={a.id}
-                title={a.currencyCode}
-                className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border border-slate-300 bg-slate-50 px-1.5 text-xs font-semibold text-slate-600"
-               >
-                {a.currencySymbol || a.currencyCode}
-               </span>
-              ))}
-             </div>
-            );
-           })()}
-          </td>
-          <td className="px-4 py-3">
-           <div className="flex items-center gap-1">
-            <button
-             type="button"
-             title={t('edit')}
-             onClick={() => {
-              setClientForm({
-               id: client.id,
-               organizationId: client.organizationId,
-               name: client.name,
-               email: client.email,
-               phone: client.phone,
-               address: client.address,
-              });
-              setOpenAccountOnCreate(false);
-              setNewClientAccountDrafts([createNewClientAccountDraft()]);
-             }}
-             className="cursor-pointer rounded p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-            >
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-              <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" />
-              <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" />
-             </svg>
-            </button>
-            <button
-             type="button"
-             title={t('delete')}
-             onClick={() => onDeleteClient(client.id)}
-             className="cursor-pointer rounded p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-600"
-            >
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-              <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
-             </svg>
-            </button>
-           </div>
-          </td>
-         </tr>
-        ))}
-        {clients.length === 0 ? (
-         <tr>
-          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_clients')}</td>
-         </tr>
-        ) : sortedClients.length === 0 ? (
-         <tr>
-          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_search_results')}</td>
-         </tr>
-        ) : null}
-       </tbody>
-      </table>
-     </div>
-     {sortedClients.length > clientsPageSize ? (
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-       <div className="text-xs text-slate-600">
-        {(clampedClientsPage - 1) * clientsPageSize + 1}–{Math.min(sortedClients.length, clampedClientsPage * clientsPageSize)} {t('pagination_of')} {sortedClients.length}
-       </div>
-       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
-        <select
-         value={clientsPageSize}
-         onChange={(event) => setClientsPageSize(Number(event.target.value))}
-         className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
-        >
-         <option value={25}>25</option>
-         <option value={50}>50</option>
-         <option value={100}>100</option>
-        </select>
-        <button
-         type="button"
-         onClick={() => setClientsPage((current) => Math.max(1, Math.min(current, totalClientPages) - 1))}
-         disabled={clampedClientsPage <= 1}
-         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-         {t('pagination_prev')}
-        </button>
-        <input
-         key={clampedClientsPage}
-         type="number"
-         min={1}
-         max={totalClientPages}
-         defaultValue={clampedClientsPage}
-         onBlur={(event) => {
-          const n = parseInt(event.target.value, 10);
-          if (n >= 1 && n <= totalClientPages) setClientsPage(n);
-          else event.target.value = String(clampedClientsPage);
-         }}
-         onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
-         className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        />
-        <span className="text-xs text-slate-500">/ {totalClientPages}</span>
-        <button
-         type="button"
-         onClick={() => setClientsPage((current) => Math.min(totalClientPages, Math.min(current, totalClientPages) + 1))}
-         disabled={clampedClientsPage >= totalClientPages}
-         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-         {t('pagination_next')}
-        </button>
-       </div>
-      </div>
-     ) : null}
-    </div>
-
     {accountsClient ? (
      <div className={panelClassName}>
       <div className="flex items-center justify-between gap-3">
@@ -6192,6 +6003,172 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       )}
      </div>
     ) : null}
+   </div>
+
+   <div className="flex flex-col gap-4">
+    <div className={panelClassName}>
+     <div className="flex items-center justify-between gap-3">
+      <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
+      <div className="relative">
+       <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+       </svg>
+       <input
+        type="search"
+        value={clientSearch}
+        onChange={(e) => setClientSearch(e.target.value)}
+        placeholder={t('search')}
+        className="rounded border border-slate-300 py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
+       />
+      </div>
+     </div>
+     <div className={tableWrapClassName}>
+      <table className="w-full text-sm">
+       <thead className="bg-slate-100 text-slate-700">
+        <tr>
+         {clientSortHeader('name', t('name'))}
+         {clientSortHeader('organization', t('client_organization'))}
+         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
+         <th className="px-4 py-3" />
+        </tr>
+       </thead>
+       <tbody>
+        {paginatedClients.map((client, index) => (
+         <tr
+          key={client.id}
+          className={`border-t border-slate-200 align-top ${index % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100`}
+         >
+          <td className="px-4 py-3 font-medium text-slate-900">
+           <button
+            type="button"
+            onClick={() => openClientLedger(client, 'clients')}
+            className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
+           >
+            {client.name}
+           </button>
+          </td>
+          <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
+          <td className="px-4 py-3">
+           {(() => {
+            const accts = clientAccounts.filter((a) => a.clientId === client.id);
+            if (accts.length === 0) return <span className="text-xs text-slate-400">—</span>;
+            return (
+             <div className="flex flex-wrap items-center gap-1">
+              {accts.map((a) => (
+               <span
+                key={a.id}
+                title={a.currencyCode}
+                className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border border-slate-300 bg-slate-50 px-1.5 text-xs font-semibold text-slate-600"
+               >
+                {a.currencySymbol || a.currencyCode}
+               </span>
+              ))}
+             </div>
+            );
+           })()}
+          </td>
+          <td className="px-4 py-3">
+           <div className="flex items-center gap-1">
+            <button
+             type="button"
+             title={t('edit')}
+             onClick={() => {
+              setClientForm({
+               id: client.id,
+               organizationId: client.organizationId,
+               name: client.name,
+               email: client.email,
+               phone: client.phone,
+               address: client.address,
+              });
+              setOpenAccountOnCreate(false);
+              setNewClientAccountDrafts([createNewClientAccountDraft()]);
+             }}
+             className="cursor-pointer rounded p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            >
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" />
+              <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" />
+             </svg>
+            </button>
+            <button
+             type="button"
+             title={t('delete')}
+             onClick={() => onDeleteClient(client.id)}
+             className="cursor-pointer rounded p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-600"
+            >
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+             </svg>
+            </button>
+           </div>
+          </td>
+         </tr>
+        ))}
+        {clients.length === 0 ? (
+         <tr>
+          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_clients')}</td>
+         </tr>
+        ) : sortedClients.length === 0 ? (
+         <tr>
+          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_search_results')}</td>
+         </tr>
+        ) : null}
+       </tbody>
+      </table>
+     </div>
+     {sortedClients.length > clientsPageSize ? (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+       <div className="text-xs text-slate-600">
+        {(clampedClientsPage - 1) * clientsPageSize + 1}–{Math.min(sortedClients.length, clampedClientsPage * clientsPageSize)} {t('pagination_of')} {sortedClients.length}
+       </div>
+       <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+        <select
+         value={clientsPageSize}
+         onChange={(event) => setClientsPageSize(Number(event.target.value))}
+         className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+        >
+         <option value={25}>25</option>
+         <option value={50}>50</option>
+         <option value={100}>100</option>
+        </select>
+        <button
+         type="button"
+         onClick={() => setClientsPage((current) => Math.max(1, Math.min(current, totalClientPages) - 1))}
+         disabled={clampedClientsPage <= 1}
+         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+         {t('pagination_prev')}
+        </button>
+        <input
+         key={clampedClientsPage}
+         type="number"
+         min={1}
+         max={totalClientPages}
+         defaultValue={clampedClientsPage}
+         onBlur={(event) => {
+          const n = parseInt(event.target.value, 10);
+          if (n >= 1 && n <= totalClientPages) setClientsPage(n);
+          else event.target.value = String(clampedClientsPage);
+         }}
+         onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+         className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span className="text-xs text-slate-500">/ {totalClientPages}</span>
+        <button
+         type="button"
+         onClick={() => setClientsPage((current) => Math.min(totalClientPages, Math.min(current, totalClientPages) + 1))}
+         disabled={clampedClientsPage >= totalClientPages}
+         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+         {t('pagination_next')}
+        </button>
+       </div>
+      </div>
+     ) : null}
+    </div>
+
    </div>
   </section>
  );
@@ -6711,23 +6688,41 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </button>
        );
       })}
+
+      {/* Settings entry — expands its sub-tabs in place instead of swapping the sidebar. */}
+      <button
+       type="button"
+       onClick={() => navigateToSection('settings')}
+       aria-pressed={section === 'settings'}
+       aria-label={t('settings_title')}
+       title={t('settings_title')}
+       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium transition ${
+        section === 'settings' ? 'bg-purple-600 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+       } ${isSidebarCollapsed ? 'justify-center' : ''}`}
+      >
+       <span className="shrink-0">{renderIcon('settings', 'h-4 w-4')}</span>
+       {isSidebarCollapsed ? null : <span className="truncate">{t('settings_title')}</span>}
+      </button>
+      {section === 'settings' && !isSidebarCollapsed
+       ? settingsTabs.map((tab) => (
+          <button
+           key={tab.key}
+           type="button"
+           onClick={() => setSettingsTab(tab.key)}
+           aria-pressed={settingsTab === tab.key}
+           title={tab.label}
+           className={`flex w-full items-center gap-2.5 py-2 pl-9 pr-3 text-sm transition ${
+            settingsTab === tab.key ? 'bg-purple-600/70 text-white' : 'text-blue-200 hover:bg-white/10 hover:text-white'
+           }`}
+          >
+           <span className="shrink-0">{renderIcon(tab.icon, 'h-3.5 w-3.5')}</span>
+           <span className="truncate">{tab.label}</span>
+          </button>
+         ))
+       : null}
      </nav>
      {/* Footer */}
      <div className="border-t border-white/10 py-1">
-      {section !== 'settings' ? (
-       <button
-        type="button"
-        onClick={() => navigateToSection('settings')}
-        aria-label={t('settings_title')}
-        title={t('settings_title')}
-        className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-blue-100 transition hover:bg-white/10 hover:text-white ${
-         isSidebarCollapsed ? 'justify-center' : ''
-        }`}
-       >
-        <span className="shrink-0">{renderIcon('settings', 'h-4 w-4')}</span>
-        {isSidebarCollapsed ? null : <span>{t('settings_title')}</span>}
-       </button>
-      ) : null}
       <button
        type="button"
        onClick={() => {
@@ -7330,21 +7325,27 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            </button>
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-           {selectedClientForLedger && selectedClientLedgers.length > 1
-            ? selectedClientLedgers.map((ledger) => (
-               <button
-                key={ledger.accountId}
-                type="button"
-                onClick={() => setSelectedLedgerAccountId(ledger.accountId)}
-                className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
-                 selectedLedgerAccountId === ledger.accountId ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-               >
-                {ledger.currencyName}
-               </button>
-              ))
-            : null}
+          {selectedClientForLedger && selectedClientLedgers.length > 1 ? (
+           <div className="mt-5 flex flex-wrap items-center gap-2">
+            {selectedClientLedgers.map((ledger) => (
+             <button
+              key={ledger.accountId}
+              type="button"
+              onClick={() => setSelectedLedgerAccountId(ledger.accountId)}
+              className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
+               selectedLedgerAccountId === ledger.accountId ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+             >
+              {ledger.currencyName}
+             </button>
+            ))}
+           </div>
+          ) : null}
+         </div>
+
+         {selectedClientForLedger ? (
+          <div className={panelClassName}>
+           <div className="flex flex-wrap items-center gap-2">
            {selectedClientForLedger ? (
             <>
              {selectedLedgerEntryKeys.size > 0 ? (
@@ -7419,6 +7420,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            ) : null}
           </div>
          </div>
+         ) : null}
 
          {!selectedClientForLedger ? (
           <div className={`${panelClassName} text-sm text-slate-600`}>{t('client_page_no_client')}</div>

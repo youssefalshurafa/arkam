@@ -334,6 +334,8 @@
  "pdf_show_meta_period_hint": "Show the date range in the summary cards.",
  "pdf_show_generated_on": "Generation date",
  "pdf_show_generated_on_hint": "Show the date when the PDF was generated.",
+ "pdf_show_currency_symbol": "Currency symbol",
+ "pdf_show_currency_symbol_hint": "Show the currency symbol next to amounts and balances.",
  "pdf_show_footer": "Footer",
  "pdf_show_footer_hint": "Show the Arkam Exchange footer at the bottom.",
  "settings_danger_title": "Danger Zone",

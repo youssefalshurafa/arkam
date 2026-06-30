@@ -328,6 +328,8 @@
  "pdf_show_meta_period_hint": "إظهار نطاق التاريخ في بطاقات الملخص.",
  "pdf_show_generated_on": "تاريخ الإصدار",
  "pdf_show_generated_on_hint": "إظهار تاريخ إنشاء PDF في الترويسة.",
+ "pdf_show_currency_symbol": "رمز العملة",
+ "pdf_show_currency_symbol_hint": "إظهار رمز العملة بجانب المبالغ والأرصدة.",
  "pdf_show_footer": "التذييل",
  "pdf_show_footer_hint": "إظهار تذييل أركام للصرافة أسفل الصفحة.",
  "export_pdf": "تصدير PDF",
