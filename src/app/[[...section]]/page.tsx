@@ -617,6 +617,13 @@ function formatAmountInput(value: string) {
  return `${negative ? '-' : ''}${groupedInt}${hasDot ? `.${decPart}` : ''}`;
 }
 
+// Width (in ch) for an auto-sizing ledger edit-mode field: small when empty,
+// growing with the visible text so long values (big numbers, long client names)
+// stay fully readable. `pad` leaves room for cursor/padding and select arrows.
+function ledgerFieldWidth(text: string, floor: number, pad = 2) {
+ return `${Math.max(floor, [...text].length + pad)}ch`;
+}
+
 function normalizeImportHeader(value: string) {
  return value
   .trim()
@@ -8033,7 +8040,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                             type="date"
                             value={draft.createdDate}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
-                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                            style={{ width: ledgerFieldWidth(draft.createdDate, 13, 5) }}
+                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            />
                           ) : (
                            new Date(entry.createdAt).toLocaleDateString(language)
@@ -8048,27 +8056,34 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                          >
                           {entry.isAdjustment ? (
                            <span className="text-slate-400">-</span>
-                          ) : draft ? (
-                           <select
-                            value={draft.counterpartyAccountId ?? ''}
-                            onChange={(event) =>
-                             updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
-                            }
-                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                           >
-                            <option value="">{t('transaction_account_placeholder')}</option>
-                            {clientAccounts
-                             .filter((account) => account.id !== ledger.accountId)
-                             .map((account) => (
-                              <option
-                               key={account.id}
-                               value={account.id}
-                              >
-                               {account.clientName} - {account.currencySymbol || account.currencyCode}
-                              </option>
-                             ))}
-                           </select>
-                          ) : entry.counterpartyClientId ? (
+                          ) : draft ? (() => {
+                           const selectedAccount = clientAccounts.find((account) => account.id === draft.counterpartyAccountId);
+                           const selectedLabel = selectedAccount
+                            ? `${selectedAccount.clientName} - ${selectedAccount.currencySymbol || selectedAccount.currencyCode}`
+                            : t('transaction_account_placeholder');
+                           return (
+                            <select
+                             value={draft.counterpartyAccountId ?? ''}
+                             onChange={(event) =>
+                              updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
+                             }
+                             style={{ width: ledgerFieldWidth(selectedLabel, 8, 4) }}
+                             className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            >
+                             <option value="">{t('transaction_account_placeholder')}</option>
+                             {clientAccounts
+                              .filter((account) => account.id !== ledger.accountId)
+                              .map((account) => (
+                               <option
+                                key={account.id}
+                                value={account.id}
+                               >
+                                {account.clientName} - {account.currencySymbol || account.currencyCode}
+                               </option>
+                              ))}
+                            </select>
+                           );
+                          })() : entry.counterpartyClientId ? (
                            <button
                             type="button"
                             onClick={() => {
@@ -8100,7 +8115,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                            <select
                             value={draft.direction}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
-                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                            style={{ width: ledgerFieldWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 4) }}
+                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            >
                             <option value="incoming">{t('incoming')}</option>
                             <option value="outgoing">{t('outgoing')}</option>
@@ -8126,7 +8142,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                            <select
                             value={draft.type}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
-                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                            style={{ width: ledgerFieldWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 4) }}
+                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            >
                             <option value="exchange">{t('transaction_type_exchange')}</option>
                             <option value="transfer">{t('transaction_type_transfer')}</option>
@@ -8147,9 +8164,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                             type="text"
                             inputMode="decimal"
                             dir="ltr"
-                            value={draft.amount}
+                            value={formatAmountInput(draft.amount)}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
-                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                            style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
+                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            />
                           ) : (
                            <>
@@ -8258,7 +8276,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                 );
                                 next?.focus();
                                }}
-                               className="w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                               style={{ width: ledgerFieldWidth(draft.exchangeRate, 5, 2) }}
+                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                               />
                               {txCurr && accCurr && txCurr !== accCurr && (
                                <button
@@ -8366,7 +8385,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                               dir="ltr"
                               value={draft.commission}
                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
-                              className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                              style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
+                              className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                               placeholder="0"
                              />
                             );
@@ -8420,7 +8440,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                            <select
                             value={draft.currencyId}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: Number(event.target.value) })}
-                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                            style={{ width: ledgerFieldWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 4) }}
+                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            >
                             {enabledCurrencies.map((cur) => (
                              <option key={cur.id} value={cur.id}>{cur.code}</option>
@@ -8446,7 +8467,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                             type="text"
                             value={draft.description}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
-                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                            style={{ width: ledgerFieldWidth(draft.description, 6, 3) }}
+                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            />
                           ) : (
                            entry.description || '-'
