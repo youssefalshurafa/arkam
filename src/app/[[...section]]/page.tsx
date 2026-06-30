@@ -350,6 +350,19 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
 
 const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
 const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
+// User-defined order of organization cards on the clients page (keys: org id as
+// string, or '__unassigned__'). Persisted so the arrangement survives refreshes.
+const clientsOrgOrderStorageKey = 'arkam:clients-org-order';
+function getStoredClientsOrgOrder(): string[] {
+ if (typeof window === 'undefined') return [];
+ try {
+  const raw = window.localStorage.getItem(clientsOrgOrderStorageKey);
+  const parsed = raw ? JSON.parse(raw) : [];
+  return Array.isArray(parsed) ? parsed.map(String) : [];
+ } catch {
+  return [];
+ }
+}
 const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
@@ -453,6 +466,27 @@ function getStoredLedgerColumnVisibility(clientId: number | null | undefined): R
   return { ...defaultLedgerColumnVisibility };
  }
 }
+
+// Per-client ledger display settings (decimals, currency symbol, date format), stored
+// alongside column visibility so each client's ledger keeps its own preferences.
+const ledgerSettingsStorageKeyPrefix = 'arkam:ledger-settings:';
+type StoredLedgerSettings = {
+ decimals: number;
+ showCurrencySymbol: boolean;
+ dateFormat: PdfSettings['dateFormat'];
+ highlightNetChange: boolean;
+};
+const defaultLedgerSettings: StoredLedgerSettings = { decimals: 2, showCurrencySymbol: true, dateFormat: 'full', highlightNetChange: true };
+function getStoredLedgerSettings(clientId: number | null | undefined): StoredLedgerSettings {
+ if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerSettings };
+ try {
+  const raw = window.localStorage.getItem(ledgerSettingsStorageKeyPrefix + clientId);
+  if (!raw) return { ...defaultLedgerSettings };
+  return { ...defaultLedgerSettings, ...JSON.parse(raw) };
+ } catch {
+  return { ...defaultLedgerSettings };
+ }
+}
 type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
 
 type TransactionTableSettings = {
@@ -547,6 +581,7 @@ type PdfSettings = {
  showFooter: boolean;
  showGeneratedOn: boolean;
  showCurrencySymbol: boolean;
+ highlightNetChange: boolean;
 };
 
 const defaultPdfSettings: PdfSettings = {
@@ -562,6 +597,7 @@ const defaultPdfSettings: PdfSettings = {
  showFooter: true,
  showGeneratedOn: true,
  showCurrencySymbol: true,
+ highlightNetChange: true,
 };
 
 function getStoredPdfSettings(): PdfSettings {
@@ -617,11 +653,16 @@ function formatAmountInput(value: string) {
  return `${negative ? '-' : ''}${groupedInt}${hasDot ? `.${decPart}` : ''}`;
 }
 
-// Width (in ch) for an auto-sizing ledger edit-mode field: small when empty,
-// growing with the visible text so long values (big numbers, long client names)
-// stay fully readable. `pad` leaves room for cursor/padding and select arrows.
+// Width (in ch) for an auto-sizing ledger edit-mode text input: small when empty,
+// growing with the visible text so long values (big numbers, long names) stay readable.
 function ledgerFieldWidth(text: string, floor: number, pad = 2) {
  return `${Math.max(floor, [...text].length + pad)}ch`;
+}
+
+// Like ledgerFieldWidth but for <select>: adds a fixed allowance for the dropdown
+// arrow (a pixel-sized widget the ch-based text width can't account for).
+function ledgerSelectWidth(text: string, floor: number, pad = 2) {
+ return `calc(${Math.max(floor, [...text].length + pad)}ch + 1.5rem)`;
 }
 
 function normalizeImportHeader(value: string) {
@@ -1137,6 +1178,9 @@ function AuthenticatedHome() {
  const [clientsPage, setClientsPage] = useState(1);
  const [clientsPageSize, setClientsPageSize] = useState(25);
  const [clientsGroupByOrg, setClientsGroupByOrg] = useState(true);
+ const [clientsOrgOrder, setClientsOrgOrder] = useState<string[]>(() => getStoredClientsOrgOrder());
+ const [draggedOrgKey, setDraggedOrgKey] = useState<string | null>(null);
+ const [dragOverOrgKey, setDragOverOrgKey] = useState<string | null>(null);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
@@ -1158,6 +1202,8 @@ function AuthenticatedHome() {
  const [ledgerFilterDateFrom, setLedgerFilterDateFrom] = useState('');
  const [ledgerFilterDateTo, setLedgerFilterDateTo] = useState('');
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
+ const [ledgerDateFormat, setLedgerDateFormat] = useState<PdfSettings['dateFormat']>('full');
+ const [ledgerHighlightNetChange, setLedgerHighlightNetChange] = useState(true);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
@@ -1268,6 +1314,8 @@ function AuthenticatedHome() {
  const [tableRateToReversed, setTableRateToReversed] = useState<Record<number, boolean>>({});
  const [error, setError] = useState('');
  const [importSummary, setImportSummary] = useState('');
+ const [toast, setToast] = useState('');
+ const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
  const [isImportingTransactions, setIsImportingTransactions] = useState(false);
  const [pendingImportData, setPendingImportData] = useState<PendingImportData | null>(null);
  const [importMapping, setImportMapping] = useState<ImportMappingState>({
@@ -1438,9 +1486,15 @@ function AuthenticatedHome() {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
  }, [ledgerColumnOrder]);
 
- // Load the per-client column show/hide choices whenever the open client changes.
+ // Load the per-client column show/hide choices and display settings whenever the
+ // open client changes, so each client's ledger restores its own saved preferences.
  useEffect(() => {
   setLedgerColumnVisibility(getStoredLedgerColumnVisibility(selectedClientForLedger?.id));
+  const settings = getStoredLedgerSettings(selectedClientForLedger?.id);
+  setLedgerDecimals(settings.decimals);
+  setShowLedgerCurrencySymbol(settings.showCurrencySymbol);
+  setLedgerDateFormat(settings.dateFormat);
+  setLedgerHighlightNetChange(settings.highlightNetChange);
  }, [selectedClientForLedger?.id]);
 
  const transactionTableRows = useMemo<TransactionTableRow[]>(() => {
@@ -1649,6 +1703,43 @@ function AuthenticatedHome() {
    }
    return next;
   });
+ }
+
+ // Persist the current client's ledger display settings. `patch` carries the value
+ // just changed; the rest come from current state so all three stay in one record.
+ function persistLedgerSettings(patch: Partial<StoredLedgerSettings>) {
+  const clientId = selectedClientForLedger?.id;
+  if (!clientId || typeof window === 'undefined') return;
+  const next: StoredLedgerSettings = {
+   decimals: ledgerDecimals,
+   showCurrencySymbol: showLedgerCurrencySymbol,
+   dateFormat: ledgerDateFormat,
+   highlightNetChange: ledgerHighlightNetChange,
+   ...patch,
+  };
+  window.localStorage.setItem(ledgerSettingsStorageKeyPrefix + clientId, JSON.stringify(next));
+ }
+
+ function updateLedgerDecimals(next: number) {
+  setLedgerDecimals(next);
+  persistLedgerSettings({ decimals: next });
+ }
+
+ function toggleLedgerCurrencySymbol() {
+  const next = !showLedgerCurrencySymbol;
+  setShowLedgerCurrencySymbol(next);
+  persistLedgerSettings({ showCurrencySymbol: next });
+ }
+
+ function updateLedgerDateFormat(next: PdfSettings['dateFormat']) {
+  setLedgerDateFormat(next);
+  persistLedgerSettings({ dateFormat: next });
+ }
+
+ function toggleLedgerHighlightNetChange() {
+  const next = !ledgerHighlightNetChange;
+  setLedgerHighlightNetChange(next);
+  persistLedgerSettings({ highlightNetChange: next });
  }
 
  function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
@@ -2157,6 +2248,16 @@ function AuthenticatedHome() {
    return;
   }
 
+  // Reject a name already used by another client (case/whitespace-insensitive).
+  const nameKey = clientForm.name.trim().replace(/\s+/g, ' ').toLowerCase();
+  const duplicateName = clients.some(
+   (client) => client.id !== clientForm.id && client.name.trim().replace(/\s+/g, ' ').toLowerCase() === nameKey,
+  );
+  if (duplicateName) {
+   setError(t('client_name_duplicate'));
+   return;
+  }
+
   if (!clientForm.id && openAccountOnCreate) {
    if (!newClientAccountDrafts.length || newClientAccountDrafts.some((draft) => !draft.currencyId)) {
     setError(t('client_account_currency_placeholder'));
@@ -2193,10 +2294,12 @@ function AuthenticatedHome() {
     }
    }
 
+   const wasCreate = !clientForm.id;
    setClientForm(emptyClientForm());
    setOpenAccountOnCreate(true);
    setNewClientAccountDrafts([createNewClientAccountDraft()]);
    setError('');
+   if (wasCreate) showToast(t('toast_client_created'));
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -2713,6 +2816,7 @@ function AuthenticatedHome() {
    setIsNewTransactionExpensesOpen(false);
    setNewTransactionDate(new Date().toISOString().slice(0, 10));
    setError('');
+   showToast(t(txPayload.isArchived ? 'toast_archive_transaction_created' : 'toast_transaction_created'));
    void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -4029,7 +4133,12 @@ function AuthenticatedHome() {
   const rows = filteredEntries
    .map((e) => {
     runningBal += e.netChange;
-    const cells = visibleCols.map((col) => `<td${col.isNum ? ' class="num"' : ''}>${col.cell(e, runningBal)}</td>`).join('');
+    const cells = visibleCols
+     .map((col) => {
+      const classes = [col.isNum ? 'num' : '', col.key === 'netChange' && pdfSettings.highlightNetChange ? 'hl' : ''].filter(Boolean).join(' ');
+      return `<td${classes ? ` class="${classes}"` : ''}>${col.cell(e, runningBal)}</td>`;
+     })
+     .join('');
     return `<tr>${cells}</tr>`;
    })
    .join('');
@@ -4085,6 +4194,7 @@ function AuthenticatedHome() {
  tbody tr:nth-child(even) { background: #ffffff; }
  td.num { font-variant-numeric: tabular-nums; }
  th.num { }
+ td.hl { background: #eff6ff; }
  tr:last-child td { border-bottom: none; }
  .final-balance { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 16px; padding: 12px 20px; border: 2px solid #1e293b; border-radius: 6px; background: #f8fafc; }
  .final-balance .fb-label { font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; color: #1e293b; }
@@ -4346,18 +4456,52 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    }
    group.clients.push(client);
   }
+  const keyOf = (g: { id: number | null }) => (g.id == null ? '__unassigned__' : String(g.id));
   return Array.from(groups.values()).sort((a, b) => {
+   // Honour the user's drag-arranged order first; groups without a saved
+   // position fall back to alphabetical with "unassigned" last.
+   const ia = clientsOrgOrder.indexOf(keyOf(a));
+   const ib = clientsOrgOrder.indexOf(keyOf(b));
+   if (ia !== -1 && ib !== -1) return ia - ib;
+   if (ia !== -1) return -1;
+   if (ib !== -1) return 1;
    if (a.id == null) return 1;
    if (b.id == null) return -1;
    return a.name.localeCompare(b.name, language, { sensitivity: 'base' });
   });
- }, [sortedClients, language, t]);
+ }, [sortedClients, language, t, clientsOrgOrder]);
+
+ // Drop a dragged organization card before the target card and persist the new order.
+ function onClientsOrgDrop(targetKey: string) {
+  const dragged = draggedOrgKey;
+  setDraggedOrgKey(null);
+  setDragOverOrgKey(null);
+  if (!dragged || dragged === targetKey) return;
+  const keys = clientsByOrganization.map((group) => (group.id == null ? '__unassigned__' : String(group.id)));
+  const from = keys.indexOf(dragged);
+  const to = keys.indexOf(targetKey);
+  if (from === -1 || to === -1) return;
+  const next = [...keys];
+  next.splice(from, 1);
+  next.splice(to, 0, dragged);
+  setClientsOrgOrder(next);
+  if (typeof window !== 'undefined') {
+   window.localStorage.setItem(clientsOrgOrderStorageKey, JSON.stringify(next));
+  }
+ }
+
  // Jump back to the first page whenever the result set changes (search / sort / page size).
  useEffect(() => {
   setClientsPage(1);
  }, [clientSearch, clientSort, clientsPageSize]);
  const toggleClientSort = useCallback((key: 'name' | 'organization') => {
   setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+ }, []);
+ // Brief, auto-dismissing confirmation toast (shown ~1s) for quick create actions.
+ const showToast = useCallback((message: string) => {
+  setToast(message);
+  if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+  toastTimerRef.current = setTimeout(() => setToast(''), 1000);
  }, []);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
@@ -5435,6 +5579,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         { key: 'showMetaPeriod', labelKey: 'pdf_show_meta_period', hintKey: 'pdf_show_meta_period_hint' },
         { key: 'showGeneratedOn', labelKey: 'pdf_show_generated_on', hintKey: 'pdf_show_generated_on_hint' },
         { key: 'showCurrencySymbol', labelKey: 'pdf_show_currency_symbol', hintKey: 'pdf_show_currency_symbol_hint' },
+        { key: 'highlightNetChange', labelKey: 'pdf_highlight_net_change', hintKey: 'pdf_highlight_net_change_hint' },
         { key: 'showFooter', labelKey: 'pdf_show_footer', hintKey: 'pdf_show_footer_hint' },
        ] as Array<{ key: keyof Omit<PdfSettings, 'decimals' | 'fontFamily' | 'fontSize'>; labelKey: string; hintKey: string }>
       ).map(({ key, labelKey, hintKey }) => (
@@ -5716,9 +5861,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             <input
              type="text"
              inputMode="decimal"
-             value={draft.startingBalance}
+             value={formatAmountInput(draft.startingBalance)}
              onChange={(event) => {
-              const nextBalance = event.target.value.replace(/,/g, '');
+              const nextBalance = normalizeDecimalInput(event.target.value);
               setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
              }}
              placeholder="0"
@@ -6481,10 +6626,28 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      <p className="px-1 py-6 text-slate-500">{t('no_search_results')}</p>
     ) : clientsGroupByOrg ? (
      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {clientsByOrganization.map((group) => (
-       <div key={group.id ?? '__unassigned__'} className="flex flex-col overflow-hidden rounded border border-slate-200 bg-white">
-        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-         <h3 className="truncate font-semibold text-slate-800">{group.name}</h3>
+      {clientsByOrganization.map((group) => {
+       const orgKey = group.id == null ? '__unassigned__' : String(group.id);
+       return (
+       <div
+        key={orgKey}
+        draggable
+        onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; setDraggedOrgKey(orgKey); }}
+        onDragOver={(event) => { event.preventDefault(); setDragOverOrgKey(orgKey); }}
+        onDragLeave={() => setDragOverOrgKey((prev) => (prev === orgKey ? null : prev))}
+        onDrop={() => onClientsOrgDrop(orgKey)}
+        onDragEnd={() => { setDraggedOrgKey(null); setDragOverOrgKey(null); }}
+        className={`flex flex-col overflow-hidden rounded border bg-white transition ${
+         dragOverOrgKey === orgKey && draggedOrgKey !== orgKey ? 'border-blue-500 ring-2 ring-blue-300' : 'border-slate-200'
+        } ${draggedOrgKey === orgKey ? 'opacity-50' : ''}`}
+       >
+        <div className="flex cursor-move items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5" title={t('clients_drag_org_hint')}>
+         <span className="flex min-w-0 items-center gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="shrink-0 text-slate-400">
+           <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" /><circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" /><circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
+          </svg>
+          <h3 className="truncate font-semibold text-slate-800">{group.name}</h3>
+         </span>
          <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">{group.clients.length}</span>
         </div>
         <ul className="divide-y divide-slate-100">
@@ -6502,7 +6665,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          ))}
         </ul>
        </div>
-      ))}
+       );
+      })}
      </div>
     ) : (
      <div className={tableWrapClassName}>
@@ -7657,9 +7821,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  </div>
                 );
                })()}
-              <div className={tableWrapClassName}>
+              <div className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}>
                <table className="w-full text-sm">
-                <thead className="bg-slate-100 text-slate-700">
+                <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
                  <tr>
                   <th className="w-8 px-2 py-3">
                    <input
@@ -8040,11 +8204,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                             type="date"
                             value={draft.createdDate}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
-                            style={{ width: ledgerFieldWidth(draft.createdDate, 13, 5) }}
+                            style={{ width: '8.5rem' }}
                             className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            />
                           ) : (
-                           new Date(entry.createdAt).toLocaleDateString(language)
+                           formatDateValue(entry.createdAt, ledgerDateFormat)
                           )}
                          </td>
                         );
@@ -8062,12 +8226,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                             ? `${selectedAccount.clientName} - ${selectedAccount.currencySymbol || selectedAccount.currencyCode}`
                             : t('transaction_account_placeholder');
                            return (
+                            <div className="flex items-center gap-1">
                             <select
                              value={draft.counterpartyAccountId ?? ''}
                              onChange={(event) =>
                               updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
                              }
-                             style={{ width: ledgerFieldWidth(selectedLabel, 8, 4) }}
+                             style={{ width: ledgerSelectWidth(selectedLabel, 8, 2) }}
                              className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                             >
                              <option value="">{t('transaction_account_placeholder')}</option>
@@ -8082,6 +8247,18 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                </option>
                               ))}
                             </select>
+                            <button
+                             type="button"
+                             title={t('ledger_swap_parties')}
+                             onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: draft.direction === 'outgoing' ? 'incoming' : 'outgoing' })}
+                             className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                            >
+                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <path d="M7 4 3 8l4 4M3 8h13.5" />
+                              <path d="M17 20l4-4-4-4m4 4H7.5" />
+                             </svg>
+                            </button>
+                            </div>
                            );
                           })() : entry.counterpartyClientId ? (
                            <button
@@ -8115,7 +8292,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                            <select
                             value={draft.direction}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
-                            style={{ width: ledgerFieldWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 4) }}
+                            style={{ width: ledgerSelectWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 2) }}
                             className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            >
                             <option value="incoming">{t('incoming')}</option>
@@ -8142,7 +8319,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                            <select
                             value={draft.type}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
-                            style={{ width: ledgerFieldWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 4) }}
+                            style={{ width: ledgerSelectWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 2) }}
                             className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            >
                             <option value="exchange">{t('transaction_type_exchange')}</option>
@@ -8157,7 +8334,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         return (
                          <td
                           key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.direction === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${(draft?.direction ?? entry.direction) === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {draft ? (
                            <input
@@ -8402,7 +8579,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         return (
                          <td
                           key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.pendingRate ? 'text-amber-500' : entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${ledgerHighlightNetChange ? 'bg-blue-50 ' : ''}${entry.pendingRate ? 'text-amber-500' : entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {entry.pendingRate ? (
                            <span title={t('ledger_rate_pending')}>-</span>
@@ -8440,7 +8617,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                            <select
                             value={draft.currencyId}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: Number(event.target.value) })}
-                            style={{ width: ledgerFieldWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 4) }}
+                            style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
                             className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            >
                             {enabledCurrencies.map((cur) => (
@@ -9904,7 +10081,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                       className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                      />
                     ) : (
-                     formatDateValue(txn.createdAt, transactionTableSettings.dateFormat)
+                     <span className="inline-flex items-center gap-1.5">
+                      {txn.isArchived ? (
+                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                         <rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 12h4" />
+                        </svg>
+                        {t('transaction_archived_badge')}
+                       </span>
+                      ) : null}
+                      {formatDateValue(txn.createdAt, transactionTableSettings.dateFormat)}
+                     </span>
                     )}
                    </td>
                   ) : null}
@@ -11600,7 +11787,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         <div className="mt-2 flex overflow-hidden rounded border border-slate-300 bg-white w-fit">
          <button
           type="button"
-          onClick={() => setLedgerDecimals((d) => Math.max(0, d - 1))}
+          onClick={() => updateLedgerDecimals(Math.max(0, ledgerDecimals - 1))}
           disabled={ledgerDecimals === 0}
           className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
          >
@@ -11609,7 +11796,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          <span className="border-x border-slate-200 px-3 py-1.5 text-center text-sm font-semibold text-slate-800">{ledgerDecimals}</span>
          <button
           type="button"
-          onClick={() => setLedgerDecimals((d) => Math.min(6, d + 1))}
+          onClick={() => updateLedgerDecimals(Math.min(6, ledgerDecimals + 1))}
           disabled={ledgerDecimals === 6}
           className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
          >
@@ -11623,13 +11810,44 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('currency_symbol')}</p>
         <button
          type="button"
-         onClick={() => setShowLedgerCurrencySymbol((current) => !current)}
+         onClick={() => toggleLedgerCurrencySymbol()}
          aria-pressed={showLedgerCurrencySymbol}
          className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
           showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
          }`}
         >
          {t('currency_symbol')}
+        </button>
+       </div>
+
+       {/* Date format */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_date_format_label')}</p>
+        <select
+         value={ledgerDateFormat}
+         onChange={(event) => updateLedgerDateFormat(event.target.value as PdfSettings['dateFormat'])}
+         className="mt-2 w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-300 focus:ring"
+        >
+         <option value="full">2026-06-26 (YYYY-MM-DD)</option>
+         <option value="day-month">26/06 (DD/MM)</option>
+         <option value="month-day">06/26 (MM/DD)</option>
+         <option value="day-month-year-2">26/06/26 (DD/MM/YY)</option>
+         <option value="month-year">06/2026 (MM/YYYY)</option>
+        </select>
+       </div>
+
+       {/* Highlight net change column */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_highlight_net_change')}</p>
+        <button
+         type="button"
+         onClick={() => toggleLedgerHighlightNetChange()}
+         aria-pressed={ledgerHighlightNetChange}
+         className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+          ledgerHighlightNetChange ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+         }`}
+        >
+         {t('ledger_highlight_net_change')}
         </button>
        </div>
 
@@ -11657,15 +11875,34 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        </div>
       </div>
 
-      <div className="mt-5 flex justify-end">
+      <div className="mt-5 flex justify-end gap-2">
        <button
         type="button"
         onClick={() => setShowLedgerSettingsModal(false)}
         className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
        >
-        {t('cancel')}
+        {t('close')}
+       </button>
+       <button
+        type="button"
+        onClick={() => { persistLedgerSettings({}); setShowLedgerSettingsModal(false); }}
+        className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+       >
+        {t('ledger_settings_save')}
        </button>
       </div>
+     </div>
+    </div>
+   ) : null}
+
+   {/* Transient confirmation toast (auto-dismisses after ~1s) */}
+   {toast ? (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4">
+     <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+       <polyline points="20 6 9 17 4 12" />
+      </svg>
+      {toast}
      </div>
     </div>
    ) : null}
