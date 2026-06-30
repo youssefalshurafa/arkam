@@ -204,6 +204,7 @@ type LedgerTransactionDraft = {
  direction: 'incoming' | 'outgoing';
  counterpartyAccountId: number | null;
  type: string;
+ currencyId: number;
  amount: string;
  exchangeRate: string;
  commission: string;
@@ -1122,6 +1123,9 @@ function AuthenticatedHome() {
  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
+ // True until the first loadData() completes, so the overview can show spinners
+ // instead of misleading zeros before any data has been fetched.
+ const [isInitialLoading, setIsInitialLoading] = useState(true);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [clientSearch, setClientSearch] = useState('');
  const [clientsPage, setClientsPage] = useState(1);
@@ -1323,10 +1327,15 @@ function AuthenticatedHome() {
    }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
+<<<<<<< HEAD:src/app/[[...section]]/page.tsx
    if (!hasLoadedRef.current) {
     hasLoadedRef.current = true;
     setIsLoading(false);
    }
+=======
+  } finally {
+   setIsInitialLoading(false);
+>>>>>>> 1c6d1ae6ebdce241c9f8e332165e0a07dd8d373d:src/app/page.tsx
   }
  }, [t]);
 
@@ -1699,6 +1708,7 @@ function AuthenticatedHome() {
    direction: isOutgoing ? 'outgoing' : 'incoming',
    counterpartyAccountId: isOutgoing ? transaction.accountToId : transaction.accountFromId,
    type: transaction.type,
+   currencyId: transaction.currencyId,
    amount: String(transaction.amount),
    exchangeRate: rateStr,
    commission: String(isOutgoing ? transaction.commissionFrom : transaction.commissionTo),
@@ -1925,7 +1935,7 @@ function AuthenticatedHome() {
    id: transaction.id,
    accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
    accountToId: draft.direction === 'outgoing' ? draft.counterpartyAccountId : draft.ledgerAccountId,
-   currencyId: transaction.currencyId,
+   currencyId: draft.currencyId,
    amount,
    type: draft.type,
    exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
@@ -6791,7 +6801,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              className={mutedPanelClassName}
             >
              <p className="text-sm text-slate-500">{card.label}</p>
-             <p className="mt-3 text-3xl font-bold text-slate-900">{card.value}</p>
+             <p className="mt-3 text-3xl font-bold text-slate-900">
+              {isInitialLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}
+             </p>
             </div>
            ))}
           </div>
@@ -8194,7 +8206,23 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                           key={column.key}
                           className="px-4 py-3 text-slate-500 whitespace-nowrap"
                          >
-                          {entry.currencySymbol ? (
+                          {entry.isAdjustment ? (
+                           entry.currencySymbol ? (
+                            <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
+                           ) : (
+                            entry.currencyCode || '-'
+                           )
+                          ) : draft ? (
+                           <select
+                            value={draft.currencyId}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: Number(event.target.value) })}
+                            className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                           >
+                            {enabledCurrencies.map((cur) => (
+                             <option key={cur.id} value={cur.id}>{cur.code}</option>
+                            ))}
+                           </select>
+                          ) : entry.currencySymbol ? (
                            <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
                           ) : (
                            entry.currencyCode || '-'
