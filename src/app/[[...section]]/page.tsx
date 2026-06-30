@@ -2561,19 +2561,39 @@ function AuthenticatedHome() {
    const selectedCurrency = currencyMap.get(transactionForm.currencyId);
    const account = clientAccountMap.get(transactionForm.accountFromId);
 
+   const adjPayload = {
+    accountId: transactionForm.accountFromId,
+    amount,
+    direction: transactionForm.adjustmentDirection,
+    currencyId: transactionForm.currencyId,
+    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+    exchangeRate: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
+    exchangeRateReversed: txFromRateReversed,
+    description: transactionForm.description,
+    createdAt: newTransactionCreatedAt,
+   };
+
    try {
-    await accountingApi.createClientAdjustment({
-     accountId: transactionForm.accountFromId,
-     amount,
-     direction: transactionForm.adjustmentDirection,
-     currencyId: transactionForm.currencyId,
-     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-     exchangeRate: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
-     exchangeRateReversed: txFromRateReversed,
-     description: transactionForm.description,
-     createdAt: newTransactionCreatedAt,
-    });
+    const created = await accountingApi.createClientAdjustment(adjPayload);
+
+    // Optimistically add the new adjustment (the API returns its real id), then reconcile.
+    setAdjustments((prev) => [
+     ...prev,
+     {
+      id: created.id,
+      accountId: adjPayload.accountId,
+      amount: adjPayload.amount,
+      direction: adjPayload.direction,
+      currencyId: adjPayload.currencyId,
+      currencyCode: adjPayload.currencyCode,
+      currencySymbol: adjPayload.currencySymbol,
+      exchangeRate: adjPayload.exchangeRate,
+      exchangeRateReversed: adjPayload.exchangeRateReversed,
+      description: adjPayload.description,
+      createdAt: adjPayload.createdAt,
+     },
+    ]);
 
     setTxSplitDescription(false);
     setTransactionForm(emptyTransactionForm());
@@ -2587,7 +2607,7 @@ function AuthenticatedHome() {
     setIsNewTransactionExpensesOpen(false);
     setNewTransactionDate(new Date().toISOString().slice(0, 10));
     setError('');
-    await loadData();
+    void loadData();
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_save'));
    }
@@ -2600,30 +2620,77 @@ function AuthenticatedHome() {
    return;
   }
 
+  const txPayload = {
+   accountFromId: transactionForm.accountFromId,
+   accountToId: transactionForm.accountToId,
+   currencyId: transactionForm.currencyId,
+   amount: amount || 0,
+   type: transactionForm.type,
+   isArchived: isArchiveCreate,
+   exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
+   commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
+   exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
+   commissionTo: parseFloat(transactionForm.commissionTo) || 0,
+   exchangeRateFromReversed: txFromRateReversed ? 1 : 0,
+   exchangeRateToReversed: txToRateReversed ? 1 : 0,
+   charges: parseFloat(transactionForm.charges) || 0,
+   chargesCurrencyId: transactionForm.chargesCurrencyId || null,
+   chargesPayer: transactionForm.chargesPayer,
+   chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
+   chargesDescription: transactionForm.chargesDescription,
+   description: transactionForm.description,
+   descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
+   descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
+   createdAt: newTransactionCreatedAt,
+  };
+
   try {
-   await accountingApi.createTransaction({
-    accountFromId: transactionForm.accountFromId,
-    accountToId: transactionForm.accountToId,
-    currencyId: transactionForm.currencyId,
-    amount: amount || 0,
-    type: transactionForm.type,
-    isArchived: isArchiveCreate,
-    exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
-    commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
-    exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
-    commissionTo: parseFloat(transactionForm.commissionTo) || 0,
-    exchangeRateFromReversed: txFromRateReversed ? 1 : 0,
-    exchangeRateToReversed: txToRateReversed ? 1 : 0,
-    charges: parseFloat(transactionForm.charges) || 0,
-    chargesCurrencyId: transactionForm.chargesCurrencyId || null,
-    chargesPayer: transactionForm.chargesPayer,
-    chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
-    chargesDescription: transactionForm.chargesDescription,
-    description: transactionForm.description,
-    descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
-    descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
-    createdAt: newTransactionCreatedAt,
-   });
+   await accountingApi.createTransaction(txPayload);
+
+   // Optimistically add the new row so the table updates instantly; a background reload
+   // reconciles it with the server (real id + any server-side normalization).
+   const fromAcc = txPayload.accountFromId != null ? clientAccountMap.get(txPayload.accountFromId) : undefined;
+   const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
+   const cur = txPayload.currencyId != null ? currencyMap.get(txPayload.currencyId) : undefined;
+   const chargesCur = txPayload.chargesCurrencyId != null ? currencyMap.get(txPayload.chargesCurrencyId) : null;
+   setTransactions((prev) => [
+    ...prev,
+    {
+     id: -Date.now(),
+     accountFromId: txPayload.accountFromId,
+     clientFromName: fromAcc?.clientName ?? '',
+     accountFromCurrencyCode: fromAcc?.currencyCode ?? '',
+     accountFromCurrencySymbol: fromAcc?.currencySymbol ?? '',
+     accountToId: txPayload.accountToId,
+     clientToName: toAcc?.clientName ?? '',
+     accountToCurrencyCode: toAcc?.currencyCode ?? '',
+     accountToCurrencySymbol: toAcc?.currencySymbol ?? '',
+     currencyId: txPayload.currencyId ?? 0,
+     currencyCode: cur?.code ?? '',
+     currencySymbol: cur?.symbol ?? '',
+     amount: txPayload.amount,
+     type: txPayload.type,
+     exchangeRateFrom: txPayload.exchangeRateFrom,
+     commissionFrom: txPayload.commissionFrom,
+     exchangeRateTo: txPayload.exchangeRateTo,
+     commissionTo: txPayload.commissionTo,
+     exchangeRateFromReversed: txPayload.exchangeRateFromReversed,
+     exchangeRateToReversed: txPayload.exchangeRateToReversed,
+     charges: txPayload.charges,
+     chargesCurrencyId: txPayload.chargesCurrencyId,
+     chargesCurrencyCode: chargesCur?.code ?? null,
+     chargesCurrencySymbol: chargesCur?.symbol ?? null,
+     chargesPayer: txPayload.chargesPayer,
+     chargesExchangeRate: txPayload.chargesExchangeRate,
+     chargesDescription: txPayload.chargesDescription,
+     description: txPayload.description,
+     descriptionFrom: txPayload.descriptionFrom,
+     descriptionTo: txPayload.descriptionTo,
+     archiveNote: '',
+     isArchived: txPayload.isArchived ? 1 : 0,
+     createdAt: txPayload.createdAt,
+    },
+   ]);
 
    setTxSplitDescription(false);
    setTransactionForm(emptyTransactionForm());
@@ -2637,7 +2704,7 @@ function AuthenticatedHome() {
    setIsNewTransactionExpensesOpen(false);
    setNewTransactionDate(new Date().toISOString().slice(0, 10));
    setError('');
-   await loadData();
+   void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
@@ -4265,6 +4332,22 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
+
+ // Sum of the checkbox-selected transaction-table rows, grouped per currency so mixed-currency
+ // selections show one total each. Shown next to the bulk actions when 2+ rows are selected.
+ const selectedTransactionSums = useMemo(() => {
+  if (selectedTransactionIds.size < 2) return [] as Array<{ code: string; symbol: string; total: number }>;
+  const byCurrency = new Map<string, { code: string; symbol: string; total: number }>();
+  for (const id of selectedTransactionIds) {
+   const row = transactionTableRowMap.get(id);
+   if (!row) continue;
+   const code = row.currencyCode || '';
+   const existing = byCurrency.get(code) ?? { code, symbol: row.currencySymbol || '', total: 0 };
+   existing.total += row.amount;
+   byCurrency.set(code, existing);
+  }
+  return [...byCurrency.values()].sort((a, b) => a.code.localeCompare(b.code));
+ }, [selectedTransactionIds, transactionTableRowMap]);
  const selectedOrganizationClients = useMemo(
   () => (selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : []),
   [clients, selectedOrganizationForClients],
@@ -4635,8 +4718,25 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       return leftId - rightId;
      });
 
+    // Apply the user's manual row order (drag-to-reorder) BEFORE accumulating the running
+    // balance, so the accumulated balance follows the order shown in the table. Rows not yet
+    // in the saved order (e.g. just-added entries) keep their date position at the end.
+    const manualOrder = manualLedgerRowOrder[account.id];
+    const orderedForBalance = manualOrder
+     ? (() => {
+        const entryMap = new Map<string, (typeof entries)[number]>();
+        for (const e of entries) entryMap.set(`${e.transactionId}:${account.id}`, e);
+        const inOrder = manualOrder.flatMap((k) => {
+         const e = entryMap.get(k);
+         return e ? [e] : [];
+        });
+        const seen = new Set(manualOrder);
+        return [...inOrder, ...entries.filter((e) => !seen.has(`${e.transactionId}:${account.id}`))];
+       })()
+     : entries;
+
     let runningBalance = account.startingBalance ?? 0;
-    const entriesWithBalance = entries.map((entry) => {
+    const entriesWithBalance = orderedForBalance.map((entry) => {
      runningBalance += entry.netChange;
      return {
       ...entry,
@@ -4656,7 +4756,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
- }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
+ }, [adjustments, clientAccounts, clientAccountMap, currencyMap, manualLedgerRowOrder, pdfExportModal, section, selectedClientForLedger, transactions]);
 
  // Totals for the rows the user has checkbox-selected in the ledger, shown next to the
  // "Delete (N)" action: sum of the entry amounts and sum of their net change.
@@ -7724,12 +7824,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 </thead>
                 <tbody>
                  {((() => {
-                   const order = manualLedgerRowOrder[ledger.accountId];
-                   const ordered = (() => {
-                    if (!order) return ledger.entries;
-                    const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
-                    return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
-                   })();
+                   // ledger.entries is already in the user's manual order (applied in the memo).
+                   const ordered = ledger.entries;
                    const q = ledgerFilterSearch.trim().toLowerCase();
                    const visible = ordered.filter((e) => {
                     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
@@ -8057,14 +8153,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                 if (values.length <= 1) return;
                                 event.preventDefault();
 
-                                // Rebuild the same ordered + filtered visible list the table renders,
-                                // so we can map row positions to transaction drafts.
-                                const order = manualLedgerRowOrder[ledger.accountId];
-                                const ordered = (() => {
-                                 if (!order) return ledger.entries;
-                                 const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
-                                 return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
-                                })();
+                                // Rebuild the same filtered visible list the table renders, so we
+                                // can map row positions to transaction drafts. ledger.entries is
+                                // already in the user's manual order (applied in the memo).
+                                const ordered = ledger.entries;
                                 const q = ledgerFilterSearch.trim().toLowerCase();
                                 const visible = ordered.filter((e) => {
                                  if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
@@ -8368,12 +8460,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                </table>
               </div>
               {(() => {
-               const order = manualLedgerRowOrder[ledger.accountId];
-               const ordered = (() => {
-                if (!order) return ledger.entries;
-                const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
-                return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
-               })();
+               // ledger.entries is already in the user's manual order (applied in the memo).
+               const ordered = ledger.entries;
                const q = ledgerFilterSearch.trim().toLowerCase();
                const visibleCount = ordered.filter((e) => {
                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
@@ -8645,11 +8733,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                     onMouseDown={(e) => { e.preventDefault(); setTxFromExpandedClient(expanded && !q ? null : clientId); }}
                     className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
                    >
-                    <span>{accts[0].clientName}</span>
-                    <span className="flex items-center gap-1 text-xs text-slate-400">
-                     {accts.length}
-                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+                    <span>
+                     {accts[0].clientName} <span className="text-slate-400">({accts.length})</span>
                     </span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden><path d="m6 9 6 6 6-6" /></svg>
                    </li>
                    {expanded && accts.map((account) => (
                     <li
@@ -9247,6 +9334,15 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               {selectedTransactionIds.size}
              </button>
             ) : null}
+            {selectedTransactionSums.map((sum) => (
+             <span
+              key={sum.code || 'none'}
+              className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+             >
+              <span className="font-semibold text-slate-900">{sum.total.toLocaleString(language)}</span>
+              <span className="text-slate-500">{sum.symbol || sum.code}</span>
+             </span>
+            ))}
             {(section === 'transactions' || section === 'archive') && !isNewTransactionSectionOpen ? (
              <button
               type="button"
