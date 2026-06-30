@@ -318,7 +318,7 @@ type ImportClientReview = {
  name: string; // editable final name when creating a new client
  organizationId: number | null; // org applied to a newly created client
  accountCurrencyIds: number[]; // currency accounts to open for this client (user-controlled)
- currencyId: number; // the import currency (used for the transactions themselves)
+ currencyId: number | null; // the import currency (used for the transactions themselves); null when no global import currency was chosen
  transactionCount: number; // how many imported rows reference this name
 };
 
@@ -791,7 +791,7 @@ function importNameKey(value: string) {
  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportMappingState, currency: Currency) {
+function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportMappingState, currency: Currency | null) {
  if (mapping.fromColumn == null || mapping.toColumn == null || mapping.amountColumn == null) {
   throw new Error('Please choose columns for Sender, Receiver, and Amount.');
  }
@@ -816,8 +816,8 @@ function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportM
    continue;
   }
 
-  const fromName = normalizeClientNameForCurrencySuffix(fromRaw, currency);
-  const toName = normalizeClientNameForCurrencySuffix(toRaw, currency);
+  const fromName = currency ? normalizeClientNameForCurrencySuffix(fromRaw, currency) : fromRaw.trim().replace(/\s+/g, ' ');
+  const toName = currency ? normalizeClientNameForCurrencySuffix(toRaw, currency) : toRaw.trim().replace(/\s+/g, ' ');
 
   if (!fromName || !toName) {
    continue;
@@ -1129,6 +1129,7 @@ function AuthenticatedHome() {
  const [clientSearch, setClientSearch] = useState('');
  const [clientsPage, setClientsPage] = useState(1);
  const [clientsPageSize, setClientsPageSize] = useState(25);
+ const [clientsGroupByOrg, setClientsGroupByOrg] = useState(false);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
@@ -1276,7 +1277,6 @@ function AuthenticatedHome() {
  const [importParsedRows, setImportParsedRows] = useState<ImportedTransactionRow[]>([]);
  const [importRowOverrides, setImportRowOverrides] = useState<Record<number, ImportRowOverride>>({});
  // Currencies the "apply to all clients" control will open for every client.
- const [bulkAccountCurrencyIds, setBulkAccountCurrencyIds] = useState<number[]>([]);
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
  const [isBackingUp, setIsBackingUp] = useState(false);
  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
@@ -2803,25 +2803,21 @@ function AuthenticatedHome() {
  // rename clients and assign organizations before anything is created.
  function onPrepareImportReview() {
   if (!pendingImportData) {
-   setError('No file is selected for import.');
+   setError(t('import_err_no_file'));
    return;
   }
 
   if (importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null) {
-   setError('Please answer the column mapping questions before importing.');
+   setError(t('import_err_mapping'));
    return;
   }
 
-  if (!importMapping.currencyId) {
-   setError('Please choose a currency for this import.');
-   return;
-  }
-
-  const selectedCurrency = currencies.find((currency) => currency.id === importMapping.currencyId) ?? null;
-  if (!selectedCurrency) {
-   setError('Selected currency was not found. Please reselect it.');
-   return;
-  }
+  // The import currency is optional. When chosen it drives every row's currency
+  // (unchanged behaviour); when left blank, each row's currency is derived from
+  // the account the user picks for the client in the review step.
+  const selectedCurrency = importMapping.currencyId
+   ? currencies.find((currency) => currency.id === importMapping.currencyId) ?? null
+   : null;
 
   try {
    const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
@@ -2834,23 +2830,28 @@ function AuthenticatedHome() {
     let entry = reviewMap.get(key);
     if (!entry) {
      const existing = clients.find((client) => normalizeLookup(client.name) === key) ?? null;
-     // For an auto-matched existing client, default to its account in the import
-     // currency (if it has one) so the right account is preselected.
-     const existingImportAccount = existing
-      ? clientAccounts.find((account) => account.clientId === existing.id && account.currencyId === selectedCurrency.id) ?? null
-      : null;
+     // For an auto-matched existing client, preselect the right account. With a
+     // global import currency, only its matching account counts (so we never post
+     // that currency onto a different-currency account). Without one, fall back to
+     // the client's only account so a single-account client still posts.
+     const existingAccounts = existing ? clientAccounts.filter((account) => account.clientId === existing.id) : [];
+     const defaultAccount = selectedCurrency
+      ? existingAccounts.find((account) => account.currencyId === selectedCurrency.id) ?? null
+      : existingAccounts.length === 1
+       ? existingAccounts[0]
+       : null;
      entry = {
       key,
       originalName: rawName,
       isExpense: false,
       existingClientId: existing?.id ?? null,
-      existingAccountId: existingImportAccount?.id ?? null,
+      existingAccountId: defaultAccount?.id ?? null,
       pendingEntryKey: null,
       targetCurrencyId: null,
       name: rawName,
       organizationId: existing?.organizationId ?? (organizations[0]?.id ?? null),
       accountCurrencyIds: [],
-      currencyId: selectedCurrency.id,
+      currencyId: selectedCurrency?.id ?? null,
       transactionCount: 0,
      };
      reviewMap.set(key, entry);
@@ -2868,7 +2869,6 @@ function AuthenticatedHome() {
    }
 
    setError('');
-   setBulkAccountCurrencyIds([selectedCurrency.id]);
    setImportParsedRows(importedRows);
    setImportRowOverrides({});
    setImportReview(Array.from(reviewMap.values()));
@@ -2898,48 +2898,41 @@ function AuthenticatedHome() {
   }
 
   if (!pendingImportData) {
-   setError('No file is selected for import.');
+   setError(t('import_err_no_file'));
    return;
   }
 
   if (importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null) {
-   setError('Please answer the column mapping questions before importing.');
+   setError(t('import_err_mapping'));
    return;
   }
 
-  if (!importMapping.currencyId) {
-   setError('Please choose a currency for this import.');
-   return;
-  }
-
-  const selectedCurrency = currencies.find((currency) => currency.id === importMapping.currencyId) ?? null;
-  if (!selectedCurrency) {
-   setError('Selected currency was not found. Please reselect it.');
-   return;
-  }
+  const selectedCurrency = importMapping.currencyId
+   ? currencies.find((currency) => currency.id === importMapping.currencyId) ?? null
+   : null;
 
   if (!importReview || !importReview.length) {
-   setError('Please review the clients before importing.');
+   setError(t('import_err_review_first'));
    return;
   }
 
   // Only names that will create a brand-new client must be filled in.
   if (importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && !entry.name.trim())) {
-   setError('Every new client must have a name before importing.');
+   setError(t('import_err_name_required'));
    return;
   }
 
   // Every new client needs at least one account to post transactions to.
   const missingAccount = importReview.find((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length === 0);
   if (missingAccount) {
-   setError(`Please add at least one account for "${missingAccount.originalName}" before importing.`);
+   setError(t('import_err_account_required', { name: missingAccount.originalName }));
    return;
   }
 
   // New clients with 2+ accounts need a target account selected.
   const missingTarget = importReview.find((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null);
   if (missingTarget) {
-   setError(`Please select which account "${missingTarget.originalName}" rows should post to.`);
+   setError(t('import_err_target_required', { name: missingTarget.originalName }));
    return;
   }
 
@@ -2947,14 +2940,14 @@ function AuthenticatedHome() {
   const refAccountCount = (key: string) => importReview.find((e) => e.key === key)?.accountCurrencyIds.length ?? 0;
   const missingPendingTarget = importReview.find((entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && refAccountCount(entry.pendingEntryKey!) >= 2);
   if (missingPendingTarget) {
-   setError(`Please select which account "${missingPendingTarget.originalName}" rows should post to.`);
+   setError(t('import_err_target_required', { name: missingPendingTarget.originalName }));
    return;
   }
 
   // Existing clients with 2+ accounts need a selected account.
   const missingExistingAccount = importReview.find((entry) => !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2);
   if (missingExistingAccount) {
-   setError(`Please select an account for "${missingExistingAccount.originalName}" before importing.`);
+   setError(t('import_err_existing_account_required', { name: missingExistingAccount.originalName }));
    return;
   }
 
@@ -3004,19 +2997,23 @@ function AuthenticatedHome() {
     return getClientByName(entry.name.trim())?.id ?? null;
    };
 
-   let importCurrency = nextCurrencies.find((currency) => currency.id === selectedCurrency.id) ?? selectedCurrency;
+   // Optional: present only when the user picked a single currency for the whole
+   // import. When null, each row's currency comes from the resolved account.
+   let importCurrency = selectedCurrency
+    ? nextCurrencies.find((currency) => currency.id === selectedCurrency.id) ?? selectedCurrency
+    : null;
 
    const ensureCurrencyEnabled = async (currencyId: number) => {
     const currency = nextCurrencies.find((item) => item.id === currencyId);
     if (currency && currency.isEnabled !== 1) {
      await accountingApi.enableCurrency(currencyId);
      nextCurrencies = nextCurrencies.map((item) => (item.id === currencyId ? { ...item, isEnabled: 1 } : item));
-     if (currencyId === importCurrency.id) importCurrency = { ...importCurrency, isEnabled: 1 };
+     if (importCurrency && currencyId === importCurrency.id) importCurrency = { ...importCurrency, isEnabled: 1 };
      stats.enabledCurrencies += 1;
     }
    };
 
-   await ensureCurrencyEnabled(importCurrency.id);
+   if (importCurrency) await ensureCurrencyEnabled(importCurrency.id);
 
    // A row touching an expense-marked name that the user flipped to "transaction"
    // means that name must act as a real client for those rows.
@@ -3048,21 +3045,14 @@ function AuthenticatedHome() {
     stats.createdClients += 1;
    }
 
-   // Open accounts. Existing clients reuse a chosen account (or get an import
-   // account if they have none); new clients open the currencies the user picked.
+   // Open accounts only for new clients (the currencies the user picked).
+   // Existing clients are never given new accounts automatically — their rows
+   // post to the account chosen in the review step, or are skipped otherwise.
    // Pending-entry references piggyback on the referenced entry's accounts.
    for (const review of reviewList) {
     if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
     if (review.pendingEntryKey != null) continue;
-
-    if (review.existingClientId != null) {
-     // A specific account was selected, or the client already has the import one.
-     if (review.existingAccountId != null || getClientAccount(review.existingClientId, importCurrency.id)) continue;
-     await ensureCurrencyEnabled(importCurrency.id);
-     await accountingApi.createClientAccount({ clientId: review.existingClientId, currencyId: importCurrency.id, startingBalance: 0 });
-     stats.createdAccounts += 1;
-     continue;
-    }
+    if (review.existingClientId != null) continue;
 
     const clientId = resolveClientId(review);
     if (clientId == null) continue;
@@ -3084,14 +3074,20 @@ function AuthenticatedHome() {
      if (entry.existingAccountId != null) {
       return nextClientAccounts.find((account) => account.id === entry.existingAccountId) ?? null;
      }
-     return getClientAccount(entry.existingClientId, importCurrency.id);
+     return importCurrency ? getClientAccount(entry.existingClientId, importCurrency.id) : null;
     }
     const clientId = resolveClientId(entry);
     if (clientId == null) return null;
     // Use the user-chosen target currency, or fall back to the import currency.
-    const targetCurrencyId = entry.targetCurrencyId ?? importCurrency.id;
+    const targetCurrencyId = entry.targetCurrencyId ?? importCurrency?.id ?? null;
+    if (targetCurrencyId == null) return null;
     return getClientAccount(clientId, targetCurrencyId) ?? null;
    };
+
+   // The currency a row posts in: the global import currency when chosen,
+   // otherwise the currency of the account the row resolves to.
+   const currencyForAccount = (account: ClientAccount) =>
+    importCurrency ?? nextCurrencies.find((currency) => currency.id === account.currencyId) ?? null;
 
    // Walk the rows, building two accumulator arrays instead of firing one HTTP
    // request per row. A single bulk call at the end inserts everything at once.
@@ -3115,13 +3111,15 @@ function AuthenticatedHome() {
      if (!realEntry) continue;
      const account = resolveAccount(realEntry);
      if (!account) { stats.skippedRows += 1; continue; }
+     const adjustmentCurrency = currencyForAccount(account);
+     if (!adjustmentCurrency) { stats.skippedRows += 1; continue; }
      adjustmentsToCreate.push({
       accountId: account.id,
       amount: row.amount,
       direction: override.direction,
-      currencyId: importCurrency.id,
-      currencyCode: importCurrency.code,
-      currencySymbol: importCurrency.symbol,
+      currencyId: adjustmentCurrency.id,
+      currencyCode: adjustmentCurrency.code,
+      currencySymbol: adjustmentCurrency.symbol,
       exchangeRate: 1,
       exchangeRateReversed: false,
       description: row.description || markerEntry?.originalName || '',
@@ -3137,10 +3135,14 @@ function AuthenticatedHome() {
     const fromAccount = resolveAccount(sendEntry);
     const toAccount = resolveAccount(receiveEntry);
     if (!fromAccount || !toAccount) { stats.skippedRows += 1; continue; }
+    // A transfer posts in a single currency. With a global import currency that
+    // is it; without one, both sides must resolve to the same-currency account.
+    const transferCurrency = importCurrency ?? (fromAccount.currencyId === toAccount.currencyId ? currencyForAccount(fromAccount) : null);
+    if (!transferCurrency) { stats.skippedRows += 1; continue; }
     transactionsToCreate.push({
      accountFromId: fromAccount.id,
      accountToId: toAccount.id,
-     currencyId: importCurrency.id,
+     currencyId: transferCurrency.id,
      amount: row.amount,
      type: 'transfer',
      exchangeRateFrom: 1,
@@ -3175,7 +3177,7 @@ function AuthenticatedHome() {
    await loadData();
    setImportSummary(
     `Imported ${stats.createdTransactions} transactions${stats.createdExpenses ? ` and ${stats.createdExpenses} expenses` : ''} from ${pendingImportData.fileName}. Created ${stats.createdClients} clients and ${stats.createdAccounts} accounts.${
-     stats.skippedRows ? ` Skipped ${stats.skippedRows} rows whose clients had no ${selectedCurrency.code} account.` : ''
+     stats.skippedRows ? ` Skipped ${stats.skippedRows} rows whose clients had no ${selectedCurrency ? `${selectedCurrency.code} ` : ''}account.` : ''
     }`,
    );
    setPendingImportData(null);
@@ -3994,13 +3996,13 @@ function AuthenticatedHome() {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>`),
+    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`),
    },
    {
     key: 'runningBalance',
     header: t('running_balance'),
     isNum: true,
-    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>`,
+    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
@@ -4094,7 +4096,7 @@ function AuthenticatedHome() {
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
@@ -4104,7 +4106,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  </tbody>
 </table>
 <div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
 ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
@@ -4324,6 +4326,25 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   const start = (clampedClientsPage - 1) * clientsPageSize;
   return sortedClients.slice(start, start + clientsPageSize);
  }, [sortedClients, clampedClientsPage, clientsPageSize]);
+ // Clients grouped per organization for the card view; respects the active
+ // search/sort (built from sortedClients) and lists clients with no organization last.
+ const clientsByOrganization = useMemo(() => {
+  const groups = new Map<string, { id: number | null; name: string; clients: Client[] }>();
+  for (const client of sortedClients) {
+   const key = client.organizationId == null ? '__unassigned__' : String(client.organizationId);
+   let group = groups.get(key);
+   if (!group) {
+    group = { id: client.organizationId, name: client.organizationName || t('unassigned'), clients: [] };
+    groups.set(key, group);
+   }
+   group.clients.push(client);
+  }
+  return Array.from(groups.values()).sort((a, b) => {
+   if (a.id == null) return 1;
+   if (b.id == null) return -1;
+   return a.name.localeCompare(b.name, language, { sensitivity: 'base' });
+  });
+ }, [sortedClients, language, t]);
  // Jump back to the first page whenever the result set changes (search / sort / page size).
  useEffect(() => {
   setClientsPage(1);
@@ -6429,6 +6450,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       </div>
       <button
        type="button"
+       onClick={() => setClientsGroupByOrg((current) => !current)}
+       className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+      >
+       {clientsGroupByOrg ? t('clients_view_as_list') : t('clients_group_by_org')}
+      </button>
+      <button
+       type="button"
        onClick={() => {
         setSettingsTab('clients');
         navigateToSection('settings');
@@ -6440,46 +6468,68 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      </div>
     </div>
 
-    <div className={tableWrapClassName}>
-     <table className="w-full text-sm">
-      <thead className="bg-slate-100 text-slate-700">
-       <tr>
-        {clientSortHeader('name', t('name'))}
-        {clientSortHeader('organization', t('client_organization'))}
-        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
-       </tr>
-      </thead>
-      <tbody>
-       {sortedClients.map((client) => (
-        <tr
-         key={client.id}
-         className="border-t border-slate-200 align-top"
-        >
-         <td className="px-4 py-3 font-medium text-slate-900">
-          <button
-           type="button"
-           onClick={() => openClientLedger(client, 'clients')}
-           className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
-          >
-           {client.name}
-          </button>
-         </td>
-         <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
-         <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
-        </tr>
-       ))}
-       {clients.length === 0 ? (
+    {clients.length === 0 ? (
+     <p className="px-1 py-6 text-slate-500">{t('no_clients')}</p>
+    ) : sortedClients.length === 0 ? (
+     <p className="px-1 py-6 text-slate-500">{t('no_search_results')}</p>
+    ) : clientsGroupByOrg ? (
+     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {clientsByOrganization.map((group) => (
+       <div key={group.id ?? '__unassigned__'} className="flex flex-col overflow-hidden rounded border border-slate-200 bg-white">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+         <h3 className="truncate font-semibold text-slate-800">{group.name}</h3>
+         <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">{group.clients.length}</span>
+        </div>
+        <ul className="divide-y divide-slate-100">
+         {group.clients.map((client) => (
+          <li key={client.id} className="flex items-center justify-between gap-2 px-4 py-2.5">
+           <button
+            type="button"
+            onClick={() => openClientLedger(client, 'clients')}
+            className="min-w-0 flex-1 truncate text-left font-medium text-slate-900 transition hover:text-blue-700"
+           >
+            {client.name}
+           </button>
+           <span className="shrink-0 text-xs text-slate-500">{t('client_accounts')}: {client.accountCount}</span>
+          </li>
+         ))}
+        </ul>
+       </div>
+      ))}
+     </div>
+    ) : (
+     <div className={tableWrapClassName}>
+      <table className="w-full text-sm">
+       <thead className="bg-slate-100 text-slate-700">
         <tr>
-         <td className="px-4 py-6 text-slate-500" colSpan={3}>{t('no_clients')}</td>
+         {clientSortHeader('name', t('name'))}
+         {clientSortHeader('organization', t('client_organization'))}
+         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
         </tr>
-       ) : sortedClients.length === 0 ? (
-        <tr>
-         <td className="px-4 py-6 text-slate-500" colSpan={3}>{t('no_search_results')}</td>
-        </tr>
-       ) : null}
-      </tbody>
-     </table>
-    </div>
+       </thead>
+       <tbody>
+        {sortedClients.map((client) => (
+         <tr
+          key={client.id}
+          className="border-t border-slate-200 align-top"
+         >
+          <td className="px-4 py-3 font-medium text-slate-900">
+           <button
+            type="button"
+            onClick={() => openClientLedger(client, 'clients')}
+            className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
+           >
+            {client.name}
+           </button>
+          </td>
+          <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
+          <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
+         </tr>
+        ))}
+       </tbody>
+      </table>
+     </div>
+    )}
    </div>
 
    {selectedClientForAccounts ? (
@@ -10562,20 +10612,20 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
      <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded bg-white shadow-2xl">
       <div className="border-b border-slate-200 p-6">
-       <h3 className="text-lg font-semibold text-slate-900">Import setup</h3>
-       <p className="mt-1 text-sm text-slate-500">{pendingImportData.fileName} — match the sheet columns and pick a currency before reviewing clients.</p>
+       <h3 className="text-lg font-semibold text-slate-900">{t('import_setup_title')}</h3>
+       <p className="mt-1 text-sm text-slate-500">{t('import_setup_subtitle', { fileName: pendingImportData.fileName })}</p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
        <div className="grid gap-3 md:grid-cols-2">
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the date column? (optional)</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_date_label')}</span>
          <select
           value={importMapping.dateColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, dateColumn: event.target.value === '' ? null : Number(event.target.value) }))}
           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
-          <option value="">No date column</option>
+          <option value="">{t('import_setup_date_none')}</option>
           {pendingImportData.columnOptions.map((option) => (
            <option key={option.index} value={option.index}>
             {option.label}
@@ -10585,13 +10635,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the sender column?</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_sender_label')}</span>
          <select
           value={importMapping.fromColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, fromColumn: event.target.value === '' ? null : Number(event.target.value) }))}
           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
-          <option value="">Select sender column</option>
+          <option value="">{t('import_setup_sender_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
            <option key={option.index} value={option.index}>
             {option.label}
@@ -10601,13 +10651,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the receiver column?</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_receiver_label')}</span>
          <select
           value={importMapping.toColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, toColumn: event.target.value === '' ? null : Number(event.target.value) }))}
           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
-          <option value="">Select receiver column</option>
+          <option value="">{t('import_setup_receiver_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
            <option key={option.index} value={option.index}>
             {option.label}
@@ -10617,13 +10667,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the amount column?</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_amount_label')}</span>
          <select
           value={importMapping.amountColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, amountColumn: event.target.value === '' ? null : Number(event.target.value) }))}
           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
-          <option value="">Select amount column</option>
+          <option value="">{t('import_setup_amount_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
            <option key={option.index} value={option.index}>
             {option.label}
@@ -10633,13 +10683,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Where is the description column? (optional)</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_description_label')}</span>
          <select
           value={importMapping.descriptionColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, descriptionColumn: event.target.value === '' ? null : Number(event.target.value) }))}
           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
-          <option value="">No description column</option>
+          <option value="">{t('import_setup_description_none')}</option>
           {pendingImportData.columnOptions.map((option) => (
            <option key={option.index} value={option.index}>
             {option.label}
@@ -10649,13 +10699,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Currency for all imported rows</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_currency_label')}</span>
          <select
           value={importMapping.currencyId ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, currencyId: event.target.value === '' ? null : Number(event.target.value) }))}
           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
-          <option value="">Select currency</option>
+          <option value="">{t('import_setup_currency_placeholder')}</option>
           {currencies.map((currency) => (
            <option key={currency.id} value={currency.id}>
             {currency.code} - {currency.name}
@@ -10673,7 +10723,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         disabled={isImportingTransactions}
         className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
        >
-        Cancel Import
+        {t('import_cancel')}
        </button>
        <button
         type="button"
@@ -10681,7 +10731,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         disabled={isImportingTransactions}
         className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
        >
-        Review Clients
+        {t('import_review_clients')}
        </button>
       </div>
      </div>
@@ -10692,50 +10742,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded bg-white shadow-2xl">
       <div className="border-b border-slate-200 p-6">
-       <h3 className="text-lg font-semibold text-slate-900">Review imported names</h3>
+       <h3 className="text-lg font-semibold text-slate-900">{t('import_review_title')}</h3>
        <p className="mt-1 text-sm text-slate-500">
-        {importReview.length} names were read from {pendingImportData?.fileName ?? 'the file'}. For each one, create a new client, pick an existing client, choose
-        which currency accounts to open, or mark it as an expense (e.g. طريق) instead of a client.
+        {t('import_review_subtitle', { count: importReview.length, fileName: pendingImportData?.fileName ?? t('import_review_the_file') })}
        </p>
-
-       <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-3">
-        <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Open accounts for all clients (optional)</span>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-         {enabledCurrencies.map((currency) => {
-          const selected = bulkAccountCurrencyIds.includes(currency.id);
-          return (
-           <button
-            key={currency.id}
-            type="button"
-            onClick={() =>
-             setBulkAccountCurrencyIds((current) =>
-              current.includes(currency.id) ? current.filter((id) => id !== currency.id) : [...current, currency.id],
-             )
-            }
-            className={`rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
-             selected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-           >
-            {currency.code}
-           </button>
-          );
-         })}
-         <button
-          type="button"
-          onClick={() =>
-           setImportReview((current) =>
-            current ? current.map((entry) => (entry.isExpense ? entry : { ...entry, accountCurrencyIds: [...bulkAccountCurrencyIds] })) : current,
-           )
-          }
-          className="rounded border border-blue-600 bg-white px-3 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
-         >
-          Apply to all clients
-         </button>
-        </div>
-        <p className="mt-1.5 text-xs text-slate-400">
-         Transactions need an account in the import currency on both sides — clients missing it are skipped.
-        </p>
-       </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -10755,14 +10765,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               checked={entry.isExpense}
               onChange={(event) => updateImportReviewEntry(entry.key, { isExpense: event.target.checked })}
              />
-             Expense (not a client)
+             {t('import_review_expense_checkbox')}
             </label>
            </div>
 
            {entry.isExpense ? (
             <div className="mt-2">
              <p className="text-xs text-amber-700">
-              Decide what each row containing “{entry.originalName}” should become. Each defaults to a debit (owes you) on the other party.
+              {t('import_review_expense_hint', { name: entry.originalName })}
              </p>
              <div className="mt-2 flex flex-col gap-1.5">
               {importParsedRows
@@ -10788,35 +10798,35 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                     onChange={(event) => updateImportRowOverride(index, { mode: event.target.value as ImportRowOverride['mode'] })}
                     className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
                    >
-                    <option value="expense">Expense (1 client)</option>
-                    <option value="transaction">Transaction (2 clients)</option>
+                    <option value="expense">{t('import_review_mode_expense')}</option>
+                    <option value="transaction">{t('import_review_mode_transaction')}</option>
                    </select>
                   </div>
 
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                    {override.mode === 'expense' ? (
                     <>
-                     <span className="text-slate-500">On {counterparty || 'other party'}:</span>
+                     <span className="text-slate-500">{t('import_review_on_party', { party: counterparty || t('import_review_other_party') })}</span>
                      <select
                       value={override.direction}
                       onChange={(event) => updateImportRowOverride(index, { direction: event.target.value as ImportRowOverride['direction'] })}
                       className="rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
                      >
-                      <option value="debit">Debit (owes you)</option>
-                      <option value="credit">Credit (you owe)</option>
+                      <option value="debit">{t('import_review_debit')}</option>
+                      <option value="credit">{t('import_review_credit')}</option>
                      </select>
                     </>
                    ) : (
                     <>
                      <span className="text-slate-600">
-                      From <span className="font-semibold">{sendName}</span> → To <span className="font-semibold">{receiveName}</span>
+                      {t('import_review_from')} <span className="font-semibold">{sendName}</span> → {t('import_review_to')} <span className="font-semibold">{receiveName}</span>
                      </span>
                      <button
                       type="button"
                       onClick={() => updateImportRowOverride(index, { swap: !override.swap })}
                       className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 font-semibold text-slate-600 transition hover:bg-slate-50"
                      >
-                      ⇄ Swap
+                      ⇄ {t('import_review_swap')}
                      </button>
                     </>
                    )}
@@ -10831,7 +10841,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              {/* Client selector — DB clients + new clients being created in this import */}
              <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
               <label className="flex-1 text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Client</span>
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client')}</span>
                <select
                 value={
                  entry.existingClientId != null
@@ -10861,10 +10871,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 }}
                 className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                >
-                <option value="__new__">➕ Create new client</option>
+                <option value="__new__">{t('import_review_create_new')}</option>
                 {/* Other review entries whose new clients can be reused */}
                 {importReview!.filter((e) => e.key !== entry.key && !e.isExpense && e.existingClientId == null && e.pendingEntryKey == null && e.name.trim()).length > 0 ? (
-                 <optgroup label="From this import">
+                 <optgroup label={t('import_review_from_import')}>
                   {importReview!
                    .filter((e) => e.key !== entry.key && !e.isExpense && e.existingClientId == null && e.pendingEntryKey == null && e.name.trim())
                    .map((e) => (
@@ -10875,7 +10885,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  </optgroup>
                 ) : null}
                 {clients.length > 0 ? (
-                 <optgroup label="Existing clients">
+                 <optgroup label={t('import_review_existing_clients')}>
                   {clients.map((client) => (
                    <option key={client.id} value={client.id}>
                     {client.name}
@@ -10889,7 +10899,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               {/* New client name — only for entries creating a fresh client */}
               {entry.existingClientId == null && entry.pendingEntryKey == null ? (
                <label className="flex-1 text-sm text-slate-700">
-                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">New client name</span>
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_new_client_name')}</span>
                 <input
                  type="text"
                  value={entry.name}
@@ -10903,7 +10913,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              {/* Organization — only for new clients */}
              {entry.existingClientId == null && entry.pendingEntryKey == null ? (
               <label className="mt-3 block text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Organization</span>
+               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_organization')}</span>
                <select
                 value={entry.organizationId ?? ''}
                 onChange={(event) => {
@@ -10917,7 +10927,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 }}
                 className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                >
-                <option value="">No organization</option>
+                <option value="">{t('overview_no_organization')}</option>
                 {organizations.map((organization) => (
                  <option key={organization.id} value={organization.id}>
                   {organization.name}
@@ -10933,15 +10943,15 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               const accountsForClient = clientAccounts.filter((account) => account.clientId === entry.existingClientId);
               if (!accountsForClient.length) {
                return (
-                <p className="mt-2 text-xs text-slate-400">
-                 This client has no accounts yet — a {currencies.find((item) => item.id === entry.currencyId)?.code ?? ''} account will be opened.
+                <p className="mt-2 text-xs text-amber-600">
+                 {t('import_review_existing_no_accounts')}
                 </p>
                );
               }
               if (accountsForClient.length === 1) return null;
               return (
                <label className="mt-3 block text-sm text-slate-700">
-                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Apply rows to which account</span>
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_apply_account')}</span>
                 <select
                  value={entry.existingAccountId ?? ''}
                  onChange={(event) =>
@@ -10949,7 +10959,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  }
                  className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.existingAccountId == null ? 'border-red-400' : 'border-slate-300'}`}
                 >
-                 <option value="">— Select account —</option>
+                 <option value="">{t('import_review_select_account')}</option>
                  {accountsForClient.map((account) => (
                   <option key={account.id} value={account.id}>
                    {account.currencyCode}
@@ -10967,13 +10977,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               const refCurrencies = (refEntry?.accountCurrencyIds ?? []).map((id) => enabledCurrencies.find((c) => c.id === id) ?? currencies.find((c) => c.id === id)).filter(Boolean);
               if (refCurrencies.length === 0) {
                return (
-                <p className="mt-2 text-xs text-amber-600">The referenced client has no accounts yet — add accounts to "{refEntry?.name || refEntry?.originalName}" first.</p>
+                <p className="mt-2 text-xs text-amber-600">{t('import_review_ref_no_accounts', { name: refEntry?.name || refEntry?.originalName || '' })}</p>
                );
               }
               if (refCurrencies.length === 1) return null;
               return (
                <label className="mt-3 block text-sm text-slate-700">
-                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Post rows to account</span>
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_post_to')}</span>
                 <select
                  value={entry.targetCurrencyId ?? ''}
                  onChange={(event) =>
@@ -10981,7 +10991,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  }
                  className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
                 >
-                 <option value="">— Select account —</option>
+                 <option value="">{t('import_review_select_account')}</option>
                  {refCurrencies.map((currency) => currency && (
                   <option key={currency.id} value={currency.id}>
                    {currency.code}{currency.symbol ? ` (${currency.symbol})` : ''}
@@ -10996,9 +11006,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              {entry.existingClientId == null && entry.pendingEntryKey == null ? (
               <div className="mt-3 space-y-2">
                <div>
-                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Accounts to open</span>
+                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_accounts_to_open')}</span>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                 {entry.accountCurrencyIds.length === 0 ? <span className="text-xs font-semibold text-red-500">Required — add at least one account.</span> : null}
+                 {entry.accountCurrencyIds.length === 0 ? <span className="text-xs font-semibold text-red-500">{t('import_review_accounts_required')}</span> : null}
                  {entry.accountCurrencyIds.map((currencyId) => {
                   const currency = enabledCurrencies.find((item) => item.id === currencyId) ?? currencies.find((item) => item.id === currencyId);
                   return (
@@ -11039,7 +11049,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    }}
                    className="rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600 outline-none ring-blue-300 focus:ring"
                   >
-                   <option value="">+ Add account</option>
+                   <option value="">{t('import_review_add_account')}</option>
                    {addableCurrencies.map((currency) => (
                     <option key={currency.id} value={currency.id}>
                      {currency.code} - {currency.name}
@@ -11051,7 +11061,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                </div>
                {entry.accountCurrencyIds.length >= 2 ? (
                 <label className="block text-sm text-slate-700">
-                 <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Post rows to account</span>
+                 <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_post_to')}</span>
                  <select
                   value={entry.targetCurrencyId ?? ''}
                   onChange={(event) =>
@@ -11059,7 +11069,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   }
                   className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
                  >
-                  <option value="">— Select account —</option>
+                  <option value="">{t('import_review_select_account')}</option>
                   {entry.accountCurrencyIds.map((currencyId) => {
                    const currency = enabledCurrencies.find((c) => c.id === currencyId) ?? currencies.find((c) => c.id === currencyId);
                    return currency ? (
@@ -11078,16 +11088,16 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
             {entry.isExpense ? (
-             <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">Expense</span>
+             <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">{t('import_review_badge_expense')}</span>
             ) : entry.existingClientId != null ? (
-             <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">Existing client</span>
+             <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">{t('import_review_badge_existing')}</span>
             ) : entry.pendingEntryKey != null ? (
-             <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">New client (from import)</span>
+             <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">{t('import_review_badge_new_from_import')}</span>
             ) : (
-             <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">New client</span>
+             <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">{t('import_review_badge_new')}</span>
             )}
             <span className="text-slate-500">
-             {entry.transactionCount} row{entry.transactionCount === 1 ? '' : 's'}
+             {t('import_review_row_count', { count: entry.transactionCount })}
             </span>
            </div>
           </div>
@@ -11103,7 +11113,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
        // Returns true if the entry will have an account to post rows to after setup.
        const willHaveAccount = (entry: ImportClientReview): boolean => {
-        if (entry.existingClientId != null) return true; // account creation loop ensures one exists
+        if (entry.existingClientId != null) {
+         // Existing clients are never given new accounts automatically, so they
+         // post only to a chosen account or one they already hold in the import currency.
+         if (entry.existingAccountId != null) return true;
+         if (importMapping.currencyId == null) return false;
+         return clientAccounts.some((a) => a.clientId === entry.existingClientId && a.currencyId === importMapping.currencyId);
+        }
         if (entry.pendingEntryKey != null) {
          const ref = reviewMap.get(entry.pendingEntryKey);
          if (!ref) return false;
@@ -11145,10 +11161,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        if (skipCount === 0) return null;
        return (
         <div className="border-t border-amber-200 bg-amber-50 px-6 py-3 text-xs text-amber-800">
-         <span className="font-semibold">{skipCount} row{skipCount === 1 ? '' : 's'} will be skipped</span>
-         {' — '}the following names have no account configured:{' '}
+         <span className="font-semibold">{t('import_skip_count', { count: skipCount })}</span>
+         {' — '}{t('import_skip_hint_pre')}{' '}
          <span className="font-medium">{skipNames.join(', ')}</span>.
-         {' '}Go back and add accounts for them to avoid losing those rows.
+         {' '}{t('import_skip_hint_post')}
         </div>
        );
       })()}
@@ -11160,7 +11176,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         disabled={isImportingTransactions}
         className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
        >
-        Back
+        {t('import_back')}
        </button>
        <button
         type="button"
@@ -11175,7 +11191,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         }
         className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
        >
-        {isImportingTransactions ? 'Creating…' : 'Create transactions'}
+        {isImportingTransactions ? t('import_creating') : t('import_create_transactions')}
        </button>
       </div>
      </div>
