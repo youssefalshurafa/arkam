@@ -1123,9 +1123,6 @@ function AuthenticatedHome() {
  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
- // True until the first loadData() completes, so the overview can show spinners
- // instead of misleading zeros before any data has been fetched.
- const [isInitialLoading, setIsInitialLoading] = useState(true);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [clientSearch, setClientSearch] = useState('');
  const [clientsPage, setClientsPage] = useState(1);
@@ -1249,8 +1246,10 @@ function AuthenticatedHome() {
  const [copiedTransaction, setCopiedTransaction] = useState<TransactionTableRow | null>(null);
  const [txFromQuery, setTxFromQuery] = useState('');
  const [txFromOpen, setTxFromOpen] = useState(false);
+ const [txFromExpandedClient, setTxFromExpandedClient] = useState<number | null>(null);
  const [txToQuery, setTxToQuery] = useState('');
  const [txToOpen, setTxToOpen] = useState(false);
+ const [txToExpandedClient, setTxToExpandedClient] = useState<number | null>(null);
  const [txFromRateReversed, setTxFromRateReversed] = useState(false);
  const [txToRateReversed, setTxToRateReversed] = useState(false);
  const [ledgerRateReversed, setLedgerRateReversed] = useState<Record<string, boolean>>({});
@@ -1327,15 +1326,10 @@ function AuthenticatedHome() {
    }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
-<<<<<<< HEAD:src/app/[[...section]]/page.tsx
    if (!hasLoadedRef.current) {
     hasLoadedRef.current = true;
     setIsLoading(false);
    }
-=======
-  } finally {
-   setIsInitialLoading(false);
->>>>>>> 1c6d1ae6ebdce241c9f8e332165e0a07dd8d373d:src/app/page.tsx
   }
  }, [t]);
 
@@ -2589,7 +2583,7 @@ function AuthenticatedHome() {
     setTxToOpen(false);
     setTxFromRateReversed(false);
     setTxToRateReversed(false);
-    setIsNewTransactionSectionOpen(false);
+    // Keep the form open so several entries can be added in a row.
     setIsNewTransactionExpensesOpen(false);
     setNewTransactionDate(new Date().toISOString().slice(0, 10));
     setError('');
@@ -2639,7 +2633,7 @@ function AuthenticatedHome() {
    setTxToOpen(false);
    setTxFromRateReversed(false);
    setTxToRateReversed(false);
-   setIsNewTransactionSectionOpen(false);
+   // Keep the form open so several entries can be added in a row.
    setIsNewTransactionExpensesOpen(false);
    setNewTransactionDate(new Date().toISOString().slice(0, 10));
    setError('');
@@ -4664,6 +4658,39 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
  }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
 
+ // Totals for the rows the user has checkbox-selected in the ledger, shown next to the
+ // "Delete (N)" action: sum of the entry amounts and sum of their net change.
+ const selectedLedgerSummary = useMemo(() => {
+  if (selectedLedgerEntryKeys.size === 0) return null;
+  const entryByKey = new Map<string, ClientLedgerEntry>();
+  for (const ledger of selectedClientLedgers) {
+   for (const entry of ledger.entries) {
+    entryByKey.set(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId), entry);
+   }
+  }
+  let amountSum = 0;
+  let netChangeSum = 0;
+  let count = 0;
+  const currencyCodes = new Set<string>();
+  for (const key of selectedLedgerEntryKeys) {
+   const entry = entryByKey.get(key);
+   if (!entry) continue;
+   amountSum += entry.amount;
+   netChangeSum += entry.netChange;
+   currencyCodes.add(entry.currencyCode);
+   count += 1;
+  }
+  // Net change is always expressed in the account's currency.
+  const accountCurrency = selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0];
+  return {
+   count,
+   amountSum,
+   netChangeSum,
+   amountCurrencyCode: currencyCodes.size === 1 ? [...currencyCodes][0] : '',
+   netCurrencyCode: accountCurrency?.currencyCode ?? '',
+  };
+ }, [selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId]);
+
  const mainCurrency = useMemo(() => currencies.find((currency) => currency.isMain === 1) ?? null, [currencies]);
 
  function updateOverviewRate(currencyCode: string, value: string) {
@@ -5426,6 +5453,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   );
  };
 
+ // The account editor is shown for the client currently open in the update form.
+ const accountsClient = clientForm.id ? (clients.find((c) => c.id === clientForm.id) ?? null) : null;
+
  const clientsSection = (
   <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
    <form
@@ -5653,10 +5683,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </tr>
        </thead>
        <tbody>
-        {paginatedClients.map((client) => (
+        {paginatedClients.map((client, index) => (
          <tr
           key={client.id}
-          className="border-t border-slate-200 align-top"
+          className={`border-t border-slate-200 align-top ${index % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100`}
          >
           <td className="px-4 py-3 font-medium text-slate-900">
            <button
@@ -5669,15 +5699,23 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           </td>
           <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
           <td className="px-4 py-3">
-           <button
-            type="button"
-            onClick={() => setSelectedClientForAccounts(selectedClientForAccounts?.id === client.id ? null : client)}
-            className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-             selectedClientForAccounts?.id === client.id ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-            }`}
-           >
-            {t('client_accounts')} ({client.accountCount})
-           </button>
+           {(() => {
+            const accts = clientAccounts.filter((a) => a.clientId === client.id);
+            if (accts.length === 0) return <span className="text-xs text-slate-400">—</span>;
+            return (
+             <div className="flex flex-wrap items-center gap-1">
+              {accts.map((a) => (
+               <span
+                key={a.id}
+                title={a.currencyCode}
+                className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border border-slate-300 bg-slate-50 px-1.5 text-xs font-semibold text-slate-600"
+               >
+                {a.currencySymbol || a.currencyCode}
+               </span>
+              ))}
+             </div>
+            );
+           })()}
           </td>
           <td className="px-4 py-3">
            <div className="flex items-center gap-1">
@@ -5781,28 +5819,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      ) : null}
     </div>
 
-    {selectedClientForAccounts ? (
+    {accountsClient ? (
      <div className={panelClassName}>
       <div className="flex items-center justify-between gap-3">
        <h2 className="text-lg font-semibold">
-        {t('client_accounts_for')}: <span className="text-blue-700">{selectedClientForAccounts.name}</span>
+        {t('client_accounts_for')}: <span className="text-blue-700">{accountsClient.name}</span>
        </h2>
-       <button
-        type="button"
-        onClick={() => {
-         setSelectedClientForAccounts(null);
-         setEditingAccountId(null);
-         setShowAddAccountForm(false);
-        }}
-        className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-       >
-        {t('cancel')}
-       </button>
       </div>
 
       <div className="mt-4 space-y-2">
        {clientAccounts
-        .filter((a) => a.clientId === selectedClientForAccounts.id)
+        .filter((a) => a.clientId === accountsClient.id)
         .map((account) => {
          const isEditing = editingAccountId === account.id;
          return (
@@ -5896,6 +5923,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  inputMode="decimal"
                  value={editingAccountBalance}
                  onChange={(event) => setEditingAccountBalance(event.target.value.replace(/,/g, ''))}
+                 onKeyDown={(event) => { if (event.key === 'Enter' && editingAccountCurrencyId) void onSaveEditAccount(); }}
                  placeholder="0"
                  className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                 />
@@ -5928,7 +5956,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               </div>
 
               {(() => {
-               const moveTargets = clientAccounts.filter((a) => a.id !== account.id && a.currencyId === account.currencyId);
+               // Transactions can only be migrated between accounts of the SAME client
+               // (e.g. Youssef EUR → Youssef USD), never to another client's account.
+               const moveTargets = clientAccounts.filter((a) => a.id !== account.id && a.clientId === account.clientId);
                return (
                 <div className="mt-4 border-t border-slate-200 pt-4">
                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_account_move_title')}</p>
@@ -5945,7 +5975,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                     <option value="">{t('client_account_move_select_placeholder')}</option>
                     {moveTargets.map((target) => (
                      <option key={target.id} value={target.id}>
-                      {target.clientName} · {target.currencyCode}
+                      {target.currencyCode}{target.currencySymbol ? ` (${target.currencySymbol})` : ''}
                      </option>
                     ))}
                    </select>
@@ -5968,7 +5998,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           </div>
          );
         })}
-       {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
+       {clientAccounts.filter((a) => a.clientId === accountsClient.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
       </div>
 
       {/* Add account */}
@@ -5994,7 +6024,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          >
           <option value="">{t('client_account_currency_placeholder')}</option>
           {enabledCurrencies
-           .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
+           .filter((cur) => !clientAccounts.some((a) => a.clientId === accountsClient.id && a.currencyId === cur.id))
            .map((cur) => (
             <option
              key={cur.id}
@@ -6028,6 +6058,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             inputMode="decimal"
             value={newAccountStartingBalance}
             onChange={(event) => setNewAccountStartingBalance(event.target.value.replace(/,/g, ''))}
+            onKeyDown={(event) => { if (event.key === 'Enter' && newAccountCurrencyId && accountsClient) void onAddClientAccount(accountsClient.id); }}
             placeholder="0"
             className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
            />
@@ -6037,7 +6068,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          <div className="flex gap-2">
           <button
            type="button"
-           onClick={() => void onAddClientAccount(selectedClientForAccounts.id)}
+           onClick={() => void onAddClientAccount(accountsClient.id)}
            disabled={!newAccountCurrencyId}
            className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -6802,7 +6833,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             >
              <p className="text-sm text-slate-500">{card.label}</p>
              <p className="mt-3 text-3xl font-bold text-slate-900">
-              {isInitialLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}
+              {isLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}
              </p>
             </div>
            ))}
@@ -7225,6 +7256,24 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                {t('delete')} ({selectedLedgerEntryKeys.size})
               </button>
              ) : null}
+             {selectedLedgerSummary ? (
+              <>
+               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                <span className="font-medium text-slate-500">{t('amount')}</span>
+                <span className="font-semibold text-slate-800">
+                 {selectedLedgerSummary.amountSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                 {selectedLedgerSummary.amountCurrencyCode ? ` ${selectedLedgerSummary.amountCurrencyCode}` : ''}
+                </span>
+               </span>
+               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                <span className="font-medium text-slate-500">{t('net_change')}</span>
+                <span className={`font-semibold ${selectedLedgerSummary.netChangeSum >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                 {selectedLedgerSummary.netChangeSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                 {selectedLedgerSummary.netCurrencyCode ? ` ${selectedLedgerSummary.netCurrencyCode}` : ''}
+                </span>
+               </span>
+              </>
+             ) : null}
              <button
               type="button"
               onClick={() => {
@@ -7291,12 +7340,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 <span className="text-xs text-slate-400">{t('starting_balance')}:</span>
                 {editingStartingBalanceIds.has(ledger.accountId) ? (
                  <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   autoFocus
-                  value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
-                  onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
+                  value={ledgerStartingBalanceDrafts[ledger.accountId] ?? formatAmountInput(String(ledger.startingBalance))}
+                  onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: formatAmountInput(event.target.value) }))}
                   onBlur={async (event) => {
-                   const value = parseFloat(event.target.value);
+                   const value = parseFloat(normalizeDecimalInput(event.target.value));
                    if (!isNaN(value) && accountingApi) {
                     try {
                      await accountingApi.updateClientAccountStartingBalance({ accountId: ledger.accountId, startingBalance: value });
@@ -7315,7 +7365,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  <>
                   <span className="text-xs font-medium text-slate-600">
                    {(ledgerStartingBalanceDrafts[ledger.accountId] !== undefined
-                    ? parseFloat(ledgerStartingBalanceDrafts[ledger.accountId]) || 0
+                    ? parseFloat(normalizeDecimalInput(ledgerStartingBalanceDrafts[ledger.accountId])) || 0
                     : ledger.startingBalance
                    ).toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                   </span>
@@ -7725,7 +7775,16 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
                     }}
                     onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
-                    className={`border-t border-slate-200 align-top transition-colors ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                    onKeyDown={(e) => {
+                     // Enter saves the row being edited (ignore Enter inside multi-line fields).
+                     if (e.key !== 'Enter') return;
+                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     if (!editingLedgerRowKeys.has(rowKey)) return;
+                     if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+                     e.preventDefault();
+                     void onSaveLedgerRow(entry.transactionId, ledger.accountId);
+                    }}
+                    className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
                    >
                     {(() => {
                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -7977,37 +8036,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                             const txCurr = entry.currencyCode;
                             const accCurr = ledger.currencyCode;
                             return (
-                             <div>
-                              {txCurr && accCurr && txCurr !== accCurr && (
-                               <div className="mb-1 flex items-center justify-between">
-                                <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
-                                <button
-                                 type="button"
-                                 title="Reverse rate direction"
-                                 onClick={() => {
-                                  const val = parseFloat(draft.exchangeRate) || 1;
-                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                                  setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
-                                 }}
-                                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                                >
-                                 <svg
-                                  width="14"
-                                  height="14"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.8"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden
-                                 >
-                                  <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                  <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                 </svg>
-                                </button>
-                               </div>
-                              )}
+                             <div className="flex items-center gap-1">
                               <input
                                type="text"
                                inputMode="decimal"
@@ -8053,9 +8082,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                 // Spread each pasted value down consecutive editable rate inputs,
                                 // starting at the row that received the paste. Adjustment rows and
                                 // rows not in edit mode have no rate input, so they are skipped.
+                                // Locate the start row by key in the full (unpaginated) visible list —
+                                // entryIdx is page-relative, so it can't be used to index `visible`.
+                                const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                                const startIdx = Math.max(0, visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey));
                                 const patches: Record<string, string> = {};
                                 let valueIdx = 0;
-                                for (let i = entryIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                                for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
                                  const target = visible[i];
                                  if (target.isAdjustment) continue;
                                  const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
@@ -8081,8 +8114,35 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                 );
                                 next?.focus();
                                }}
-                               className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                               className="w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                               />
+                              {txCurr && accCurr && txCurr !== accCurr && (
+                               <button
+                                type="button"
+                                title="Reverse rate direction"
+                                onClick={() => {
+                                 const val = parseFloat(draft.exchangeRate) || 1;
+                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                                 setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
+                                }}
+                                className="shrink-0 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                               >
+                                <svg
+                                 width="14"
+                                 height="14"
+                                 viewBox="0 0 24 24"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 strokeWidth="1.8"
+                                 strokeLinecap="round"
+                                 strokeLinejoin="round"
+                                 aria-hidden
+                                >
+                                 <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                 <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                </svg>
+                               </button>
+                              )}
                              </div>
                             );
                            })()
@@ -8542,24 +8602,68 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              ) : null}
              {txFromOpen && (
               <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-               {clientAccounts
-                .filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase()))
-                .map((account) => (
-                 <li
-                  key={account.id}
-                  onMouseDown={() => {
-                   setTransactionForm((current) => ({ ...current, accountFromId: account.id }));
-                   setTxFromQuery('');
-                   setTxFromOpen(false);
-                  }}
-                  className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-                 >
-                  {account.clientName} · {account.currencyCode}
-                 </li>
-                ))}
-               {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
-                <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
-               )}
+               {(() => {
+                const q = txFromQuery.trim().toLowerCase();
+                const byClient = new Map<number, ClientAccount[]>();
+                for (const a of clientAccounts) {
+                 if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
+                 const arr = byClient.get(a.clientId) ?? [];
+                 arr.push(a);
+                 byClient.set(a.clientId, arr);
+                }
+                const groups = [...byClient.values()];
+                if (groups.length === 0) {
+                 return <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>;
+                }
+                const selectAccount = (id: number) => {
+                 setTransactionForm((current) => ({ ...current, accountFromId: id }));
+                 setTxFromQuery('');
+                 setTxFromOpen(false);
+                 setTxFromExpandedClient(null);
+                };
+                return groups.map((accts) => {
+                 const clientId = accts[0].clientId;
+                 // Single-account client: pick it directly.
+                 if (accts.length === 1) {
+                  const account = accts[0];
+                  return (
+                   <li
+                    key={`g${clientId}`}
+                    onMouseDown={() => selectAccount(account.id)}
+                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                   >
+                    {account.clientName} · {account.currencyCode}
+                   </li>
+                  );
+                 }
+                 // Multi-account client: show the name; click to expand its accounts.
+                 const expanded = !!q || txFromExpandedClient === clientId;
+                 const hasSelected = accts.some((a) => a.id === transactionForm.accountFromId);
+                 return (
+                  <Fragment key={`g${clientId}`}>
+                   <li
+                    onMouseDown={(e) => { e.preventDefault(); setTxFromExpandedClient(expanded && !q ? null : clientId); }}
+                    className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                   >
+                    <span>{accts[0].clientName}</span>
+                    <span className="flex items-center gap-1 text-xs text-slate-400">
+                     {accts.length}
+                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+                    </span>
+                   </li>
+                   {expanded && accts.map((account) => (
+                    <li
+                     key={account.id}
+                     onMouseDown={() => selectAccount(account.id)}
+                     className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                    >
+                     {account.currencyCode}{account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                    </li>
+                   ))}
+                  </Fragment>
+                 );
+                });
+               })()}
               </ul>
              )}
             </div>
@@ -8615,24 +8719,66 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                ) : null}
                {txToOpen && (
                 <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-                 {clientAccounts
-                  .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
-                  .map((account) => (
-                   <li
-                    key={account.id}
-                    onMouseDown={() => {
-                     setTransactionForm((current) => ({ ...current, accountToId: account.id }));
-                     setTxToQuery('');
-                     setTxToOpen(false);
-                    }}
-                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-                   >
-                    {account.clientName} · {account.currencyCode}
-                   </li>
-                  ))}
-                 {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
-                  <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
-                 )}
+                 {(() => {
+                  const q = txToQuery.trim().toLowerCase();
+                  const byClient = new Map<number, ClientAccount[]>();
+                  for (const a of clientAccounts) {
+                   if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
+                   const arr = byClient.get(a.clientId) ?? [];
+                   arr.push(a);
+                   byClient.set(a.clientId, arr);
+                  }
+                  const groups = [...byClient.values()];
+                  if (groups.length === 0) {
+                   return <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>;
+                  }
+                  const selectAccount = (id: number) => {
+                   setTransactionForm((current) => ({ ...current, accountToId: id }));
+                   setTxToQuery('');
+                   setTxToOpen(false);
+                   setTxToExpandedClient(null);
+                  };
+                  return groups.map((accts) => {
+                   const clientId = accts[0].clientId;
+                   if (accts.length === 1) {
+                    const account = accts[0];
+                    return (
+                     <li
+                      key={`g${clientId}`}
+                      onMouseDown={() => selectAccount(account.id)}
+                      className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                     >
+                      {account.clientName} · {account.currencyCode}
+                     </li>
+                    );
+                   }
+                   const expanded = !!q || txToExpandedClient === clientId;
+                   const hasSelected = accts.some((a) => a.id === transactionForm.accountToId);
+                   return (
+                    <Fragment key={`g${clientId}`}>
+                     <li
+                      onMouseDown={(e) => { e.preventDefault(); setTxToExpandedClient(expanded && !q ? null : clientId); }}
+                      className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                     >
+                      <span>{accts[0].clientName}</span>
+                      <span className="flex items-center gap-1 text-xs text-slate-400">
+                       {accts.length}
+                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+                      </span>
+                     </li>
+                     {expanded && accts.map((account) => (
+                      <li
+                       key={account.id}
+                       onMouseDown={() => selectAccount(account.id)}
+                       className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                      >
+                       {account.currencyCode}{account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                      </li>
+                     ))}
+                    </Fragment>
+                   );
+                  });
+                 })()}
                 </ul>
                )}
               </div>
@@ -9319,7 +9465,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              </tr>
             </thead>
             <tbody>
-             {paginatedTransactions.map((txn) => (
+             {paginatedTransactions.map((txn, index) => (
               <tr
                key={txn.id}
                draggable={!editingRowIds.has(txn.id)}
@@ -9347,7 +9493,15 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 setDragOverRowId(txn.id);
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
-               className={`border-t border-slate-200 align-top transition-colors ${txn.isArchived ? 'bg-amber-50' : ''} ${
+               onKeyDown={(e) => {
+                // Enter saves the row being edited (ignore Enter inside multi-line fields).
+                if (e.key !== 'Enter') return;
+                if (!editingRowIds.has(txn.id)) return;
+                if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+                e.preventDefault();
+                void onSaveTransactionTableRow(txn.id);
+               }}
+               className={`border-t border-slate-200 align-top transition-colors hover:bg-slate-100 ${txn.isArchived ? 'bg-amber-50' : index % 2 === 1 ? 'bg-slate-50' : 'bg-white'} ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
@@ -10943,7 +11097,16 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        const convertedAmount = needsRate ? amountValue * (effectiveRate || 0) : amountValue;
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-         <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
+         <div
+          className="w-full max-w-md rounded bg-white p-6 shadow-2xl"
+          onKeyDown={(e) => {
+           // Enter submits the adjustment (ignore Enter inside multi-line fields).
+           if (e.key !== 'Enter') return;
+           if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+           e.preventDefault();
+           void onSubmitAdjustment();
+          }}
+         >
           <h3 className="text-lg font-semibold text-slate-900">{adjustmentModal.editingId ? t('adjustment_edit_title') : t('adjustment_add_title')}</h3>
           {ledger ? (
            <p className="mt-1 text-sm text-slate-500">
