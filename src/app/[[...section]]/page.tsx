@@ -1129,7 +1129,7 @@ function AuthenticatedHome() {
  const [clientSearch, setClientSearch] = useState('');
  const [clientsPage, setClientsPage] = useState(1);
  const [clientsPageSize, setClientsPageSize] = useState(25);
- const [clientsGroupByOrg, setClientsGroupByOrg] = useState(false);
+ const [clientsGroupByOrg, setClientsGroupByOrg] = useState(true);
  const [currencies, setCurrencies] = useState<Currency[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
@@ -6431,7 +6431,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
  const clientsReadOnlySection = (
   <section className="flex flex-col gap-4">
    <div className={panelClassName}>
-    <div className="flex items-start justify-between gap-4">
+    <div className="mb-4 flex items-start justify-between gap-4">
      <div>
       <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
      </div>
@@ -6490,7 +6490,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            >
             {client.name}
            </button>
-           <span className="shrink-0 text-xs text-slate-500">{t('client_accounts')}: {client.accountCount}</span>
+           <span className="shrink-0 text-xs text-slate-500">({client.accountCount})</span>
           </li>
          ))}
         </ul>
