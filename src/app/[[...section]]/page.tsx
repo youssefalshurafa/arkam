@@ -10147,21 +10147,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
                     {isEditingRow && draft ? (
                      <div className="space-y-2">
-                      <select
-                       value={draft.accountFromId ?? ''}
-                       onChange={(event) => updateTransactionTableDraft(txn.id, { accountFromId: event.target.value ? Number(event.target.value) : null })}
-                       className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                      >
-                       <option value="">{t('transaction_account_placeholder')}</option>
-                       {clientAccounts.map((account) => (
-                        <option
-                         key={account.id}
-                         value={account.id}
-                        >
-                         {account.clientName} - {account.currencySymbol || account.currencyCode}
-                        </option>
-                       ))}
-                      </select>
+                      <AccountSearchSelect
+                       accounts={clientAccounts}
+                       value={draft.accountFromId}
+                       onChange={(id) => updateTransactionTableDraft(txn.id, { accountFromId: id })}
+                       placeholder={t('transaction_account_placeholder')}
+                       clearLabel={t('clear_selection')}
+                       isRTL={isRTL}
+                      />
                       {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
                        <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-400">
@@ -10294,21 +10287,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      </div>
                     ) : isEditingRow && draft ? (
                      <div className="space-y-2">
-                      <select
-                       value={draft.accountToId ?? ''}
-                       onChange={(event) => updateTransactionTableDraft(txn.id, { accountToId: event.target.value ? Number(event.target.value) : null })}
-                       className="min-w-40 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                      >
-                       <option value="">{t('transaction_account_placeholder')}</option>
-                       {clientAccounts.map((account) => (
-                        <option
-                         key={account.id}
-                         value={account.id}
-                        >
-                         {account.clientName} - {account.currencySymbol || account.currencyCode}
-                        </option>
-                       ))}
-                      </select>
+                      <AccountSearchSelect
+                       accounts={clientAccounts}
+                       value={draft.accountToId}
+                       onChange={(id) => updateTransactionTableDraft(txn.id, { accountToId: id })}
+                       placeholder={t('transaction_account_placeholder')}
+                       clearLabel={t('clear_selection')}
+                       isRTL={isRTL}
+                      />
                       {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
                        <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-400">
@@ -12006,6 +11992,76 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       </form>
      </div>
     </div>
+   ) : null}
+  </div>
+ );
+}
+
+// Searchable account picker: type to filter accounts by client name / currency,
+// matching the searchable client dropdown used in the new-transaction form. Each
+// instance keeps its own open/query state so it can be reused per table row.
+function AccountSearchSelect({
+ accounts,
+ value,
+ onChange,
+ placeholder,
+ clearLabel,
+ isRTL,
+}: {
+ accounts: ClientAccount[];
+ value: number | null;
+ onChange: (id: number | null) => void;
+ placeholder: string;
+ clearLabel: string;
+ isRTL: boolean;
+}) {
+ const [query, setQuery] = useState('');
+ const [open, setOpen] = useState(false);
+ const selected = value != null ? accounts.find((account) => account.id === value) ?? null : null;
+ const selectedLabel = selected ? `${selected.clientName} · ${selected.currencyCode}` : '';
+ const q = query.trim().toLowerCase();
+ const filtered = q ? accounts.filter((account) => `${account.clientName} ${account.currencyCode}`.toLowerCase().includes(q)) : accounts;
+ return (
+  <div className="relative">
+   <input
+    type="text"
+    value={open ? query : selectedLabel}
+    onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+    onFocus={() => { setQuery(''); setOpen(true); }}
+    onBlur={() => setTimeout(() => setOpen(false), 150)}
+    placeholder={placeholder}
+    autoComplete="off"
+    className={`min-w-40 w-full rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-7' : 'pr-7'}`}
+   />
+   {value != null && !open ? (
+    <button
+     type="button"
+     onMouseDown={(event) => { event.preventDefault(); onChange(null); setQuery(''); setOpen(false); }}
+     title={clearLabel}
+     aria-label={clearLabel}
+     className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
+    >
+     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+     </svg>
+    </button>
+   ) : null}
+   {open ? (
+    <ul className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white text-xs shadow-lg">
+     {filtered.length === 0 ? (
+      <li className="px-3 py-2 text-slate-400">{placeholder}</li>
+     ) : (
+      filtered.map((account) => (
+       <li
+        key={account.id}
+        onMouseDown={() => { onChange(account.id); setQuery(''); setOpen(false); }}
+        className={`cursor-pointer px-3 py-2 hover:bg-blue-50 ${value === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+       >
+        {account.clientName} · {account.currencyCode}
+       </li>
+      ))
+     )}
+    </ul>
    ) : null}
   </div>
  );
