@@ -2,7 +2,7 @@
 
 import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import HomePage from '@/components/marketing/HomePage';
@@ -354,6 +354,31 @@ const pdfSettingsStorageKey = 'arkam:pdf-settings';
 const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
 
+// Remembers the last ledger account the user viewed per client, so refreshing the
+// page (or revisiting the client) restores that account instead of jumping to the first.
+const ledgerLastAccountStorageKeyPrefix = 'arkam:ledger-last-account:';
+
+function getStoredLedgerAccountId(clientId: number): number | null {
+ if (typeof window === 'undefined') return null;
+ try {
+  const raw = window.localStorage.getItem(ledgerLastAccountStorageKeyPrefix + clientId);
+  if (!raw) return null;
+  const parsed = parseInt(raw, 10);
+  return isNaN(parsed) ? null : parsed;
+ } catch {
+  return null;
+ }
+}
+
+function setStoredLedgerAccountId(clientId: number, accountId: number) {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(ledgerLastAccountStorageKeyPrefix + clientId, String(accountId));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+
 // User-entered FX rates for the overview balance cards, keyed by currency code
 // (e.g. { EUR: '10.92', USD: '9.50' }). Stable across currency reseeds.
 const overviewRatesStorageKey = 'arkam:overview-rates';
@@ -521,6 +546,7 @@ type PdfSettings = {
  showMetaPeriod: boolean;
  showFooter: boolean;
  showGeneratedOn: boolean;
+ showCurrencySymbol: boolean;
 };
 
 const defaultPdfSettings: PdfSettings = {
@@ -535,6 +561,7 @@ const defaultPdfSettings: PdfSettings = {
  showMetaPeriod: true,
  showFooter: true,
  showGeneratedOn: true,
+ showCurrencySymbol: true,
 };
 
 function getStoredPdfSettings(): PdfSettings {
@@ -553,11 +580,16 @@ type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'clients' | 'o
 
 type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive';
 
-const allowedSections: Section[] = ['overview', 'settings', 'organizations', 'organization-clients', 'clients', 'client-ledger', 'currencies', 'transactions', 'archive'];
+const mainSections: Section[] = ['overview', 'settings', 'organizations', 'clients', 'currencies', 'transactions', 'archive'];
 
-function getSectionFromHash(hash: string): Section {
- const normalized = hash.replace('#', '');
- return allowedSections.includes(normalized as Section) ? (normalized as Section) : 'overview';
+function getSectionFromPath(pathname: string): { section: Section; subId?: string } {
+ const parts = pathname.split('/').filter(Boolean);
+ const first = parts[0] ?? '';
+ const second = parts[1];
+ if (first === 'clients' && second) return { section: 'client-ledger', subId: second };
+ if (first === 'organizations' && second) return { section: 'organization-clients', subId: second };
+ const section = mainSections.includes(first as Section) ? (first as Section) : 'overview';
+ return { section };
 }
 
 function normalizeDecimalInput(value: string) {
@@ -1011,20 +1043,88 @@ const emptyTransactionForm = (): TransactionForm => ({
  descriptionTo: '',
 });
 
+// ─── Skeleton primitives ──────────────────────────────────────────────────
+
+function SkBar({ w = 'w-1/2', h = 'h-3.5' }: { w?: string; h?: string }) {
+ return <div className={`${h} ${w} animate-pulse rounded bg-slate-200`} />;
+}
+
+function SkTableRows({ cols, rows = 7 }: { cols: string[]; rows?: number }) {
+ return (
+  <>
+   {Array.from({ length: rows }, (_, i) => (
+    <tr key={i} className="border-t border-slate-100">
+     {cols.map((w, j) => (
+      <td key={j} className="px-4 py-3">
+       <SkBar w={w} />
+      </td>
+     ))}
+    </tr>
+   ))}
+  </>
+ );
+}
+
+function SkTablePanel({
+ panelClassName,
+ tableWrapClassName,
+ titleWidth = 'w-44',
+ cols,
+ rows = 7,
+}: {
+ panelClassName: string;
+ tableWrapClassName: string;
+ titleWidth?: string;
+ cols: string[];
+ rows?: number;
+}) {
+ return (
+  <div className={panelClassName}>
+   <div className="mb-4 flex items-center justify-between gap-4">
+    <SkBar w={titleWidth} h="h-6" />
+    <div className="flex gap-2">
+     <SkBar w="w-8" h="h-8" />
+     <SkBar w="w-8" h="h-8" />
+    </div>
+   </div>
+   <div className={tableWrapClassName}>
+    <table className="w-full text-sm">
+     <thead className="bg-slate-50">
+      <tr>
+       {cols.map((_, i) => (
+        <th key={i} className="px-4 py-3">
+         <SkBar w="w-12" h="h-3" />
+        </th>
+       ))}
+      </tr>
+     </thead>
+     <tbody>
+      <SkTableRows cols={cols} rows={rows} />
+     </tbody>
+    </table>
+   </div>
+  </div>
+ );
+}
+
+const SK_TX = ['w-24', 'w-28', 'w-28', 'w-20', 'w-14', 'w-14', 'w-20', 'w-24', 'w-8'];
+const SK_LEDGER = ['w-20', 'w-28', 'w-14', 'w-14', 'w-20', 'w-16', 'w-16', 'w-20', 'w-8'];
+const SK_CLIENTS = ['w-36', 'w-28', 'w-20', 'w-8'];
+const SK_ORGS = ['w-40', 'w-16', 'w-8'];
+const SK_CURRENCIES = ['w-12', 'w-40', 'w-10', 'w-16', 'w-8'];
+
 function AuthenticatedHome() {
  const router = useRouter();
+ const pathname = usePathname();
  const { language, setLanguage, isRTL } = useLanguage();
  const { t } = useTranslation(language);
- const [section, setSection] = useState<Section>('overview');
+ const [section, setSection] = useState<Section>(() => getSectionFromPath(pathname).section);
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
  const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
  const [organizations, setOrganizations] = useState<Organization[]>([]);
  const [clients, setClients] = useState<Client[]>([]);
- // True until the first loadData() completes, so the overview can show spinners
- // instead of misleading zeros before any data has been fetched.
- const [isInitialLoading, setIsInitialLoading] = useState(true);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [clientSearch, setClientSearch] = useState('');
  const [clientsPage, setClientsPage] = useState(1);
@@ -1148,8 +1248,10 @@ function AuthenticatedHome() {
  const [copiedTransaction, setCopiedTransaction] = useState<TransactionTableRow | null>(null);
  const [txFromQuery, setTxFromQuery] = useState('');
  const [txFromOpen, setTxFromOpen] = useState(false);
+ const [txFromExpandedClient, setTxFromExpandedClient] = useState<number | null>(null);
  const [txToQuery, setTxToQuery] = useState('');
  const [txToOpen, setTxToOpen] = useState(false);
+ const [txToExpandedClient, setTxToExpandedClient] = useState<number | null>(null);
  const [txFromRateReversed, setTxFromRateReversed] = useState(false);
  const [txToRateReversed, setTxToRateReversed] = useState(false);
  const [ledgerRateReversed, setLedgerRateReversed] = useState<Record<string, boolean>>({});
@@ -1180,7 +1282,10 @@ function AuthenticatedHome() {
  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
  const [lastBackupDevice, setLastBackupDevice] = useState<string | null>(null);
+ const [isLoading, setIsLoading] = useState(true);
  const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
+ const lastInitializedSubIdRef = useRef<string>('');
+ const hasLoadedRef = useRef(false);
 
  const loadData = useCallback(async () => {
   if (!accountingApi) {
@@ -1217,10 +1322,16 @@ function AuthenticatedHome() {
    setSelectedClientForAccounts((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setSelectedClientForLedger((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setError('');
+   if (!hasLoadedRef.current) {
+    hasLoadedRef.current = true;
+    setIsLoading(false);
+   }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_load'));
-  } finally {
-   setIsInitialLoading(false);
+   if (!hasLoadedRef.current) {
+    hasLoadedRef.current = true;
+    setIsLoading(false);
+   }
   }
  }, [t]);
 
@@ -1260,17 +1371,61 @@ function AuthenticatedHome() {
  };
 
  useEffect(() => {
-  const applyHashSection = () => {
-   setSection(getSectionFromHash(window.location.hash));
-  };
+  setSection(getSectionFromPath(pathname).section);
+ }, [pathname]);
 
-  applyHashSection();
-  window.addEventListener('hashchange', applyHashSection);
+ // Resolve the client/organization from the URL path. Intentionally does NOT depend on
+ // clientAccounts or touch the selected account — that would reset the user's chosen account
+ // on every data reload after a save. Account selection is handled by the effect below.
+ useEffect(() => {
+  const { section: pathSection, subId } = getSectionFromPath(pathname);
+  if (pathSection === 'client-ledger' && subId) {
+   const clientId = parseInt(subId, 10);
+   if (!isNaN(clientId) && clients.length > 0) {
+    const client = clients.find((c) => c.id === clientId);
+    if (client) {
+     if (lastInitializedSubIdRef.current !== subId) {
+      setLedgerTransactionDrafts({});
+      lastInitializedSubIdRef.current = subId;
+     }
+     setSelectedClientForLedger(client);
+    }
+   }
+  } else if (pathSection === 'organization-clients' && subId) {
+   const orgId = parseInt(subId, 10);
+   if (!isNaN(orgId) && organizations.length > 0) {
+    const org = organizations.find((o) => o.id === orgId);
+    if (org) setSelectedOrganizationForClients(org);
+   }
+  }
+ }, [pathname, clients, organizations]);
 
-  return () => {
-   window.removeEventListener('hashchange', applyHashSection);
-  };
- }, []);
+ // Choose the active ledger account for the open client. Keeps the current selection if it is
+ // still valid (so reloads after a save don't jump to the first account); otherwise restores the
+ // last-viewed account from localStorage, falling back to the first account.
+ useEffect(() => {
+  const clientId = selectedClientForLedger?.id;
+  if (!clientId) return;
+  const accounts = clientAccounts.filter((a) => a.clientId === clientId);
+  if (accounts.length === 0) return;
+  setSelectedLedgerAccountId((current) => {
+   if (current != null && accounts.some((a) => a.id === current)) return current;
+   const stored = getStoredLedgerAccountId(clientId);
+   if (stored != null && accounts.some((a) => a.id === stored)) return stored;
+   return accounts[0].id;
+  });
+ }, [selectedClientForLedger?.id, clientAccounts]);
+
+ // Persist the active ledger account so a refresh restores it. Guard against persisting an
+ // account that doesn't belong to the current client during the brief cross-client transition.
+ useEffect(() => {
+  const clientId = selectedClientForLedger?.id;
+  if (!clientId || selectedLedgerAccountId == null) return;
+  const account = clientAccounts.find((a) => a.id === selectedLedgerAccountId);
+  if (account && account.clientId === clientId) {
+   setStoredLedgerAccountId(clientId, selectedLedgerAccountId);
+  }
+ }, [selectedClientForLedger?.id, selectedLedgerAccountId, clientAccounts]);
 
  useEffect(() => {
   window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
@@ -1458,21 +1613,24 @@ function AuthenticatedHome() {
 
  function navigateToSection(nextSection: Section) {
   setSection(nextSection);
-  window.history.replaceState(null, '', `#${nextSection}`);
+  if (nextSection === 'client-ledger' || nextSection === 'organization-clients') return;
+  router.replace(nextSection === 'overview' ? '/' : `/${nextSection}`);
  }
 
  function openOrganizationClientsPage(organization: Organization) {
   setSelectedOrganizationForClients(organization);
-  navigateToSection('organization-clients');
+  setSection('organization-clients');
+  router.push(`/organizations/${organization.id}`);
  }
 
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients') {
   setClientLedgerBackSection(origin);
   setLedgerTransactionDrafts({});
   setSelectedClientForLedger(client);
-  const firstAccount = clientAccounts.find((account) => account.clientId === client.id);
-  setSelectedLedgerAccountId(firstAccount?.id ?? null);
-  navigateToSection('client-ledger');
+  // Account selection (restore last-viewed or default to first) is handled by the
+  // ledger-account effect, which keys off selectedClientForLedger.
+  setSection('client-ledger');
+  router.push(`/clients/${client.id}`);
  }
 
  function toggleLedgerColumn(column: LedgerColumnKey) {
@@ -1692,6 +1850,58 @@ function AuthenticatedHome() {
   return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
  }
 
+ // Apply a transaction update to local state immediately so edits appear instantly,
+ // re-resolving the derived display fields (client names, currency code/symbol) from the
+ // current account/currency maps. A background loadData() later reconciles with the server.
+ function applyTransactionPatch(input: TransactionUpdateInput) {
+  const fromAccount = input.accountFromId != null ? clientAccountMap.get(input.accountFromId) : undefined;
+  const toAccount = input.accountToId != null ? clientAccountMap.get(input.accountToId) : undefined;
+  const currency = currencyMap.get(input.currencyId);
+  const chargesCurrency = input.chargesCurrencyId != null ? currencyMap.get(input.chargesCurrencyId) : null;
+  setTransactions((prev) =>
+   prev.map((tx) =>
+    tx.id === input.id
+     ? {
+        ...tx,
+        accountFromId: input.accountFromId,
+        accountToId: input.accountToId,
+        clientFromName: fromAccount?.clientName ?? tx.clientFromName,
+        accountFromCurrencyCode: fromAccount?.currencyCode ?? tx.accountFromCurrencyCode,
+        accountFromCurrencySymbol: fromAccount?.currencySymbol ?? tx.accountFromCurrencySymbol,
+        clientToName: toAccount?.clientName ?? tx.clientToName,
+        accountToCurrencyCode: toAccount?.currencyCode ?? tx.accountToCurrencyCode,
+        accountToCurrencySymbol: toAccount?.currencySymbol ?? tx.accountToCurrencySymbol,
+        currencyId: input.currencyId,
+        currencyCode: currency?.code ?? tx.currencyCode,
+        currencySymbol: currency?.symbol ?? tx.currencySymbol,
+        amount: input.amount,
+        type: input.type,
+        exchangeRateFrom: input.exchangeRateFrom,
+        commissionFrom: input.commissionFrom,
+        exchangeRateTo: input.exchangeRateTo,
+        commissionTo: input.commissionTo,
+        exchangeRateFromReversed: input.exchangeRateFromReversed ?? tx.exchangeRateFromReversed,
+        exchangeRateToReversed: input.exchangeRateToReversed ?? tx.exchangeRateToReversed,
+        charges: input.charges,
+        chargesCurrencyId: input.chargesCurrencyId,
+        chargesCurrencyCode: chargesCurrency?.code ?? null,
+        chargesCurrencySymbol: chargesCurrency?.symbol ?? null,
+        chargesPayer: input.chargesPayer,
+        chargesExchangeRate: input.chargesExchangeRate,
+        chargesDescription: input.chargesDescription,
+        description: input.description,
+        createdAt: input.createdAt,
+       }
+     : tx,
+   ),
+  );
+ }
+
+ // Same idea for an adjustment row edited from the transaction table.
+ function applyAdjustmentPatch(input: ClientAdjustment) {
+  setAdjustments((prev) => prev.map((adjustment) => (adjustment.id === input.id ? { ...adjustment, ...input } : adjustment)));
+ }
+
  async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}) {
   if (!accountingApi) {
    setError(t('error_bridge'));
@@ -1744,7 +1954,10 @@ function AuthenticatedHome() {
   try {
    await accountingApi.updateTransaction(payload);
    setError('');
-   if (!skipReload) await loadData();
+   // Optimistically reflect the edit so the ledger updates instantly (no page-wide reload,
+   // no account jump). The batch saver passes skipReload and reconciles once at the end.
+   applyTransactionPatch(payload);
+   if (!skipReload) void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -1800,17 +2013,18 @@ function AuthenticatedHome() {
    .map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId))
    .filter((k) => editingLedgerRowKeys.has(k));
   // Fire all saves in parallel so 100+ rows finish in one round-trip batch rather than sequentially.
+  // Each save applies its optimistic patch, so the table is already up to date here.
   await Promise.all(
    keys.map((key) => {
     const [txIdStr, accIdStr] = key.split(':');
     return onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { skipReload: true });
    }),
   );
-  // Single data reload after all saves complete.
-  await loadData();
+  // Exit edit mode immediately; reconcile with the server in the background.
   setEditingLedgerRowKeys((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n; });
   setLedgerTransactionDrafts((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
   setEditAllLedgerAccountIds((prev) => { const n = new Set(prev); n.delete(ledger.accountId); return n; });
+  void loadData();
  }
 
  async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
@@ -2265,12 +2479,14 @@ function AuthenticatedHome() {
    setError(t('error_bridge'));
    return;
   }
+  const symbol = editingCurrencySymbolValue.trim();
   try {
-   await accountingApi.updateCurrency({ id: currency.id, code: currency.code, name: currency.name, symbol: editingCurrencySymbolValue.trim() });
+   await accountingApi.updateCurrency({ id: currency.id, code: currency.code, name: currency.name, symbol });
    setEditingCurrencySymbolId(null);
    setEditingCurrencySymbolValue('');
    setError('');
-   await loadData();
+   setCurrencies((prev) => prev.map((c) => (c.id === currency.id ? { ...c, symbol } : c)));
+   void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -2347,19 +2563,39 @@ function AuthenticatedHome() {
    const selectedCurrency = currencyMap.get(transactionForm.currencyId);
    const account = clientAccountMap.get(transactionForm.accountFromId);
 
+   const adjPayload = {
+    accountId: transactionForm.accountFromId,
+    amount,
+    direction: transactionForm.adjustmentDirection,
+    currencyId: transactionForm.currencyId,
+    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+    exchangeRate: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
+    exchangeRateReversed: txFromRateReversed,
+    description: transactionForm.description,
+    createdAt: newTransactionCreatedAt,
+   };
+
    try {
-    await accountingApi.createClientAdjustment({
-     accountId: transactionForm.accountFromId,
-     amount,
-     direction: transactionForm.adjustmentDirection,
-     currencyId: transactionForm.currencyId,
-     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-     exchangeRate: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
-     exchangeRateReversed: txFromRateReversed,
-     description: transactionForm.description,
-     createdAt: newTransactionCreatedAt,
-    });
+    const created = await accountingApi.createClientAdjustment(adjPayload);
+
+    // Optimistically add the new adjustment (the API returns its real id), then reconcile.
+    setAdjustments((prev) => [
+     ...prev,
+     {
+      id: created.id,
+      accountId: adjPayload.accountId,
+      amount: adjPayload.amount,
+      direction: adjPayload.direction,
+      currencyId: adjPayload.currencyId,
+      currencyCode: adjPayload.currencyCode,
+      currencySymbol: adjPayload.currencySymbol,
+      exchangeRate: adjPayload.exchangeRate,
+      exchangeRateReversed: adjPayload.exchangeRateReversed,
+      description: adjPayload.description,
+      createdAt: adjPayload.createdAt,
+     },
+    ]);
 
     setTxSplitDescription(false);
     setTransactionForm(emptyTransactionForm());
@@ -2369,11 +2605,11 @@ function AuthenticatedHome() {
     setTxToOpen(false);
     setTxFromRateReversed(false);
     setTxToRateReversed(false);
-    setIsNewTransactionSectionOpen(false);
+    // Keep the form open so several entries can be added in a row.
     setIsNewTransactionExpensesOpen(false);
     setNewTransactionDate(new Date().toISOString().slice(0, 10));
     setError('');
-    await loadData();
+    void loadData();
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_save'));
    }
@@ -2386,30 +2622,77 @@ function AuthenticatedHome() {
    return;
   }
 
+  const txPayload = {
+   accountFromId: transactionForm.accountFromId,
+   accountToId: transactionForm.accountToId,
+   currencyId: transactionForm.currencyId,
+   amount: amount || 0,
+   type: transactionForm.type,
+   isArchived: isArchiveCreate,
+   exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
+   commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
+   exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
+   commissionTo: parseFloat(transactionForm.commissionTo) || 0,
+   exchangeRateFromReversed: txFromRateReversed ? 1 : 0,
+   exchangeRateToReversed: txToRateReversed ? 1 : 0,
+   charges: parseFloat(transactionForm.charges) || 0,
+   chargesCurrencyId: transactionForm.chargesCurrencyId || null,
+   chargesPayer: transactionForm.chargesPayer,
+   chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
+   chargesDescription: transactionForm.chargesDescription,
+   description: transactionForm.description,
+   descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
+   descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
+   createdAt: newTransactionCreatedAt,
+  };
+
   try {
-   await accountingApi.createTransaction({
-    accountFromId: transactionForm.accountFromId,
-    accountToId: transactionForm.accountToId,
-    currencyId: transactionForm.currencyId,
-    amount: amount || 0,
-    type: transactionForm.type,
-    isArchived: isArchiveCreate,
-    exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
-    commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
-    exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
-    commissionTo: parseFloat(transactionForm.commissionTo) || 0,
-    exchangeRateFromReversed: txFromRateReversed ? 1 : 0,
-    exchangeRateToReversed: txToRateReversed ? 1 : 0,
-    charges: parseFloat(transactionForm.charges) || 0,
-    chargesCurrencyId: transactionForm.chargesCurrencyId || null,
-    chargesPayer: transactionForm.chargesPayer,
-    chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
-    chargesDescription: transactionForm.chargesDescription,
-    description: transactionForm.description,
-    descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
-    descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
-    createdAt: newTransactionCreatedAt,
-   });
+   await accountingApi.createTransaction(txPayload);
+
+   // Optimistically add the new row so the table updates instantly; a background reload
+   // reconciles it with the server (real id + any server-side normalization).
+   const fromAcc = txPayload.accountFromId != null ? clientAccountMap.get(txPayload.accountFromId) : undefined;
+   const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
+   const cur = txPayload.currencyId != null ? currencyMap.get(txPayload.currencyId) : undefined;
+   const chargesCur = txPayload.chargesCurrencyId != null ? currencyMap.get(txPayload.chargesCurrencyId) : null;
+   setTransactions((prev) => [
+    ...prev,
+    {
+     id: -Date.now(),
+     accountFromId: txPayload.accountFromId,
+     clientFromName: fromAcc?.clientName ?? '',
+     accountFromCurrencyCode: fromAcc?.currencyCode ?? '',
+     accountFromCurrencySymbol: fromAcc?.currencySymbol ?? '',
+     accountToId: txPayload.accountToId,
+     clientToName: toAcc?.clientName ?? '',
+     accountToCurrencyCode: toAcc?.currencyCode ?? '',
+     accountToCurrencySymbol: toAcc?.currencySymbol ?? '',
+     currencyId: txPayload.currencyId ?? 0,
+     currencyCode: cur?.code ?? '',
+     currencySymbol: cur?.symbol ?? '',
+     amount: txPayload.amount,
+     type: txPayload.type,
+     exchangeRateFrom: txPayload.exchangeRateFrom,
+     commissionFrom: txPayload.commissionFrom,
+     exchangeRateTo: txPayload.exchangeRateTo,
+     commissionTo: txPayload.commissionTo,
+     exchangeRateFromReversed: txPayload.exchangeRateFromReversed,
+     exchangeRateToReversed: txPayload.exchangeRateToReversed,
+     charges: txPayload.charges,
+     chargesCurrencyId: txPayload.chargesCurrencyId,
+     chargesCurrencyCode: chargesCur?.code ?? null,
+     chargesCurrencySymbol: chargesCur?.symbol ?? null,
+     chargesPayer: txPayload.chargesPayer,
+     chargesExchangeRate: txPayload.chargesExchangeRate,
+     chargesDescription: txPayload.chargesDescription,
+     description: txPayload.description,
+     descriptionFrom: txPayload.descriptionFrom,
+     descriptionTo: txPayload.descriptionTo,
+     archiveNote: '',
+     isArchived: txPayload.isArchived ? 1 : 0,
+     createdAt: txPayload.createdAt,
+    },
+   ]);
 
    setTxSplitDescription(false);
    setTransactionForm(emptyTransactionForm());
@@ -2419,11 +2702,11 @@ function AuthenticatedHome() {
    setTxToOpen(false);
    setTxFromRateReversed(false);
    setTxToRateReversed(false);
-   setIsNewTransactionSectionOpen(false);
+   // Keep the form open so several entries can be added in a row.
    setIsNewTransactionExpensesOpen(false);
    setNewTransactionDate(new Date().toISOString().slice(0, 10));
    setError('');
-   await loadData();
+   void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
@@ -3442,28 +3725,31 @@ function AuthenticatedHome() {
    const selectedCurrency = currencyMap.get(draft.currencyId);
    const account = clientAccountMap.get(draft.accountFromId);
 
+   const adjustmentPayload: ClientAdjustment = {
+    id: draft.adjustmentId,
+    accountId: draft.accountFromId,
+    amount,
+    direction: draft.adjustmentDirection ?? 'debit',
+    currencyId: draft.currencyId,
+    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+    exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+    exchangeRateReversed: !!tableRateFromReversed[transactionId],
+    description: draft.description,
+    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
+   };
+
    try {
-    await accountingApi.updateClientAdjustment({
-     id: draft.adjustmentId,
-     accountId: draft.accountFromId,
-     amount,
-     direction: draft.adjustmentDirection ?? 'debit',
-     currencyId: draft.currencyId,
-     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-     exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
-     exchangeRateReversed: !!tableRateFromReversed[transactionId],
-     description: draft.description,
-     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-    });
+    await accountingApi.updateClientAdjustment(adjustmentPayload);
     setError('');
+    applyAdjustmentPatch(adjustmentPayload);
     if (!skipReload) {
-     await loadData();
      setEditingRowIds((prev) => {
       const next = new Set(prev);
       next.delete(transactionId);
       return next;
      });
+     void loadData();
     }
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -3478,36 +3764,39 @@ function AuthenticatedHome() {
    return;
   }
 
+  const transactionPayload: TransactionUpdateInput = {
+   id: transaction.id,
+   accountFromId: draft.accountFromId,
+   accountToId: draft.accountToId,
+   currencyId: draft.currencyId,
+   amount,
+   type: draft.type,
+   exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+   commissionFrom: parseFloat(draft.commissionFrom) || 0,
+   exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
+   commissionTo: parseFloat(draft.commissionTo) || 0,
+   exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
+   exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
+   charges: parseFloat(draft.charges) || 0,
+   chargesCurrencyId: draft.chargesCurrencyId || null,
+   chargesPayer: draft.chargesPayer,
+   chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
+   chargesDescription: draft.chargesDescription,
+   description: draft.description,
+   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
+  };
+
   try {
-   await accountingApi.updateTransaction({
-    id: transaction.id,
-    accountFromId: draft.accountFromId,
-    accountToId: draft.accountToId,
-    currencyId: draft.currencyId,
-    amount,
-    type: draft.type,
-    exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
-    commissionFrom: parseFloat(draft.commissionFrom) || 0,
-    exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
-    commissionTo: parseFloat(draft.commissionTo) || 0,
-    exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
-    exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
-    charges: parseFloat(draft.charges) || 0,
-    chargesCurrencyId: draft.chargesCurrencyId || null,
-    chargesPayer: draft.chargesPayer,
-    chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
-    chargesDescription: draft.chargesDescription,
-    description: draft.description,
-    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-   });
+   await accountingApi.updateTransaction(transactionPayload);
    setError('');
+   applyTransactionPatch(transactionPayload);
    if (!skipReload) {
-    await loadData();
     setEditingRowIds((prev) => {
      const next = new Set(prev);
      next.delete(transactionId);
      return next;
     });
+    void loadData();
    }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -3529,11 +3818,12 @@ function AuthenticatedHome() {
 
  async function onSaveAllTransactions() {
   const ids = paginatedTransactions.map((tx) => tx.id).filter((id) => editingRowIds.has(id));
+  // Each row save applies its optimistic patch; exit edit mode immediately and reconcile in the background.
   await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true })));
-  await loadData();
   setEditingRowIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n; });
   setTransactionTableDrafts((prev) => { const n = { ...prev }; ids.forEach((id) => delete n[id]); return n; });
   setIsEditAllTransactions(false);
+  void loadData();
  }
 
  async function onAddClientAccount(clientId: number) {
@@ -3556,12 +3846,22 @@ function AuthenticatedHome() {
 
  async function onSaveEditAccount() {
   if (!accountingApi || !editingAccountId || !editingAccountCurrencyId) return;
+  const accountId = editingAccountId;
+  const currencyId = editingAccountCurrencyId;
   try {
    const abs = Math.abs(parseFloat(editingAccountBalance.replace(/,/g, '')) || 0);
    const startingBalance = editingAccountBalanceType === 'debit' ? -abs : abs;
-   await accountingApi.updateClientAccount({ accountId: editingAccountId, currencyId: editingAccountCurrencyId, startingBalance });
+   await accountingApi.updateClientAccount({ accountId, currencyId, startingBalance });
    setEditingAccountId(null);
-   await loadData();
+   const currency = currencyMap.get(currencyId);
+   setClientAccounts((prev) =>
+    prev.map((account) =>
+     account.id === accountId
+      ? { ...account, currencyId, startingBalance, currencyCode: currency?.code ?? account.currencyCode, currencySymbol: currency?.symbol ?? account.currencySymbol }
+      : account,
+    ),
+   );
+   void loadData();
    setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -3599,9 +3899,11 @@ function AuthenticatedHome() {
 
  async function onUpdateAccountStartingBalance(accountId: number, value: string) {
   if (!accountingApi) return;
+  const startingBalance = parseFloat(value) || 0;
   try {
-   await accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance: parseFloat(value) || 0 });
-   await loadData();
+   await accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance });
+   setClientAccounts((prev) => prev.map((account) => (account.id === accountId ? { ...account, startingBalance } : account)));
+   void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
@@ -3671,7 +3973,7 @@ function AuthenticatedHome() {
     key: 'amount',
     header: t('amount'),
     isNum: true,
-    cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`,
    },
    {
     key: 'exchangeRate',
@@ -3692,13 +3994,13 @@ function AuthenticatedHome() {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`),
+    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>`),
    },
    {
     key: 'runningBalance',
     header: t('running_balance'),
     isNum: true,
-    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>`,
    },
    { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
@@ -3786,14 +4088,13 @@ function AuthenticatedHome() {
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
-   <h1>Arkam Exchange</h1>
    <p>${t('client_ledger_statement')}</p>
   </div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span></div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
@@ -3803,10 +4104,10 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  </tbody>
 </table>
 <div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })} ${ledger.currencySymbol || ledger.currencyCode}</span>
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
-${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
  }
@@ -3852,7 +4153,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      ? `${esc(tx.clientToName)} <span style="color:#64748b">${esc(tx.accountToCurrencyCode)}</span>`
      : `<span class="muted">${esc(t('archive_no_receiver'))}</span>`;
     const amount = tx.amount
-     ? `${tx.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${esc(tx.currencySymbol || tx.currencyCode)}`
+     ? `${tx.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(tx.currencySymbol || tx.currencyCode)}` : ''}`
      : '-';
     return `<tr><td>${formatDateValue(tx.createdAt, pdfSettings.dateFormat)}</td><td>${from}</td><td>${to}</td><td class="num">${amount}</td><td>${esc(tx.archiveNote)}</td><td>${esc(tx.description)}</td></tr>`;
    })
@@ -3867,7 +4168,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
    else totals.set(key, { code: tx.currencyCode, symbol: tx.currencySymbol, total: tx.amount });
   }
   const totalsHtml = [...totals.values()]
-   .map((total) => `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} <span style="color:#64748b">${esc(total.symbol || total.code)}</span></span>`)
+   .map((total) => `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` <span style="color:#64748b">${esc(total.symbol || total.code)}</span>` : ''}</span>`)
    .join('');
 
   const dir = isRTL ? 'rtl' : 'ltr';
@@ -3910,7 +4211,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
-   <h1>Arkam Exchange</h1>
    <p>${esc(t('archive_title'))}</p>
   </div>
  </div>
@@ -3929,7 +4229,7 @@ ${
 ${totalsHtml ? `<div class="totals"><span class="totals-label">${esc(t('archive_totals'))}</span>${totalsHtml}</div>` : ''}`
   : `<div class="empty">${esc(t('archive_empty'))}</div>`
 }
-${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
  }
@@ -4034,6 +4334,22 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
+
+ // Sum of the checkbox-selected transaction-table rows, grouped per currency so mixed-currency
+ // selections show one total each. Shown next to the bulk actions when 2+ rows are selected.
+ const selectedTransactionSums = useMemo(() => {
+  if (selectedTransactionIds.size < 2) return [] as Array<{ code: string; symbol: string; total: number }>;
+  const byCurrency = new Map<string, { code: string; symbol: string; total: number }>();
+  for (const id of selectedTransactionIds) {
+   const row = transactionTableRowMap.get(id);
+   if (!row) continue;
+   const code = row.currencyCode || '';
+   const existing = byCurrency.get(code) ?? { code, symbol: row.currencySymbol || '', total: 0 };
+   existing.total += row.amount;
+   byCurrency.set(code, existing);
+  }
+  return [...byCurrency.values()].sort((a, b) => a.code.localeCompare(b.code));
+ }, [selectedTransactionIds, transactionTableRowMap]);
  const selectedOrganizationClients = useMemo(
   () => (selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : []),
   [clients, selectedOrganizationForClients],
@@ -4139,7 +4455,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     );
    }
    if (columns.amount) {
-    cells.push(txn.amount ? `${txn.amount.toLocaleString(language)} ${txn.currencySymbol || txn.currencyCode}` : '-');
+    cells.push(txn.amount ? `${txn.amount.toLocaleString(language)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
    }
    if (columns.charges) {
     if (txn.isAdjustment || !txn.charges) {
@@ -4216,7 +4532,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
-   <h1>Arkam Exchange</h1>
    <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
   </div>
  </div>
@@ -4234,7 +4549,7 @@ ${
 </table>`
   : `<div class="empty">${esc(t('transactions_export_empty'))}</div>`
 }
-${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
  }
@@ -4405,8 +4720,25 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
       return leftId - rightId;
      });
 
+    // Apply the user's manual row order (drag-to-reorder) BEFORE accumulating the running
+    // balance, so the accumulated balance follows the order shown in the table. Rows not yet
+    // in the saved order (e.g. just-added entries) keep their date position at the end.
+    const manualOrder = manualLedgerRowOrder[account.id];
+    const orderedForBalance = manualOrder
+     ? (() => {
+        const entryMap = new Map<string, (typeof entries)[number]>();
+        for (const e of entries) entryMap.set(`${e.transactionId}:${account.id}`, e);
+        const inOrder = manualOrder.flatMap((k) => {
+         const e = entryMap.get(k);
+         return e ? [e] : [];
+        });
+        const seen = new Set(manualOrder);
+        return [...inOrder, ...entries.filter((e) => !seen.has(`${e.transactionId}:${account.id}`))];
+       })()
+     : entries;
+
     let runningBalance = account.startingBalance ?? 0;
-    const entriesWithBalance = entries.map((entry) => {
+    const entriesWithBalance = orderedForBalance.map((entry) => {
      runningBalance += entry.netChange;
      return {
       ...entry,
@@ -4426,7 +4758,40 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
- }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
+ }, [adjustments, clientAccounts, clientAccountMap, currencyMap, manualLedgerRowOrder, pdfExportModal, section, selectedClientForLedger, transactions]);
+
+ // Totals for the rows the user has checkbox-selected in the ledger, shown next to the
+ // "Delete (N)" action: sum of the entry amounts and sum of their net change.
+ const selectedLedgerSummary = useMemo(() => {
+  if (selectedLedgerEntryKeys.size === 0) return null;
+  const entryByKey = new Map<string, ClientLedgerEntry>();
+  for (const ledger of selectedClientLedgers) {
+   for (const entry of ledger.entries) {
+    entryByKey.set(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId), entry);
+   }
+  }
+  let amountSum = 0;
+  let netChangeSum = 0;
+  let count = 0;
+  const currencyCodes = new Set<string>();
+  for (const key of selectedLedgerEntryKeys) {
+   const entry = entryByKey.get(key);
+   if (!entry) continue;
+   amountSum += entry.amount;
+   netChangeSum += entry.netChange;
+   currencyCodes.add(entry.currencyCode);
+   count += 1;
+  }
+  // Net change is always expressed in the account's currency.
+  const accountCurrency = selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0];
+  return {
+   count,
+   amountSum,
+   netChangeSum,
+   amountCurrencyCode: currencyCodes.size === 1 ? [...currencyCodes][0] : '',
+   netCurrencyCode: accountCurrency?.currencyCode ?? '',
+  };
+ }, [selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId]);
 
  const mainCurrency = useMemo(() => currencies.find((currency) => currency.isMain === 1) ?? null, [currencies]);
 
@@ -4786,43 +5151,15 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   { label: t('overview_currencies'), value: enabledCurrencies.length },
  ];
 
- const sidebarItems: Array<{ id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void }> =
-  section === 'settings'
-   ? [
-      {
-       id: 'home',
-       label: t('nav_home'),
-       icon: 'home',
-       isActive: false,
-       onClick: () => navigateToSection('overview'),
-      },
-      ...settingsTabs.map((tab) => ({
-       id: tab.key,
-       label: tab.label,
-       icon: tab.icon,
-       isActive: settingsTab === tab.key,
-       onClick: () => {
-        navigateToSection('settings');
-        setSettingsTab(tab.key);
-       },
-      })),
-     ]
-   : [
-      ...navItems.map((item) => ({
-       id: item.key,
-       label: item.label,
-       icon: item.icon,
-       isActive: section === item.key,
-       onClick: () => navigateToSection(item.key),
-      })),
-      {
-       id: 'settings',
-       label: t('settings_title'),
-       icon: 'settings',
-       isActive: false,
-       onClick: () => navigateToSection('settings'),
-      },
-     ];
+ // The sidebar always shows the main navigation. The Settings entry expands its
+ // sub-tabs in place (rendered after this list) rather than replacing the whole sidebar.
+ const sidebarItems: Array<{ id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void }> = navItems.map((item) => ({
+  id: item.key,
+  label: item.label,
+  icon: item.icon,
+  isActive: section === item.key,
+  onClick: () => navigateToSection(item.key),
+ }));
 
  const organizationsSection = (
   <section className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
@@ -5069,6 +5406,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         { key: 'showMetaCurrency', labelKey: 'pdf_show_meta_currency', hintKey: 'pdf_show_meta_currency_hint' },
         { key: 'showMetaPeriod', labelKey: 'pdf_show_meta_period', hintKey: 'pdf_show_meta_period_hint' },
         { key: 'showGeneratedOn', labelKey: 'pdf_show_generated_on', hintKey: 'pdf_show_generated_on_hint' },
+        { key: 'showCurrencySymbol', labelKey: 'pdf_show_currency_symbol', hintKey: 'pdf_show_currency_symbol_hint' },
         { key: 'showFooter', labelKey: 'pdf_show_footer', hintKey: 'pdf_show_footer_hint' },
        ] as Array<{ key: keyof Omit<PdfSettings, 'decimals' | 'fontFamily' | 'fontSize'>; labelKey: string; hintKey: string }>
       ).map(({ key, labelKey, hintKey }) => (
@@ -5190,8 +5528,12 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
   );
  };
 
+ // The account editor is shown for the client currently open in the update form.
+ const accountsClient = clientForm.id ? (clients.find((c) => c.id === clientForm.id) ?? null) : null;
+
  const clientsSection = (
   <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
+   <div className="flex flex-col gap-6">
    <form
     onSubmit={onClientSubmit}
     className={panelClassName}
@@ -5388,6 +5730,280 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      {clientForm.id ? t('update_client') : t('save_client')}
     </button>
    </form>
+    {accountsClient ? (
+     <div className={panelClassName}>
+      <div className="flex items-center justify-between gap-3">
+       <h2 className="text-lg font-semibold">
+        {t('client_accounts_for')}: <span className="text-blue-700">{accountsClient.name}</span>
+       </h2>
+      </div>
+
+      <div className="mt-4 space-y-2">
+       {clientAccounts
+        .filter((a) => a.clientId === accountsClient.id)
+        .map((account) => {
+         const isEditing = editingAccountId === account.id;
+         return (
+          <div
+           key={account.id}
+           className="rounded border border-slate-200 bg-white"
+          >
+           {/* Row · click to edit */}
+           <button
+            type="button"
+            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
+            onClick={() => {
+             setMoveTargetAccountId(null);
+             if (isEditing) {
+              setEditingAccountId(null);
+             } else {
+              const absBalance = Math.abs(account.startingBalance ?? 0);
+              setEditingAccountId(account.id);
+              setEditingAccountCurrencyId(account.currencyId);
+              setEditingAccountBalance(String(absBalance));
+              setEditingAccountBalanceType((account.startingBalance ?? 0) >= 0 ? 'credit' : 'debit');
+              setShowAddAccountForm(false);
+             }
+            }}
+           >
+            <div className="flex items-center gap-3">
+             <span className="font-mono font-semibold text-slate-800">{account.currencyCode}</span>
+             <span className="text-sm text-slate-500">{account.currencySymbol || ''}</span>
+            </div>
+            <div className="flex items-center gap-3">
+             <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {(account.startingBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+             </span>
+             <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`text-slate-400 transition-transform ${isEditing ? 'rotate-180' : ''}`}
+             >
+              <path d="m6 9 6 6 6-6" />
+             </svg>
+            </div>
+           </button>
+
+           {/* Inline edit form */}
+           {isEditing && (
+            <div className="border-t border-slate-200 bg-slate-50 px-4 py-4">
+             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_edit')}</p>
+             <div className="flex flex-col gap-3">
+              <select
+               value={editingAccountCurrencyId ?? ''}
+               onChange={(event) => setEditingAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+               className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              >
+               <option value="">{t('client_account_currency_placeholder')}</option>
+               {enabledCurrencies.map((cur) => (
+                <option
+                 key={cur.id}
+                 value={cur.id}
+                >
+                 {cur.code} · {cur.name}
+                </option>
+               ))}
+              </select>
+              <div>
+               <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+               <div className="mt-1 flex items-center gap-2">
+                <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+                 <button
+                  type="button"
+                  onClick={() => setEditingAccountBalanceType('debit')}
+                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                 >
+                  {t('balance_type_debit')}
+                 </button>
+                 <button
+                  type="button"
+                  onClick={() => setEditingAccountBalanceType('credit')}
+                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                 >
+                  {t('balance_type_credit')}
+                 </button>
+                </div>
+                <input
+                 type="text"
+                 inputMode="decimal"
+                 value={editingAccountBalance}
+                 onChange={(event) => setEditingAccountBalance(event.target.value.replace(/,/g, ''))}
+                 onKeyDown={(event) => { if (event.key === 'Enter' && editingAccountCurrencyId) void onSaveEditAccount(); }}
+                 placeholder="0"
+                 className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                />
+               </div>
+               <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+              </div>
+              <div className="flex gap-2">
+               <button
+                type="button"
+                onClick={() => void onSaveEditAccount()}
+                disabled={!editingAccountCurrencyId}
+                className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:opacity-40"
+               >
+                {t('client_account_save')}
+               </button>
+               <button
+                type="button"
+                onClick={() => onDeleteClientAccount(account.id)}
+                className="rounded border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 transition"
+               >
+                {t('delete')}
+               </button>
+               <button
+                type="button"
+                onClick={() => setEditingAccountId(null)}
+                className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
+               >
+                {t('cancel')}
+               </button>
+              </div>
+
+              {(() => {
+               // Transactions can only be migrated between accounts of the SAME client
+               // (e.g. Youssef EUR → Youssef USD), never to another client's account.
+               const moveTargets = clientAccounts.filter((a) => a.id !== account.id && a.clientId === account.clientId);
+               return (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_account_move_title')}</p>
+                 <p className="mt-1 text-xs text-slate-400">{t('client_account_move_hint')}</p>
+                 {moveTargets.length === 0 ? (
+                  <p className="mt-2 text-xs text-slate-500">{t('client_account_move_no_targets')}</p>
+                 ) : (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                   <select
+                    value={moveTargetAccountId ?? ''}
+                    onChange={(event) => setMoveTargetAccountId(event.target.value ? Number(event.target.value) : null)}
+                    className="min-w-48 flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                   >
+                    <option value="">{t('client_account_move_select_placeholder')}</option>
+                    {moveTargets.map((target) => (
+                     <option key={target.id} value={target.id}>
+                      {target.currencyCode}{target.currencySymbol ? ` (${target.currencySymbol})` : ''}
+                     </option>
+                    ))}
+                   </select>
+                   <button
+                    type="button"
+                    onClick={() => void onMoveAccountTransactions(account.id)}
+                    disabled={!moveTargetAccountId || isMovingAccount}
+                    className="rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                   >
+                    {t('client_account_move_action')}
+                   </button>
+                  </div>
+                 )}
+                </div>
+               );
+              })()}
+             </div>
+            </div>
+           )}
+          </div>
+         );
+        })}
+       {clientAccounts.filter((a) => a.clientId === accountsClient.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
+      </div>
+
+      {/* Add account */}
+      {!showAddAccountForm ? (
+       <button
+        type="button"
+        onClick={() => {
+         setShowAddAccountForm(true);
+         setEditingAccountId(null);
+        }}
+        className="mt-4 rounded border border-dashed border-blue-400 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 transition"
+       >
+        {t('client_account_add_new')}
+       </button>
+      ) : (
+       <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_add_new')}</p>
+        <div className="flex flex-col gap-3">
+         <select
+          value={newAccountCurrencyId ?? ''}
+          onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+          className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         >
+          <option value="">{t('client_account_currency_placeholder')}</option>
+          {enabledCurrencies
+           .filter((cur) => !clientAccounts.some((a) => a.clientId === accountsClient.id && a.currencyId === cur.id))
+           .map((cur) => (
+            <option
+             key={cur.id}
+             value={cur.id}
+            >
+             {cur.code} · {cur.name}
+            </option>
+           ))}
+         </select>
+         <div>
+          <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+          <div className="mt-1 flex items-center gap-2">
+           <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+            <button
+             type="button"
+             onClick={() => setNewAccountBalanceType('debit')}
+             className={`px-3 py-2 transition ${newAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+             {t('balance_type_debit')}
+            </button>
+            <button
+             type="button"
+             onClick={() => setNewAccountBalanceType('credit')}
+             className={`px-3 py-2 transition ${newAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+             {t('balance_type_credit')}
+            </button>
+           </div>
+           <input
+            type="text"
+            inputMode="decimal"
+            value={newAccountStartingBalance}
+            onChange={(event) => setNewAccountStartingBalance(event.target.value.replace(/,/g, ''))}
+            onKeyDown={(event) => { if (event.key === 'Enter' && newAccountCurrencyId && accountsClient) void onAddClientAccount(accountsClient.id); }}
+            placeholder="0"
+            className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           />
+          </div>
+          <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+         </div>
+         <div className="flex gap-2">
+          <button
+           type="button"
+           onClick={() => void onAddClientAccount(accountsClient.id)}
+           disabled={!newAccountCurrencyId}
+           className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+           {t('client_account_open')}
+          </button>
+          <button
+           type="button"
+           onClick={() => {
+            setShowAddAccountForm(false);
+            setNewAccountCurrencyId(null);
+            setNewAccountStartingBalance('0');
+            setNewAccountBalanceType('debit');
+           }}
+           className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
+          >
+           {t('cancel')}
+          </button>
+         </div>
+        </div>
+       </div>
+      )}
+     </div>
+    ) : null}
+   </div>
 
    <div className="flex flex-col gap-4">
     <div className={panelClassName}>
@@ -5417,10 +6033,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </tr>
        </thead>
        <tbody>
-        {paginatedClients.map((client) => (
+        {paginatedClients.map((client, index) => (
          <tr
           key={client.id}
-          className="border-t border-slate-200 align-top"
+          className={`border-t border-slate-200 align-top ${index % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100`}
          >
           <td className="px-4 py-3 font-medium text-slate-900">
            <button
@@ -5433,15 +6049,23 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
           </td>
           <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
           <td className="px-4 py-3">
-           <button
-            type="button"
-            onClick={() => setSelectedClientForAccounts(selectedClientForAccounts?.id === client.id ? null : client)}
-            className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-             selectedClientForAccounts?.id === client.id ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-            }`}
-           >
-            {t('client_accounts')} ({client.accountCount})
-           </button>
+           {(() => {
+            const accts = clientAccounts.filter((a) => a.clientId === client.id);
+            if (accts.length === 0) return <span className="text-xs text-slate-400">—</span>;
+            return (
+             <div className="flex flex-wrap items-center gap-1">
+              {accts.map((a) => (
+               <span
+                key={a.id}
+                title={a.currencyCode}
+                className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border border-slate-300 bg-slate-50 px-1.5 text-xs font-semibold text-slate-600"
+               >
+                {a.currencySymbol || a.currencyCode}
+               </span>
+              ))}
+             </div>
+            );
+           })()}
           </td>
           <td className="px-4 py-3">
            <div className="flex items-center gap-1">
@@ -5545,286 +6169,6 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
      ) : null}
     </div>
 
-    {selectedClientForAccounts ? (
-     <div className={panelClassName}>
-      <div className="flex items-center justify-between gap-3">
-       <h2 className="text-lg font-semibold">
-        {t('client_accounts_for')}: <span className="text-blue-700">{selectedClientForAccounts.name}</span>
-       </h2>
-       <button
-        type="button"
-        onClick={() => {
-         setSelectedClientForAccounts(null);
-         setEditingAccountId(null);
-         setShowAddAccountForm(false);
-        }}
-        className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-       >
-        {t('cancel')}
-       </button>
-      </div>
-
-      <div className="mt-4 space-y-2">
-       {clientAccounts
-        .filter((a) => a.clientId === selectedClientForAccounts.id)
-        .map((account) => {
-         const isEditing = editingAccountId === account.id;
-         return (
-          <div
-           key={account.id}
-           className="rounded border border-slate-200 bg-white"
-          >
-           {/* Row · click to edit */}
-           <button
-            type="button"
-            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
-            onClick={() => {
-             setMoveTargetAccountId(null);
-             if (isEditing) {
-              setEditingAccountId(null);
-             } else {
-              const absBalance = Math.abs(account.startingBalance ?? 0);
-              setEditingAccountId(account.id);
-              setEditingAccountCurrencyId(account.currencyId);
-              setEditingAccountBalance(String(absBalance));
-              setEditingAccountBalanceType((account.startingBalance ?? 0) >= 0 ? 'credit' : 'debit');
-              setShowAddAccountForm(false);
-             }
-            }}
-           >
-            <div className="flex items-center gap-3">
-             <span className="font-mono font-semibold text-slate-800">{account.currencyCode}</span>
-             <span className="text-sm text-slate-500">{account.currencySymbol || ''}</span>
-            </div>
-            <div className="flex items-center gap-3">
-             <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-              {(account.startingBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-             </span>
-             <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`text-slate-400 transition-transform ${isEditing ? 'rotate-180' : ''}`}
-             >
-              <path d="m6 9 6 6 6-6" />
-             </svg>
-            </div>
-           </button>
-
-           {/* Inline edit form */}
-           {isEditing && (
-            <div className="border-t border-slate-200 bg-slate-50 px-4 py-4">
-             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_edit')}</p>
-             <div className="flex flex-col gap-3">
-              <select
-               value={editingAccountCurrencyId ?? ''}
-               onChange={(event) => setEditingAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-               className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              >
-               <option value="">{t('client_account_currency_placeholder')}</option>
-               {enabledCurrencies.map((cur) => (
-                <option
-                 key={cur.id}
-                 value={cur.id}
-                >
-                 {cur.code} · {cur.name}
-                </option>
-               ))}
-              </select>
-              <div>
-               <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
-               <div className="mt-1 flex items-center gap-2">
-                <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
-                 <button
-                  type="button"
-                  onClick={() => setEditingAccountBalanceType('debit')}
-                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-                 >
-                  {t('balance_type_debit')}
-                 </button>
-                 <button
-                  type="button"
-                  onClick={() => setEditingAccountBalanceType('credit')}
-                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-                 >
-                  {t('balance_type_credit')}
-                 </button>
-                </div>
-                <input
-                 type="text"
-                 inputMode="decimal"
-                 value={editingAccountBalance}
-                 onChange={(event) => setEditingAccountBalance(event.target.value.replace(/,/g, ''))}
-                 placeholder="0"
-                 className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                />
-               </div>
-               <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
-              </div>
-              <div className="flex gap-2">
-               <button
-                type="button"
-                onClick={() => void onSaveEditAccount()}
-                disabled={!editingAccountCurrencyId}
-                className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:opacity-40"
-               >
-                {t('client_account_save')}
-               </button>
-               <button
-                type="button"
-                onClick={() => onDeleteClientAccount(account.id)}
-                className="rounded border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 transition"
-               >
-                {t('delete')}
-               </button>
-               <button
-                type="button"
-                onClick={() => setEditingAccountId(null)}
-                className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
-               >
-                {t('cancel')}
-               </button>
-              </div>
-
-              {(() => {
-               const moveTargets = clientAccounts.filter((a) => a.id !== account.id && a.currencyId === account.currencyId);
-               return (
-                <div className="mt-4 border-t border-slate-200 pt-4">
-                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_account_move_title')}</p>
-                 <p className="mt-1 text-xs text-slate-400">{t('client_account_move_hint')}</p>
-                 {moveTargets.length === 0 ? (
-                  <p className="mt-2 text-xs text-slate-500">{t('client_account_move_no_targets')}</p>
-                 ) : (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                   <select
-                    value={moveTargetAccountId ?? ''}
-                    onChange={(event) => setMoveTargetAccountId(event.target.value ? Number(event.target.value) : null)}
-                    className="min-w-48 flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                   >
-                    <option value="">{t('client_account_move_select_placeholder')}</option>
-                    {moveTargets.map((target) => (
-                     <option key={target.id} value={target.id}>
-                      {target.clientName} · {target.currencyCode}
-                     </option>
-                    ))}
-                   </select>
-                   <button
-                    type="button"
-                    onClick={() => void onMoveAccountTransactions(account.id)}
-                    disabled={!moveTargetAccountId || isMovingAccount}
-                    className="rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
-                   >
-                    {t('client_account_move_action')}
-                   </button>
-                  </div>
-                 )}
-                </div>
-               );
-              })()}
-             </div>
-            </div>
-           )}
-          </div>
-         );
-        })}
-       {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
-      </div>
-
-      {/* Add account */}
-      {!showAddAccountForm ? (
-       <button
-        type="button"
-        onClick={() => {
-         setShowAddAccountForm(true);
-         setEditingAccountId(null);
-        }}
-        className="mt-4 rounded border border-dashed border-blue-400 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 transition"
-       >
-        {t('client_account_add_new')}
-       </button>
-      ) : (
-       <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_add_new')}</p>
-        <div className="flex flex-col gap-3">
-         <select
-          value={newAccountCurrencyId ?? ''}
-          onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-          className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-         >
-          <option value="">{t('client_account_currency_placeholder')}</option>
-          {enabledCurrencies
-           .filter((cur) => !clientAccounts.some((a) => a.clientId === selectedClientForAccounts.id && a.currencyId === cur.id))
-           .map((cur) => (
-            <option
-             key={cur.id}
-             value={cur.id}
-            >
-             {cur.code} · {cur.name}
-            </option>
-           ))}
-         </select>
-         <div>
-          <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
-          <div className="mt-1 flex items-center gap-2">
-           <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
-            <button
-             type="button"
-             onClick={() => setNewAccountBalanceType('debit')}
-             className={`px-3 py-2 transition ${newAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-             {t('balance_type_debit')}
-            </button>
-            <button
-             type="button"
-             onClick={() => setNewAccountBalanceType('credit')}
-             className={`px-3 py-2 transition ${newAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-             {t('balance_type_credit')}
-            </button>
-           </div>
-           <input
-            type="text"
-            inputMode="decimal"
-            value={newAccountStartingBalance}
-            onChange={(event) => setNewAccountStartingBalance(event.target.value.replace(/,/g, ''))}
-            placeholder="0"
-            className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-           />
-          </div>
-          <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
-         </div>
-         <div className="flex gap-2">
-          <button
-           type="button"
-           onClick={() => void onAddClientAccount(selectedClientForAccounts.id)}
-           disabled={!newAccountCurrencyId}
-           className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-           {t('client_account_open')}
-          </button>
-          <button
-           type="button"
-           onClick={() => {
-            setShowAddAccountForm(false);
-            setNewAccountCurrencyId(null);
-            setNewAccountStartingBalance('0');
-            setNewAccountBalanceType('debit');
-           }}
-           className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
-          >
-           {t('cancel')}
-          </button>
-         </div>
-        </div>
-       </div>
-      )}
-     </div>
-    ) : null}
    </div>
   </section>
  );
@@ -6344,23 +6688,41 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </button>
        );
       })}
+
+      {/* Settings entry — expands its sub-tabs in place instead of swapping the sidebar. */}
+      <button
+       type="button"
+       onClick={() => navigateToSection('settings')}
+       aria-pressed={section === 'settings'}
+       aria-label={t('settings_title')}
+       title={t('settings_title')}
+       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium transition ${
+        section === 'settings' ? 'bg-purple-600 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
+       } ${isSidebarCollapsed ? 'justify-center' : ''}`}
+      >
+       <span className="shrink-0">{renderIcon('settings', 'h-4 w-4')}</span>
+       {isSidebarCollapsed ? null : <span className="truncate">{t('settings_title')}</span>}
+      </button>
+      {section === 'settings' && !isSidebarCollapsed
+       ? settingsTabs.map((tab) => (
+          <button
+           key={tab.key}
+           type="button"
+           onClick={() => setSettingsTab(tab.key)}
+           aria-pressed={settingsTab === tab.key}
+           title={tab.label}
+           className={`flex w-full items-center gap-2.5 py-2 pl-9 pr-3 text-sm transition ${
+            settingsTab === tab.key ? 'bg-purple-600/70 text-white' : 'text-blue-200 hover:bg-white/10 hover:text-white'
+           }`}
+          >
+           <span className="shrink-0">{renderIcon(tab.icon, 'h-3.5 w-3.5')}</span>
+           <span className="truncate">{tab.label}</span>
+          </button>
+         ))
+       : null}
      </nav>
      {/* Footer */}
      <div className="border-t border-white/10 py-1">
-      {section !== 'settings' ? (
-       <button
-        type="button"
-        onClick={() => navigateToSection('settings')}
-        aria-label={t('settings_title')}
-        title={t('settings_title')}
-        className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-blue-100 transition hover:bg-white/10 hover:text-white ${
-         isSidebarCollapsed ? 'justify-center' : ''
-        }`}
-       >
-        <span className="shrink-0">{renderIcon('settings', 'h-4 w-4')}</span>
-        {isSidebarCollapsed ? null : <span>{t('settings_title')}</span>}
-       </button>
-      ) : null}
       <button
        type="button"
        onClick={() => {
@@ -6512,7 +6874,35 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </div>
        ) : null}
 
-       {section === 'overview' ? (
+       {section === 'overview' && isLoading ? (
+        <section className="flex flex-col gap-6">
+         <div className={panelClassName}>
+          <div className="flex items-start justify-between gap-4">
+           <div className="flex flex-col gap-2"><SkBar w="w-48" h="h-7" /><SkBar w="w-72" h="h-3.5" /></div>
+           <SkBar w="w-40" h="h-9" />
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-4">
+           {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="rounded border border-slate-200 bg-slate-50 p-4 flex flex-col gap-2">
+             <SkBar w="w-24" h="h-3" /><SkBar w="w-16" h="h-7" />
+            </div>
+           ))}
+          </div>
+         </div>
+         <div className={panelClassName}>
+          <SkBar w="w-56" h="h-6" />
+          <div className="mt-4 flex flex-col gap-3">
+           {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="rounded border border-slate-200 p-4 flex flex-col gap-2">
+             <SkBar w="w-40" h="h-4" /><SkBar w="w-64" h="h-3" />
+            </div>
+           ))}
+          </div>
+         </div>
+        </section>
+       ) : null}
+
+       {section === 'overview' && !isLoading ? (
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex items-start justify-between gap-4">
@@ -6538,7 +6928,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
             >
              <p className="text-sm text-slate-500">{card.label}</p>
              <p className="mt-3 text-3xl font-bold text-slate-900">
-              {isInitialLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}
+              {isLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}
              </p>
             </div>
            ))}
@@ -6788,9 +7178,25 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </section>
        ) : null}
 
-       {section === 'organizations' ? organizationsReadOnlySection : null}
+       {section === 'organizations' && isLoading ? (
+        <div className={panelClassName}>
+         <div className="mb-4 flex items-center justify-between gap-4"><SkBar w="w-44" h="h-6" /><SkBar w="w-28" h="h-8" /></div>
+         <div className="flex flex-col gap-2 mt-2">
+          {Array.from({ length: 5 }, (_, i) => (
+           <div key={i} className="flex items-center gap-3 py-2"><SkBar w="w-40" h="h-4" /><SkBar w="w-12" h="h-4" /></div>
+          ))}
+         </div>
+        </div>
+       ) : null}
+       {section === 'organizations' && !isLoading ? organizationsReadOnlySection : null}
 
-       {section === 'organization-clients' ? (
+       {section === 'organization-clients' && isLoading ? (
+        <div className={panelClassName}>
+         <div className="mb-4 flex items-center justify-between gap-4"><SkBar w="w-52" h="h-6" /><SkBar w="w-28" h="h-8" /></div>
+         <SkTablePanel panelClassName="" tableWrapClassName="border border-gray-200" cols={SK_CLIENTS} rows={6} />
+        </div>
+       ) : null}
+       {section === 'organization-clients' && !isLoading ? (
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -6868,9 +7274,32 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </section>
        ) : null}
 
-       {section === 'clients' ? clientsReadOnlySection : null}
+       {section === 'clients' && isLoading ? (
+        <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_CLIENTS} titleWidth="w-32" rows={8} />
+       ) : null}
+       {section === 'clients' && !isLoading ? clientsReadOnlySection : null}
 
-       {section === 'client-ledger' ? (
+       {section === 'client-ledger' && isLoading ? (
+        <section className="flex flex-col gap-6">
+         <div className={panelClassName}>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+           <div className="flex flex-col gap-2">
+            <SkBar w="w-20" h="h-3" /><SkBar w="w-44" h="h-7" /><SkBar w="w-64" h="h-3.5" />
+           </div>
+           <SkBar w="w-28" h="h-9" />
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+           {Array.from({ length: 2 }, (_, i) => (
+            <div key={i} className="rounded border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col gap-2">
+             <SkBar w="w-24" h="h-3" /><SkBar w="w-28" h="h-7" />
+            </div>
+           ))}
+          </div>
+         </div>
+         <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_LEDGER} titleWidth="w-36" rows={8} />
+        </section>
+       ) : null}
+       {section === 'client-ledger' && !isLoading ? (
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -6882,28 +7311,41 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
 
            <button
             type="button"
-            onClick={() => navigateToSection(clientLedgerBackSection)}
+            onClick={() => {
+             if (clientLedgerBackSection === 'organization-clients' && selectedOrganizationForClients) {
+              setSection('organization-clients');
+              router.replace(`/organizations/${selectedOrganizationForClients.id}`);
+             } else {
+              navigateToSection('clients');
+             }
+            }}
             className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
            >
             {clientLedgerBackSection === 'organization-clients' ? t('organization_page_back') : t('client_page_back')}
            </button>
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-           {selectedClientForLedger && selectedClientLedgers.length > 1
-            ? selectedClientLedgers.map((ledger) => (
-               <button
-                key={ledger.accountId}
-                type="button"
-                onClick={() => setSelectedLedgerAccountId(ledger.accountId)}
-                className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
-                 selectedLedgerAccountId === ledger.accountId ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-               >
-                {ledger.currencyName}
-               </button>
-              ))
-            : null}
+          {selectedClientForLedger && selectedClientLedgers.length > 1 ? (
+           <div className="mt-5 flex flex-wrap items-center gap-2">
+            {selectedClientLedgers.map((ledger) => (
+             <button
+              key={ledger.accountId}
+              type="button"
+              onClick={() => setSelectedLedgerAccountId(ledger.accountId)}
+              className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
+               selectedLedgerAccountId === ledger.accountId ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+             >
+              {ledger.currencyName}
+             </button>
+            ))}
+           </div>
+          ) : null}
+         </div>
+
+         {selectedClientForLedger ? (
+          <div className={panelClassName}>
+           <div className="flex flex-wrap items-center gap-2">
            {selectedClientForLedger ? (
             <>
              {selectedLedgerEntryKeys.size > 0 ? (
@@ -6914,6 +7356,24 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               >
                {t('delete')} ({selectedLedgerEntryKeys.size})
               </button>
+             ) : null}
+             {selectedLedgerSummary ? (
+              <>
+               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                <span className="font-medium text-slate-500">{t('amount')}</span>
+                <span className="font-semibold text-slate-800">
+                 {selectedLedgerSummary.amountSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                 {selectedLedgerSummary.amountCurrencyCode ? ` ${selectedLedgerSummary.amountCurrencyCode}` : ''}
+                </span>
+               </span>
+               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                <span className="font-medium text-slate-500">{t('net_change')}</span>
+                <span className={`font-semibold ${selectedLedgerSummary.netChangeSum >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                 {selectedLedgerSummary.netChangeSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                 {selectedLedgerSummary.netCurrencyCode ? ` ${selectedLedgerSummary.netCurrencyCode}` : ''}
+                </span>
+               </span>
+              </>
              ) : null}
              <button
               type="button"
@@ -6960,6 +7420,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
            ) : null}
           </div>
          </div>
+         ) : null}
 
          {!selectedClientForLedger ? (
           <div className={`${panelClassName} text-sm text-slate-600`}>{t('client_page_no_client')}</div>
@@ -6981,16 +7442,18 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 <span className="text-xs text-slate-400">{t('starting_balance')}:</span>
                 {editingStartingBalanceIds.has(ledger.accountId) ? (
                  <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   autoFocus
-                  value={ledgerStartingBalanceDrafts[ledger.accountId] ?? String(ledger.startingBalance)}
-                  onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: event.target.value }))}
+                  value={ledgerStartingBalanceDrafts[ledger.accountId] ?? formatAmountInput(String(ledger.startingBalance))}
+                  onChange={(event) => setLedgerStartingBalanceDrafts((prev) => ({ ...prev, [ledger.accountId]: formatAmountInput(event.target.value) }))}
                   onBlur={async (event) => {
-                   const value = parseFloat(event.target.value);
+                   const value = parseFloat(normalizeDecimalInput(event.target.value));
                    if (!isNaN(value) && accountingApi) {
                     try {
                      await accountingApi.updateClientAccountStartingBalance({ accountId: ledger.accountId, startingBalance: value });
-                     await loadData();
+                     setClientAccounts((prev) => prev.map((account) => (account.id === ledger.accountId ? { ...account, startingBalance: value } : account)));
+                     void loadData();
                     } catch (e) {
                      setError(e instanceof Error ? e.message : t('error_failed_update'));
                     }
@@ -7004,7 +7467,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                  <>
                   <span className="text-xs font-medium text-slate-600">
                    {(ledgerStartingBalanceDrafts[ledger.accountId] !== undefined
-                    ? parseFloat(ledgerStartingBalanceDrafts[ledger.accountId]) || 0
+                    ? parseFloat(normalizeDecimalInput(ledgerStartingBalanceDrafts[ledger.accountId])) || 0
                     : ledger.startingBalance
                    ).toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
                   </span>
@@ -7363,12 +7826,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 </thead>
                 <tbody>
                  {((() => {
-                   const order = manualLedgerRowOrder[ledger.accountId];
-                   const ordered = (() => {
-                    if (!order) return ledger.entries;
-                    const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
-                    return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
-                   })();
+                   // ledger.entries is already in the user's manual order (applied in the memo).
+                   const ordered = ledger.entries;
                    const q = ledgerFilterSearch.trim().toLowerCase();
                    const visible = ordered.filter((e) => {
                     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
@@ -7414,7 +7873,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                      setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
                     }}
                     onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
-                    className={`border-t border-slate-200 align-top transition-colors ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                    onKeyDown={(e) => {
+                     // Enter saves the row being edited (ignore Enter inside multi-line fields).
+                     if (e.key !== 'Enter') return;
+                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     if (!editingLedgerRowKeys.has(rowKey)) return;
+                     if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+                     e.preventDefault();
+                     void onSaveLedgerRow(entry.transactionId, ledger.accountId);
+                    }}
+                    className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
                    >
                     {(() => {
                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -7666,37 +8134,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                             const txCurr = entry.currencyCode;
                             const accCurr = ledger.currencyCode;
                             return (
-                             <div>
-                              {txCurr && accCurr && txCurr !== accCurr && (
-                               <div className="mb-1 flex items-center justify-between">
-                                <span className="text-xs text-slate-400">{isLedgerRateReversed ? `1 ${accCurr} = ? ${txCurr}` : `1 ${txCurr} = ? ${accCurr}`}</span>
-                                <button
-                                 type="button"
-                                 title="Reverse rate direction"
-                                 onClick={() => {
-                                  const val = parseFloat(draft.exchangeRate) || 1;
-                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                                  setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
-                                 }}
-                                 className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                                >
-                                 <svg
-                                  width="14"
-                                  height="14"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="1.8"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden
-                                 >
-                                  <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                  <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                 </svg>
-                                </button>
-                               </div>
-                              )}
+                             <div className="flex items-center gap-1">
                               <input
                                type="text"
                                inputMode="decimal"
@@ -7717,14 +8155,10 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                                 if (values.length <= 1) return;
                                 event.preventDefault();
 
-                                // Rebuild the same ordered + filtered visible list the table renders,
-                                // so we can map row positions to transaction drafts.
-                                const order = manualLedgerRowOrder[ledger.accountId];
-                                const ordered = (() => {
-                                 if (!order) return ledger.entries;
-                                 const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
-                                 return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
-                                })();
+                                // Rebuild the same filtered visible list the table renders, so we
+                                // can map row positions to transaction drafts. ledger.entries is
+                                // already in the user's manual order (applied in the memo).
+                                const ordered = ledger.entries;
                                 const q = ledgerFilterSearch.trim().toLowerCase();
                                 const visible = ordered.filter((e) => {
                                  if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
@@ -7742,9 +8176,13 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                                 // Spread each pasted value down consecutive editable rate inputs,
                                 // starting at the row that received the paste. Adjustment rows and
                                 // rows not in edit mode have no rate input, so they are skipped.
+                                // Locate the start row by key in the full (unpaginated) visible list —
+                                // entryIdx is page-relative, so it can't be used to index `visible`.
+                                const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                                const startIdx = Math.max(0, visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey));
                                 const patches: Record<string, string> = {};
                                 let valueIdx = 0;
-                                for (let i = entryIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                                for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
                                  const target = visible[i];
                                  if (target.isAdjustment) continue;
                                  const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
@@ -7770,8 +8208,35 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                                 );
                                 next?.focus();
                                }}
-                               className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                               className="w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                               />
+                              {txCurr && accCurr && txCurr !== accCurr && (
+                               <button
+                                type="button"
+                                title="Reverse rate direction"
+                                onClick={() => {
+                                 const val = parseFloat(draft.exchangeRate) || 1;
+                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                                 setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
+                                }}
+                                className="shrink-0 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                               >
+                                <svg
+                                 width="14"
+                                 height="14"
+                                 viewBox="0 0 24 24"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 strokeWidth="1.8"
+                                 strokeLinecap="round"
+                                 strokeLinejoin="round"
+                                 aria-hidden
+                                >
+                                 <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                 <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                </svg>
+                               </button>
+                              )}
                              </div>
                             );
                            })()
@@ -7997,12 +8462,8 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                </table>
               </div>
               {(() => {
-               const order = manualLedgerRowOrder[ledger.accountId];
-               const ordered = (() => {
-                if (!order) return ledger.entries;
-                const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${ledger.accountId}`, e]));
-                return order.flatMap((k) => { const e = entryMap.get(k); return e ? [e] : []; });
-               })();
+               // ledger.entries is already in the user's manual order (applied in the memo).
+               const ordered = ledger.entries;
                const q = ledgerFilterSearch.trim().toLowerCase();
                const visibleCount = ordered.filter((e) => {
                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
@@ -8077,9 +8538,17 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
         </section>
        ) : null}
 
-       {section === 'currencies' ? currenciesReadOnlySection : null}
+       {section === 'currencies' && isLoading ? (
+        <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_CURRENCIES} titleWidth="w-36" rows={8} />
+       ) : null}
+       {section === 'currencies' && !isLoading ? currenciesReadOnlySection : null}
 
-       {section === 'transactions' || section === 'archive' ? (
+       {(section === 'transactions' || section === 'archive') && isLoading ? (
+        <section className="flex flex-col gap-6">
+         <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_TX} titleWidth="w-40" rows={10} />
+        </section>
+       ) : null}
+       {(section === 'transactions' || section === 'archive') && !isLoading ? (
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
          {(section === 'transactions' || section === 'archive') && isNewTransactionSectionOpen ? (
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
@@ -8223,24 +8692,67 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              ) : null}
              {txFromOpen && (
               <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-               {clientAccounts
-                .filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase()))
-                .map((account) => (
-                 <li
-                  key={account.id}
-                  onMouseDown={() => {
-                   setTransactionForm((current) => ({ ...current, accountFromId: account.id }));
-                   setTxFromQuery('');
-                   setTxFromOpen(false);
-                  }}
-                  className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-                 >
-                  {account.clientName} · {account.currencyCode}
-                 </li>
-                ))}
-               {clientAccounts.filter((a) => !txFromQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txFromQuery.trim().toLowerCase())).length === 0 && (
-                <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
-               )}
+               {(() => {
+                const q = txFromQuery.trim().toLowerCase();
+                const byClient = new Map<number, ClientAccount[]>();
+                for (const a of clientAccounts) {
+                 if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
+                 const arr = byClient.get(a.clientId) ?? [];
+                 arr.push(a);
+                 byClient.set(a.clientId, arr);
+                }
+                const groups = [...byClient.values()];
+                if (groups.length === 0) {
+                 return <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>;
+                }
+                const selectAccount = (id: number) => {
+                 setTransactionForm((current) => ({ ...current, accountFromId: id }));
+                 setTxFromQuery('');
+                 setTxFromOpen(false);
+                 setTxFromExpandedClient(null);
+                };
+                return groups.map((accts) => {
+                 const clientId = accts[0].clientId;
+                 // Single-account client: pick it directly.
+                 if (accts.length === 1) {
+                  const account = accts[0];
+                  return (
+                   <li
+                    key={`g${clientId}`}
+                    onMouseDown={() => selectAccount(account.id)}
+                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                   >
+                    {account.clientName} · {account.currencyCode}
+                   </li>
+                  );
+                 }
+                 // Multi-account client: show the name; click to expand its accounts.
+                 const expanded = !!q || txFromExpandedClient === clientId;
+                 const hasSelected = accts.some((a) => a.id === transactionForm.accountFromId);
+                 return (
+                  <Fragment key={`g${clientId}`}>
+                   <li
+                    onMouseDown={(e) => { e.preventDefault(); setTxFromExpandedClient(expanded && !q ? null : clientId); }}
+                    className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                   >
+                    <span>
+                     {accts[0].clientName} <span className="text-slate-400">({accts.length})</span>
+                    </span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+                   </li>
+                   {expanded && accts.map((account) => (
+                    <li
+                     key={account.id}
+                     onMouseDown={() => selectAccount(account.id)}
+                     className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                    >
+                     {account.currencyCode}{account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                    </li>
+                   ))}
+                  </Fragment>
+                 );
+                });
+               })()}
               </ul>
              )}
             </div>
@@ -8296,24 +8808,66 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                ) : null}
                {txToOpen && (
                 <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-                 {clientAccounts
-                  .filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase()))
-                  .map((account) => (
-                   <li
-                    key={account.id}
-                    onMouseDown={() => {
-                     setTransactionForm((current) => ({ ...current, accountToId: account.id }));
-                     setTxToQuery('');
-                     setTxToOpen(false);
-                    }}
-                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-                   >
-                    {account.clientName} · {account.currencyCode}
-                   </li>
-                  ))}
-                 {clientAccounts.filter((a) => !txToQuery.trim() || `${a.clientName} ${a.currencyCode}`.toLowerCase().includes(txToQuery.trim().toLowerCase())).length === 0 && (
-                  <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
-                 )}
+                 {(() => {
+                  const q = txToQuery.trim().toLowerCase();
+                  const byClient = new Map<number, ClientAccount[]>();
+                  for (const a of clientAccounts) {
+                   if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
+                   const arr = byClient.get(a.clientId) ?? [];
+                   arr.push(a);
+                   byClient.set(a.clientId, arr);
+                  }
+                  const groups = [...byClient.values()];
+                  if (groups.length === 0) {
+                   return <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>;
+                  }
+                  const selectAccount = (id: number) => {
+                   setTransactionForm((current) => ({ ...current, accountToId: id }));
+                   setTxToQuery('');
+                   setTxToOpen(false);
+                   setTxToExpandedClient(null);
+                  };
+                  return groups.map((accts) => {
+                   const clientId = accts[0].clientId;
+                   if (accts.length === 1) {
+                    const account = accts[0];
+                    return (
+                     <li
+                      key={`g${clientId}`}
+                      onMouseDown={() => selectAccount(account.id)}
+                      className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                     >
+                      {account.clientName} · {account.currencyCode}
+                     </li>
+                    );
+                   }
+                   const expanded = !!q || txToExpandedClient === clientId;
+                   const hasSelected = accts.some((a) => a.id === transactionForm.accountToId);
+                   return (
+                    <Fragment key={`g${clientId}`}>
+                     <li
+                      onMouseDown={(e) => { e.preventDefault(); setTxToExpandedClient(expanded && !q ? null : clientId); }}
+                      className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                     >
+                      <span>{accts[0].clientName}</span>
+                      <span className="flex items-center gap-1 text-xs text-slate-400">
+                       {accts.length}
+                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+                      </span>
+                     </li>
+                     {expanded && accts.map((account) => (
+                      <li
+                       key={account.id}
+                       onMouseDown={() => selectAccount(account.id)}
+                       className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                      >
+                       {account.currencyCode}{account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                      </li>
+                     ))}
+                    </Fragment>
+                   );
+                  });
+                 })()}
                 </ul>
                )}
               </div>
@@ -8782,6 +9336,15 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
               {selectedTransactionIds.size}
              </button>
             ) : null}
+            {selectedTransactionSums.map((sum) => (
+             <span
+              key={sum.code || 'none'}
+              className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+             >
+              <span className="font-semibold text-slate-900">{sum.total.toLocaleString(language)}</span>
+              <span className="text-slate-500">{sum.symbol || sum.code}</span>
+             </span>
+            ))}
             {(section === 'transactions' || section === 'archive') && !isNewTransactionSectionOpen ? (
              <button
               type="button"
@@ -9000,7 +9563,7 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
              </tr>
             </thead>
             <tbody>
-             {paginatedTransactions.map((txn) => (
+             {paginatedTransactions.map((txn, index) => (
               <tr
                key={txn.id}
                draggable={!editingRowIds.has(txn.id)}
@@ -9028,7 +9591,15 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
                 setDragOverRowId(txn.id);
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
-               className={`border-t border-slate-200 align-top transition-colors ${txn.isArchived ? 'bg-amber-50' : ''} ${
+               onKeyDown={(e) => {
+                // Enter saves the row being edited (ignore Enter inside multi-line fields).
+                if (e.key !== 'Enter') return;
+                if (!editingRowIds.has(txn.id)) return;
+                if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+                e.preventDefault();
+                void onSaveTransactionTableRow(txn.id);
+               }}
+               className={`border-t border-slate-200 align-top transition-colors hover:bg-slate-100 ${txn.isArchived ? 'bg-amber-50' : index % 2 === 1 ? 'bg-slate-50' : 'bg-white'} ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
@@ -10624,7 +11195,16 @@ ${pdfSettings.showFooter ? `<div class="footer">Arkam Exchange &mdash; ${t('expo
        const convertedAmount = needsRate ? amountValue * (effectiveRate || 0) : amountValue;
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-         <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
+         <div
+          className="w-full max-w-md rounded bg-white p-6 shadow-2xl"
+          onKeyDown={(e) => {
+           // Enter submits the adjustment (ignore Enter inside multi-line fields).
+           if (e.key !== 'Enter') return;
+           if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+           e.preventDefault();
+           void onSubmitAdjustment();
+          }}
+         >
           <h3 className="text-lg font-semibold text-slate-900">{adjustmentModal.editingId ? t('adjustment_edit_title') : t('adjustment_add_title')}</h3>
           {ledger ? (
            <p className="mt-1 text-sm text-slate-500">
