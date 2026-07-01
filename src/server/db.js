@@ -623,16 +623,16 @@ async function createTransaction(app, txn) {
                 txn.currencyId,
                 txn.amount || 0,
                 txn.type || 'exchange',
-                txn.exchangeRateFrom || 1,
+                txn.exchangeRateFrom != null ? txn.exchangeRateFrom : 1,
                 txn.commissionFrom || 0,
-                txn.exchangeRateTo || 1,
+                txn.exchangeRateTo != null ? txn.exchangeRateTo : 1,
                 txn.commissionTo || 0,
                 Boolean(txn.exchangeRateFromReversed),
                 Boolean(txn.exchangeRateToReversed),
                 txn.charges || 0,
                 txn.chargesCurrencyId || null,
                 txn.chargesPayer || '',
-                txn.chargesExchangeRate || 1,
+                txn.chargesExchangeRate != null ? txn.chargesExchangeRate : 1,
                 txn.chargesDescription?.trim() || '',
                 txn.description?.trim() || '',
                 txn.descriptionFrom?.trim() || '',
@@ -676,16 +676,16 @@ async function createTransaction(app, txn) {
             txn.currencyId,
             txn.amount || 0,
             txn.type || 'exchange',
-            txn.exchangeRateFrom || 1,
+            txn.exchangeRateFrom != null ? txn.exchangeRateFrom : 1,
             txn.commissionFrom || 0,
-            txn.exchangeRateTo || 1,
+            txn.exchangeRateTo != null ? txn.exchangeRateTo : 1,
             txn.commissionTo || 0,
             Boolean(txn.exchangeRateFromReversed),
             Boolean(txn.exchangeRateToReversed),
             txn.charges || 0,
             txn.chargesCurrencyId || null,
             txn.chargesPayer || '',
-            txn.chargesExchangeRate || 1,
+            txn.chargesExchangeRate != null ? txn.chargesExchangeRate : 1,
             txn.chargesDescription?.trim() || '',
             txn.description?.trim() || '',
             txn.descriptionFrom?.trim() || '',
@@ -741,16 +741,16 @@ async function updateTransaction(app, txn) {
             txn.currencyId,
             txn.amount || 0,
             txn.type || 'exchange',
-            txn.exchangeRateFrom || 1,
+            txn.exchangeRateFrom != null ? txn.exchangeRateFrom : 1,
             txn.commissionFrom || 0,
-            txn.exchangeRateTo || 1,
+            txn.exchangeRateTo != null ? txn.exchangeRateTo : 1,
             txn.commissionTo || 0,
             Boolean(txn.exchangeRateFromReversed),
             Boolean(txn.exchangeRateToReversed),
             txn.charges || 0,
             txn.chargesCurrencyId || null,
             txn.chargesPayer || '',
-            txn.chargesExchangeRate || 1,
+            txn.chargesExchangeRate != null ? txn.chargesExchangeRate : 1,
             txn.chargesDescription?.trim() || '',
             txn.description?.trim() || '',
             // Only the table inline-edit sends archiveNote; other paths leave it untouched via COALESCE.
@@ -799,7 +799,7 @@ async function createClientAdjustment(app, { accountId, amount, direction, curre
     if (!accountId) throw new Error('Account is required.');
     if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
     if (!['debit', 'credit'].includes(direction)) throw new Error('Direction must be debit or credit.');
-    const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+    const rate = exchangeRate != null ? exchangeRate : 1;
     const reversed = exchangeRateReversed ? true : false;
     const columns = ['account_id', 'amount', 'direction', 'currency_id', 'currency_code', 'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description'];
     const values = [accountId, amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || ''];
@@ -817,7 +817,7 @@ async function createClientAdjustment(app, { accountId, amount, direction, curre
 
 async function updateClientAdjustment(app, { id, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
     const { schema } = await getSchemaInfo(app);
-    const rate = exchangeRate && exchangeRate > 0 ? exchangeRate : 1;
+    const rate = exchangeRate != null ? exchangeRate : 1;
     const reversed = exchangeRateReversed ? true : false;
     await query(
         `UPDATE ${schema}.client_adjustments
