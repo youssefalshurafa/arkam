@@ -440,6 +440,34 @@ function saveOverviewRates(rates: Record<string, string>) {
  }
 }
 
+type DataCache = {
+ organizations: Organization[];
+ clients: Client[];
+ currencies: Currency[];
+ transactions: Transaction[];
+ adjustments: ClientAdjustment[];
+ clientAccounts: ClientAccount[];
+};
+
+const dataCacheStorageKey = 'arkam:data-cache';
+
+function readDataCache(): DataCache | null {
+ try {
+  const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem(dataCacheStorageKey) : null;
+  return raw ? (JSON.parse(raw) as DataCache) : null;
+ } catch {
+  return null;
+ }
+}
+
+function saveDataCache(data: DataCache) {
+ try {
+  window.sessionStorage.setItem(dataCacheStorageKey, JSON.stringify(data));
+ } catch {
+  /* ignore — cache is best-effort */
+ }
+}
+
 // Friendly "Browser on OS" label for the device that downloaded a backup, so the
 // last-backup indicator can say where it came from. Best-effort UA parsing.
 function getDeviceLabel(): string {
@@ -1275,11 +1303,15 @@ function AuthenticatedHome() {
  const { t } = useTranslation(language);
  const [section, setSection] = useState<Section>(() => getSectionFromPath(pathname).section);
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
- const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+ const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+  try { return localStorage.getItem('arkam:sidebar-collapsed') === 'true'; } catch { return false; }
+ });
  const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
- const [organizations, setOrganizations] = useState<Organization[]>([]);
- const [clients, setClients] = useState<Client[]>([]);
+ // Read once so all data-state initializers share one JSON parse
+ const [_initialCache] = useState<DataCache | null>(() => readDataCache());
+ const [organizations, setOrganizations] = useState<Organization[]>(() => _initialCache?.organizations ?? []);
+ const [clients, setClients] = useState<Client[]>(() => _initialCache?.clients ?? []);
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [clientSearch, setClientSearch] = useState('');
  const [clientsPage, setClientsPage] = useState(1);
@@ -1288,10 +1320,10 @@ function AuthenticatedHome() {
  const [clientsOrgOrder, setClientsOrgOrder] = useState<string[]>(() => getStoredClientsOrgOrder());
  const [draggedOrgKey, setDraggedOrgKey] = useState<string | null>(null);
  const [dragOverOrgKey, setDragOverOrgKey] = useState<string | null>(null);
- const [currencies, setCurrencies] = useState<Currency[]>([]);
- const [transactions, setTransactions] = useState<Transaction[]>([]);
- const [adjustments, setAdjustments] = useState<ClientAdjustment[]>([]);
- const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>([]);
+ const [currencies, setCurrencies] = useState<Currency[]>(() => _initialCache?.currencies ?? []);
+ const [transactions, setTransactions] = useState<Transaction[]>(() => _initialCache?.transactions ?? []);
+ const [adjustments, setAdjustments] = useState<ClientAdjustment[]>(() => _initialCache?.adjustments ?? []);
+ const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>(() => _initialCache?.clientAccounts ?? []);
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
@@ -1461,7 +1493,7 @@ function AuthenticatedHome() {
  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
  const [lastBackupDevice, setLastBackupDevice] = useState<string | null>(null);
- const [isLoading, setIsLoading] = useState(true);
+ const [isLoading, setIsLoading] = useState(() => _initialCache === null);
  const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
  const lastInitializedSubIdRef = useRef<string>('');
  const hasLoadedRef = useRef(false);
@@ -1501,6 +1533,7 @@ function AuthenticatedHome() {
    setSelectedClientForAccounts((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setSelectedClientForLedger((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
    setError('');
+   saveDataCache({ organizations: organizationRows, clients: clientRows, currencies: nextCurrencies, transactions: transactionRows, adjustments: adjustmentRows, clientAccounts: clientAccountRows });
    if (!hasLoadedRef.current) {
     hasLoadedRef.current = true;
     setIsLoading(false);
@@ -2018,14 +2051,14 @@ function AuthenticatedHome() {
    type: transaction.type,
    adjustmentDirection: transaction.adjustmentDirection,
    amount: String(transaction.amount),
-   exchangeRateFrom: fromReversed ? formatRateValue(1 / transaction.exchangeRateFrom) : transaction.exchangeRateFrom.toFixed(2),
-   commissionFrom: transaction.commissionFrom.toFixed(2),
-   exchangeRateTo: isAdjustment ? '1.00' : toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : transaction.exchangeRateTo.toFixed(2),
-   commissionTo: transaction.commissionTo.toFixed(2),
+   exchangeRateFrom: fromReversed ? formatRateValue(1 / transaction.exchangeRateFrom) : formatRateValue(transaction.exchangeRateFrom),
+   commissionFrom: formatRateValue(transaction.commissionFrom),
+   exchangeRateTo: isAdjustment ? '1.00' : toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : formatRateValue(transaction.exchangeRateTo),
+   commissionTo: formatRateValue(transaction.commissionTo),
    charges: String(transaction.charges),
    chargesCurrencyId: isAdjustment ? null : transaction.chargesCurrencyId,
    chargesPayer: isAdjustment ? '' : transaction.chargesPayer,
-   chargesExchangeRate: isAdjustment ? '1.00' : transaction.chargesExchangeRate.toFixed(2),
+   chargesExchangeRate: isAdjustment ? '1.00' : formatRateValue(transaction.chargesExchangeRate),
    chargesDescription: transaction.chargesDescription,
    description: transaction.description,
    archiveNote: transaction.archiveNote,
@@ -4560,7 +4593,7 @@ function AuthenticatedHome() {
      return formatRateValue(e.exchangeRate);
     },
    },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '-' : e.commission.toFixed(pdfSettings.decimals)) },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '-' : formatRateValue(e.commission)) },
    {
     key: 'netChange',
     header: t('net_change'),
@@ -4701,7 +4734,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   if (!accountingApi) return;
   try {
    const html = generateLedgerHtml(ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey);
-   const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^a-z0-9]/gi, '_');
+   const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
    const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
    const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
    if (result.ok) setPdfExportModal(null);
@@ -7501,7 +7534,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       )}
       <button
        type="button"
-       onClick={() => setIsSidebarCollapsed((current) => !current)}
+       onClick={() => setIsSidebarCollapsed((current) => {
+        const next = !current;
+        try { localStorage.setItem('arkam:sidebar-collapsed', String(next)); } catch {}
+        return next;
+       })}
        aria-label={isSidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
        title={isSidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/20 text-blue-200 transition hover:bg-white/10 hover:text-white"
@@ -8465,14 +8502,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             ))}
            </div>
           ) : null}
-         </div>
-
-         {selectedClientForLedger ? (
-          <div className={panelClassName}>
-           <div className="flex flex-wrap items-center gap-2">
-            {selectedClientForLedger ? (
-             <>
-              {selectedLedgerEntryKeys.size > 0 ? (
+          {selectedClientForLedger && (
+           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
+            <>
+             {selectedLedgerEntryKeys.size > 0 ? (
                <button
                 type="button"
                 onClick={() => void onDeleteSelectedLedgerEntries()}
@@ -8611,11 +8644,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
                </svg>
               </button>
-             </>
-            ) : null}
+            </>
            </div>
-          </div>
-         ) : null}
+          )}
+         </div>
 
          {!selectedClientForLedger ? (
           <div className={`${panelClassName} text-sm text-slate-600`}>{t('client_page_no_client')}</div>
@@ -8895,6 +8927,78 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                     )}
                    </div>
                   )}
+                 </div>
+                );
+               })()}
+               {(() => {
+                const ordered = ledger.entries;
+                const q = ledgerFilterSearch.trim().toLowerCase();
+                const visibleCount = ordered.filter((e) => {
+                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                 if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                 return true;
+                }).length;
+                if (visibleCount === 0) return null;
+                const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
+                if (totalLedgerPages <= 1) return null;
+                const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+                return (
+                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-slate-600">
+                   {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                   <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+                   <select
+                    value={ledgerPageSize}
+                    onChange={(event) => {
+                     const nextSize = Number(event.target.value);
+                     setLedgerPageSize(nextSize);
+                     if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
+                     setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
+                    }}
+                    className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                   >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                   </select>
+                   <button
+                    type="button"
+                    onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
+                    disabled={currentLedgerPage <= 1}
+                    className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                   >
+                    {t('pagination_prev')}
+                   </button>
+                   <input
+                    key={currentLedgerPage}
+                    type="number"
+                    min={1}
+                    max={totalLedgerPages}
+                    defaultValue={currentLedgerPage}
+                    onBlur={(event) => {
+                     const n = parseInt(event.target.value, 10);
+                     if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
+                     else event.target.value = String(currentLedgerPage);
+                    }}
+                    onKeyDown={(event) => {
+                     if (event.key === 'Enter') event.currentTarget.blur();
+                    }}
+                    className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                   />
+                   <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
+                   <button
+                    type="button"
+                    onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
+                    disabled={currentLedgerPage >= totalLedgerPages}
+                    className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                   >
+                    {t('pagination_next')}
+                   </button>
+                  </div>
                  </div>
                 );
                })()}
@@ -9837,7 +9941,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                   );
                                  }
                                  if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
-                                  return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                                  return formatRateValue(entry.exchangeRate);
                                  }
                                  const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
                                  const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
@@ -9987,7 +10091,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                               })()
                              ) : entry.commission ? (
                               <span className={entry.commission < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
-                               {entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%
+                               {entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}%
                               </span>
                              ) : (
                               <span className="text-slate-400">-</span>
@@ -10109,7 +10213,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                          {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
                         </span>
                         {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
-                         <span className="text-slate-400">@ {entry.chargesExchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
+                         <span className="text-slate-400">@ {formatRateValue(entry.chargesExchangeRate)}</span>
                         )}
                         {entry.chargesPayer && (
                          <span className="text-slate-500">
@@ -10150,79 +10254,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  </tbody>
                 </table>
                </div>
-               {(() => {
-                // ledger.entries is already in the user's manual order (applied in the memo).
-                const ordered = ledger.entries;
-                const q = ledgerFilterSearch.trim().toLowerCase();
-                const visibleCount = ordered.filter((e) => {
-                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                 if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
-                 return true;
-                }).length;
-                if (visibleCount === 0) return null;
-                const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
-                if (totalLedgerPages <= 1) return null;
-                const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
-                return (
-                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs text-slate-600">
-                   {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                   <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
-                   <select
-                    value={ledgerPageSize}
-                    onChange={(event) => {
-                     const nextSize = Number(event.target.value);
-                     setLedgerPageSize(nextSize);
-                     if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
-                     setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
-                    }}
-                    className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
-                   >
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                   </select>
-                   <button
-                    type="button"
-                    onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
-                    disabled={currentLedgerPage <= 1}
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                   >
-                    {t('pagination_prev')}
-                   </button>
-                   <input
-                    key={currentLedgerPage}
-                    type="number"
-                    min={1}
-                    max={totalLedgerPages}
-                    defaultValue={currentLedgerPage}
-                    onBlur={(event) => {
-                     const n = parseInt(event.target.value, 10);
-                     if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
-                     else event.target.value = String(currentLedgerPage);
-                    }}
-                    onKeyDown={(event) => {
-                     if (event.key === 'Enter') event.currentTarget.blur();
-                    }}
-                    className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                   />
-                   <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
-                   <button
-                    type="button"
-                    onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
-                    disabled={currentLedgerPage >= totalLedgerPages}
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                   >
-                    {t('pagination_next')}
-                   </button>
-                  </div>
-                 </div>
-                );
-               })()}
               </>
              )}
             </div>
@@ -11432,7 +11463,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            )}
           </div>
           {transactionsPager}
-          <div className={tableWrapClassName}>
+          <div className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}>
            <table className="w-full text-sm">
             <colgroup>
              <col className="w-8" />
@@ -11446,7 +11477,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              {transactionTableSettings.columns.commission ? <col className="w-[15%]" /> : null}
              {section === 'archive' ? <col className="w-[16%]" /> : null}
             </colgroup>
-            <thead className="bg-slate-100 text-slate-700">
+            <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
              <tr>
               <th className="px-2 py-3 w-8">
                <input
@@ -11889,7 +11920,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.description ? (
-                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                   <td className={`px-4 py-3 text-slate-600 whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
                     {isEditingRow && draft ? (
                      <input
                       type="text"
@@ -11904,7 +11935,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountFrom ? (
-                   <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
+                   <td className={`px-4 py-3 font-medium text-slate-900 whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
                     {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <AccountSearchSelect
@@ -12023,7 +12054,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountTo ? (
-                   <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
+                   <td className={`px-4 py-3 font-medium text-slate-900 whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
                     {isEditingRow && draft && txn.isAdjustment ? (
                      <div className="grid grid-cols-2 gap-2">
                       <button
