@@ -99,6 +99,8 @@
  "update_organization": "Update Organization",
  "new_organization": "New Organization",
  "edit": "Edit",
+ "undo": "Undo",
+ "redo": "Redo",
  "delete": "Delete",
  "copy_transaction": "Copy transaction",
  "paste_transaction": "Paste",

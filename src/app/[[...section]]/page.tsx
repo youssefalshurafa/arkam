@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
@@ -475,9 +475,10 @@ type StoredLedgerSettings = {
  showCurrencySymbol: boolean;
  dateFormat: PdfSettings['dateFormat'];
  highlightNetChange: boolean;
+ netChangeHighlightColor: string;
  rowHighlightColor: string;
 };
-const defaultLedgerSettings: StoredLedgerSettings = { decimals: 2, showCurrencySymbol: true, dateFormat: 'full', highlightNetChange: true, rowHighlightColor: '#fde68a' };
+const defaultLedgerSettings: StoredLedgerSettings = { decimals: 2, showCurrencySymbol: true, dateFormat: 'full', highlightNetChange: true, netChangeHighlightColor: '#eff6ff', rowHighlightColor: '#fde68a' };
 function getStoredLedgerSettings(clientId: number | null | undefined): StoredLedgerSettings {
  if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerSettings };
  try {
@@ -1218,6 +1219,7 @@ function AuthenticatedHome() {
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerDateFormat, setLedgerDateFormat] = useState<PdfSettings['dateFormat']>('full');
  const [ledgerHighlightNetChange, setLedgerHighlightNetChange] = useState(true);
+ const [ledgerNetChangeHighlightColor, setLedgerNetChangeHighlightColor] = useState('#eff6ff');
  const [ledgerRowHighlightColor, setLedgerRowHighlightColor] = useState('#fde68a');
  const [highlightedLedgerRows, setHighlightedLedgerRows] = useState<Set<string>>(new Set());
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
@@ -1264,6 +1266,17 @@ function AuthenticatedHome() {
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({ ...defaultLedgerColumnVisibility });
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
  const [transactionTableDrafts, setTransactionTableDrafts] = useState<Record<number, TransactionTableDraft>>({});
+ const ledgerHistory = useDraftHistory(ledgerTransactionDrafts, setLedgerTransactionDrafts);
+ const txTableHistory = useDraftHistory(transactionTableDrafts, setTransactionTableDrafts);
+ const resetLedgerHistory = ledgerHistory.reset;
+ const resetTxTableHistory = txTableHistory.reset;
+ // Clear undo/redo history once an edit session ends (all drafts discarded/saved).
+ useEffect(() => {
+  if (Object.keys(ledgerTransactionDrafts).length === 0) resetLedgerHistory();
+ }, [ledgerTransactionDrafts, resetLedgerHistory]);
+ useEffect(() => {
+  if (Object.keys(transactionTableDrafts).length === 0) resetTxTableHistory();
+ }, [transactionTableDrafts, resetTxTableHistory]);
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
@@ -1510,6 +1523,7 @@ function AuthenticatedHome() {
   setShowLedgerCurrencySymbol(settings.showCurrencySymbol);
   setLedgerDateFormat(settings.dateFormat);
   setLedgerHighlightNetChange(settings.highlightNetChange);
+  setLedgerNetChangeHighlightColor(settings.netChangeHighlightColor);
   setLedgerRowHighlightColor(settings.rowHighlightColor);
   setHighlightedLedgerRows(new Set(getStoredLedgerHighlights(selectedClientForLedger?.id)));
  }, [selectedClientForLedger?.id]);
@@ -1738,6 +1752,7 @@ function AuthenticatedHome() {
    showCurrencySymbol: showLedgerCurrencySymbol,
    dateFormat: ledgerDateFormat,
    highlightNetChange: ledgerHighlightNetChange,
+   netChangeHighlightColor: ledgerNetChangeHighlightColor,
    rowHighlightColor: ledgerRowHighlightColor,
    ...patch,
   };
@@ -1769,6 +1784,11 @@ function AuthenticatedHome() {
  function updateLedgerRowHighlightColor(next: string) {
   setLedgerRowHighlightColor(next);
   persistLedgerSettings({ rowHighlightColor: next });
+ }
+
+ function updateLedgerNetChangeHighlightColor(next: string) {
+  setLedgerNetChangeHighlightColor(next);
+  persistLedgerSettings({ netChangeHighlightColor: next });
  }
 
  // Toggle a single row's highlight on click; persisted per client so it survives refresh.
@@ -1883,6 +1903,7 @@ function AuthenticatedHome() {
  }
 
  function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: number, nextValues: Partial<LedgerTransactionDraft>) {
+  ledgerHistory.record();
   setLedgerTransactionDrafts((current) => {
    const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
    const existingDraft = current[draftKey];
@@ -1932,6 +1953,7 @@ function AuthenticatedHome() {
  }
 
  function updateTransactionTableDraft(transactionId: number, nextValues: Partial<TransactionTableDraft>) {
+  txTableHistory.record();
   setTransactionTableDrafts((current) => {
    const existingDraft =
     current[transactionId] ??
@@ -7687,6 +7709,32 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              >
               {t('adjustment_add')}
              </button>
+             {Object.keys(ledgerTransactionDrafts).length > 0 ? (
+              <>
+               <button
+                type="button"
+                title={t('undo')}
+                onClick={ledgerHistory.undo}
+                disabled={!ledgerHistory.canUndo}
+                className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+               >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                 <path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+                </svg>
+               </button>
+               <button
+                type="button"
+                title={t('redo')}
+                onClick={ledgerHistory.redo}
+                disabled={!ledgerHistory.canRedo}
+                className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+               >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                 <path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0 0 10h1" />
+                </svg>
+               </button>
+              </>
+             ) : null}
              <button
               type="button"
               title={t('nav_settings')}
@@ -8522,6 +8570,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                  valueIdx += 1;
                                 }
                                 if (Object.keys(patches).length === 0) return;
+                                ledgerHistory.record();
                                 setLedgerTransactionDrafts((prev) => {
                                  const next = { ...prev };
                                  for (const [key, rate] of Object.entries(patches)) {
@@ -8677,6 +8726,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                               valueIdx += 1;
                              }
                              if (Object.keys(patches).length === 0) return;
+                             ledgerHistory.record();
                              setLedgerTransactionDrafts((prev) => {
                               const next = { ...prev };
                               for (const [key, commission] of Object.entries(patches)) {
@@ -8724,21 +8774,31 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                          </td>
                         );
                        case 'netChange':
-                        return (
-                         <td
-                          key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${ledgerHighlightNetChange && !isRowHighlighted ? 'bg-blue-50 ' : ''}${entry.pendingRate ? 'text-amber-500' : entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                         >
-                          {entry.pendingRate ? (
-                           <span title={t('ledger_rate_pending')}>-</span>
-                          ) : (
-                           <>
-                            {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                            {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                           </>
-                          )}
-                         </td>
-                        );
+                        return (() => {
+                         // While editing, recompute net change live from the draft so it
+                         // updates instantly as the amount / rate / commission are typed.
+                         const liveNetChange = draft
+                          ? (() => {
+                             const amt = parseFloat(draft.amount) || 0;
+                             const rawRate = parseFloat(draft.exchangeRate) || 1;
+                             const effectiveRate = ledgerRateReversed[rowKey] ? 1 / rawRate : rawRate;
+                             const base = amt * effectiveRate;
+                             const commissionAmount = getCommissionAmount(base, parseFloat(draft.commission) || 0);
+                             return draft.direction === 'outgoing' ? base + commissionAmount : -(base - commissionAmount);
+                            })()
+                          : entry.netChange;
+                         const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
+                         return (
+                          <td
+                           key={column.key}
+                           style={highlightNet ? { backgroundColor: ledgerNetChangeHighlightColor } : undefined}
+                           className={`whitespace-nowrap px-4 py-3 font-semibold ${liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          >
+                           {liveNetChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                          </td>
+                         );
+                        })();
                        case 'runningBalance':
                         return (
                          <td
@@ -9736,6 +9796,32 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               <span className="text-slate-500">{sum.symbol || sum.code}</span>
              </span>
             ))}
+            {Object.keys(transactionTableDrafts).length > 0 ? (
+             <>
+              <button
+               type="button"
+               title={t('undo')}
+               onClick={txTableHistory.undo}
+               disabled={!txTableHistory.canUndo}
+               className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+               </svg>
+              </button>
+              <button
+               type="button"
+               title={t('redo')}
+               onClick={txTableHistory.redo}
+               disabled={!txTableHistory.canRedo}
+               className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="m15 14 5-5-5-5" /><path d="M20 9H9a5 5 0 0 0 0 10h1" />
+               </svg>
+              </button>
+             </>
+            ) : null}
             {(section === 'transactions' || section === 'archive') && !isNewTransactionSectionOpen ? (
              <button
               type="button"
@@ -11992,6 +12078,19 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         >
          {t('ledger_highlight_net_change')}
         </button>
+        {ledgerHighlightNetChange ? (
+         <div className="mt-2 flex items-center gap-2">
+          <input
+           type="color"
+           value={ledgerNetChangeHighlightColor}
+           onChange={(event) => updateLedgerNetChangeHighlightColor(event.target.value)}
+           className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+          />
+          <span className="rounded px-3 py-1 text-xs font-semibold text-slate-700" style={{ backgroundColor: ledgerNetChangeHighlightColor }}>
+           {ledgerNetChangeHighlightColor}
+          </span>
+         </div>
+        ) : null}
        </div>
 
        {/* Row highlight color (click a row in the ledger to highlight it) */}
@@ -12141,6 +12240,60 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 // Searchable account picker: type to filter accounts by client name / currency,
 // matching the searchable client dropdown used in the new-transaction form. Each
 // instance keeps its own open/query state so it can be reused per table row.
+// Undo/redo history for an edit-drafts map. `record()` is called right before a
+// change is applied; consecutive changes within 500ms collapse into one undo step
+// (so typing a value is a single undo, not one per keystroke).
+function useDraftHistory<T>(drafts: T, setDrafts: (value: T) => void) {
+ const past = useRef<T[]>([]);
+ const future = useRef<T[]>([]);
+ const burstActive = useRef(false);
+ const burstTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const latest = useRef(drafts);
+ latest.current = drafts;
+ const [, bump] = useReducer((x: number) => x + 1, 0);
+
+ const record = useCallback(() => {
+  if (!burstActive.current) {
+   past.current = [...past.current, latest.current].slice(-100);
+   future.current = [];
+   burstActive.current = true;
+   bump();
+  }
+  if (burstTimer.current) clearTimeout(burstTimer.current);
+  burstTimer.current = setTimeout(() => { burstActive.current = false; }, 500);
+ }, []);
+
+ const undo = useCallback(() => {
+  if (past.current.length === 0) return;
+  burstActive.current = false;
+  if (burstTimer.current) clearTimeout(burstTimer.current);
+  const prev = past.current[past.current.length - 1];
+  past.current = past.current.slice(0, -1);
+  future.current = [...future.current, latest.current];
+  setDrafts(prev);
+  bump();
+ }, [setDrafts]);
+
+ const redo = useCallback(() => {
+  if (future.current.length === 0) return;
+  const next = future.current[future.current.length - 1];
+  future.current = future.current.slice(0, -1);
+  past.current = [...past.current, latest.current];
+  setDrafts(next);
+  bump();
+ }, [setDrafts]);
+
+ const reset = useCallback(() => {
+  past.current = [];
+  future.current = [];
+  burstActive.current = false;
+  if (burstTimer.current) clearTimeout(burstTimer.current);
+  bump();
+ }, []);
+
+ return { record, undo, redo, reset, canUndo: past.current.length > 0, canRedo: future.current.length > 0 };
+}
+
 function AccountSearchSelect({
  accounts,
  value,

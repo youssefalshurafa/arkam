@@ -98,6 +98,8 @@
  "update_organization": "تحديث الشركة",
  "new_organization": "شركة جديدة",
  "edit": "تعديل",
+ "undo": "تراجع",
+ "redo": "إعادة",
  "delete": "حذف",
  "copy_transaction": "نسخ المعاملة",
  "paste_transaction": "لصق",

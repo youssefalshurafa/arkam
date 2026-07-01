@@ -98,6 +98,8 @@
  "update_organization": "Mettre à jour l'organisation",
  "new_organization": "Nouvelle organisation",
  "edit": "Modifier",
+ "undo": "Annuler",
+ "redo": "Rétablir",
  "delete": "Supprimer",
  "copy_transaction": "Copier la transaction",
  "paste_transaction": "Coller",
