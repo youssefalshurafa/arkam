@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
@@ -421,21 +421,30 @@ function saveOverviewRates(rates: Record<string, string>) {
 function getDeviceLabel(): string {
  if (typeof navigator === 'undefined') return 'Unknown device';
  const ua = navigator.userAgent;
- const os =
-  /Windows/i.test(ua) ? 'Windows'
-   : /iPhone/i.test(ua) ? 'iPhone'
-    : /iPad/i.test(ua) ? 'iPad'
-     : /Android/i.test(ua) ? 'Android'
-      : /Mac OS X|Macintosh/i.test(ua) ? 'Mac'
-       : /Linux/i.test(ua) ? 'Linux'
-        : 'device';
- const browser =
-  /Edg\//i.test(ua) ? 'Edge'
-   : /OPR\/|Opera/i.test(ua) ? 'Opera'
-    : /Firefox/i.test(ua) ? 'Firefox'
-     : /Chrome/i.test(ua) ? 'Chrome'
-      : /Safari/i.test(ua) ? 'Safari'
-       : 'Browser';
+ const os = /Windows/i.test(ua)
+  ? 'Windows'
+  : /iPhone/i.test(ua)
+    ? 'iPhone'
+    : /iPad/i.test(ua)
+      ? 'iPad'
+      : /Android/i.test(ua)
+        ? 'Android'
+        : /Mac OS X|Macintosh/i.test(ua)
+          ? 'Mac'
+          : /Linux/i.test(ua)
+            ? 'Linux'
+            : 'device';
+ const browser = /Edg\//i.test(ua)
+  ? 'Edge'
+  : /OPR\/|Opera/i.test(ua)
+    ? 'Opera'
+    : /Firefox/i.test(ua)
+      ? 'Firefox'
+      : /Chrome/i.test(ua)
+        ? 'Chrome'
+        : /Safari/i.test(ua)
+          ? 'Safari'
+          : 'Browser';
  return `${browser} on ${os}`;
 }
 
@@ -475,9 +484,19 @@ type StoredLedgerSettings = {
  showCurrencySymbol: boolean;
  dateFormat: PdfSettings['dateFormat'];
  highlightNetChange: boolean;
+ netChangeHighlightColor: string;
  rowHighlightColor: string;
+ rowClickHighlight: boolean;
 };
-const defaultLedgerSettings: StoredLedgerSettings = { decimals: 2, showCurrencySymbol: true, dateFormat: 'full', highlightNetChange: true, rowHighlightColor: '#fde68a' };
+const defaultLedgerSettings: StoredLedgerSettings = {
+ decimals: 2,
+ showCurrencySymbol: true,
+ dateFormat: 'full',
+ highlightNetChange: true,
+ netChangeHighlightColor: '#eff6ff',
+ rowHighlightColor: '#fde68a',
+ rowClickHighlight: true,
+};
 function getStoredLedgerSettings(clientId: number | null | undefined): StoredLedgerSettings {
  if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerSettings };
  try {
@@ -1058,7 +1077,13 @@ function renderIcon(icon: IconName, className = 'h-5 w-5') {
   case 'archive':
    return (
     <svg {...commonProps}>
-     <rect x="3" y="4" width="18" height="4" rx="1" />
+     <rect
+      x="3"
+      y="4"
+      width="18"
+      height="4"
+      rx="1"
+     />
      <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
      <path d="M10 12h4" />
     </svg>
@@ -1115,9 +1140,15 @@ function SkTableRows({ cols, rows = 7 }: { cols: string[]; rows?: number }) {
  return (
   <>
    {Array.from({ length: rows }, (_, i) => (
-    <tr key={i} className="border-t border-slate-100">
+    <tr
+     key={i}
+     className="border-t border-slate-100"
+    >
      {cols.map((w, j) => (
-      <td key={j} className="px-4 py-3">
+      <td
+       key={j}
+       className="px-4 py-3"
+      >
        <SkBar w={w} />
       </td>
      ))}
@@ -1143,10 +1174,19 @@ function SkTablePanel({
  return (
   <div className={panelClassName}>
    <div className="mb-4 flex items-center justify-between gap-4">
-    <SkBar w={titleWidth} h="h-6" />
+    <SkBar
+     w={titleWidth}
+     h="h-6"
+    />
     <div className="flex gap-2">
-     <SkBar w="w-8" h="h-8" />
-     <SkBar w="w-8" h="h-8" />
+     <SkBar
+      w="w-8"
+      h="h-8"
+     />
+     <SkBar
+      w="w-8"
+      h="h-8"
+     />
     </div>
    </div>
    <div className={tableWrapClassName}>
@@ -1154,14 +1194,23 @@ function SkTablePanel({
      <thead className="bg-slate-50">
       <tr>
        {cols.map((_, i) => (
-        <th key={i} className="px-4 py-3">
-         <SkBar w="w-12" h="h-3" />
+        <th
+         key={i}
+         className="px-4 py-3"
+        >
+         <SkBar
+          w="w-12"
+          h="h-3"
+         />
         </th>
        ))}
       </tr>
      </thead>
      <tbody>
-      <SkTableRows cols={cols} rows={rows} />
+      <SkTableRows
+       cols={cols}
+       rows={rows}
+      />
      </tbody>
     </table>
    </div>
@@ -1218,7 +1267,9 @@ function AuthenticatedHome() {
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerDateFormat, setLedgerDateFormat] = useState<PdfSettings['dateFormat']>('full');
  const [ledgerHighlightNetChange, setLedgerHighlightNetChange] = useState(true);
+ const [ledgerNetChangeHighlightColor, setLedgerNetChangeHighlightColor] = useState('#eff6ff');
  const [ledgerRowHighlightColor, setLedgerRowHighlightColor] = useState('#fde68a');
+ const [ledgerRowClickHighlight, setLedgerRowClickHighlight] = useState(true);
  const [highlightedLedgerRows, setHighlightedLedgerRows] = useState<Set<string>>(new Set());
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
@@ -1235,7 +1286,11 @@ function AuthenticatedHome() {
  const [transactionsPage, setTransactionsPage] = useState(99999);
  const [transactionsPageSize, setTransactionsPageSize] = useState(100);
  const [ledgerPageState, setLedgerPageState] = useState<Record<number, number>>({});
- const [ledgerPageSize, setLedgerPageSize] = useState(50);
+ const [ledgerPageSize, setLedgerPageSize] = useState<number>(() => {
+  if (typeof window === 'undefined') return 50;
+  const stored = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
+  return [25, 50, 100].includes(stored) ? stored : 50;
+ });
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
  const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
@@ -1259,11 +1314,21 @@ function AuthenticatedHome() {
  const [dragOverLedgerRowKey, setDragOverLedgerRowKey] = useState<string | null>(null);
  const [dragOverLedgerHalf, setDragOverLedgerHalf] = useState<'top' | 'bottom'>('bottom');
  const dragLedgerFromHandle = useRef(false);
- const [manualLedgerRowOrder, setManualLedgerRowOrder] = useState<Record<number, string[]>>({});
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({ ...defaultLedgerColumnVisibility });
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
  const [transactionTableDrafts, setTransactionTableDrafts] = useState<Record<number, TransactionTableDraft>>({});
+ const ledgerHistory = useDraftHistory(ledgerTransactionDrafts, setLedgerTransactionDrafts);
+ const txTableHistory = useDraftHistory(transactionTableDrafts, setTransactionTableDrafts);
+ const resetLedgerHistory = ledgerHistory.reset;
+ const resetTxTableHistory = txTableHistory.reset;
+ // Clear undo/redo history once an edit session ends (all drafts discarded/saved).
+ useEffect(() => {
+  if (Object.keys(ledgerTransactionDrafts).length === 0) resetLedgerHistory();
+ }, [ledgerTransactionDrafts, resetLedgerHistory]);
+ useEffect(() => {
+  if (Object.keys(transactionTableDrafts).length === 0) resetTxTableHistory();
+ }, [transactionTableDrafts, resetTxTableHistory]);
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
  const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
  const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
@@ -1510,7 +1575,9 @@ function AuthenticatedHome() {
   setShowLedgerCurrencySymbol(settings.showCurrencySymbol);
   setLedgerDateFormat(settings.dateFormat);
   setLedgerHighlightNetChange(settings.highlightNetChange);
+  setLedgerNetChangeHighlightColor(settings.netChangeHighlightColor);
   setLedgerRowHighlightColor(settings.rowHighlightColor);
+  setLedgerRowClickHighlight(settings.rowClickHighlight);
   setHighlightedLedgerRows(new Set(getStoredLedgerHighlights(selectedClientForLedger?.id)));
  }, [selectedClientForLedger?.id]);
 
@@ -1593,9 +1660,7 @@ function AuthenticatedHome() {
    });
   })();
   let filtered =
-   section === 'archive'
-    ? ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId)))
-    : ordered.filter((row) => !row.isArchived);
+   section === 'archive' ? ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId))) : ordered.filter((row) => !row.isArchived);
   if (txFilterSearch) {
    const q = txFilterSearch.toLowerCase();
    // Amount matching ignores thousands separators/spaces, so "500,000" and
@@ -1669,8 +1734,13 @@ function AuthenticatedHome() {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
   const selectedCurrency = currencies.find((c) => c.id === transactionForm.currencyId);
   const accountFrom = clientAccounts.find((a) => a.id === transactionForm.accountFromId);
-  if (selectedCurrency && accountFrom && selectedCurrency.code === accountFrom.currencyCode) {
+  if (!selectedCurrency || !accountFrom) return;
+  if (selectedCurrency.code === accountFrom.currencyCode) {
    setTransactionForm((current) => ({ ...current, exchangeRateFrom: '1.00' }));
+  } else {
+   // Cross-currency: never default to 1 — clear the default so the row stays pending
+   // (a dash, excluded from the balance) until the user enters a rate manually.
+   setTransactionForm((current) => (current.exchangeRateFrom === '1.00' ? { ...current, exchangeRateFrom: '' } : current));
   }
  }, [transactionForm.currencyId, transactionForm.accountFromId, currencies, clientAccounts]);
 
@@ -1678,8 +1748,11 @@ function AuthenticatedHome() {
   if (!transactionForm.currencyId || !transactionForm.accountToId) return;
   const selectedCurrency = currencies.find((c) => c.id === transactionForm.currencyId);
   const accountTo = clientAccounts.find((a) => a.id === transactionForm.accountToId);
-  if (selectedCurrency && accountTo && selectedCurrency.code === accountTo.currencyCode) {
+  if (!selectedCurrency || !accountTo) return;
+  if (selectedCurrency.code === accountTo.currencyCode) {
    setTransactionForm((current) => ({ ...current, exchangeRateTo: '1.00' }));
+  } else {
+   setTransactionForm((current) => (current.exchangeRateTo === '1.00' ? { ...current, exchangeRateTo: '' } : current));
   }
  }, [transactionForm.currencyId, transactionForm.accountToId, currencies, clientAccounts]);
 
@@ -1738,7 +1811,9 @@ function AuthenticatedHome() {
    showCurrencySymbol: showLedgerCurrencySymbol,
    dateFormat: ledgerDateFormat,
    highlightNetChange: ledgerHighlightNetChange,
+   netChangeHighlightColor: ledgerNetChangeHighlightColor,
    rowHighlightColor: ledgerRowHighlightColor,
+   rowClickHighlight: ledgerRowClickHighlight,
    ...patch,
   };
   window.localStorage.setItem(ledgerSettingsStorageKeyPrefix + clientId, JSON.stringify(next));
@@ -1769,6 +1844,17 @@ function AuthenticatedHome() {
  function updateLedgerRowHighlightColor(next: string) {
   setLedgerRowHighlightColor(next);
   persistLedgerSettings({ rowHighlightColor: next });
+ }
+
+ function updateLedgerNetChangeHighlightColor(next: string) {
+  setLedgerNetChangeHighlightColor(next);
+  persistLedgerSettings({ netChangeHighlightColor: next });
+ }
+
+ function toggleLedgerRowClickHighlight() {
+  const next = !ledgerRowClickHighlight;
+  setLedgerRowClickHighlight(next);
+  persistLedgerSettings({ rowClickHighlight: next });
  }
 
  // Toggle a single row's highlight on click; persisted per client so it survives refresh.
@@ -1833,7 +1919,8 @@ function AuthenticatedHome() {
   const rate = isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
   const reversed = isOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed;
   // Always show the stored rate (including 1) so any exchange rate can be entered/edited freely.
-  const rateStr = reversed ? formatRateValue(1 / rate) : String(rate);
+  // Rate 0 means "not set yet" (pending cross-currency row): show a blank field so the user enters it.
+  const rateStr = rate === 0 ? '' : reversed ? formatRateValue(1 / rate) : String(rate);
   return {
    transactionId: transaction.id,
    ledgerAccountId,
@@ -1883,6 +1970,7 @@ function AuthenticatedHome() {
  }
 
  function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: number, nextValues: Partial<LedgerTransactionDraft>) {
+  ledgerHistory.record();
   setLedgerTransactionDrafts((current) => {
    const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
    const existingDraft = current[draftKey];
@@ -1932,6 +2020,7 @@ function AuthenticatedHome() {
  }
 
  function updateTransactionTableDraft(transactionId: number, nextValues: Partial<TransactionTableDraft>) {
+  txTableHistory.record();
   setTransactionTableDrafts((current) => {
    const existingDraft =
     current[transactionId] ??
@@ -2053,8 +2142,14 @@ function AuthenticatedHome() {
   }
 
   const amount = parseFloat(draft.amount);
-  const rawLedgerRate = parseFloat(draft.exchangeRate) || 1;
-  const exchangeRate = ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 / rawLedgerRate : rawLedgerRate;
+  // Cross-currency rows with an empty rate stay unset (0 → pending, excluded from balance).
+  // Same-currency rows are always 1. An entered rate (including 1) is stored as given.
+  const ledgerAccount = clientAccounts.find((a) => a.id === ledgerAccountId);
+  const crossCurrency = ledgerAccount != null && ledgerAccount.currencyId !== draft.currencyId;
+  const parsedLedgerRate = parseFloat(draft.exchangeRate);
+  const rawLedgerRate = Number.isFinite(parsedLedgerRate) && parsedLedgerRate > 0 ? parsedLedgerRate : crossCurrency ? 0 : 1;
+  const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && rawLedgerRate > 0;
+  const exchangeRate = rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
   const commission = parseFloat(draft.commission) || 0;
 
   if (!draft.counterpartyAccountId || !amount) {
@@ -2062,8 +2157,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
-  const createdAt = `${draft.createdDate} ${currentTime}`;
+  const createdAt = resolveCreatedAt(draft.createdDate, transaction.createdAt);
   const payload: TransactionUpdateInput = {
    id: transaction.id,
    accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
@@ -2075,10 +2169,8 @@ function AuthenticatedHome() {
    commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
    exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
    commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
-   exchangeRateFromReversed:
-    draft.direction === 'outgoing' ? (ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
-   exchangeRateToReversed:
-    draft.direction === 'incoming' ? (ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
+   exchangeRateFromReversed: draft.direction === 'outgoing' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
+   exchangeRateToReversed: draft.direction === 'incoming' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
    charges: transaction.charges,
    chargesCurrencyId: transaction.chargesCurrencyId,
    chargesPayer: transaction.chargesPayer,
@@ -2139,9 +2231,21 @@ function AuthenticatedHome() {
 
  function onCancelAllLedger(ledger: ClientAccountLedger) {
   const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
-  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n; });
-  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
-  setEditAllLedgerAccountIds((prev) => { const n = new Set(prev); n.delete(ledger.accountId); return n; });
+  setEditingLedgerRowKeys((prev) => {
+   const n = new Set(prev);
+   keys.forEach((k) => n.delete(k));
+   return n;
+  });
+  setLedgerTransactionDrafts((prev) => {
+   const n = { ...prev };
+   keys.forEach((k) => delete n[k]);
+   return n;
+  });
+  setEditAllLedgerAccountIds((prev) => {
+   const n = new Set(prev);
+   n.delete(ledger.accountId);
+   return n;
+  });
  }
 
  async function onSaveAllLedger(ledger: ClientAccountLedger) {
@@ -2158,21 +2262,45 @@ function AuthenticatedHome() {
    }),
   );
   // Exit edit mode immediately; reconcile with the server in the background.
-  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n; });
-  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
-  setEditAllLedgerAccountIds((prev) => { const n = new Set(prev); n.delete(ledger.accountId); return n; });
+  setEditingLedgerRowKeys((prev) => {
+   const n = new Set(prev);
+   keys.forEach((k) => n.delete(k));
+   return n;
+  });
+  setLedgerTransactionDrafts((prev) => {
+   const n = { ...prev };
+   keys.forEach((k) => delete n[k]);
+   return n;
+  });
+  setEditAllLedgerAccountIds((prev) => {
+   const n = new Set(prev);
+   n.delete(ledger.accountId);
+   return n;
+  });
   void loadData();
  }
 
  async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
   const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
   if (!ledgerTransactionDrafts[draftKey]) {
-   setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(draftKey); return n; });
+   setEditingLedgerRowKeys((prev) => {
+    const n = new Set(prev);
+    n.delete(draftKey);
+    return n;
+   });
    return;
   }
   await onSaveLedgerTransaction(transactionId, ledgerAccountId);
-  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(draftKey); return n; });
-  setLedgerTransactionDrafts((prev) => { const n = { ...prev }; delete n[draftKey]; return n; });
+  setEditingLedgerRowKeys((prev) => {
+   const n = new Set(prev);
+   n.delete(draftKey);
+   return n;
+  });
+  setLedgerTransactionDrafts((prev) => {
+   const n = { ...prev };
+   delete n[draftKey];
+   return n;
+  });
  }
 
  async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
@@ -2182,14 +2310,23 @@ function AuthenticatedHome() {
   } else {
    await onDeleteTransaction(entry.transactionId);
   }
-  setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
-  setSelectedLedgerEntryKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
+  setEditingLedgerRowKeys((prev) => {
+   const n = new Set(prev);
+   n.delete(key);
+   return n;
+  });
+  setSelectedLedgerEntryKeys((prev) => {
+   const n = new Set(prev);
+   n.delete(key);
+   return n;
+  });
  }
 
  function onToggleLedgerEntrySelection(key: string) {
   setSelectedLedgerEntryKeys((prev) => {
    const next = new Set(prev);
-   if (next.has(key)) next.delete(key); else next.add(key);
+   if (next.has(key)) next.delete(key);
+   else next.add(key);
    return next;
   });
  }
@@ -2289,9 +2426,7 @@ function AuthenticatedHome() {
 
   // Reject a name already used by another client (case/whitespace-insensitive).
   const nameKey = clientForm.name.trim().replace(/\s+/g, ' ').toLowerCase();
-  const duplicateName = clients.some(
-   (client) => client.id !== clientForm.id && client.name.trim().replace(/\s+/g, ' ').toLowerCase() === nameKey,
-  );
+  const duplicateName = clients.some((client) => client.id !== clientForm.id && client.name.trim().replace(/\s+/g, ' ').toLowerCase() === nameKey);
   if (duplicateName) {
    setError(t('client_name_duplicate'));
    return;
@@ -2778,12 +2913,24 @@ function AuthenticatedHome() {
    amount: amount || 0,
    type: transactionForm.type,
    isArchived: isArchiveCreate,
-   exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
+   // Cross-currency sides with no rate entered are stored as 0 (unset → pending). Same-currency
+   // sides are always 1. An entered rate (including 1) is stored as given.
+   exchangeRateFrom: (() => {
+    if (!showExchangeRateFrom || !transactionAccountFromCurrencyCode) return 1;
+    const raw = parseFloat(transactionForm.exchangeRateFrom);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return txFromRateReversed ? 1 / raw : raw;
+   })(),
    commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
-   exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
+   exchangeRateTo: (() => {
+    if (!showExchangeRateTo || !transactionAccountToCurrencyCode) return 1;
+    const raw = parseFloat(transactionForm.exchangeRateTo);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return txToRateReversed ? 1 / raw : raw;
+   })(),
    commissionTo: parseFloat(transactionForm.commissionTo) || 0,
-   exchangeRateFromReversed: txFromRateReversed ? 1 : 0,
-   exchangeRateToReversed: txToRateReversed ? 1 : 0,
+   exchangeRateFromReversed: txFromRateReversed && (parseFloat(transactionForm.exchangeRateFrom) || 0) > 0 ? 1 : 0,
+   exchangeRateToReversed: txToRateReversed && (parseFloat(transactionForm.exchangeRateTo) || 0) > 0 ? 1 : 0,
    charges: parseFloat(transactionForm.charges) || 0,
    chargesCurrencyId: transactionForm.chargesCurrencyId || null,
    chargesPayer: transactionForm.chargesPayer,
@@ -2965,9 +3112,7 @@ function AuthenticatedHome() {
   // The import currency is optional. When chosen it drives every row's currency
   // (unchanged behaviour); when left blank, each row's currency is derived from
   // the account the user picks for the client in the review step.
-  const selectedCurrency = importMapping.currencyId
-   ? currencies.find((currency) => currency.id === importMapping.currencyId) ?? null
-   : null;
+  const selectedCurrency = importMapping.currencyId ? (currencies.find((currency) => currency.id === importMapping.currencyId) ?? null) : null;
 
   try {
    const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
@@ -2986,10 +3131,10 @@ function AuthenticatedHome() {
      // the client's only account so a single-account client still posts.
      const existingAccounts = existing ? clientAccounts.filter((account) => account.clientId === existing.id) : [];
      const defaultAccount = selectedCurrency
-      ? existingAccounts.find((account) => account.currencyId === selectedCurrency.id) ?? null
+      ? (existingAccounts.find((account) => account.currencyId === selectedCurrency.id) ?? null)
       : existingAccounts.length === 1
-       ? existingAccounts[0]
-       : null;
+        ? existingAccounts[0]
+        : null;
      entry = {
       key,
       originalName: rawName,
@@ -2999,7 +3144,7 @@ function AuthenticatedHome() {
       pendingEntryKey: null,
       targetCurrencyId: null,
       name: rawName,
-      organizationId: existing?.organizationId ?? (organizations[0]?.id ?? null),
+      organizationId: existing?.organizationId ?? organizations[0]?.id ?? null,
       accountCurrencyIds: [],
       currencyId: selectedCurrency?.id ?? null,
       transactionCount: 0,
@@ -3057,9 +3202,7 @@ function AuthenticatedHome() {
    return;
   }
 
-  const selectedCurrency = importMapping.currencyId
-   ? currencies.find((currency) => currency.id === importMapping.currencyId) ?? null
-   : null;
+  const selectedCurrency = importMapping.currencyId ? (currencies.find((currency) => currency.id === importMapping.currencyId) ?? null) : null;
 
   if (!importReview || !importReview.length) {
    setError(t('import_err_review_first'));
@@ -3080,7 +3223,9 @@ function AuthenticatedHome() {
   }
 
   // New clients with 2+ accounts need a target account selected.
-  const missingTarget = importReview.find((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null);
+  const missingTarget = importReview.find(
+   (entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null,
+  );
   if (missingTarget) {
    setError(t('import_err_target_required', { name: missingTarget.originalName }));
    return;
@@ -3088,14 +3233,19 @@ function AuthenticatedHome() {
 
   // Pending-entry refs with 2+ accounts need a target chosen.
   const refAccountCount = (key: string) => importReview.find((e) => e.key === key)?.accountCurrencyIds.length ?? 0;
-  const missingPendingTarget = importReview.find((entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && refAccountCount(entry.pendingEntryKey!) >= 2);
+  const missingPendingTarget = importReview.find(
+   (entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && refAccountCount(entry.pendingEntryKey!) >= 2,
+  );
   if (missingPendingTarget) {
    setError(t('import_err_target_required', { name: missingPendingTarget.originalName }));
    return;
   }
 
   // Existing clients with 2+ accounts need a selected account.
-  const missingExistingAccount = importReview.find((entry) => !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2);
+  const missingExistingAccount = importReview.find(
+   (entry) =>
+    !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2,
+  );
   if (missingExistingAccount) {
    setError(t('import_err_existing_account_required', { name: missingExistingAccount.originalName }));
    return;
@@ -3142,16 +3292,14 @@ function AuthenticatedHome() {
     if (entry.existingClientId != null) return entry.existingClientId;
     if (entry.pendingEntryKey != null) {
      const ref = reviewByKey.get(entry.pendingEntryKey);
-     return ref ? getClientByName(ref.name.trim())?.id ?? null : null;
+     return ref ? (getClientByName(ref.name.trim())?.id ?? null) : null;
     }
     return getClientByName(entry.name.trim())?.id ?? null;
    };
 
    // Optional: present only when the user picked a single currency for the whole
    // import. When null, each row's currency comes from the resolved account.
-   let importCurrency = selectedCurrency
-    ? nextCurrencies.find((currency) => currency.id === selectedCurrency.id) ?? selectedCurrency
-    : null;
+   let importCurrency = selectedCurrency ? (nextCurrencies.find((currency) => currency.id === selectedCurrency.id) ?? selectedCurrency) : null;
 
    const ensureCurrencyEnabled = async (currencyId: number) => {
     const currency = nextCurrencies.find((item) => item.id === currencyId);
@@ -3191,7 +3339,21 @@ function AuthenticatedHome() {
      phone: '',
      address: '',
     })) as { ok: true; clientId: number };
-    nextClients = [...nextClients, { id: newClientId, name: finalName, organizationId: review.organizationId ?? null, organizationName: null, email: '', phone: '', address: '', accountCount: 0, createdAt: '', updatedAt: '' }];
+    nextClients = [
+     ...nextClients,
+     {
+      id: newClientId,
+      name: finalName,
+      organizationId: review.organizationId ?? null,
+      organizationName: null,
+      email: '',
+      phone: '',
+      address: '',
+      accountCount: 0,
+      createdAt: '',
+      updatedAt: '',
+     },
+    ];
     stats.createdClients += 1;
    }
 
@@ -3236,8 +3398,7 @@ function AuthenticatedHome() {
 
    // The currency a row posts in: the global import currency when chosen,
    // otherwise the currency of the account the row resolves to.
-   const currencyForAccount = (account: ClientAccount) =>
-    importCurrency ?? nextCurrencies.find((currency) => currency.id === account.currencyId) ?? null;
+   const currencyForAccount = (account: ClientAccount) => importCurrency ?? nextCurrencies.find((currency) => currency.id === account.currencyId) ?? null;
 
    // Walk the rows, building two accumulator arrays instead of firing one HTTP
    // request per row. A single bulk call at the end inserts everything at once.
@@ -3260,9 +3421,15 @@ function AuthenticatedHome() {
      const markerEntry = fromIsExpense ? fromEntry : toEntry;
      if (!realEntry) continue;
      const account = resolveAccount(realEntry);
-     if (!account) { stats.skippedRows += 1; continue; }
+     if (!account) {
+      stats.skippedRows += 1;
+      continue;
+     }
      const adjustmentCurrency = currencyForAccount(account);
-     if (!adjustmentCurrency) { stats.skippedRows += 1; continue; }
+     if (!adjustmentCurrency) {
+      stats.skippedRows += 1;
+      continue;
+     }
      adjustmentsToCreate.push({
       accountId: account.id,
       amount: row.amount,
@@ -3284,11 +3451,17 @@ function AuthenticatedHome() {
     const receiveEntry = override.swap ? fromEntry : toEntry;
     const fromAccount = resolveAccount(sendEntry);
     const toAccount = resolveAccount(receiveEntry);
-    if (!fromAccount || !toAccount) { stats.skippedRows += 1; continue; }
+    if (!fromAccount || !toAccount) {
+     stats.skippedRows += 1;
+     continue;
+    }
     // A transfer posts in a single currency. With a global import currency that
     // is it; without one, both sides must resolve to the same-currency account.
     const transferCurrency = importCurrency ?? (fromAccount.currencyId === toAccount.currencyId ? currencyForAccount(fromAccount) : null);
-    if (!transferCurrency) { stats.skippedRows += 1; continue; }
+    if (!transferCurrency) {
+     stats.skippedRows += 1;
+     continue;
+    }
     transactionsToCreate.push({
      accountFromId: fromAccount.id,
      accountToId: toAccount.id,
@@ -3381,7 +3554,6 @@ function AuthenticatedHome() {
       setError(t('transaction_required'));
       return;
      }
-     const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
      const selectedCurrency = currencyMap.get(draft.currencyId);
      const account = clientAccountMap.get(draft.accountFromId);
      await accountingApi.updateClientAdjustment({
@@ -3395,7 +3567,7 @@ function AuthenticatedHome() {
       exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
       exchangeRateReversed: !!tableRateFromReversed[transactionId],
       description: draft.description,
-      createdAt: `${draft.createdDate} ${currentTime}`,
+      createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
      });
      continue;
     }
@@ -3404,7 +3576,18 @@ function AuthenticatedHome() {
      setError(t('transaction_party_required'));
      return;
     }
-    const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
+    // Preserve the "unset" (0) rate for cross-currency sides so a pending row isn't forced to 1.
+    const fromAcc = draft.accountFromId ? clientAccountMap.get(draft.accountFromId) : null;
+    const toAcc = draft.accountToId ? clientAccountMap.get(draft.accountToId) : null;
+    const fromCross = !!fromAcc && fromAcc.currencyId !== draft.currencyId;
+    const toCross = !!toAcc && toAcc.currencyId !== draft.currencyId;
+    const sideRate = (field: string, cross: boolean, reversed: boolean) => {
+     const r = parseFloat(field);
+     if (Number.isFinite(r) && r > 0) return reversed ? 1 / r : r;
+     return cross ? 0 : 1;
+    };
+    const fromRateVal = sideRate(draft.exchangeRateFrom, fromCross, !!tableRateFromReversed[transactionId]);
+    const toRateVal = sideRate(draft.exchangeRateTo, toCross, !!tableRateToReversed[transactionId]);
     await accountingApi.updateTransaction({
      id: transaction.id,
      accountFromId: draft.accountFromId,
@@ -3412,12 +3595,12 @@ function AuthenticatedHome() {
      currencyId: draft.currencyId,
      amount: amount || 0,
      type: draft.type,
-     exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+     exchangeRateFrom: fromRateVal,
      commissionFrom: parseFloat(draft.commissionFrom) || 0,
-     exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
+     exchangeRateTo: toRateVal,
      commissionTo: parseFloat(draft.commissionTo) || 0,
-     exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
-     exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
+     exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
+     exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
      charges: parseFloat(draft.charges) || 0,
      chargesCurrencyId: draft.chargesCurrencyId || null,
      chargesPayer: draft.chargesPayer,
@@ -3425,7 +3608,7 @@ function AuthenticatedHome() {
      chargesDescription: draft.chargesDescription,
      description: draft.description,
      archiveNote: draft.archiveNote,
-     createdAt: `${draft.createdDate} ${currentTime}`,
+     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
     });
    }
    setError('');
@@ -3504,8 +3687,10 @@ function AuthenticatedHome() {
   const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
   const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
   const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-  const rawRate = parseFloat(adjustmentModal.exchangeRate) || 1;
-  const effectiveRate = needsRate ? (adjustmentModal.exchangeRateReversed ? 1 / rawRate : rawRate) : 1;
+  // Cross-currency with no rate entered → 0 (unset → pending, excluded from balance until set).
+  const parsedAdjRate = parseFloat(adjustmentModal.exchangeRate);
+  const adjRateSet = Number.isFinite(parsedAdjRate) && parsedAdjRate > 0;
+  const effectiveRate = !needsRate ? 1 : adjRateSet ? (adjustmentModal.exchangeRateReversed ? 1 / parsedAdjRate : parsedAdjRate) : 0;
 
   const createdAt = `${adjustmentModal.date} 00:00:00`;
 
@@ -3516,7 +3701,7 @@ function AuthenticatedHome() {
    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
    exchangeRate: effectiveRate,
-   exchangeRateReversed: needsRate ? adjustmentModal.exchangeRateReversed : false,
+   exchangeRateReversed: needsRate && adjRateSet ? adjustmentModal.exchangeRateReversed : false,
    description: adjustmentModal.description.trim(),
    createdAt,
   };
@@ -3772,60 +3957,110 @@ function AuthenticatedHome() {
  async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) {
   const dragSet = new Set(draggedKeys);
   if (dragSet.has(targetKey)) return;
-  const currentOrder = manualLedgerRowOrder[accountId] ?? selectedClientLedgers.find((l) => l.accountId === accountId)?.entries.map((e) => `${e.transactionId}:${accountId}`) ?? [];
+  const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
+  if (!ledger || !accountingApi) return;
+  // The ledger is ordered by createdAt (ascending). Same-date rows often share an
+  // identical timestamp (e.g. expenses at 00:00:00), leaving no room to insert between
+  // them, so we reflow the whole target date's rows to distinct, evenly-spaced
+  // timestamps in the new order. That makes any reorder (even within one date) durable.
+  const currentOrder = ledger.entries.map((e) => `${e.transactionId}:${accountId}`);
   if (!currentOrder.includes(targetKey)) return;
   const without = currentOrder.filter((k) => !dragSet.has(k));
   const insertIdx = without.indexOf(targetKey);
   if (insertIdx === -1) return;
   const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
-  const next = [...without.slice(0, insertAt), ...draggedKeys, ...without.slice(insertAt)];
-  setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: next }));
-  const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
-  if (!ledger || !accountingApi) return;
+  const orderedDragged = currentOrder.filter((k) => dragSet.has(k));
+  const next = [...without.slice(0, insertAt), ...orderedDragged, ...without.slice(insertAt)];
   const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
+  const dateOf = (key: string) => entryMap.get(key)?.createdAt.slice(0, 10) ?? '';
+
+  // Dragged rows adopt the date of their new neighbour (above preferred); others keep theirs.
+  const aboveKey = insertAt > 0 ? without[insertAt - 1] : undefined;
+  const belowKey = insertAt < without.length ? without[insertAt] : undefined;
+  const draggedTargetDate = (aboveKey && dateOf(aboveKey)) || (belowKey && dateOf(belowKey)) || dateOf(orderedDragged[0]);
+  if (!draggedTargetDate) return;
+  const targetDateOf = (key: string) => (dragSet.has(key) ? draggedTargetDate : dateOf(key));
+
+  // Reflow every row on each date the drag touches, so order is encoded in distinct timestamps.
+  const affectedDates = new Set<string>([draggedTargetDate]);
+  const newTimes = new Map<string, string>();
+  for (const date of affectedDates) {
+   const keysOnDate = next.filter((k) => targetDateOf(k) === date);
+   const dayStart = Date.parse(`${date}T00:00:00.000Z`);
+   const dayEnd = Date.parse(`${date}T23:59:59.999Z`);
+   keysOnDate.forEach((k, i) => {
+    const ts = dayStart + ((dayEnd - dayStart) * (i + 1)) / (keysOnDate.length + 1);
+    newTimes.set(k, new Date(ts).toISOString());
+   });
+  }
+
+  // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
+  setTransactions((prev) =>
+   prev.map((tx) => {
+    const nc = newTimes.get(`${tx.id}:${accountId}`);
+    return nc ? { ...tx, createdAt: nc } : tx;
+   }),
+  );
+  setAdjustments((prev) =>
+   prev.map((adj) => {
+    const nc = newTimes.get(`${-adj.id}:${accountId}`);
+    return nc ? { ...adj, createdAt: nc } : adj;
+   }),
+  );
+
   try {
-   for (const draggedKey of draggedKeys) {
-    const entry = entryMap.get(draggedKey);
-    if (!entry) continue;
-    const pos = next.indexOf(draggedKey);
-    const neighborAbove = (() => { for (let i = pos - 1; i >= 0; i--) { if (!dragSet.has(next[i])) return entryMap.get(next[i]); } })();
-    const neighborBelow = (() => { for (let i = pos + 1; i < next.length; i++) { if (!dragSet.has(next[i])) return entryMap.get(next[i]); } })();
-    const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
-    const draggedDate = entry.createdAt.slice(0, 10);
-    if (!zoneDate || zoneDate === draggedDate) continue;
-    const newCreatedAt = zoneDate + entry.createdAt.slice(10);
+   for (const [key, newCreatedAt] of newTimes) {
+    const entry = entryMap.get(key);
+    if (!entry || !newCreatedAt) continue;
+    // Skip rows whose timestamp didn't actually change, to avoid needless writes.
+    if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
     if (entry.isAdjustment && entry.adjustmentId) {
      const adj = adjustments.find((a) => a.id === entry.adjustmentId);
      if (!adj) continue;
      await accountingApi.updateClientAdjustment({
-      id: adj.id, accountId, amount: adj.amount, direction: adj.direction,
+      id: adj.id,
+      accountId,
+      amount: adj.amount,
+      direction: adj.direction,
       currencyId: adj.currencyId ?? clientAccounts.find((a) => a.id === accountId)?.currencyId ?? 0,
-      currencyCode: adj.currencyCode, currencySymbol: adj.currencySymbol,
-      exchangeRate: adj.exchangeRate, exchangeRateReversed: adj.exchangeRateReversed,
-      description: adj.description, createdAt: newCreatedAt,
+      currencyCode: adj.currencyCode,
+      currencySymbol: adj.currencySymbol,
+      exchangeRate: adj.exchangeRate,
+      exchangeRateReversed: adj.exchangeRateReversed,
+      description: adj.description,
+      createdAt: newCreatedAt,
      });
     } else {
      const tx = transactions.find((t) => t.id === entry.transactionId);
      if (!tx) continue;
      await accountingApi.updateTransaction({
-      id: tx.id, accountFromId: tx.accountFromId, accountToId: tx.accountToId,
-      currencyId: tx.currencyId, amount: tx.amount, type: tx.type,
-      exchangeRateFrom: tx.exchangeRateFrom, commissionFrom: tx.commissionFrom,
-      exchangeRateTo: tx.exchangeRateTo, commissionTo: tx.commissionTo,
-      exchangeRateFromReversed: tx.exchangeRateFromReversed, exchangeRateToReversed: tx.exchangeRateToReversed,
-      charges: tx.charges, chargesCurrencyId: tx.chargesCurrencyId, chargesPayer: tx.chargesPayer,
-      chargesExchangeRate: tx.chargesExchangeRate, chargesDescription: tx.chargesDescription,
-      description: tx.description, createdAt: newCreatedAt,
+      id: tx.id,
+      accountFromId: tx.accountFromId,
+      accountToId: tx.accountToId,
+      currencyId: tx.currencyId,
+      amount: tx.amount,
+      type: tx.type,
+      exchangeRateFrom: tx.exchangeRateFrom,
+      commissionFrom: tx.commissionFrom,
+      exchangeRateTo: tx.exchangeRateTo,
+      commissionTo: tx.commissionTo,
+      exchangeRateFromReversed: tx.exchangeRateFromReversed,
+      exchangeRateToReversed: tx.exchangeRateToReversed,
+      charges: tx.charges,
+      chargesCurrencyId: tx.chargesCurrencyId,
+      chargesPayer: tx.chargesPayer,
+      chargesExchangeRate: tx.chargesExchangeRate,
+      chargesDescription: tx.chargesDescription,
+      description: tx.description,
+      createdAt: newCreatedAt,
      });
     }
    }
    setError('');
-   const orderToKeep = next;
    await loadData();
-   setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: orderToKeep }));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
-   setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: currentOrder }));
+   await loadData();
   }
  }
 
@@ -3965,8 +4200,16 @@ function AuthenticatedHome() {
 
  function onCancelAllTransactions() {
   const ids = paginatedTransactions.map((tx) => tx.id);
-  setEditingRowIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n; });
-  setTransactionTableDrafts((prev) => { const n = { ...prev }; ids.forEach((id) => delete n[id]); return n; });
+  setEditingRowIds((prev) => {
+   const n = new Set(prev);
+   ids.forEach((id) => n.delete(id));
+   return n;
+  });
+  setTransactionTableDrafts((prev) => {
+   const n = { ...prev };
+   ids.forEach((id) => delete n[id]);
+   return n;
+  });
   setIsEditAllTransactions(false);
  }
 
@@ -3974,8 +4217,16 @@ function AuthenticatedHome() {
   const ids = paginatedTransactions.map((tx) => tx.id).filter((id) => editingRowIds.has(id));
   // Each row save applies its optimistic patch; exit edit mode immediately and reconcile in the background.
   await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true })));
-  setEditingRowIds((prev) => { const n = new Set(prev); ids.forEach((id) => n.delete(id)); return n; });
-  setTransactionTableDrafts((prev) => { const n = { ...prev }; ids.forEach((id) => delete n[id]); return n; });
+  setEditingRowIds((prev) => {
+   const n = new Set(prev);
+   ids.forEach((id) => n.delete(id));
+   return n;
+  });
+  setTransactionTableDrafts((prev) => {
+   const n = { ...prev };
+   ids.forEach((id) => delete n[id]);
+   return n;
+  });
   setIsEditAllTransactions(false);
   void loadData();
  }
@@ -4077,7 +4328,12 @@ function AuthenticatedHome() {
    const d = e.createdAt.slice(0, 10);
    return d >= fromDate && d <= toDate;
   });
-  const startIdx = fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey)) : 0;
+  const startIdx = fromEntryKey
+   ? Math.max(
+      0,
+      candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey),
+     )
+   : 0;
   const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
   const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
   const filteredEntries = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
@@ -4127,7 +4383,8 @@ function AuthenticatedHome() {
     key: 'amount',
     header: t('amount'),
     isNum: true,
-    cell: (e) => `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`,
+    cell: (e) =>
+     `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`,
    },
    {
     key: 'exchangeRate',
@@ -4148,7 +4405,8 @@ function AuthenticatedHome() {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => (e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`),
+    cell: (e) =>
+     e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    {
     key: 'runningBalance',
@@ -4293,8 +4551,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
  }
 
  function generateArchiveHtml(): string {
-  const esc = (value: string) =>
-   String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
+  const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
 
   const archived = transactions
    .filter((tx) => tx.isArchived || !tx.accountFromId || !tx.accountToId)
@@ -4328,7 +4585,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    else totals.set(key, { code: tx.currencyCode, symbol: tx.currencySymbol, total: tx.amount });
   }
   const totalsHtml = [...totals.values()]
-   .map((total) => `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` <span style="color:#64748b">${esc(total.symbol || total.code)}</span>` : ''}</span>`)
+   .map(
+    (total) =>
+     `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` <span style="color:#64748b">${esc(total.symbol || total.code)}</span>` : ''}</span>`,
+   )
    .join('');
 
   const dir = isRTL ? 'rtl' : 'ltr';
@@ -4472,11 +4732,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   });
   const q = clientSearch.trim().toLowerCase();
   if (!q) return sorted;
-  return sorted.filter(
-   (c) =>
-    c.name.toLowerCase().includes(q) ||
-    (c.organizationName ?? '').toLowerCase().includes(q),
-  );
+  return sorted.filter((c) => c.name.toLowerCase().includes(q) || (c.organizationName ?? '').toLowerCase().includes(q));
  }, [clients, clientSort, clientSearch, language]);
  const totalClientPages = Math.max(1, Math.ceil(sortedClients.length / clientsPageSize));
  const clampedClientsPage = Math.min(clientsPage, totalClientPages);
@@ -4644,27 +4900,22 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   if (columns.charges) headers.push(t('charges'));
   if (columns.commission) headers.push(t('commission'));
 
-  const partyLabel = (name: string, symbol: string, code: string, fallback: string) =>
-   name ? `${name}${symbol || code ? ` (${symbol || code})` : ''}` : fallback;
+  const partyLabel = (name: string, symbol: string, code: string, fallback: string) => (name ? `${name}${symbol || code ? ` (${symbol || code})` : ''}` : fallback);
 
   const dataRows = rows.map((txn) => {
    const cells: string[] = [];
    if (columns.created) cells.push(formatDateValue(txn.createdAt, transactionTableSettings.dateFormat));
    if (columns.description) cells.push(txn.description || '');
    if (columns.accountFrom) {
-    cells.push(
-     txn.accountFromId
-      ? partyLabel(txn.clientFromName, txn.accountFromCurrencySymbol, txn.accountFromCurrencyCode, '')
-      : t('archive_no_sender'),
-    );
+    cells.push(txn.accountFromId ? partyLabel(txn.clientFromName, txn.accountFromCurrencySymbol, txn.accountFromCurrencyCode, '') : t('archive_no_sender'));
    }
    if (columns.accountTo) {
     cells.push(
      txn.isAdjustment
       ? t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')
       : txn.accountToId
-       ? partyLabel(txn.clientToName, txn.accountToCurrencySymbol, txn.accountToCurrencyCode, '')
-       : t('archive_no_receiver'),
+        ? partyLabel(txn.clientToName, txn.accountToCurrencySymbol, txn.accountToCurrencyCode, '')
+        : t('archive_no_receiver'),
     );
    }
    if (columns.amount) {
@@ -4703,16 +4954,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
  };
 
  function generateTransactionsExportHtml(headers: string[], rows: string[][]): string {
-  const esc = (value: string) =>
-   String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
+  const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
   const dir = isRTL ? 'rtl' : 'ltr';
   const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const exportDate = new Date().toLocaleDateString(language);
   const rangeLabel = [transactionExportFrom, transactionExportTo].filter(Boolean).join(' → ');
   const headerCells = headers.map((header) => `<th>${esc(header)}</th>`).join('');
-  const bodyRows = rows
-   .map((cells) => `<tr>${cells.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
-   .join('');
+  const bodyRows = rows.map((cells) => `<tr>${cells.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('');
 
   return `<!DOCTYPE html>
 <html lang="${language}" dir="${dir}">
@@ -4824,8 +5072,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       if (transaction.isArchived) return [];
       if (transaction.accountFromId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountToId ?? -1);
-       // Rates are never treated as "pending" — whatever rate is stored (including 1) is used.
-       const pendingRate = false;
+       // Cross-currency with no exchange rate set yet (0) is pending: shown as a dash and
+       // excluded from the balance until the user enters a rate. An explicit rate (incl. 1) counts.
+       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
        return [
         {
          transactionId: transaction.id,
@@ -4841,7 +5090,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          exchangeRateReversed: !!transaction.exchangeRateFromReversed,
          pendingRate,
          commission: transaction.commissionFrom,
-         netChange: pendingRate ? 0 : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
+         netChange: pendingRate
+          ? 0
+          : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
          runningBalance: 0,
          description: transaction.descriptionFrom?.trim() || transaction.description,
          charges: transaction.charges,
@@ -4856,8 +5107,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
       if (transaction.accountToId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountFromId ?? -1);
-       // Rates are never treated as "pending" — whatever rate is stored (including 1) is used.
-       const pendingRate = false;
+       // Cross-currency with no exchange rate set yet (0) is pending (see note above).
+       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
        return [
         {
          transactionId: transaction.id,
@@ -4873,7 +5124,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          exchangeRateReversed: !!transaction.exchangeRateToReversed,
          pendingRate,
          commission: transaction.commissionTo,
-         netChange: pendingRate ? 0 : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
+         netChange: pendingRate
+          ? 0
+          : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
          runningBalance: 0,
          description: transaction.descriptionTo?.trim() || transaction.description,
          charges: transaction.charges,
@@ -4907,10 +5160,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         currencySymbol: adj.currencySymbol || account.currencySymbol,
         exchangeRate: adj.exchangeRate || 1,
         exchangeRateReversed: !!adj.exchangeRateReversed,
-        pendingRate: false,
+        pendingRate: adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0,
         commission: 0,
-        // amount is in the adjustment's own currency; convert to account currency via exchangeRate
-        netChange: (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
+        // amount is in the adjustment's own currency; convert to account currency via exchangeRate.
+        // A cross-currency adjustment with no rate set (0) is pending and excluded from the balance.
+        netChange:
+         adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0
+          ? 0
+          : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
         runningBalance: 0,
         description: adj.description,
         charges: 0,
@@ -4929,25 +5186,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       return leftId - rightId;
      });
 
-    // Apply the user's manual row order (drag-to-reorder) BEFORE accumulating the running
-    // balance, so the accumulated balance follows the order shown in the table. Rows not yet
-    // in the saved order (e.g. just-added entries) keep their date position at the end.
-    const manualOrder = manualLedgerRowOrder[account.id];
-    const orderedForBalance = manualOrder
-     ? (() => {
-        const entryMap = new Map<string, (typeof entries)[number]>();
-        for (const e of entries) entryMap.set(`${e.transactionId}:${account.id}`, e);
-        const inOrder = manualOrder.flatMap((k) => {
-         const e = entryMap.get(k);
-         return e ? [e] : [];
-        });
-        const seen = new Set(manualOrder);
-        return [...inOrder, ...entries.filter((e) => !seen.has(`${e.transactionId}:${account.id}`))];
-       })()
-     : entries;
-
+    // Entries are ordered purely by createdAt (drag-to-reorder persists the order by
+    // rewriting timestamps), so a running balance accumulated in this order is durable.
     let runningBalance = account.startingBalance ?? 0;
-    const entriesWithBalance = orderedForBalance.map((entry) => {
+    const entriesWithBalance = entries.map((entry) => {
      runningBalance += entry.netChange;
      return {
       ...entry,
@@ -4967,7 +5209,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
- }, [adjustments, clientAccounts, clientAccountMap, currencyMap, manualLedgerRowOrder, pdfExportModal, section, selectedClientForLedger, transactions]);
+ }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
 
  // Totals for the rows the user has checkbox-selected in the ledger, shown next to the
  // "Delete (N)" action: sum of the entry amounts and sum of their net change.
@@ -5030,14 +5272,20 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    if (transaction.accountFromId != null && balanceByAccount.has(transaction.accountFromId)) {
     const account = clientAccountMap.get(transaction.accountFromId);
     if (account) {
-     const netChange = transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
+     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
+     const netChange = pending
+      ? 0
+      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
      balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
     }
    }
    if (transaction.accountToId != null && balanceByAccount.has(transaction.accountToId)) {
     const account = clientAccountMap.get(transaction.accountToId);
     if (account) {
-     const netChange = -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
+     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
+     const netChange = pending
+      ? 0
+      : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
      balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
     }
    }
@@ -5047,7 +5295,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    if (!balanceByAccount.has(adj.accountId)) continue;
    const account = clientAccountMap.get(adj.accountId);
    if (!account) continue;
-   const netChange = (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
+   const pending = adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0;
+   const netChange = pending ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
    balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
   }
 
@@ -5096,7 +5345,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    currencyCode: group.currencyCode,
    currencySymbol: group.currencySymbol,
    isMain: group.isMain,
-   clients: Array.from(group.clientMap.values()).filter((c) => c.balance !== 0).sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
+   clients: Array.from(group.clientMap.values())
+    .filter((c) => c.balance !== 0)
+    .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
    total: group.total,
   }));
 
@@ -5118,32 +5369,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
   return { groups, byOrg, hasAccounts: clientAccounts.length > 0 };
  }, [section, transactions, adjustments, clientAccounts, clients, clientAccountMap, currencyMap, language]);
-
- useEffect(() => {
-  setManualLedgerRowOrder((current) => {
-   let changed = false;
-   const next = { ...current };
-   for (const ledger of selectedClientLedgers) {
-    const currentOrder = current[ledger.accountId];
-    if (!currentOrder) continue;
-    const newKeys = ledger.entries.map((e) => `${e.transactionId}:${ledger.accountId}`);
-    const newKeySet = new Set(newKeys);
-    const currentKeySet = new Set(currentOrder);
-    const kept = currentOrder.filter((k) => newKeySet.has(k));
-    const added = newKeys.filter((k) => !currentKeySet.has(k));
-    const merged = [...kept, ...added];
-    if (merged.join(',') !== currentOrder.join(',')) {
-     next[ledger.accountId] = merged;
-     changed = true;
-    }
-   }
-   const activeIds = new Set(selectedClientLedgers.map((l) => l.accountId));
-   for (const id of Object.keys(next).map(Number)) {
-    if (!activeIds.has(id)) { delete next[id]; changed = true; }
-   }
-   return changed ? next : current;
-  });
- }, [selectedClientLedgers]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -5226,7 +5451,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        if (n >= 1 && n <= totalTransactionPages) setTransactionsPage(n);
        else event.target.value = String(clampedPage);
       }}
-      onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+      onKeyDown={(event) => {
+       if (event.key === 'Enter') event.currentTarget.blur();
+      }}
       className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
      />
      <span className="text-xs text-slate-500">/ {totalTransactionPages}</span>
@@ -5266,10 +5493,25 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        disabled={isBackingUp || isRestoringBackup}
        className="mt-4 inline-flex items-center gap-2 rounded border border-blue-600 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
-       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+       <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
         <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
+        <line
+         x1="12"
+         y1="15"
+         x2="12"
+         y2="3"
+        />
        </svg>
        {isBackingUp ? t('backup_download_loading') : t('backup_download_button')}
       </button>
@@ -5285,10 +5527,25 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        disabled={isBackingUp || isRestoringBackup}
        className="mt-4 inline-flex items-center gap-2 rounded border border-amber-600 bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
-       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+       <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
         <polyline points="17 8 12 3 7 8" />
-        <line x1="12" y1="3" x2="12" y2="15" />
+        <line
+         x1="12"
+         y1="3"
+         x2="12"
+         y2="15"
+        />
        </svg>
        {isRestoringBackup ? t('backup_restore_loading') : t('backup_restore_button')}
       </button>
@@ -5717,11 +5974,32 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     >
      <span>{label}</span>
      {active ? (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <svg
+       width="13"
+       height="13"
+       viewBox="0 0 24 24"
+       fill="none"
+       stroke="currentColor"
+       strokeWidth="2.2"
+       strokeLinecap="round"
+       strokeLinejoin="round"
+       aria-hidden
+      >
        {clientSort.dir === 'asc' ? <polyline points="6 15 12 9 18 15" /> : <polyline points="6 9 12 15 18 9" />}
       </svg>
      ) : (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300" aria-hidden>
+      <svg
+       width="13"
+       height="13"
+       viewBox="0 0 24 24"
+       fill="none"
+       stroke="currentColor"
+       strokeWidth="2"
+       strokeLinecap="round"
+       strokeLinejoin="round"
+       className="text-slate-300"
+       aria-hidden
+      >
        <polyline points="8 9 12 5 16 9" />
        <polyline points="16 15 12 19 8 15" />
       </svg>
@@ -5737,202 +6015,202 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
  const clientsSection = (
   <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
    <div className="flex flex-col gap-6">
-   <form
-    onSubmit={onClientSubmit}
-    className={panelClassName}
-   >
-    <div className="flex items-center justify-between gap-3">
-     <div>
-      <h2 className="text-xl font-semibold">{clientForm.id ? t('update_client') : t('new_client')}</h2>
-      <p className="mt-1 text-sm text-slate-600">{t('clients_description')}</p>
-     </div>
-     {clientForm.id ? (
-      <button
-       type="button"
-       onClick={() => {
-        setClientForm(emptyClientForm());
-        setOpenAccountOnCreate(true);
-        setNewClientAccountDrafts([createNewClientAccountDraft()]);
-       }}
-       className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      >
-       {t('cancel')}
-      </button>
-     ) : null}
-    </div>
-
-    <label className="mt-5 block text-sm font-medium">{t('client_name')}</label>
-    <input
-     value={clientForm.name}
-     onChange={(event) => setClientForm((current) => ({ ...current, name: event.target.value }))}
-     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('client_name_placeholder')}
-     required
-    />
-
-    <label className="mt-4 block text-sm font-medium">{t('client_organization')}</label>
-    <select
-     value={clientForm.organizationId ?? ''}
-     onChange={(event) => {
-      if (event.target.value === '__create__') {
-       setOrganizationForm(emptyOrganizationForm());
-       setShowCreateOrgDialog(true);
-       return;
-      }
-      setClientForm((current) => ({
-       ...current,
-       organizationId: event.target.value ? Number(event.target.value) : null,
-      }));
-     }}
-     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+    <form
+     onSubmit={onClientSubmit}
+     className={panelClassName}
     >
-     <option value="">{t('client_organization_placeholder')}</option>
-     {organizations.map((organization) => (
-      <option
-       key={organization.id}
-       value={organization.id}
-      >
-       {organization.name}
-      </option>
-     ))}
-     <option value="__create__">{t('client_organization_create')}</option>
-    </select>
-
-    <label className="mt-4 block text-sm font-medium">{t('client_email')}</label>
-    <input
-     value={clientForm.email}
-     onChange={(event) => setClientForm((current) => ({ ...current, email: event.target.value }))}
-     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('client_email_placeholder')}
-    />
-
-    <label className="mt-4 block text-sm font-medium">{t('client_phone')}</label>
-    <input
-     value={clientForm.phone}
-     onChange={(event) => setClientForm((current) => ({ ...current, phone: event.target.value }))}
-     className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('client_phone_placeholder')}
-    />
-
-    <label className="mt-4 block text-sm font-medium">{t('client_address')}</label>
-    <textarea
-     value={clientForm.address}
-     onChange={(event) => setClientForm((current) => ({ ...current, address: event.target.value }))}
-     className="mt-2 min-h-28 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-     placeholder={t('client_address_placeholder')}
-    />
-
-    {!clientForm.id ? (
-     <div className="mt-4 rounded border border-slate-200/70 bg-slate-50/85 p-4">
-      <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
-       <input
-        type="checkbox"
-        checked={openAccountOnCreate}
-        onChange={(event) => {
-         const checked = event.target.checked;
-         setOpenAccountOnCreate(checked);
-         if (!checked) {
-          setNewClientAccountDrafts([createNewClientAccountDraft()]);
-         }
+     <div className="flex items-center justify-between gap-3">
+      <div>
+       <h2 className="text-xl font-semibold">{clientForm.id ? t('update_client') : t('new_client')}</h2>
+       <p className="mt-1 text-sm text-slate-600">{t('clients_description')}</p>
+      </div>
+      {clientForm.id ? (
+       <button
+        type="button"
+        onClick={() => {
+         setClientForm(emptyClientForm());
+         setOpenAccountOnCreate(true);
+         setNewClientAccountDrafts([createNewClientAccountDraft()]);
         }}
-        className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-400"
-       />
-       {t('client_account_open')}
-      </label>
-
-      {openAccountOnCreate ? (
-       <div className="mt-3 space-y-2">
-        {newClientAccountDrafts.map((draft, index) => (
-         <div
-          key={`new-client-account-${index}`}
-          className="rounded border border-slate-200/70 bg-white/90 p-3"
-         >
-          <div className="flex flex-col gap-2 sm:flex-row">
-           <select
-            value={draft.currencyId ?? ''}
-            onChange={(event) => {
-             const currencyId = event.target.value ? Number(event.target.value) : null;
-             setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, currencyId } : row)));
-            }}
-            className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-           >
-            <option value="">{t('client_account_currency_placeholder')}</option>
-            {enabledCurrencies
-             .filter((currency) => !newClientAccountDrafts.some((row, rowIndex) => rowIndex !== index && row.currencyId === currency.id))
-             .map((currency) => (
-              <option
-               key={currency.id}
-               value={currency.id}
-              >
-               {currency.code} - {currency.name}
-              </option>
-             ))}
-           </select>
-          </div>
-          <div className="mt-2">
-           <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
-           <div className="mt-1 flex items-center gap-2">
-            <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
-             <button
-              type="button"
-              onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'debit' } : row)))}
-              className={`px-3 py-2 transition ${draft.balanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-             >
-              {t('balance_type_debit')}
-             </button>
-             <button
-              type="button"
-              onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'credit' } : row)))}
-              className={`px-3 py-2 transition ${draft.balanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-             >
-              {t('balance_type_credit')}
-             </button>
-            </div>
-            <input
-             type="text"
-             inputMode="decimal"
-             value={formatAmountInput(draft.startingBalance)}
-             onChange={(event) => {
-              const nextBalance = normalizeDecimalInput(event.target.value);
-              setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
-             }}
-             placeholder="0"
-             className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            />
-           </div>
-           <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
-          </div>
-          {newClientAccountDrafts.length > 1 ? (
-           <button
-            type="button"
-            onClick={() => setNewClientAccountDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
-            className="mt-2 inline-flex rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-           >
-            {t('client_account_remove')}
-           </button>
-          ) : null}
-         </div>
-        ))}
-
-        <button
-         type="button"
-         onClick={() => setNewClientAccountDrafts((current) => [...current, createNewClientAccountDraft()])}
-         className="inline-flex rounded border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
-        >
-         {t('client_account_open_another')}
-        </button>
-       </div>
+        className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+       >
+        {t('cancel')}
+       </button>
       ) : null}
      </div>
-    ) : null}
 
-    <button
-     type="submit"
-     className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
-    >
-     {clientForm.id ? t('update_client') : t('save_client')}
-    </button>
-   </form>
+     <label className="mt-5 block text-sm font-medium">{t('client_name')}</label>
+     <input
+      value={clientForm.name}
+      onChange={(event) => setClientForm((current) => ({ ...current, name: event.target.value }))}
+      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      placeholder={t('client_name_placeholder')}
+      required
+     />
+
+     <label className="mt-4 block text-sm font-medium">{t('client_organization')}</label>
+     <select
+      value={clientForm.organizationId ?? ''}
+      onChange={(event) => {
+       if (event.target.value === '__create__') {
+        setOrganizationForm(emptyOrganizationForm());
+        setShowCreateOrgDialog(true);
+        return;
+       }
+       setClientForm((current) => ({
+        ...current,
+        organizationId: event.target.value ? Number(event.target.value) : null,
+       }));
+      }}
+      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+     >
+      <option value="">{t('client_organization_placeholder')}</option>
+      {organizations.map((organization) => (
+       <option
+        key={organization.id}
+        value={organization.id}
+       >
+        {organization.name}
+       </option>
+      ))}
+      <option value="__create__">{t('client_organization_create')}</option>
+     </select>
+
+     <label className="mt-4 block text-sm font-medium">{t('client_email')}</label>
+     <input
+      value={clientForm.email}
+      onChange={(event) => setClientForm((current) => ({ ...current, email: event.target.value }))}
+      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      placeholder={t('client_email_placeholder')}
+     />
+
+     <label className="mt-4 block text-sm font-medium">{t('client_phone')}</label>
+     <input
+      value={clientForm.phone}
+      onChange={(event) => setClientForm((current) => ({ ...current, phone: event.target.value }))}
+      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      placeholder={t('client_phone_placeholder')}
+     />
+
+     <label className="mt-4 block text-sm font-medium">{t('client_address')}</label>
+     <textarea
+      value={clientForm.address}
+      onChange={(event) => setClientForm((current) => ({ ...current, address: event.target.value }))}
+      className="mt-2 min-h-28 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      placeholder={t('client_address_placeholder')}
+     />
+
+     {!clientForm.id ? (
+      <div className="mt-4 rounded border border-slate-200/70 bg-slate-50/85 p-4">
+       <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+        <input
+         type="checkbox"
+         checked={openAccountOnCreate}
+         onChange={(event) => {
+          const checked = event.target.checked;
+          setOpenAccountOnCreate(checked);
+          if (!checked) {
+           setNewClientAccountDrafts([createNewClientAccountDraft()]);
+          }
+         }}
+         className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-400"
+        />
+        {t('client_account_open')}
+       </label>
+
+       {openAccountOnCreate ? (
+        <div className="mt-3 space-y-2">
+         {newClientAccountDrafts.map((draft, index) => (
+          <div
+           key={`new-client-account-${index}`}
+           className="rounded border border-slate-200/70 bg-white/90 p-3"
+          >
+           <div className="flex flex-col gap-2 sm:flex-row">
+            <select
+             value={draft.currencyId ?? ''}
+             onChange={(event) => {
+              const currencyId = event.target.value ? Number(event.target.value) : null;
+              setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, currencyId } : row)));
+             }}
+             className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            >
+             <option value="">{t('client_account_currency_placeholder')}</option>
+             {enabledCurrencies
+              .filter((currency) => !newClientAccountDrafts.some((row, rowIndex) => rowIndex !== index && row.currencyId === currency.id))
+              .map((currency) => (
+               <option
+                key={currency.id}
+                value={currency.id}
+               >
+                {currency.code} - {currency.name}
+               </option>
+              ))}
+            </select>
+           </div>
+           <div className="mt-2">
+            <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+            <div className="mt-1 flex items-center gap-2">
+             <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+              <button
+               type="button"
+               onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'debit' } : row)))}
+               className={`px-3 py-2 transition ${draft.balanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+               {t('balance_type_debit')}
+              </button>
+              <button
+               type="button"
+               onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'credit' } : row)))}
+               className={`px-3 py-2 transition ${draft.balanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+               {t('balance_type_credit')}
+              </button>
+             </div>
+             <input
+              type="text"
+              inputMode="decimal"
+              value={formatAmountInput(draft.startingBalance)}
+              onChange={(event) => {
+               const nextBalance = normalizeDecimalInput(event.target.value);
+               setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
+              }}
+              placeholder="0"
+              className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             />
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+           </div>
+           {newClientAccountDrafts.length > 1 ? (
+            <button
+             type="button"
+             onClick={() => setNewClientAccountDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+             className="mt-2 inline-flex rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+            >
+             {t('client_account_remove')}
+            </button>
+           ) : null}
+          </div>
+         ))}
+
+         <button
+          type="button"
+          onClick={() => setNewClientAccountDrafts((current) => [...current, createNewClientAccountDraft()])}
+          className="inline-flex rounded border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+         >
+          {t('client_account_open_another')}
+         </button>
+        </div>
+       ) : null}
+      </div>
+     ) : null}
+
+     <button
+      type="submit"
+      className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+     >
+      {clientForm.id ? t('update_client') : t('save_client')}
+     </button>
+    </form>
     {accountsClient ? (
      <div className={panelClassName}>
       <div className="flex items-center justify-between gap-3">
@@ -6037,7 +6315,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  inputMode="decimal"
                  value={editingAccountBalance}
                  onChange={(event) => setEditingAccountBalance(event.target.value.replace(/,/g, ''))}
-                 onKeyDown={(event) => { if (event.key === 'Enter' && editingAccountCurrencyId) void onSaveEditAccount(); }}
+                 onKeyDown={(event) => {
+                  if (event.key === 'Enter' && editingAccountCurrencyId) void onSaveEditAccount();
+                 }}
                  placeholder="0"
                  className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                 />
@@ -6088,8 +6368,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    >
                     <option value="">{t('client_account_move_select_placeholder')}</option>
                     {moveTargets.map((target) => (
-                     <option key={target.id} value={target.id}>
-                      {target.currencyCode}{target.currencySymbol ? ` (${target.currencySymbol})` : ''}
+                     <option
+                      key={target.id}
+                      value={target.id}
+                     >
+                      {target.currencyCode}
+                      {target.currencySymbol ? ` (${target.currencySymbol})` : ''}
                      </option>
                     ))}
                    </select>
@@ -6172,7 +6456,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             inputMode="decimal"
             value={newAccountStartingBalance}
             onChange={(event) => setNewAccountStartingBalance(event.target.value.replace(/,/g, ''))}
-            onKeyDown={(event) => { if (event.key === 'Enter' && newAccountCurrencyId && accountsClient) void onAddClientAccount(accountsClient.id); }}
+            onKeyDown={(event) => {
+             if (event.key === 'Enter' && newAccountCurrencyId && accountsClient) void onAddClientAccount(accountsClient.id);
+            }}
             placeholder="0"
             className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
            />
@@ -6213,8 +6499,29 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      <div className="flex items-center justify-between gap-3">
       <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
       <div className="relative">
-       <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+       <svg
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
+        <circle
+         cx="11"
+         cy="11"
+         r="8"
+        />
+        <line
+         x1="21"
+         y1="21"
+         x2="16.65"
+         y2="16.65"
+        />
        </svg>
        <input
         type="search"
@@ -6289,7 +6596,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              }}
              className="cursor-pointer rounded p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
             >
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+             <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-4 w-4"
+             >
               <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" />
               <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" />
              </svg>
@@ -6300,8 +6612,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              onClick={() => onDeleteClient(client.id)}
              className="cursor-pointer rounded p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-600"
             >
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-              <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+             <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-4 w-4"
+             >
+              <path
+               fillRule="evenodd"
+               d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z"
+               clipRule="evenodd"
+              />
              </svg>
             </button>
            </div>
@@ -6310,11 +6631,21 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         ))}
         {clients.length === 0 ? (
          <tr>
-          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_clients')}</td>
+          <td
+           className="px-4 py-6 text-slate-500"
+           colSpan={4}
+          >
+           {t('no_clients')}
+          </td>
          </tr>
         ) : sortedClients.length === 0 ? (
          <tr>
-          <td className="px-4 py-6 text-slate-500" colSpan={4}>{t('no_search_results')}</td>
+          <td
+           className="px-4 py-6 text-slate-500"
+           colSpan={4}
+          >
+           {t('no_search_results')}
+          </td>
          </tr>
         ) : null}
        </tbody>
@@ -6355,7 +6686,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           if (n >= 1 && n <= totalClientPages) setClientsPage(n);
           else event.target.value = String(clampedClientsPage);
          }}
-         onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+         onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+         }}
          className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
         <span className="text-xs text-slate-500">/ {totalClientPages}</span>
@@ -6371,7 +6704,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       </div>
      ) : null}
     </div>
-
    </div>
   </section>
  );
@@ -6496,7 +6828,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              aria-label={t('edit')}
              className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
             >
-             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
               <path d="M12 20h9" />
               <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
              </svg>
@@ -6619,8 +6961,29 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      </div>
      <div className="flex items-center gap-2">
       <div className="relative">
-       <svg className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+       <svg
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
+        <circle
+         cx="11"
+         cy="11"
+         r="8"
+        />
+        <line
+         x1="21"
+         y1="21"
+         x2="16.65"
+         y2="16.65"
+        />
        </svg>
        <input
         type="search"
@@ -6659,42 +7022,93 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       {clientsByOrganization.map((group) => {
        const orgKey = group.id == null ? '__unassigned__' : String(group.id);
        return (
-       <div
-        key={orgKey}
-        draggable
-        onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; setDraggedOrgKey(orgKey); }}
-        onDragOver={(event) => { event.preventDefault(); setDragOverOrgKey(orgKey); }}
-        onDragLeave={() => setDragOverOrgKey((prev) => (prev === orgKey ? null : prev))}
-        onDrop={() => onClientsOrgDrop(orgKey)}
-        onDragEnd={() => { setDraggedOrgKey(null); setDragOverOrgKey(null); }}
-        className={`flex flex-col overflow-hidden rounded border bg-white transition ${
-         dragOverOrgKey === orgKey && draggedOrgKey !== orgKey ? 'border-blue-500 ring-2 ring-blue-300' : 'border-slate-200'
-        } ${draggedOrgKey === orgKey ? 'opacity-50' : ''}`}
-       >
-        <div className="flex cursor-move items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5" title={t('clients_drag_org_hint')}>
-         <span className="flex min-w-0 items-center gap-1.5">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="shrink-0 text-slate-400">
-           <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" /><circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" /><circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
-          </svg>
-          <h3 className="truncate font-semibold text-slate-800">{group.name}</h3>
-         </span>
-         <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">{group.clients.length}</span>
-        </div>
-        <ul className="divide-y divide-slate-100">
-         {group.clients.map((client) => (
-          <li key={client.id} className="flex items-center justify-between gap-2 px-4 py-2.5">
-           <button
-            type="button"
-            onClick={() => openClientLedger(client, 'clients')}
-            className="min-w-0 flex-1 truncate text-left font-medium text-slate-900 transition hover:text-blue-700"
+        <div
+         key={orgKey}
+         draggable
+         onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = 'move';
+          setDraggedOrgKey(orgKey);
+         }}
+         onDragOver={(event) => {
+          event.preventDefault();
+          setDragOverOrgKey(orgKey);
+         }}
+         onDragLeave={() => setDragOverOrgKey((prev) => (prev === orgKey ? null : prev))}
+         onDrop={() => onClientsOrgDrop(orgKey)}
+         onDragEnd={() => {
+          setDraggedOrgKey(null);
+          setDragOverOrgKey(null);
+         }}
+         className={`flex flex-col overflow-hidden rounded border bg-white transition ${
+          dragOverOrgKey === orgKey && draggedOrgKey !== orgKey ? 'border-blue-500 ring-2 ring-blue-300' : 'border-slate-200'
+         } ${draggedOrgKey === orgKey ? 'opacity-50' : ''}`}
+        >
+         <div
+          className="flex cursor-move items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5"
+          title={t('clients_drag_org_hint')}
+         >
+          <span className="flex min-w-0 items-center gap-1.5">
+           <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden
+            className="shrink-0 text-slate-400"
            >
-            {client.name}
-           </button>
-           <span className="shrink-0 text-xs text-slate-500">({client.accountCount})</span>
-          </li>
-         ))}
-        </ul>
-       </div>
+            <circle
+             cx="9"
+             cy="5"
+             r="1.5"
+            />
+            <circle
+             cx="15"
+             cy="5"
+             r="1.5"
+            />
+            <circle
+             cx="9"
+             cy="12"
+             r="1.5"
+            />
+            <circle
+             cx="15"
+             cy="12"
+             r="1.5"
+            />
+            <circle
+             cx="9"
+             cy="19"
+             r="1.5"
+            />
+            <circle
+             cx="15"
+             cy="19"
+             r="1.5"
+            />
+           </svg>
+           <h3 className="truncate font-semibold text-slate-800">{group.name}</h3>
+          </span>
+          <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">{group.clients.length}</span>
+         </div>
+         <ul className="divide-y divide-slate-100">
+          {group.clients.map((client) => (
+           <li
+            key={client.id}
+            className="flex items-center justify-between gap-2 px-4 py-2.5"
+           >
+            <button
+             type="button"
+             onClick={() => openClientLedger(client, 'clients')}
+             className="min-w-0 flex-1 truncate text-left font-medium text-slate-900 transition hover:text-blue-700"
+            >
+             {client.name}
+            </button>
+            <span className="shrink-0 text-xs text-slate-500">({client.accountCount})</span>
+           </li>
+          ))}
+         </ul>
+        </div>
        );
       })}
      </div>
@@ -6863,21 +7277,31 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    <div className="flex flex-col gap-4 p-4">
     {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
     {importSummary ? (
-        <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
-         <span>{importSummary}</span>
-         <button
-          type="button"
-          onClick={() => setImportSummary('')}
-          aria-label={t('close')}
-          title={t('close')}
-          className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
-         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-           <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-         </button>
-        </div>
-       ) : null}
+     <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+      <span>{importSummary}</span>
+      <button
+       type="button"
+       onClick={() => setImportSummary('')}
+       aria-label={t('close')}
+       title={t('close')}
+       className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
+      >
+       <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
+        <path d="M18 6 6 18M6 6l12 12" />
+       </svg>
+      </button>
+     </div>
+    ) : null}
     {settingsTab === 'account' ? <AccountSettings /> : null}
     {settingsTab === 'team' ? <TeamSettings /> : null}
     {settingsTab === 'database' ? databaseSection : null}
@@ -6905,7 +7329,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      <div className={`flex items-center border-b border-white/10 px-3 py-3 ${isSidebarCollapsed ? 'justify-center' : 'justify-between gap-2'}`}>
       {!isSidebarCollapsed && (
        <div className="flex min-w-0 items-center rounded-lg bg-white px-2.5 py-1.5 shadow-sm">
-        <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} priority className="h-9 w-auto" />
+        <Image
+         src="/logo/arkam-logo.png"
+         alt="Arkam"
+         width={720}
+         height={876}
+         priority
+         className="h-9 w-auto"
+        />
        </div>
       )}
       <button
@@ -6998,7 +7429,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
         >
          {userWorkspaces.map((workspace) => (
-          <option key={workspace.id} value={workspace.id}>
+          <option
+           key={workspace.id}
+           value={workspace.id}
+          >
            {workspace.name}
           </option>
          ))}
@@ -7012,9 +7446,24 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
          className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
         >
-         <option value="en">{t('english')}</option>
-         <option value="ar">{t('arabic')}</option>
-         <option value="fr">{t('french')}</option>
+         <option
+          value="en"
+          className="bg-white text-slate-900"
+         >
+          {t('english')}
+         </option>
+         <option
+          value="ar"
+          className="bg-white text-slate-900"
+         >
+          {t('arabic')}
+         </option>
+         <option
+          value="fr"
+          className="bg-white text-slate-900"
+         >
+          {t('french')}
+         </option>
         </select>
        </div>
       )}
@@ -7026,7 +7475,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      <div className="border-b border-[#15304f] bg-[#1e3a5f] px-4 py-2 lg:hidden">
       <div className="flex items-center justify-between gap-2 overflow-x-auto">
        <span className="inline-flex shrink-0 items-center rounded-md bg-white px-1.5 py-1 shadow-sm">
-        <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} className="h-7 w-auto" />
+        <Image
+         src="/logo/arkam-logo.png"
+         alt="Arkam"
+         width={720}
+         height={876}
+         className="h-7 w-auto"
+        />
        </span>
        <div className="flex shrink-0 items-center gap-1">
         {sidebarItems.map((item) => {
@@ -7071,9 +7526,24 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
          className="rounded border border-white/20 bg-white/10 px-1.5 py-1 text-xs text-blue-100 outline-none"
         >
-         <option value="en">EN</option>
-         <option value="ar">عر</option>
-         <option value="fr">FR</option>
+         <option
+          value="en"
+          className="bg-white text-slate-900"
+         >
+          EN
+         </option>
+         <option
+          value="ar"
+          className="bg-white text-slate-900"
+         >
+          عر
+         </option>
+         <option
+          value="fr"
+          className="bg-white text-slate-900"
+         >
+          FR
+         </option>
         </select>
        </div>
       </div>
@@ -7117,7 +7587,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           title={t('close')}
           className="-mr-1 shrink-0 rounded p-0.5 text-red-600 transition hover:bg-red-100 hover:text-red-900"
          >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg
+           width="16"
+           height="16"
+           viewBox="0 0 24 24"
+           fill="none"
+           stroke="currentColor"
+           strokeWidth="2"
+           strokeLinecap="round"
+           strokeLinejoin="round"
+           aria-hidden
+          >
            <path d="M18 6 6 18M6 6l12 12" />
           </svg>
          </button>
@@ -7133,7 +7613,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           title={t('close')}
           className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
          >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <svg
+           width="16"
+           height="16"
+           viewBox="0 0 24 24"
+           fill="none"
+           stroke="currentColor"
+           strokeWidth="2"
+           strokeLinecap="round"
+           strokeLinejoin="round"
+           aria-hidden
+          >
            <path d="M18 6 6 18M6 6l12 12" />
           </svg>
          </button>
@@ -7142,41 +7632,96 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
        {/* Daily archived-count notice (no dismiss button): resets each day and only
            shows while there are transactions archived on the current day. */}
-       {(section === 'archive' || section === 'transactions') ? (() => {
-        const today = new Date().toISOString().slice(0, 10);
-        const archivedToday = transactions.filter((tx) => tx.isArchived && tx.createdAt.slice(0, 10) === today).length;
-        if (archivedToday === 0) return null;
-        return (
-         <div className="flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-           <rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 12h4" />
-          </svg>
-          {t('archive_today_notice', { count: archivedToday })}
-         </div>
-        );
-       })() : null}
+       {section === 'archive' || section === 'transactions'
+        ? (() => {
+           const today = new Date().toISOString().slice(0, 10);
+           const archivedToday = transactions.filter((tx) => tx.isArchived && tx.createdAt.slice(0, 10) === today).length;
+           if (archivedToday === 0) return null;
+           return (
+            <div className="flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <rect
+               x="3"
+               y="4"
+               width="18"
+               height="4"
+               rx="1"
+              />
+              <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+              <path d="M10 12h4" />
+             </svg>
+             {t('archive_today_notice', { count: archivedToday })}
+            </div>
+           );
+          })()
+        : null}
 
        {section === 'overview' && isLoading ? (
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex items-start justify-between gap-4">
-           <div className="flex flex-col gap-2"><SkBar w="w-48" h="h-7" /><SkBar w="w-72" h="h-3.5" /></div>
-           <SkBar w="w-40" h="h-9" />
+           <div className="flex flex-col gap-2">
+            <SkBar
+             w="w-48"
+             h="h-7"
+            />
+            <SkBar
+             w="w-72"
+             h="h-3.5"
+            />
+           </div>
+           <SkBar
+            w="w-40"
+            h="h-9"
+           />
           </div>
           <div className="mt-6 grid gap-4 md:grid-cols-4">
            {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className="rounded border border-slate-200 bg-slate-50 p-4 flex flex-col gap-2">
-             <SkBar w="w-24" h="h-3" /><SkBar w="w-16" h="h-7" />
+            <div
+             key={i}
+             className="rounded border border-slate-200 bg-slate-50 p-4 flex flex-col gap-2"
+            >
+             <SkBar
+              w="w-24"
+              h="h-3"
+             />
+             <SkBar
+              w="w-16"
+              h="h-7"
+             />
             </div>
            ))}
           </div>
          </div>
          <div className={panelClassName}>
-          <SkBar w="w-56" h="h-6" />
+          <SkBar
+           w="w-56"
+           h="h-6"
+          />
           <div className="mt-4 flex flex-col gap-3">
            {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="rounded border border-slate-200 p-4 flex flex-col gap-2">
-             <SkBar w="w-40" h="h-4" /><SkBar w="w-64" h="h-3" />
+            <div
+             key={i}
+             className="rounded border border-slate-200 p-4 flex flex-col gap-2"
+            >
+             <SkBar
+              w="w-40"
+              h="h-4"
+             />
+             <SkBar
+              w="w-64"
+              h="h-3"
+             />
             </div>
            ))}
           </div>
@@ -7209,9 +7754,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              className={mutedPanelClassName}
             >
              <p className="text-sm text-slate-500">{card.label}</p>
-             <p className="mt-3 text-3xl font-bold text-slate-900">
-              {isLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}
-             </p>
+             <p className="mt-3 text-3xl font-bold text-slate-900">{isLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}</p>
             </div>
            ))}
           </div>
@@ -7231,8 +7774,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            const value = raw != null ? Number(raw) : NaN;
            return value > 0 ? value : NaN;
           };
-          const isFlipped = (group: OverviewBalanceGroup) =>
-           !group.isMain && (overviewFlipAll || overviewFlipped.has(group.key));
+          const isFlipped = (group: OverviewBalanceGroup) => !group.isMain && (overviewFlipAll || overviewFlipped.has(group.key));
 
           // Grand total across every group, always in the main currency.
           let grandTotal = 0;
@@ -7265,7 +7807,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              <div className="flex items-center gap-4">
               <div className={`text-right ${balanceColor(grandTotal)}`}>
                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('overview_grand_total')}</p>
-               <p className="text-lg font-bold" dir="ltr">{fmt(grandTotal)} {mainSymbol}</p>
+               <p
+                className="text-lg font-bold"
+                dir="ltr"
+               >
+                {fmt(grandTotal)} {mainSymbol}
+               </p>
               </div>
               <button
                type="button"
@@ -7280,9 +7827,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              </div>
             </div>
 
-            {anyRateMissing ? (
-             <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p>
-            ) : null}
+            {anyRateMissing ? <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
 
             {!overviewOrgBalances.hasAccounts ? (
              <p className="mt-4 text-sm text-slate-600">{t('overview_no_balances')}</p>
@@ -7312,116 +7857,157 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  }
                 }
                }
-               const mergedClients = Array.from(mergedClientMap.values()).filter((c) => c.balance !== 0).sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
+               const mergedClients = Array.from(mergedClientMap.values())
+                .filter((c) => c.balance !== 0)
+                .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
 
                return (
                 <div key={orgKey}>
                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{orgName}</h3>
                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {orgGroups.filter((group) => group.total !== 0).map((group) => {
-                   const rate = rateOf(group);
-                   const rateValid = !Number.isNaN(rate);
-                   // A card only shows its converted (back) face when flipped AND a valid rate exists.
-                   const flipped = isFlipped(group) && rateValid;
-                   const converted = group.total * rate;
-                   const toggleFlip = () =>
-                    setOverviewFlipped((prev) => {
-                     const next = new Set(prev);
-                     if (next.has(group.key)) next.delete(group.key);
-                     else next.add(group.key);
-                     return next;
-                    });
-                   const flipIcon = (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                     <path d="M7 4 3 8l4 4M3 8h13.5" />
-                     <path d="M17 20l4-4-4-4m4 4H7.5" />
-                    </svg>
-                   );
-                   return (
-                    <div key={group.key} className="[perspective:1200px]">
-                     <div
-                      className={`relative transition-transform duration-500 [transform-style:preserve-3d] ${flipped ? '[transform:rotateY(180deg)]' : ''}`}
+                  {orgGroups
+                   .filter((group) => group.total !== 0)
+                   .map((group) => {
+                    const rate = rateOf(group);
+                    const rateValid = !Number.isNaN(rate);
+                    // A card only shows its converted (back) face when flipped AND a valid rate exists.
+                    const flipped = isFlipped(group) && rateValid;
+                    const converted = group.total * rate;
+                    const toggleFlip = () =>
+                     setOverviewFlipped((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(group.key)) next.delete(group.key);
+                      else next.add(group.key);
+                      return next;
+                     });
+                    const flipIcon = (
+                     <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
                      >
-                      {/* FRONT — original currency */}
-                      <div className="flex flex-col rounded border border-slate-200 bg-white [backface-visibility:hidden]">
-                       <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
-                        <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
-                        {!group.isMain ? (
-                         <div className="flex items-center gap-2">
-                          <label className="flex items-center gap-1 text-xs text-slate-500">
-                           <span>{t('overview_rate_label', { currency: mainCode })}</span>
-                           <input
-                            type="text"
-                            inputMode="decimal"
-                            dir="ltr"
-                            value={overviewRates[group.currencyCode] ?? ''}
-                            onChange={(event) => updateOverviewRate(group.currencyCode, normalizeDecimalInput(event.target.value))}
-                            className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
-                           />
-                          </label>
-                          {rateValid ? (
-                           <button
-                            type="button"
-                            title={t('overview_show_in_main', { currency: mainCode })}
-                            onClick={toggleFlip}
-                            className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
-                           >
-                            {flipIcon}
-                           </button>
-                          ) : null}
-                         </div>
-                        ) : null}
-                       </div>
-
-                       <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
-                        {group.clients.map((client) => (
-                         <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
-                          <span className="truncate text-slate-700">{client.clientName}</span>
-                          <span className={`shrink-0 font-medium ${balanceColor(client.balance)}`} dir="ltr">{fmt(client.balance)}</span>
-                         </div>
-                        ))}
-                       </div>
-
-                       <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_card_total')}</span>
-                        <span className={`font-bold ${balanceColor(group.total)}`} dir="ltr">{fmt(group.total)} {group.currencySymbol || group.currencyCode}</span>
-                       </div>
-                      </div>
-
-                      {/* BACK — converted to main currency */}
-                      {!group.isMain ? (
-                       <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                        <div className="flex items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-3 py-2">
-                         <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
-                         <button
-                          type="button"
-                          title={t('overview_show_original')}
-                          onClick={toggleFlip}
-                          className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
-                         >
-                          {flipIcon}
-                         </button>
+                      <path d="M7 4 3 8l4 4M3 8h13.5" />
+                      <path d="M17 20l4-4-4-4m4 4H7.5" />
+                     </svg>
+                    );
+                    return (
+                     <div
+                      key={group.key}
+                      className="[perspective:1200px]"
+                     >
+                      <div className={`relative transition-transform duration-500 [transform-style:preserve-3d] ${flipped ? '[transform:rotateY(180deg)]' : ''}`}>
+                       {/* FRONT — original currency */}
+                       <div className="flex flex-col rounded border border-slate-200 bg-white [backface-visibility:hidden]">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                         <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
+                         {!group.isMain ? (
+                          <div className="flex items-center gap-2">
+                           <label className="flex items-center gap-1 text-xs text-slate-500">
+                            <span>{t('overview_rate_label', { currency: mainCode })}</span>
+                            <input
+                             type="text"
+                             inputMode="decimal"
+                             dir="ltr"
+                             value={overviewRates[group.currencyCode] ?? ''}
+                             onChange={(event) => updateOverviewRate(group.currencyCode, normalizeDecimalInput(event.target.value))}
+                             className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                            />
+                           </label>
+                           {rateValid ? (
+                            <button
+                             type="button"
+                             title={t('overview_show_in_main', { currency: mainCode })}
+                             onClick={toggleFlip}
+                             className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                            >
+                             {flipIcon}
+                            </button>
+                           ) : null}
+                          </div>
+                         ) : null}
                         </div>
 
                         <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
                          {group.clients.map((client) => (
-                          <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                          <div
+                           key={client.clientId}
+                           className="flex items-center justify-between gap-3 py-1.5 text-sm"
+                          >
                            <span className="truncate text-slate-700">{client.clientName}</span>
-                           <span className={`shrink-0 font-medium ${balanceColor(client.balance * rate)}`} dir="ltr">{fmt(client.balance * rate)}</span>
+                           <span
+                            className={`shrink-0 font-medium ${balanceColor(client.balance)}`}
+                            dir="ltr"
+                           >
+                            {fmt(client.balance)}
+                           </span>
                           </div>
                          ))}
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-50 px-3 py-2">
-                         <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
-                         <span className={`font-bold ${balanceColor(converted)}`} dir="ltr">{fmt(converted)} {mainSymbol}</span>
+                        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_card_total')}</span>
+                         <span
+                          className={`font-bold ${balanceColor(group.total)}`}
+                          dir="ltr"
+                         >
+                          {fmt(group.total)} {group.currencySymbol || group.currencyCode}
+                         </span>
                         </div>
                        </div>
-                      ) : null}
+
+                       {/* BACK — converted to main currency */}
+                       {!group.isMain ? (
+                        <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                         <div className="flex items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-3 py-2">
+                          <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
+                          <button
+                           type="button"
+                           title={t('overview_show_original')}
+                           onClick={toggleFlip}
+                           className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
+                          >
+                           {flipIcon}
+                          </button>
+                         </div>
+
+                         <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+                          {group.clients.map((client) => (
+                           <div
+                            key={client.clientId}
+                            className="flex items-center justify-between gap-3 py-1.5 text-sm"
+                           >
+                            <span className="truncate text-slate-700">{client.clientName}</span>
+                            <span
+                             className={`shrink-0 font-medium ${balanceColor(client.balance * rate)}`}
+                             dir="ltr"
+                            >
+                             {fmt(client.balance * rate)}
+                            </span>
+                           </div>
+                          ))}
+                         </div>
+
+                         <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-50 px-3 py-2">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
+                          <span
+                           className={`font-bold ${balanceColor(converted)}`}
+                           dir="ltr"
+                          >
+                           {fmt(converted)} {mainSymbol}
+                          </span>
+                         </div>
+                        </div>
+                       ) : null}
+                      </div>
                      </div>
-                    </div>
-                   );
-                  })}
+                    );
+                   })}
 
                   {showMerged ? (
                    <div className="flex flex-col rounded border-2 border-blue-200 bg-blue-50/50">
@@ -7432,15 +8018,28 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      <>
                       <div className="flex-1 divide-y divide-blue-100 px-3 py-1">
                        {mergedClients.map((client) => (
-                        <div key={client.clientId} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                        <div
+                         key={client.clientId}
+                         className="flex items-center justify-between gap-3 py-1.5 text-sm"
+                        >
                          <span className="truncate text-slate-700">{client.clientName}</span>
-                         <span className={`shrink-0 font-medium ${balanceColor(client.balance)}`} dir="ltr">{fmt(client.balance)}</span>
+                         <span
+                          className={`shrink-0 font-medium ${balanceColor(client.balance)}`}
+                          dir="ltr"
+                         >
+                          {fmt(client.balance)}
+                         </span>
                         </div>
                        ))}
                       </div>
                       <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-100/60 px-3 py-2">
                        <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
-                       <span className={`font-bold ${balanceColor(mergedTotal)}`} dir="ltr">{fmt(mergedTotal)} {mainSymbol}</span>
+                       <span
+                        className={`font-bold ${balanceColor(mergedTotal)}`}
+                        dir="ltr"
+                       >
+                        {fmt(mergedTotal)} {mainSymbol}
+                       </span>
                       </div>
                      </>
                     ) : (
@@ -7462,10 +8061,31 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
        {section === 'organizations' && isLoading ? (
         <div className={panelClassName}>
-         <div className="mb-4 flex items-center justify-between gap-4"><SkBar w="w-44" h="h-6" /><SkBar w="w-28" h="h-8" /></div>
+         <div className="mb-4 flex items-center justify-between gap-4">
+          <SkBar
+           w="w-44"
+           h="h-6"
+          />
+          <SkBar
+           w="w-28"
+           h="h-8"
+          />
+         </div>
          <div className="flex flex-col gap-2 mt-2">
           {Array.from({ length: 5 }, (_, i) => (
-           <div key={i} className="flex items-center gap-3 py-2"><SkBar w="w-40" h="h-4" /><SkBar w="w-12" h="h-4" /></div>
+           <div
+            key={i}
+            className="flex items-center gap-3 py-2"
+           >
+            <SkBar
+             w="w-40"
+             h="h-4"
+            />
+            <SkBar
+             w="w-12"
+             h="h-4"
+            />
+           </div>
           ))}
          </div>
         </div>
@@ -7474,8 +8094,22 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
        {section === 'organization-clients' && isLoading ? (
         <div className={panelClassName}>
-         <div className="mb-4 flex items-center justify-between gap-4"><SkBar w="w-52" h="h-6" /><SkBar w="w-28" h="h-8" /></div>
-         <SkTablePanel panelClassName="" tableWrapClassName="border border-gray-200" cols={SK_CLIENTS} rows={6} />
+         <div className="mb-4 flex items-center justify-between gap-4">
+          <SkBar
+           w="w-52"
+           h="h-6"
+          />
+          <SkBar
+           w="w-28"
+           h="h-8"
+          />
+         </div>
+         <SkTablePanel
+          panelClassName=""
+          tableWrapClassName="border border-gray-200"
+          cols={SK_CLIENTS}
+          rows={6}
+         />
         </div>
        ) : null}
        {section === 'organization-clients' && !isLoading ? (
@@ -7557,7 +8191,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        ) : null}
 
        {section === 'clients' && isLoading ? (
-        <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_CLIENTS} titleWidth="w-32" rows={8} />
+        <SkTablePanel
+         panelClassName={panelClassName}
+         tableWrapClassName={tableWrapClassName}
+         cols={SK_CLIENTS}
+         titleWidth="w-32"
+         rows={8}
+        />
        ) : null}
        {section === 'clients' && !isLoading ? clientsReadOnlySection : null}
 
@@ -7566,19 +8206,49 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          <div className={panelClassName}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
            <div className="flex flex-col gap-2">
-            <SkBar w="w-20" h="h-3" /><SkBar w="w-44" h="h-7" /><SkBar w="w-64" h="h-3.5" />
+            <SkBar
+             w="w-20"
+             h="h-3"
+            />
+            <SkBar
+             w="w-44"
+             h="h-7"
+            />
+            <SkBar
+             w="w-64"
+             h="h-3.5"
+            />
            </div>
-           <SkBar w="w-28" h="h-9" />
+           <SkBar
+            w="w-28"
+            h="h-9"
+           />
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
            {Array.from({ length: 2 }, (_, i) => (
-            <div key={i} className="rounded border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col gap-2">
-             <SkBar w="w-24" h="h-3" /><SkBar w="w-28" h="h-7" />
+            <div
+             key={i}
+             className="rounded border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col gap-2"
+            >
+             <SkBar
+              w="w-24"
+              h="h-3"
+             />
+             <SkBar
+              w="w-28"
+              h="h-7"
+             />
             </div>
            ))}
           </div>
          </div>
-         <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_LEDGER} titleWidth="w-36" rows={8} />
+         <SkTablePanel
+          panelClassName={panelClassName}
+          tableWrapClassName={tableWrapClassName}
+          cols={SK_LEDGER}
+          titleWidth="w-36"
+          rows={8}
+         />
         </section>
        ) : null}
        {section === 'client-ledger' && !isLoading ? (
@@ -7628,80 +8298,149 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          {selectedClientForLedger ? (
           <div className={panelClassName}>
            <div className="flex flex-wrap items-center gap-2">
-           {selectedClientForLedger ? (
-            <>
-             {selectedLedgerEntryKeys.size > 0 ? (
+            {selectedClientForLedger ? (
+             <>
+              {selectedLedgerEntryKeys.size > 0 ? (
+               <button
+                type="button"
+                onClick={() => void onDeleteSelectedLedgerEntries()}
+                className="cursor-pointer rounded border border-red-500 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+               >
+                {t('delete')} ({selectedLedgerEntryKeys.size})
+               </button>
+              ) : null}
+              {selectedLedgerSummary ? (
+               <>
+                <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                 <span className="font-medium text-slate-500">{t('amount')}</span>
+                 <span className="font-semibold text-slate-800">
+                  {selectedLedgerSummary.amountSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                  {selectedLedgerSummary.amountCurrencyCode ? ` ${selectedLedgerSummary.amountCurrencyCode}` : ''}
+                 </span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                 <span className="font-medium text-slate-500">{t('net_change')}</span>
+                 <span className={`font-semibold ${selectedLedgerSummary.netChangeSum >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {selectedLedgerSummary.netChangeSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                  {selectedLedgerSummary.netCurrencyCode ? ` ${selectedLedgerSummary.netCurrencyCode}` : ''}
+                 </span>
+                </span>
+               </>
+              ) : null}
               <button
                type="button"
-               onClick={() => void onDeleteSelectedLedgerEntries()}
-               className="cursor-pointer rounded border border-red-500 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+               onClick={() => {
+                const targetLedger =
+                 selectedClientLedgers.length === 1
+                  ? selectedClientLedgers[0]
+                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+                if (!targetLedger) return;
+                const today = new Date().toISOString().slice(0, 10);
+                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
+                setPdfExportModal({
+                 accountId: targetLedger.accountId,
+                 fromDate: firstEntry,
+                 toDate: today,
+                 fromEntryKey: null,
+                 toEntryKey: null,
+                 cols: getStoredPdfCols(targetLedger.accountId),
+                });
+               }}
+               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-               {t('delete')} ({selectedLedgerEntryKeys.size})
+               {t('export_pdf')}
               </button>
-             ) : null}
-             {selectedLedgerSummary ? (
-              <>
-               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                <span className="font-medium text-slate-500">{t('amount')}</span>
-                <span className="font-semibold text-slate-800">
-                 {selectedLedgerSummary.amountSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                 {selectedLedgerSummary.amountCurrencyCode ? ` ${selectedLedgerSummary.amountCurrencyCode}` : ''}
-                </span>
-               </span>
-               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                <span className="font-medium text-slate-500">{t('net_change')}</span>
-                <span className={`font-semibold ${selectedLedgerSummary.netChangeSum >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                 {selectedLedgerSummary.netChangeSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                 {selectedLedgerSummary.netCurrencyCode ? ` ${selectedLedgerSummary.netCurrencyCode}` : ''}
-                </span>
-               </span>
-              </>
-             ) : null}
-             <button
-              type="button"
-              onClick={() => {
-               const targetLedger =
-                selectedClientLedgers.length === 1
-                 ? selectedClientLedgers[0]
-                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-               if (!targetLedger) return;
-               const today = new Date().toISOString().slice(0, 10);
-               const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
-               setPdfExportModal({ accountId: targetLedger.accountId, fromDate: firstEntry, toDate: today, fromEntryKey: null, toEntryKey: null, cols: getStoredPdfCols(targetLedger.accountId) });
-              }}
-              className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-             >
-              {t('export_pdf')}
-             </button>
-             <button
-              type="button"
-              onClick={() => {
-               const targetLedger =
-                selectedClientLedgers.length === 1
-                 ? selectedClientLedgers[0]
-                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-               if (!targetLedger) return;
-               openAdjustmentModal(targetLedger.accountId);
-              }}
-              className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
-             >
-              {t('adjustment_add')}
-             </button>
-             <button
-              type="button"
-              title={t('nav_settings')}
-              onClick={() => setShowLedgerSettingsModal(true)}
-              className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-               <circle cx="12" cy="12" r="3" />
-               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-             </button>
-            </>
-           ) : null}
+              <button
+               type="button"
+               onClick={() => {
+                const targetLedger =
+                 selectedClientLedgers.length === 1
+                  ? selectedClientLedgers[0]
+                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+                if (!targetLedger) return;
+                openAdjustmentModal(targetLedger.accountId);
+               }}
+               className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
+              >
+               {t('adjustment_add')}
+              </button>
+              {Object.keys(ledgerTransactionDrafts).length > 0 ? (
+               <>
+                <button
+                 type="button"
+                 title={t('undo')}
+                 onClick={ledgerHistory.undo}
+                 disabled={!ledgerHistory.canUndo}
+                 className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                 <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
+                  <path d="M9 14 4 9l5-5" />
+                  <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+                 </svg>
+                </button>
+                <button
+                 type="button"
+                 title={t('redo')}
+                 onClick={ledgerHistory.redo}
+                 disabled={!ledgerHistory.canRedo}
+                 className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                 <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
+                  <path d="m15 14 5-5-5-5" />
+                  <path d="M20 9H9a5 5 0 0 0 0 10h1" />
+                 </svg>
+                </button>
+               </>
+              ) : null}
+              <button
+               type="button"
+               title={t('nav_settings')}
+               onClick={() => setShowLedgerSettingsModal(true)}
+               className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+               <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <circle
+                 cx="12"
+                 cy="12"
+                 r="3"
+                />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+               </svg>
+              </button>
+             </>
+            ) : null}
+           </div>
           </div>
-         </div>
          ) : null}
 
          {!selectedClientForLedger ? (
@@ -7740,9 +8479,27 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      setError(e instanceof Error ? e.message : t('error_failed_update'));
                     }
                    }
-                   setEditingStartingBalanceIds((prev) => { const next = new Set(prev); next.delete(ledger.accountId); return next; });
+                   setEditingStartingBalanceIds((prev) => {
+                    const next = new Set(prev);
+                    next.delete(ledger.accountId);
+                    return next;
+                   });
                   }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { setLedgerStartingBalanceDrafts((prev) => { const next = { ...prev }; delete next[ledger.accountId]; return next; }); setEditingStartingBalanceIds((prev) => { const next = new Set(prev); next.delete(ledger.accountId); return next; }); } }}
+                  onKeyDown={(e) => {
+                   if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                   if (e.key === 'Escape') {
+                    setLedgerStartingBalanceDrafts((prev) => {
+                     const next = { ...prev };
+                     delete next[ledger.accountId];
+                     return next;
+                    });
+                    setEditingStartingBalanceIds((prev) => {
+                     const next = new Set(prev);
+                     next.delete(ledger.accountId);
+                     return next;
+                    });
+                   }
+                  }}
                   className="w-32 rounded border border-slate-300 px-2 py-0.5 text-xs outline-none ring-blue-300 focus:ring"
                  />
                 ) : (
@@ -7759,7 +8516,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    title={t('edit')}
                    className="text-slate-400 transition hover:text-slate-700"
                   >
-                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                   <svg
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                   >
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                    </svg>
@@ -7780,7 +8547,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  if (pendingCount === 0) return null;
                  return (
                   <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-amber-600">
-                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                   <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                   >
                     <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                     <path d="M12 9v4M12 17h.01" />
                    </svg>
@@ -7812,14 +8589,33 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    onClick={() => setLedgerFilterOpen((o) => !o)}
                    className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
                   >
-                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                   <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                   >
                     <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
                    </svg>
                    {t('tx_filter_toggle')}
-                   {hasFilter && (
-                    <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">{activeCount}</span>
-                   )}
-                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`ml-auto transition-transform ${ledgerFilterOpen ? 'rotate-180' : ''}`}>
+                   {hasFilter && <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">{activeCount}</span>}
+                   <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                    className={`ml-auto transition-transform ${ledgerFilterOpen ? 'rotate-180' : ''}`}
+                   >
                     <path d="M6 9l6 6 6-6" />
                    </svg>
                   </button>
@@ -7843,8 +8639,29 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         aria-label={t('clear_selection')}
                         className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
                        >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                         <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                        <svg
+                         width="12"
+                         height="12"
+                         viewBox="0 0 24 24"
+                         fill="none"
+                         stroke="currentColor"
+                         strokeWidth="2"
+                         strokeLinecap="round"
+                         strokeLinejoin="round"
+                         aria-hidden
+                        >
+                         <line
+                          x1="18"
+                          y1="6"
+                          x2="6"
+                          y2="18"
+                         />
+                         <line
+                          x1="6"
+                          y1="6"
+                          x2="18"
+                          y2="18"
+                         />
                         </svg>
                        </button>
                       ) : null}
@@ -7860,7 +8677,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                       >
                        <option value="">{t('tx_filter_client_all')}</option>
                        {counterpartyOptions.map((name) => (
-                        <option key={name} value={name}>{name}</option>
+                        <option
+                         key={name}
+                         value={name}
+                        >
+                         {name}
+                        </option>
                        ))}
                       </select>
                      </div>
@@ -7886,7 +8708,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                     {hasFilter && (
                      <button
                       type="button"
-                      onClick={() => { setLedgerFilterSearch(''); setLedgerFilterCounterparty(''); setLedgerFilterDateFrom(''); setLedgerFilterDateTo(''); }}
+                      onClick={() => {
+                       setLedgerFilterSearch('');
+                       setLedgerFilterCounterparty('');
+                       setLedgerFilterDateFrom('');
+                       setLedgerFilterDateTo('');
+                      }}
                       className="self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
                      >
                       {t('tx_filter_clear')}
@@ -7897,232 +8724,316 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  </div>
                 );
                })()}
-              <div className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}>
-               <table className="w-full text-sm">
-                <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
-                 <tr>
-                  <th className="w-8 px-2 py-3">
-                   <input
-                    type="checkbox"
-                    checked={ledger.entries.length > 0 && ledger.entries.every((e) => selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)))}
-                    onChange={() => {
-                     const allKeys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
-                     const allSelected = allKeys.every((k) => selectedLedgerEntryKeys.has(k));
-                     setSelectedLedgerEntryKeys(allSelected ? new Set() : new Set(allKeys));
-                    }}
-                    className="cursor-pointer"
-                   />
-                  </th>
-                  <th className="w-10 px-2 py-3">
-                   {editAllLedgerAccountIds.has(ledger.accountId) ? (
-                    <div className="flex flex-col items-center gap-1">
+               <div className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}>
+                <table className="w-full text-sm">
+                 <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
+                  <tr>
+                   <th className="w-8 px-2 py-3">
+                    <input
+                     type="checkbox"
+                     checked={
+                      ledger.entries.length > 0 && ledger.entries.every((e) => selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)))
+                     }
+                     onChange={() => {
+                      const allKeys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+                      const allSelected = allKeys.every((k) => selectedLedgerEntryKeys.has(k));
+                      setSelectedLedgerEntryKeys(allSelected ? new Set() : new Set(allKeys));
+                     }}
+                     className="cursor-pointer"
+                    />
+                   </th>
+                   <th className="w-10 px-2 py-3">
+                    {editAllLedgerAccountIds.has(ledger.accountId) ? (
+                     <div className="flex flex-col items-center gap-1">
+                      <button
+                       type="button"
+                       title={t('save_changes')}
+                       onClick={() => void onSaveAllLedger(ledger)}
+                       className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                      >
+                       <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                       >
+                        <polyline points="20 6 9 17 4 12" />
+                       </svg>
+                      </button>
+                      <button
+                       type="button"
+                       title={t('cancel')}
+                       onClick={() => onCancelAllLedger(ledger)}
+                       className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                      >
+                       <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                       >
+                        <line
+                         x1="18"
+                         y1="6"
+                         x2="6"
+                         y2="18"
+                        />
+                        <line
+                         x1="6"
+                         y1="6"
+                         x2="18"
+                         y2="18"
+                        />
+                       </svg>
+                      </button>
+                     </div>
+                    ) : (
                      <button
                       type="button"
-                      title={t('save_changes')}
-                      onClick={() => void onSaveAllLedger(ledger)}
-                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                      title="Edit all rows"
+                      onClick={() => onEditAllLedger(ledger)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
                      >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                      <svg
+                       width="13"
+                       height="13"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="1.8"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <path d="M12 20h9" />
+                       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
                      </button>
-                     <button
-                      type="button"
-                      title={t('cancel')}
-                      onClick={() => onCancelAllLedger(ledger)}
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
-                     >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                     </button>
-                    </div>
-                   ) : (
-                    <button
-                     type="button"
-                     title="Edit all rows"
-                     onClick={() => onEditAllLedger(ledger)}
-                     className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
-                    >
-                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                    </button>
-                   )}
-                  </th>
-                  {orderedLedgerColumnOptions.map((column) => {
-                   if (!ledgerColumnVisibility[column.key]) {
-                    return null;
-                   }
+                    )}
+                   </th>
+                   {orderedLedgerColumnOptions.map((column) => {
+                    if (!ledgerColumnVisibility[column.key]) {
+                     return null;
+                    }
 
-                   const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} cursor-move select-none`;
+                    const headerClassName = `px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'} cursor-move select-none`;
 
-                   const headerContent = (
-                    <span className="inline-flex items-center gap-1.5">
-                     <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden className={`shrink-0 text-slate-400 ${draggedLedgerColumn === column.key ? 'opacity-50' : 'opacity-70'}`}>
-                      <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
-                      <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
-                      <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
-                     </svg>
-                     <span>{column.label}</span>
-                    </span>
-                   );
+                    const headerContent = (
+                     <span className="inline-flex items-center gap-1.5">
+                      <svg
+                       width="10"
+                       height="10"
+                       viewBox="0 0 24 24"
+                       fill="currentColor"
+                       aria-hidden
+                       className={`shrink-0 text-slate-400 ${draggedLedgerColumn === column.key ? 'opacity-50' : 'opacity-70'}`}
+                      >
+                       <circle
+                        cx="9"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="19"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="19"
+                        r="1.5"
+                       />
+                      </svg>
+                      <span>{column.label}</span>
+                     </span>
+                    );
 
-                   switch (column.key) {
-                    case 'created':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'counterparty':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'direction':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'type':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'amount':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'exchangeRate':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'commission':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'netChange':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'runningBalance':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'currency':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                    case 'description':
-                     return (
-                      <th
-                       key={column.key}
-                       draggable
-                       onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                       onDragOver={(event) => event.preventDefault()}
-                       onDrop={() => onLedgerColumnDrop(column.key)}
-                       onDragEnd={() => setDraggedLedgerColumn(null)}
-                       className={headerClassName}
-                      >
-                       {headerContent}
-                      </th>
-                     );
-                   }
-                  })}
-                 </tr>
-                </thead>
-                <tbody>
-                 {((() => {
+                    switch (column.key) {
+                     case 'created':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'counterparty':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'direction':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'type':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'amount':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'exchangeRate':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'commission':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'netChange':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'runningBalance':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'currency':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                     case 'description':
+                      return (
+                       <th
+                        key={column.key}
+                        draggable
+                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => onLedgerColumnDrop(column.key)}
+                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        className={headerClassName}
+                       >
+                        {headerContent}
+                       </th>
+                      );
+                    }
+                   })}
+                  </tr>
+                 </thead>
+                 <tbody>
+                  {(() => {
                    // ledger.entries is already in the user's manual order (applied in the memo).
                    const ordered = ledger.entries;
                    const q = ledgerFilterSearch.trim().toLowerCase();
@@ -8143,784 +9054,995 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
                    return visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
-                  })()).map((entry, entryIdx) => (
-                  <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
-                   <tr
-                    draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
-                    onClick={(e) => {
-                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                     // Don't toggle the highlight while editing, or when the click lands on an
-                     // interactive element (buttons, links, inputs, the selection checkbox, etc.).
-                     if (editingLedgerRowKeys.has(rowKey)) return;
-                     if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
-                     toggleLedgerRowHighlight(rowKey);
-                    }}
-                    onDragStart={(e) => {
-                     if (!dragLedgerFromHandle.current) { e.preventDefault(); return; }
-                     setDragLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
-                    }}
-                    onDragEnd={() => {
-                     dragLedgerFromHandle.current = false;
-                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                     if (dragLedgerRowKey !== null && dragOverLedgerRowKey !== null && dragLedgerRowKey !== dragOverLedgerRowKey) {
-                      const keysToMove = selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.size > 1
-                       ? [...selectedLedgerEntryKeys].filter((k) => k.endsWith(`:${ledger.accountId}`))
-                       : [dragLedgerRowKey];
-                      void onLedgerRowDrop(keysToMove, dragOverLedgerRowKey, dragOverLedgerHalf, ledger.accountId);
+                  })().map((entry, entryIdx) => (
+                   <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
+                    <tr
+                     draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                     onClick={(e) => {
+                      if (!ledgerRowClickHighlight) return;
+                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                      // Don't toggle the highlight while editing, or when the click lands on an
+                      // interactive element (buttons, links, inputs, the selection checkbox, etc.).
+                      if (editingLedgerRowKeys.has(rowKey)) return;
+                      if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+                      toggleLedgerRowHighlight(rowKey);
+                     }}
+                     onDragStart={(e) => {
+                      if (!dragLedgerFromHandle.current) {
+                       e.preventDefault();
+                       return;
+                      }
+                      setDragLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                     }}
+                     onDragEnd={() => {
+                      dragLedgerFromHandle.current = false;
+                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                      if (dragLedgerRowKey !== null && dragOverLedgerRowKey !== null && dragLedgerRowKey !== dragOverLedgerRowKey) {
+                       const keysToMove =
+                        selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.size > 1
+                         ? [...selectedLedgerEntryKeys].filter((k) => k.endsWith(`:${ledger.accountId}`))
+                         : [dragLedgerRowKey];
+                       void onLedgerRowDrop(keysToMove, dragOverLedgerRowKey, dragOverLedgerHalf, ledger.accountId);
+                      }
+                      setDragLedgerRowKey(null);
+                      setDragOverLedgerRowKey(null);
+                     }}
+                     onDragOver={(e) => {
+                      e.preventDefault();
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setDragOverLedgerHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
+                      setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                     }}
+                     onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
+                     onKeyDown={(e) => {
+                      // Enter saves the row being edited (ignore Enter inside multi-line fields).
+                      if (e.key !== 'Enter') return;
+                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                      if (!editingLedgerRowKeys.has(rowKey)) return;
+                      if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+                      e.preventDefault();
+                      void onSaveLedgerRow(entry.transactionId, ledger.accountId);
+                     }}
+                     style={
+                      highlightedLedgerRows.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? { backgroundColor: ledgerRowHighlightColor } : undefined
                      }
-                     setDragLedgerRowKey(null);
-                     setDragOverLedgerRowKey(null);
-                    }}
-                    onDragOver={(e) => {
-                     e.preventDefault();
-                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                     setDragOverLedgerHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
-                     setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
-                    }}
-                    onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
-                    onKeyDown={(e) => {
-                     // Enter saves the row being edited (ignore Enter inside multi-line fields).
-                     if (e.key !== 'Enter') return;
-                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                     if (!editingLedgerRowKeys.has(rowKey)) return;
-                     if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
-                     e.preventDefault();
-                     void onSaveLedgerRow(entry.transactionId, ledger.accountId);
-                    }}
-                    style={highlightedLedgerRows.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? { backgroundColor: ledgerRowHighlightColor } : undefined}
-                    className={`cursor-pointer border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
-                   >
-                    {(() => {
-                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                     const isEditingRow = editingLedgerRowKeys.has(rowKey);
-                     const isRowHighlighted = highlightedLedgerRows.has(rowKey);
-                     const draft = isEditingRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+                     className={`${ledgerRowClickHighlight ? 'cursor-pointer ' : ''}border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                    >
+                     {(() => {
+                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                      const isEditingRow = editingLedgerRowKeys.has(rowKey);
+                      const isRowHighlighted = highlightedLedgerRows.has(rowKey);
+                      const draft = isEditingRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
 
-                     return (
-                      <>
-                       {/* checkbox */}
-                       <td className="px-2 py-3 align-middle w-8">
-                        <input
-                         type="checkbox"
-                         checked={selectedLedgerEntryKeys.has(rowKey)}
-                         onChange={() => onToggleLedgerEntrySelection(rowKey)}
-                         className="cursor-pointer"
-                        />
-                       </td>
-                       {/* actions */}
-                       <td className="px-2 py-3 align-top w-10">
-                        {isEditingRow ? (
-                         <div className="flex flex-col items-center gap-1">
-                          <button type="button" title={t('save_changes')}
-                           onClick={() => void onSaveLedgerRow(entry.transactionId, ledger.accountId)}
-                           className="rounded p-1 text-emerald-600 hover:bg-emerald-50">
-                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
-                          </button>
-                          <button type="button" title={t('cancel')}
-                           onClick={() => {
-                            setEditingLedgerRowKeys((prev) => { const n = new Set(prev); n.delete(rowKey); return n; });
-                            setLedgerTransactionDrafts((prev) => { const n = { ...prev }; delete n[rowKey]; return n; });
-                           }}
-                           className="rounded p-1 text-slate-400 hover:bg-slate-100">
-                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                          </button>
-                          <button type="button" title={t('delete')}
-                           onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
-                           className="rounded p-1 text-red-500 hover:bg-red-50">
-                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" /></svg>
-                          </button>
-                         </div>
-                        ) : (
-                         <div className="flex items-center gap-0.5">
-                          <span
-                           className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                           title="Drag to reorder"
-                           onMouseDown={() => { dragLedgerFromHandle.current = true; }}
-                          >
-                           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                            <circle cx="9" cy="5" r="1.5" /><circle cx="15" cy="5" r="1.5" />
-                            <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
-                            <circle cx="9" cy="19" r="1.5" /><circle cx="15" cy="19" r="1.5" />
-                           </svg>
-                          </span>
-                          <button type="button" title={t('edit')}
-                           onClick={() => {
-                            // Expense (adjustment) rows have no transaction record, so they can't be
-                            // inline-edited like transfers — route them to the adjustment editor instead.
-                            if (entry.isAdjustment && entry.adjustmentId) {
-                             const adjustment = adjustments.find((a) => a.id === entry.adjustmentId);
-                             if (adjustment) openAdjustmentModal(ledger.accountId, adjustment);
-                             return;
-                            }
-                            const draftKey = rowKey;
-                            const transaction = transactions.find((tx) => tx.id === entry.transactionId);
-                           if (transaction && !ledgerTransactionDrafts[draftKey]) {
-                            const isOutgoing = transaction.accountFromId === ledger.accountId;
-                            setLedgerRateReversed((prev) => ({
-                             ...prev,
-                             ...(isOutgoing ? (transaction.exchangeRateFromReversed ? { [draftKey]: true } : {}) : (transaction.exchangeRateToReversed ? { [draftKey]: true } : {})),
-                            }));
-                            setLedgerTransactionDrafts((prev) => ({
-                             ...prev,
-                             [draftKey]: buildLedgerTransactionDraft(transaction, ledger.accountId),
-                            }));
-                           }
-                           setEditingLedgerRowKeys((prev) => new Set([...prev, draftKey]));
-                          }}
-                          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-                          </button>
-                         </div>
-                        )}
-                       </td>
-                       {orderedLedgerColumnOptions.map((column) => {
-                        if (!ledgerColumnVisibility[column.key]) {
-                         return null;
-                        }
-
-                        switch (column.key) {
-                       case 'created':
-                        return (
-                         <td
-                          key={column.key}
-                          className="px-4 py-3 text-slate-500"
-                         >
-                          {draft ? (
-                           <input
-                            type="date"
-                            value={draft.createdDate}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
-                            style={{ width: '8.5rem' }}
-                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                           />
-                          ) : (
-                           formatDateValue(entry.createdAt, ledgerDateFormat)
-                          )}
-                         </td>
-                        );
-                       case 'counterparty':
-                        return (
-                         <td
-                          key={column.key}
-                          className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap"
-                         >
-                          {entry.isAdjustment ? (
-                           <span className="text-slate-400">-</span>
-                          ) : draft ? (() => {
-                           const selectedAccount = clientAccounts.find((account) => account.id === draft.counterpartyAccountId);
-                           const selectedLabel = selectedAccount
-                            ? `${selectedAccount.clientName} - ${selectedAccount.currencySymbol || selectedAccount.currencyCode}`
-                            : t('transaction_account_placeholder');
-                           return (
-                            <div className="flex items-center gap-1">
-                            <select
-                             value={draft.counterpartyAccountId ?? ''}
-                             onChange={(event) =>
-                              updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: event.target.value ? Number(event.target.value) : null })
-                             }
-                             style={{ width: ledgerSelectWidth(selectedLabel, 8, 2) }}
-                             className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                            >
-                             <option value="">{t('transaction_account_placeholder')}</option>
-                             {clientAccounts
-                              .filter((account) => account.id !== ledger.accountId)
-                              .map((account) => (
-                               <option
-                                key={account.id}
-                                value={account.id}
-                               >
-                                {account.clientName} - {account.currencySymbol || account.currencyCode}
-                               </option>
-                              ))}
-                            </select>
-                            <button
-                             type="button"
-                             title={t('ledger_swap_parties')}
-                             onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: draft.direction === 'outgoing' ? 'incoming' : 'outgoing' })}
-                             className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
-                            >
-                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                              <path d="M7 4 3 8l4 4M3 8h13.5" />
-                              <path d="M17 20l4-4-4-4m4 4H7.5" />
-                             </svg>
-                            </button>
-                            </div>
-                           );
-                          })() : entry.counterpartyClientId ? (
+                      return (
+                       <>
+                        {/* checkbox */}
+                        <td className="px-2 py-3 align-middle w-8">
+                         <input
+                          type="checkbox"
+                          checked={selectedLedgerEntryKeys.has(rowKey)}
+                          onChange={() => onToggleLedgerEntrySelection(rowKey)}
+                          className="cursor-pointer"
+                         />
+                        </td>
+                        {/* actions */}
+                        <td className="px-2 py-3 align-top w-10">
+                         {isEditingRow ? (
+                          <div className="flex flex-col items-center gap-1">
                            <button
                             type="button"
-                            onClick={() => {
-                             const client = clients.find((c) => c.id === entry.counterpartyClientId);
-                             if (client) openClientLedger(client, clientLedgerBackSection);
-                            }}
-                            className="font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
+                            title={t('save_changes')}
+                            onClick={() => void onSaveLedgerRow(entry.transactionId, ledger.accountId)}
+                            className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
                            >
-                            {entry.counterpartyName}
+                            <svg
+                             width="14"
+                             height="14"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             strokeWidth="2"
+                             strokeLinecap="round"
+                             strokeLinejoin="round"
+                             aria-hidden
+                            >
+                             <polyline points="20 6 9 17 4 12" />
+                            </svg>
                            </button>
-                          ) : (
-                           entry.counterpartyName
-                          )}
-                         </td>
-                        );
-                       case 'direction':
-                        return (
-                         <td
-                          key={column.key}
-                          className="px-4 py-3"
-                         >
-                          {entry.isAdjustment ? (
+                           <button
+                            type="button"
+                            title={t('cancel')}
+                            onClick={() => {
+                             setEditingLedgerRowKeys((prev) => {
+                              const n = new Set(prev);
+                              n.delete(rowKey);
+                              return n;
+                             });
+                             setLedgerTransactionDrafts((prev) => {
+                              const n = { ...prev };
+                              delete n[rowKey];
+                              return n;
+                             });
+                            }}
+                            className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                           >
+                            <svg
+                             width="14"
+                             height="14"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             strokeWidth="2"
+                             strokeLinecap="round"
+                             strokeLinejoin="round"
+                             aria-hidden
+                            >
+                             <line
+                              x1="18"
+                              y1="6"
+                              x2="6"
+                              y2="18"
+                             />
+                             <line
+                              x1="6"
+                              y1="6"
+                              x2="18"
+                              y2="18"
+                             />
+                            </svg>
+                           </button>
+                           <button
+                            type="button"
+                            title={t('delete')}
+                            onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
+                            className="rounded p-1 text-red-500 hover:bg-red-50"
+                           >
+                            <svg
+                             width="14"
+                             height="14"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             strokeWidth="1.8"
+                             strokeLinecap="round"
+                             strokeLinejoin="round"
+                             aria-hidden
+                            >
+                             <polyline points="3 6 5 6 21 6" />
+                             <path d="M19 6l-1 14H6L5 6" />
+                             <path d="M10 11v6M14 11v6" />
+                             <path d="M9 6V4h6v2" />
+                            </svg>
+                           </button>
+                          </div>
+                         ) : (
+                          <div className="flex items-center gap-0.5">
                            <span
-                            className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                            className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                            title="Drag to reorder"
+                            onMouseDown={() => {
+                             dragLedgerFromHandle.current = true;
+                            }}
                            >
-                            {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
+                            <svg
+                             width="12"
+                             height="12"
+                             viewBox="0 0 24 24"
+                             fill="currentColor"
+                             aria-hidden
+                            >
+                             <circle
+                              cx="9"
+                              cy="5"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="15"
+                              cy="5"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="9"
+                              cy="12"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="15"
+                              cy="12"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="9"
+                              cy="19"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="15"
+                              cy="19"
+                              r="1.5"
+                             />
+                            </svg>
                            </span>
-                          ) : draft ? (
-                           <select
-                            value={draft.direction}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })}
-                            style={{ width: ledgerSelectWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 2) }}
-                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                           <button
+                            type="button"
+                            title={t('edit')}
+                            onClick={() => {
+                             // Expense (adjustment) rows have no transaction record, so they can't be
+                             // inline-edited like transfers — route them to the adjustment editor instead.
+                             if (entry.isAdjustment && entry.adjustmentId) {
+                              const adjustment = adjustments.find((a) => a.id === entry.adjustmentId);
+                              if (adjustment) openAdjustmentModal(ledger.accountId, adjustment);
+                              return;
+                             }
+                             const draftKey = rowKey;
+                             const transaction = transactions.find((tx) => tx.id === entry.transactionId);
+                             if (transaction && !ledgerTransactionDrafts[draftKey]) {
+                              const isOutgoing = transaction.accountFromId === ledger.accountId;
+                              setLedgerRateReversed((prev) => ({
+                               ...prev,
+                               ...(isOutgoing
+                                ? transaction.exchangeRateFromReversed
+                                  ? { [draftKey]: true }
+                                  : {}
+                                : transaction.exchangeRateToReversed
+                                  ? { [draftKey]: true }
+                                  : {}),
+                              }));
+                              setLedgerTransactionDrafts((prev) => ({
+                               ...prev,
+                               [draftKey]: buildLedgerTransactionDraft(transaction, ledger.accountId),
+                              }));
+                             }
+                             setEditingLedgerRowKeys((prev) => new Set([...prev, draftKey]));
+                            }}
+                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
                            >
-                            <option value="incoming">{t('incoming')}</option>
-                            <option value="outgoing">{t('outgoing')}</option>
-                           </select>
-                          ) : (
-                           <span
-                            className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
-                           >
-                            {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
-                           </span>
-                          )}
-                         </td>
-                        );
-                       case 'type':
-                        return (
-                         <td
-                          key={column.key}
-                          className="px-4 py-3 text-slate-600"
-                         >
-                          {entry.isAdjustment ? (
-                           <span className="inline-flex rounded bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">{t('adjustment_label')}</span>
-                          ) : draft ? (
-                           <select
-                            value={draft.type}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
-                            style={{ width: ledgerSelectWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 2) }}
-                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                           >
-                            <option value="exchange">{t('transaction_type_exchange')}</option>
-                            <option value="transfer">{t('transaction_type_transfer')}</option>
-                           </select>
-                          ) : (
-                           t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
-                          )}
-                         </td>
-                        );
-                       case 'amount':
-                        return (
-                         <td
-                          key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${(draft?.direction ?? entry.direction) === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
-                         >
-                          {draft ? (
-                           <input
-                            type="text"
-                            inputMode="decimal"
-                            dir="ltr"
-                            value={formatAmountInput(draft.amount)}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
-                            style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
-                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                           />
-                          ) : (
-                           <>
-                            {entry.amount.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                            {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
-                           </>
-                          )}
-                         </td>
-                        );
-                       case 'exchangeRate':
-                        return (
-                         <td
-                          key={column.key}
-                          className="px-4 py-3 text-slate-600"
-                         >
-                          {entry.isAdjustment ? (
-                           entry.exchangeRate && entry.exchangeRate !== 1 && entry.currencyCode !== ledger.currencyCode ? (
-                            (() => {
-                             const txCurr = entry.currencyCode;
-                             const accCurr = ledger.currencyCode;
-                             const rateNumber = entry.exchangeRateReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
-                             const rateLabel = `\u202A${entry.exchangeRateReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
-                             return <span title={rateLabel}>{rateNumber}</span>;
-                            })()
-                           ) : (
-                            <span className="text-slate-400">-</span>
-                           )
-                          ) : draft ? (
-                           (() => {
-                            const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                            const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
-                            const txCurr = entry.currencyCode;
-                            const accCurr = ledger.currencyCode;
-                            return (
-                             <div className="flex items-center gap-1">
+                            <svg
+                             width="14"
+                             height="14"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             strokeWidth="1.8"
+                             strokeLinecap="round"
+                             strokeLinejoin="round"
+                             aria-hidden
+                            >
+                             <path d="M12 20h9" />
+                             <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                            </svg>
+                           </button>
+                          </div>
+                         )}
+                        </td>
+                        {orderedLedgerColumnOptions.map((column) => {
+                         if (!ledgerColumnVisibility[column.key]) {
+                          return null;
+                         }
+
+                         switch (column.key) {
+                          case 'created':
+                           return (
+                            <td
+                             key={column.key}
+                             className="px-4 py-3 text-slate-500"
+                            >
+                             {draft ? (
+                              <input
+                               type="date"
+                               value={draft.createdDate}
+                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
+                               style={{ width: '8.5rem' }}
+                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              />
+                             ) : (
+                              formatDateValue(entry.createdAt, ledgerDateFormat)
+                             )}
+                            </td>
+                           );
+                          case 'counterparty':
+                           return (
+                            <td
+                             key={column.key}
+                             className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap"
+                            >
+                             {entry.isAdjustment ? (
+                              <span className="text-slate-400">-</span>
+                             ) : draft ? (
+                              (() => {
+                               const selectedAccount = clientAccounts.find((account) => account.id === draft.counterpartyAccountId);
+                               const selectedLabel = selectedAccount
+                                ? `${selectedAccount.clientName} - ${selectedAccount.currencySymbol || selectedAccount.currencyCode}`
+                                : t('transaction_account_placeholder');
+                               return (
+                                <div className="flex items-center gap-1">
+                                 <select
+                                  value={draft.counterpartyAccountId ?? ''}
+                                  onChange={(event) =>
+                                   updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, {
+                                    counterpartyAccountId: event.target.value ? Number(event.target.value) : null,
+                                   })
+                                  }
+                                  style={{ width: ledgerSelectWidth(selectedLabel, 8, 2) }}
+                                  className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                 >
+                                  <option value="">{t('transaction_account_placeholder')}</option>
+                                  {clientAccounts
+                                   .filter((account) => account.id !== ledger.accountId)
+                                   .map((account) => (
+                                    <option
+                                     key={account.id}
+                                     value={account.id}
+                                    >
+                                     {account.clientName} - {account.currencySymbol || account.currencyCode}
+                                    </option>
+                                   ))}
+                                 </select>
+                                 <button
+                                  type="button"
+                                  title={t('ledger_swap_parties')}
+                                  onClick={() =>
+                                   updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: draft.direction === 'outgoing' ? 'incoming' : 'outgoing' })
+                                  }
+                                  className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                                 >
+                                  <svg
+                                   width="14"
+                                   height="14"
+                                   viewBox="0 0 24 24"
+                                   fill="none"
+                                   stroke="currentColor"
+                                   strokeWidth="1.8"
+                                   strokeLinecap="round"
+                                   strokeLinejoin="round"
+                                   aria-hidden
+                                  >
+                                   <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                   <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                  </svg>
+                                 </button>
+                                </div>
+                               );
+                              })()
+                             ) : entry.counterpartyClientId ? (
+                              <button
+                               type="button"
+                               onClick={() => {
+                                const client = clients.find((c) => c.id === entry.counterpartyClientId);
+                                if (client) openClientLedger(client, clientLedgerBackSection);
+                               }}
+                               className="font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
+                              >
+                               {entry.counterpartyName}
+                              </button>
+                             ) : (
+                              entry.counterpartyName
+                             )}
+                            </td>
+                           );
+                          case 'direction':
+                           return (
+                            <td
+                             key={column.key}
+                             className="px-4 py-3"
+                            >
+                             {entry.isAdjustment ? (
+                              <span
+                               className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                              >
+                               {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
+                              </span>
+                             ) : draft ? (
+                              <select
+                               value={draft.direction}
+                               onChange={(event) =>
+                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })
+                               }
+                               style={{ width: ledgerSelectWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 2) }}
+                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              >
+                               <option value="incoming">{t('incoming')}</option>
+                               <option value="outgoing">{t('outgoing')}</option>
+                              </select>
+                             ) : (
+                              <span
+                               className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                              >
+                               {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
+                              </span>
+                             )}
+                            </td>
+                           );
+                          case 'type':
+                           return (
+                            <td
+                             key={column.key}
+                             className="px-4 py-3 text-slate-600"
+                            >
+                             {entry.isAdjustment ? (
+                              <span className="inline-flex rounded bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">{t('adjustment_label')}</span>
+                             ) : draft ? (
+                              <select
+                               value={draft.type}
+                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
+                               style={{ width: ledgerSelectWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 2) }}
+                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              >
+                               <option value="exchange">{t('transaction_type_exchange')}</option>
+                               <option value="transfer">{t('transaction_type_transfer')}</option>
+                              </select>
+                             ) : (
+                              t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
+                             )}
+                            </td>
+                           );
+                          case 'amount':
+                           return (
+                            <td
+                             key={column.key}
+                             className={`whitespace-nowrap px-4 py-3 font-semibold ${(draft?.direction ?? entry.direction) === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
+                            >
+                             {draft ? (
                               <input
                                type="text"
                                inputMode="decimal"
                                dir="ltr"
-                               value={draft.exchangeRate}
-                               data-ledger-rate-idx={entryIdx}
-                               data-ledger-account-id={ledger.accountId}
-                               onChange={(event) =>
-                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
-                               }
-                               onPaste={(event) => {
-                                const text = event.clipboardData.getData('text');
-                                const values = text
-                                 .split(/[\r\n]+/)
-                                 .map((v) => v.trim())
-                                 .filter((v) => v.length > 0);
-                                // Single value: let the browser paste normally into this one input.
-                                if (values.length <= 1) return;
-                                event.preventDefault();
-
-                                // Rebuild the same filtered visible list the table renders, so we
-                                // can map row positions to transaction drafts. ledger.entries is
-                                // already in the user's manual order (applied in the memo).
-                                const ordered = ledger.entries;
-                                const q = ledgerFilterSearch.trim().toLowerCase();
-                                const visible = ordered.filter((e) => {
-                                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                                 if (q) {
-                                  const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
-                                  const inDescription = (e.description ?? '').toLowerCase().includes(q);
-                                  const inAmount = String(e.amount).includes(q);
-                                  if (!inCounterparty && !inDescription && !inAmount) return false;
-                                 }
-                                 return true;
-                                });
-
-                                // Spread each pasted value down consecutive editable rate inputs,
-                                // starting at the row that received the paste. Adjustment rows and
-                                // rows not in edit mode have no rate input, so they are skipped.
-                                // Locate the start row by key in the full (unpaginated) visible list —
-                                // entryIdx is page-relative, so it can't be used to index `visible`.
-                                const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                                const startIdx = Math.max(0, visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey));
-                                const patches: Record<string, string> = {};
-                                let valueIdx = 0;
-                                for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
-                                 const target = visible[i];
-                                 if (target.isAdjustment) continue;
-                                 const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
-                                 if (!editingLedgerRowKeys.has(key)) continue;
-                                 patches[key] = normalizeDecimalInput(values[valueIdx]);
-                                 valueIdx += 1;
-                                }
-                                if (Object.keys(patches).length === 0) return;
-                                setLedgerTransactionDrafts((prev) => {
-                                 const next = { ...prev };
-                                 for (const [key, rate] of Object.entries(patches)) {
-                                  if (next[key]) next[key] = { ...next[key], exchangeRate: rate };
-                                 }
-                                 return next;
-                                });
-                               }}
-                               onKeyDown={(event) => {
-                                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-                                event.preventDefault();
-                                const delta = event.key === 'ArrowDown' ? 1 : -1;
-                                const next = document.querySelector<HTMLInputElement>(
-                                 `[data-ledger-account-id="${ledger.accountId}"][data-ledger-rate-idx="${entryIdx + delta}"]`,
-                                );
-                                next?.focus();
-                               }}
-                               style={{ width: ledgerFieldWidth(draft.exchangeRate, 5, 2) }}
+                               value={formatAmountInput(draft.amount)}
+                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
+                               style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                               />
-                              {txCurr && accCurr && txCurr !== accCurr && (
-                               <button
-                                type="button"
-                                title="Reverse rate direction"
-                                onClick={() => {
-                                 const val = parseFloat(draft.exchangeRate) || 1;
-                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                                 setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
-                                }}
-                                className="shrink-0 rounded p-0.5 text-slate-400 hover:text-slate-700"
-                               >
-                                <svg
-                                 width="14"
-                                 height="14"
-                                 viewBox="0 0 24 24"
-                                 fill="none"
-                                 stroke="currentColor"
-                                 strokeWidth="1.8"
-                                 strokeLinecap="round"
-                                 strokeLinejoin="round"
-                                 aria-hidden
-                                >
-                                 <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                 <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                </svg>
-                               </button>
-                              )}
-                             </div>
-                            );
-                           })()
-                          ) : (
-                           (() => {
-                            const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                            const txCurr = entry.currencyCode;
-                            const accCurr = ledger.currencyCode;
-                            const defaultReversed = entry.exchangeRateReversed;
-                            const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
-                            // Different currency but no rate entered yet: show a dash. This entry is
-                            // excluded from the balance until the user sets a rate.
-                            if (entry.pendingRate) {
-                             return <span className="text-amber-500" title={t('ledger_rate_pending')}>-</span>;
-                            }
-                            if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
-                             return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-                            }
-                            const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
-                            const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
-                            return (
-                             <div className="flex items-center gap-1">
-                              <span title={rateLabel}>{rateNumber}</span>
-                              <button
-                               type="button"
-                               title="Reverse rate direction"
-                               onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
-                               className="rounded p-0.5 text-slate-400 hover:text-slate-700"
-                              >
-                               <svg
-                                width="14"
-                                height="14"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                aria-hidden
-                               >
-                                <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                <path d="M17 20l4-4-4-4m4 4H7.5" />
-                               </svg>
-                              </button>
-                             </div>
-                            );
-                           })()
-                          )}
-                         </td>
-                        );
-                       case 'commission':
-                        return (
-                         <td
-                          key={column.key}
-                          className="px-4 py-3 text-slate-600"
-                         >
-                          {draft ? (() => {
-                           const commVal = parseFloat(draft.commission) || 0;
-                           return (
-                            <div className="flex items-center gap-1">
-                             <input
-                              type="text"
-                              inputMode="decimal"
-                              dir="ltr"
-                              value={draft.commission}
-                              data-ledger-commission-idx={entryIdx}
-                            data-ledger-account-id={ledger.accountId}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
-                            onPaste={(event) => {
-                             const text = event.clipboardData.getData('text');
-                             const values = text
-                              .split(/[\r\n]+/)
-                              .map((v) => v.trim())
-                              .filter((v) => v.length > 0);
-                             // Single value: let the browser paste normally into this one input.
-                             if (values.length <= 1) return;
-                             event.preventDefault();
-
-                             // Rebuild the same filtered visible list the table renders so pasted
-                             // values map to the right rows, then spread them down consecutive
-                             // editable commission inputs starting at the row that received the paste.
-                             const ordered = ledger.entries;
-                             const q = ledgerFilterSearch.trim().toLowerCase();
-                             const visible = ordered.filter((e) => {
-                              if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                              if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                              if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                              if (q) {
-                               const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
-                               const inDescription = (e.description ?? '').toLowerCase().includes(q);
-                               const inAmount = String(e.amount).includes(q);
-                               if (!inCounterparty && !inDescription && !inAmount) return false;
-                              }
-                              return true;
-                             });
-                             const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                             const startIdx = Math.max(0, visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey));
-                             const patches: Record<string, string> = {};
-                             let valueIdx = 0;
-                             for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
-                              const target = visible[i];
-                              if (target.isAdjustment) continue;
-                              const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
-                              if (!editingLedgerRowKeys.has(key)) continue;
-                              patches[key] = normalizeDecimalInput(values[valueIdx]);
-                              valueIdx += 1;
-                             }
-                             if (Object.keys(patches).length === 0) return;
-                             setLedgerTransactionDrafts((prev) => {
-                              const next = { ...prev };
-                              for (const [key, commission] of Object.entries(patches)) {
-                               if (next[key]) next[key] = { ...next[key], commission };
-                              }
-                              return next;
-                             });
-                            }}
-                            onKeyDown={(event) => {
-                             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-                             event.preventDefault();
-                             const delta = event.key === 'ArrowDown' ? 1 : -1;
-                             const next = document.querySelector<HTMLInputElement>(
-                              `[data-ledger-account-id="${ledger.accountId}"][data-ledger-commission-idx="${entryIdx + delta}"]`,
-                             );
-                             next?.focus();
-                            }}
-                              style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
-                              className={`rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-emerald-600 font-semibold' : commVal < 0 ? 'text-red-600 font-semibold' : ''}`}
-                              placeholder="0"
-                             />
-                             <button
-                              type="button"
-                              title={commVal < 0 ? t('commission_from_him') : t('commission_for_him')}
-                              onClick={() => {
-                               const v = parseFloat(draft.commission) || 0;
-                               if (v !== 0) updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: String(-v) });
-                              }}
-                              className="shrink-0 rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                             >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                               <path d="M7 4 3 8l4 4M3 8h13.5" />
-                               <path d="M17 20l4-4-4-4m4 4H7.5" />
-                              </svg>
-                             </button>
-                            </div>
+                             ) : (
+                              <>
+                               {entry.amount.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                               {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
+                              </>
+                             )}
+                            </td>
                            );
-                          })() : entry.commission ? (
-                           <span className={entry.commission < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
-                            {entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%
-                           </span>
-                          ) : (
-                           <span className="text-slate-400">-</span>
-                          )}
-                         </td>
-                        );
-                       case 'netChange':
-                        return (
-                         <td
-                          key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${ledgerHighlightNetChange && !isRowHighlighted ? 'bg-blue-50 ' : ''}${entry.pendingRate ? 'text-amber-500' : entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                         >
-                          {entry.pendingRate ? (
-                           <span title={t('ledger_rate_pending')}>-</span>
-                          ) : (
-                           <>
-                            {entry.netChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                            {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                           </>
-                          )}
-                         </td>
-                        );
-                       case 'runningBalance':
-                        return (
-                         <td
-                          key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                         >
-                          {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                          {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                         </td>
-                        );
-                       case 'currency':
-                        return (
-                         <td
-                          key={column.key}
-                          className="px-4 py-3 text-slate-500 whitespace-nowrap"
-                         >
-                          {entry.isAdjustment ? (
-                           <span title={entry.currencyCode}>{entry.currencySymbol || entry.currencyCode || '-'}</span>
-                          ) : draft ? (
-                           <select
-                            value={draft.currencyId}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: Number(event.target.value) })}
-                            style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
-                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                           >
-                            {enabledCurrencies.map((cur) => (
-                             <option key={cur.id} value={cur.id}>{cur.code}</option>
-                            ))}
-                           </select>
-                          ) : (
-                           <span title={entry.currencyCode}>{entry.currencySymbol || entry.currencyCode || '-'}</span>
-                          )}
-                         </td>
-                        );
-                       case 'description':
-                        return (
-                         <td
-                          key={column.key}
-                          className="px-4 py-3 text-slate-500 whitespace-nowrap"
-                         >
-                          {entry.isAdjustment ? (
-                           entry.description || '-'
-                          ) : draft ? (
-                           <input
-                            type="text"
-                            value={draft.description}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
-                            style={{ width: ledgerFieldWidth(draft.description, 6, 3) }}
-                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                           />
-                          ) : (
-                           entry.description || '-'
-                          )}
-                         </td>
-                        );
-                      }
-                     })}
-                      </>
-                     );
-                    })()}
-                   </tr>
-                   {entry.charges > 0 && (
-                    <tr
-                     key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}-charges`}
-                     className="border-t border-dashed border-slate-200 bg-amber-50/60"
-                    >
-                     <td
-                      colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3}
-                      className="px-4 py-2"
-                     >
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                       <span className="font-medium text-amber-700">{t('charges')}</span>
-                       <span className="font-semibold">
-                        {entry.charges.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                        {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
-                       </span>
-                       {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
-                        <span className="text-slate-400">@ {entry.chargesExchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
-                       )}
-                       {entry.chargesPayer && (
-                        <span className="text-slate-500">
-                         {t('charges_payer_placeholder')}:{' '}
-                         {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
-                        </span>
-                       )}
-                       {entry.chargesDescription && <span className="italic text-slate-500">"{entry.chargesDescription}"</span>}
-                      </div>
-                     </td>
+                          case 'exchangeRate':
+                           return (
+                            <td
+                             key={column.key}
+                             className="px-4 py-3 text-slate-600"
+                            >
+                             {entry.isAdjustment ? (
+                              entry.exchangeRate && entry.exchangeRate !== 1 && entry.currencyCode !== ledger.currencyCode ? (
+                               (() => {
+                                const txCurr = entry.currencyCode;
+                                const accCurr = ledger.currencyCode;
+                                const rateNumber = entry.exchangeRateReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                                const rateLabel = `\u202A${entry.exchangeRateReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                                return <span title={rateLabel}>{rateNumber}</span>;
+                               })()
+                              ) : (
+                               <span className="text-slate-400">-</span>
+                              )
+                             ) : draft ? (
+                              (() => {
+                               const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                               const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
+                               const txCurr = entry.currencyCode;
+                               const accCurr = ledger.currencyCode;
+                               return (
+                                <div className="flex items-center gap-1">
+                                 <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  dir="ltr"
+                                  value={draft.exchangeRate}
+                                  data-ledger-rate-idx={entryIdx}
+                                  data-ledger-account-id={ledger.accountId}
+                                  onChange={(event) =>
+                                   updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
+                                  }
+                                  onPaste={(event) => {
+                                   const text = event.clipboardData.getData('text');
+                                   const values = text
+                                    .split(/[\r\n]+/)
+                                    .map((v) => v.trim())
+                                    .filter((v) => v.length > 0);
+                                   // Single value: let the browser paste normally into this one input.
+                                   if (values.length <= 1) return;
+                                   event.preventDefault();
+
+                                   // Rebuild the same filtered visible list the table renders, so we
+                                   // can map row positions to transaction drafts. ledger.entries is
+                                   // already in the user's manual order (applied in the memo).
+                                   const ordered = ledger.entries;
+                                   const q = ledgerFilterSearch.trim().toLowerCase();
+                                   const visible = ordered.filter((e) => {
+                                    if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                                    if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                                    if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                                    if (q) {
+                                     const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                                     const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                                     const inAmount = String(e.amount).includes(q);
+                                     if (!inCounterparty && !inDescription && !inAmount) return false;
+                                    }
+                                    return true;
+                                   });
+
+                                   // Spread each pasted value down consecutive editable rate inputs,
+                                   // starting at the row that received the paste. Adjustment rows and
+                                   // rows not in edit mode have no rate input, so they are skipped.
+                                   // Locate the start row by key in the full (unpaginated) visible list —
+                                   // entryIdx is page-relative, so it can't be used to index `visible`.
+                                   const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                                   const startIdx = Math.max(
+                                    0,
+                                    visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey),
+                                   );
+                                   const patches: Record<string, string> = {};
+                                   let valueIdx = 0;
+                                   for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                                    const target = visible[i];
+                                    if (target.isAdjustment) continue;
+                                    const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
+                                    if (!editingLedgerRowKeys.has(key)) continue;
+                                    patches[key] = normalizeDecimalInput(values[valueIdx]);
+                                    valueIdx += 1;
+                                   }
+                                   if (Object.keys(patches).length === 0) return;
+                                   ledgerHistory.record();
+                                   setLedgerTransactionDrafts((prev) => {
+                                    const next = { ...prev };
+                                    for (const [key, rate] of Object.entries(patches)) {
+                                     if (next[key]) next[key] = { ...next[key], exchangeRate: rate };
+                                    }
+                                    return next;
+                                   });
+                                  }}
+                                  onKeyDown={(event) => {
+                                   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                                   event.preventDefault();
+                                   const delta = event.key === 'ArrowDown' ? 1 : -1;
+                                   const next = document.querySelector<HTMLInputElement>(
+                                    `[data-ledger-account-id="${ledger.accountId}"][data-ledger-rate-idx="${entryIdx + delta}"]`,
+                                   );
+                                   next?.focus();
+                                  }}
+                                  style={{ width: ledgerFieldWidth(draft.exchangeRate, 5, 2) }}
+                                  className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                 />
+                                 {txCurr && accCurr && txCurr !== accCurr && (
+                                  <button
+                                   type="button"
+                                   title="Reverse rate direction"
+                                   onClick={() => {
+                                    const val = parseFloat(draft.exchangeRate) || 1;
+                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                                    setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
+                                   }}
+                                   className="shrink-0 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                  >
+                                   <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    aria-hidden
+                                   >
+                                    <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                    <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                   </svg>
+                                  </button>
+                                 )}
+                                </div>
+                               );
+                              })()
+                             ) : (
+                              (() => {
+                               const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                               const txCurr = entry.currencyCode;
+                               const accCurr = ledger.currencyCode;
+                               const defaultReversed = entry.exchangeRateReversed;
+                               const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
+                               // Different currency but no rate entered yet: show a dash. This entry is
+                               // excluded from the balance until the user sets a rate.
+                               if (entry.pendingRate) {
+                                return (
+                                 <span
+                                  className="text-amber-500"
+                                  title={t('ledger_rate_pending')}
+                                 >
+                                  -
+                                 </span>
+                                );
+                               }
+                               if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
+                                return entry.exchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                               }
+                               const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                               const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                               return (
+                                <div className="flex items-center gap-1">
+                                 <span title={rateLabel}>{rateNumber}</span>
+                                 <button
+                                  type="button"
+                                  title="Reverse rate direction"
+                                  onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
+                                  className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                 >
+                                  <svg
+                                   width="14"
+                                   height="14"
+                                   viewBox="0 0 24 24"
+                                   fill="none"
+                                   stroke="currentColor"
+                                   strokeWidth="1.8"
+                                   strokeLinecap="round"
+                                   strokeLinejoin="round"
+                                   aria-hidden
+                                  >
+                                   <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                   <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                  </svg>
+                                 </button>
+                                </div>
+                               );
+                              })()
+                             )}
+                            </td>
+                           );
+                          case 'commission':
+                           return (
+                            <td
+                             key={column.key}
+                             className="px-4 py-3 text-slate-600"
+                            >
+                             {draft ? (
+                              (() => {
+                               const commVal = parseFloat(draft.commission) || 0;
+                               return (
+                                <div className="flex items-center gap-1">
+                                 <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  dir="ltr"
+                                  value={draft.commission}
+                                  data-ledger-commission-idx={entryIdx}
+                                  data-ledger-account-id={ledger.accountId}
+                                  onChange={(event) =>
+                                   updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })
+                                  }
+                                  onPaste={(event) => {
+                                   const text = event.clipboardData.getData('text');
+                                   const values = text
+                                    .split(/[\r\n]+/)
+                                    .map((v) => v.trim())
+                                    .filter((v) => v.length > 0);
+                                   // Single value: let the browser paste normally into this one input.
+                                   if (values.length <= 1) return;
+                                   event.preventDefault();
+
+                                   // Rebuild the same filtered visible list the table renders so pasted
+                                   // values map to the right rows, then spread them down consecutive
+                                   // editable commission inputs starting at the row that received the paste.
+                                   const ordered = ledger.entries;
+                                   const q = ledgerFilterSearch.trim().toLowerCase();
+                                   const visible = ordered.filter((e) => {
+                                    if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                                    if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                                    if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                                    if (q) {
+                                     const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                                     const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                                     const inAmount = String(e.amount).includes(q);
+                                     if (!inCounterparty && !inDescription && !inAmount) return false;
+                                    }
+                                    return true;
+                                   });
+                                   const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                                   const startIdx = Math.max(
+                                    0,
+                                    visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey),
+                                   );
+                                   const patches: Record<string, string> = {};
+                                   let valueIdx = 0;
+                                   for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                                    const target = visible[i];
+                                    if (target.isAdjustment) continue;
+                                    const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
+                                    if (!editingLedgerRowKeys.has(key)) continue;
+                                    patches[key] = normalizeDecimalInput(values[valueIdx]);
+                                    valueIdx += 1;
+                                   }
+                                   if (Object.keys(patches).length === 0) return;
+                                   ledgerHistory.record();
+                                   setLedgerTransactionDrafts((prev) => {
+                                    const next = { ...prev };
+                                    for (const [key, commission] of Object.entries(patches)) {
+                                     if (next[key]) next[key] = { ...next[key], commission };
+                                    }
+                                    return next;
+                                   });
+                                  }}
+                                  onKeyDown={(event) => {
+                                   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                                   event.preventDefault();
+                                   const delta = event.key === 'ArrowDown' ? 1 : -1;
+                                   const next = document.querySelector<HTMLInputElement>(
+                                    `[data-ledger-account-id="${ledger.accountId}"][data-ledger-commission-idx="${entryIdx + delta}"]`,
+                                   );
+                                   next?.focus();
+                                  }}
+                                  style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
+                                  className={`rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-emerald-600 font-semibold' : commVal < 0 ? 'text-red-600 font-semibold' : ''}`}
+                                  placeholder="0"
+                                 />
+                                 <button
+                                  type="button"
+                                  title={commVal < 0 ? t('commission_from_him') : t('commission_for_him')}
+                                  onClick={() => {
+                                   const v = parseFloat(draft.commission) || 0;
+                                   if (v !== 0) updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: String(-v) });
+                                  }}
+                                  className="shrink-0 rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                                 >
+                                  <svg
+                                   width="14"
+                                   height="14"
+                                   viewBox="0 0 24 24"
+                                   fill="none"
+                                   stroke="currentColor"
+                                   strokeWidth="1.8"
+                                   strokeLinecap="round"
+                                   strokeLinejoin="round"
+                                   aria-hidden
+                                  >
+                                   <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                   <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                  </svg>
+                                 </button>
+                                </div>
+                               );
+                              })()
+                             ) : entry.commission ? (
+                              <span className={entry.commission < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
+                               {entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%
+                              </span>
+                             ) : (
+                              <span className="text-slate-400">-</span>
+                             )}
+                            </td>
+                           );
+                          case 'netChange':
+                           return (() => {
+                            // A cross-currency row with no rate set yet is "pending": show a dash and
+                            // leave it out of the balance. While editing, recompute live from the draft.
+                            const draftRate = draft ? parseFloat(draft.exchangeRate) : NaN;
+                            const draftPending = !!draft && entry.currencyCode !== ledger.currencyCode && !(Number.isFinite(draftRate) && draftRate > 0);
+                            const isPending = draft ? draftPending : entry.pendingRate;
+                            const liveNetChange =
+                             draft && !draftPending
+                              ? (() => {
+                                 const amt = parseFloat(draft.amount) || 0;
+                                 const effectiveRate = ledgerRateReversed[rowKey] ? 1 / (draftRate || 1) : draftRate || 1;
+                                 const base = amt * effectiveRate;
+                                 const commissionAmount = getCommissionAmount(base, parseFloat(draft.commission) || 0);
+                                 return draft.direction === 'outgoing' ? base + commissionAmount : -(base - commissionAmount);
+                                })()
+                              : entry.netChange;
+                            const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
+                            return (
+                             <td
+                              key={column.key}
+                              style={highlightNet ? { backgroundColor: ledgerNetChangeHighlightColor } : undefined}
+                              className={`whitespace-nowrap px-4 py-3 font-semibold ${isPending ? 'text-amber-500' : liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                             >
+                              {isPending ? (
+                               <span title={t('ledger_rate_pending')}>-</span>
+                              ) : (
+                               <>
+                                {liveNetChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                                {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                               </>
+                              )}
+                             </td>
+                            );
+                           })();
+                          case 'runningBalance':
+                           return (
+                            <td
+                             key={column.key}
+                             className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                            >
+                             {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                             {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                            </td>
+                           );
+                          case 'currency':
+                           return (
+                            <td
+                             key={column.key}
+                             className="px-4 py-3 text-slate-500 whitespace-nowrap"
+                            >
+                             {entry.isAdjustment ? (
+                              <span title={entry.currencyCode}>{entry.currencySymbol || entry.currencyCode || '-'}</span>
+                             ) : draft ? (
+                              <select
+                               value={draft.currencyId}
+                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: Number(event.target.value) })}
+                               style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
+                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              >
+                               {enabledCurrencies.map((cur) => (
+                                <option
+                                 key={cur.id}
+                                 value={cur.id}
+                                >
+                                 {cur.code}
+                                </option>
+                               ))}
+                              </select>
+                             ) : (
+                              <span title={entry.currencyCode}>{entry.currencySymbol || entry.currencyCode || '-'}</span>
+                             )}
+                            </td>
+                           );
+                          case 'description':
+                           return (
+                            <td
+                             key={column.key}
+                             className="px-4 py-3 text-slate-500 whitespace-nowrap"
+                            >
+                             {entry.isAdjustment ? (
+                              entry.description || '-'
+                             ) : draft ? (
+                              <input
+                               type="text"
+                               value={draft.description}
+                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
+                               style={{ width: ledgerFieldWidth(draft.description, 6, 3) }}
+                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              />
+                             ) : (
+                              entry.description || '-'
+                             )}
+                            </td>
+                           );
+                         }
+                        })}
+                       </>
+                      );
+                     })()}
                     </tr>
-                   )}
-                  </Fragment>
-                 ))}
-                 {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) && ledger.entries.length > 0 && (() => {
-                  const q = ledgerFilterSearch.trim().toLowerCase();
-                  const visibleCount = ledger.entries.filter((e) => {
-                   if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                   if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                   if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                   if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
-                   return true;
-                  }).length;
-                  if (visibleCount > 0) return null;
-                  return (
-                   <tr>
-                    <td colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3} className="px-4 py-6 text-sm text-slate-500">
-                     {t('no_search_results')}
-                    </td>
-                   </tr>
-                  );
-                 })()}
-                </tbody>
-               </table>
-              </div>
-              {(() => {
-               // ledger.entries is already in the user's manual order (applied in the memo).
-               const ordered = ledger.entries;
-               const q = ledgerFilterSearch.trim().toLowerCase();
-               const visibleCount = ordered.filter((e) => {
-                if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
-                return true;
-               }).length;
-               if (visibleCount === 0) return null;
-               const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
-               if (totalLedgerPages <= 1) return null;
-               const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
-               return (
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                 <div className="text-xs text-slate-600">
-                  {((currentLedgerPage - 1) * ledgerPageSize + 1)}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                    {entry.charges > 0 && (
+                     <tr
+                      key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}-charges`}
+                      className="border-t border-dashed border-slate-200 bg-amber-50/60"
+                     >
+                      <td
+                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3}
+                       className="px-4 py-2"
+                      >
+                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                        <span className="font-medium text-amber-700">{t('charges')}</span>
+                        <span className="font-semibold">
+                         {entry.charges.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                         {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
+                        </span>
+                        {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
+                         <span className="text-slate-400">@ {entry.chargesExchangeRate.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
+                        )}
+                        {entry.chargesPayer && (
+                         <span className="text-slate-500">
+                          {t('charges_payer_placeholder')}:{' '}
+                          {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
+                         </span>
+                        )}
+                        {entry.chargesDescription && <span className="italic text-slate-500">"{entry.chargesDescription}"</span>}
+                       </div>
+                      </td>
+                     </tr>
+                    )}
+                   </Fragment>
+                  ))}
+                  {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) &&
+                   ledger.entries.length > 0 &&
+                   (() => {
+                    const q = ledgerFilterSearch.trim().toLowerCase();
+                    const visibleCount = ledger.entries.filter((e) => {
+                     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                     if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                     if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                     if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                     return true;
+                    }).length;
+                    if (visibleCount > 0) return null;
+                    return (
+                     <tr>
+                      <td
+                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3}
+                       className="px-4 py-6 text-sm text-slate-500"
+                      >
+                       {t('no_search_results')}
+                      </td>
+                     </tr>
+                    );
+                   })()}
+                 </tbody>
+                </table>
+               </div>
+               {(() => {
+                // ledger.entries is already in the user's manual order (applied in the memo).
+                const ordered = ledger.entries;
+                const q = ledgerFilterSearch.trim().toLowerCase();
+                const visibleCount = ordered.filter((e) => {
+                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                 if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                 return true;
+                }).length;
+                if (visibleCount === 0) return null;
+                const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
+                if (totalLedgerPages <= 1) return null;
+                const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+                return (
+                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-slate-600">
+                   {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                   <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+                   <select
+                    value={ledgerPageSize}
+                    onChange={(event) => {
+                     const nextSize = Number(event.target.value);
+                     setLedgerPageSize(nextSize);
+                     if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
+                     setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
+                    }}
+                    className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                   >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                   </select>
+                   <button
+                    type="button"
+                    onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
+                    disabled={currentLedgerPage <= 1}
+                    className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                   >
+                    {t('pagination_prev')}
+                   </button>
+                   <input
+                    key={currentLedgerPage}
+                    type="number"
+                    min={1}
+                    max={totalLedgerPages}
+                    defaultValue={currentLedgerPage}
+                    onBlur={(event) => {
+                     const n = parseInt(event.target.value, 10);
+                     if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
+                     else event.target.value = String(currentLedgerPage);
+                    }}
+                    onKeyDown={(event) => {
+                     if (event.key === 'Enter') event.currentTarget.blur();
+                    }}
+                    className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                   />
+                   <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
+                   <button
+                    type="button"
+                    onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
+                    disabled={currentLedgerPage >= totalLedgerPages}
+                    className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                   >
+                    {t('pagination_next')}
+                   </button>
+                  </div>
                  </div>
-                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
-                  <select
-                   value={ledgerPageSize}
-                   onChange={(event) => {
-                    setLedgerPageSize(Number(event.target.value));
-                    setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
-                   }}
-                   className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
-                  >
-                   <option value={25}>25</option>
-                   <option value={50}>50</option>
-                   <option value={100}>100</option>
-                  </select>
-                  <button
-                   type="button"
-                   onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
-                   disabled={currentLedgerPage <= 1}
-                   className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                   {t('pagination_prev')}
-                  </button>
-                  <input
-                   key={currentLedgerPage}
-                   type="number"
-                   min={1}
-                   max={totalLedgerPages}
-                   defaultValue={currentLedgerPage}
-                   onBlur={(event) => {
-                    const n = parseInt(event.target.value, 10);
-                    if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
-                    else event.target.value = String(currentLedgerPage);
-                   }}
-                   onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
-                   className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                  />
-                  <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
-                  <button
-                   type="button"
-                   onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
-                   disabled={currentLedgerPage >= totalLedgerPages}
-                   className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                   {t('pagination_next')}
-                  </button>
-                 </div>
-                </div>
-               );
-              })()}
+                );
+               })()}
               </>
              )}
             </div>
@@ -8930,13 +10052,25 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        ) : null}
 
        {section === 'currencies' && isLoading ? (
-        <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_CURRENCIES} titleWidth="w-36" rows={8} />
+        <SkTablePanel
+         panelClassName={panelClassName}
+         tableWrapClassName={tableWrapClassName}
+         cols={SK_CURRENCIES}
+         titleWidth="w-36"
+         rows={8}
+        />
        ) : null}
        {section === 'currencies' && !isLoading ? currenciesReadOnlySection : null}
 
        {(section === 'transactions' || section === 'archive') && isLoading ? (
         <section className="flex flex-col gap-6">
-         <SkTablePanel panelClassName={panelClassName} tableWrapClassName={tableWrapClassName} cols={SK_TX} titleWidth="w-40" rows={10} />
+         <SkTablePanel
+          panelClassName={panelClassName}
+          tableWrapClassName={tableWrapClassName}
+          cols={SK_TX}
+          titleWidth="w-40"
+          rows={10}
+         />
         </section>
        ) : null}
        {(section === 'transactions' || section === 'archive') && !isLoading ? (
@@ -8954,9 +10088,25 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                aria-label={t('paste_transaction')}
                className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
               >
-               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+               <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
                 <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
-                <rect x="9" y="3" width="6" height="4" rx="1" />
+                <rect
+                 x="9"
+                 y="3"
+                 width="6"
+                 height="4"
+                 rx="1"
+                />
                </svg>
                {t('paste_transaction')}
               </button>
@@ -8968,7 +10118,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               aria-label={t('transactions_hide_new')}
               className="inline-flex shrink-0 items-center justify-center rounded border border-slate-300 p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
              >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="2.5"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
                <path d="M6 18L18 6M6 6l12 12" />
               </svg>
              </button>
@@ -9075,9 +10235,29 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                aria-label={t('clear_selection')}
                className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-2' : 'right-2'}`}
               >
-               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
+               <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <line
+                 x1="18"
+                 y1="6"
+                 x2="6"
+                 y2="18"
+                />
+                <line
+                 x1="6"
+                 y1="6"
+                 x2="18"
+                 y2="18"
+                />
                </svg>
               </button>
              ) : null}
@@ -9123,23 +10303,41 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  return (
                   <Fragment key={`g${clientId}`}>
                    <li
-                    onMouseDown={(e) => { e.preventDefault(); setTxFromExpandedClient(expanded && !q ? null : clientId); }}
+                    onMouseDown={(e) => {
+                     e.preventDefault();
+                     setTxFromExpandedClient(expanded && !q ? null : clientId);
+                    }}
                     className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
                    >
                     <span>
                      {accts[0].clientName} <span className="text-slate-400">({accts.length})</span>
                     </span>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden><path d="m6 9 6 6 6-6" /></svg>
-                   </li>
-                   {expanded && accts.map((account) => (
-                    <li
-                     key={account.id}
-                     onMouseDown={() => selectAccount(account.id)}
-                     className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                    <svg
+                     width="12"
+                     height="12"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="2"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                     aria-hidden
                     >
-                     {account.currencyCode}{account.currencySymbol ? ` (${account.currencySymbol})` : ''}
-                    </li>
-                   ))}
+                     <path d="m6 9 6 6 6-6" />
+                    </svg>
+                   </li>
+                   {expanded &&
+                    accts.map((account) => (
+                     <li
+                      key={account.id}
+                      onMouseDown={() => selectAccount(account.id)}
+                      className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                     >
+                      {account.currencyCode}
+                      {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                     </li>
+                    ))}
                   </Fragment>
                  );
                 });
@@ -9150,9 +10348,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
             {!isAdjustmentTransaction ? (
              <>
-              <label className="mt-4 block text-sm font-medium">
-               {t('transaction_account_to')}
-              </label>
+              <label className="mt-4 block text-sm font-medium">{t('transaction_account_to')}</label>
               <div className="relative mt-2">
                <input
                 type="text"
@@ -9191,9 +10387,29 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  aria-label={t('clear_selection')}
                  className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-2' : 'right-2'}`}
                 >
-                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
+                 <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
+                  <line
+                   x1="18"
+                   y1="6"
+                   x2="6"
+                   y2="18"
+                  />
+                  <line
+                   x1="6"
+                   y1="6"
+                   x2="18"
+                   y2="18"
+                  />
                  </svg>
                 </button>
                ) : null}
@@ -9237,24 +10453,42 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    return (
                     <Fragment key={`g${clientId}`}>
                      <li
-                      onMouseDown={(e) => { e.preventDefault(); setTxToExpandedClient(expanded && !q ? null : clientId); }}
+                      onMouseDown={(e) => {
+                       e.preventDefault();
+                       setTxToExpandedClient(expanded && !q ? null : clientId);
+                      }}
                       className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
                      >
                       <span>{accts[0].clientName}</span>
                       <span className="flex items-center gap-1 text-xs text-slate-400">
                        {accts.length}
-                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden><path d="m6 9 6 6 6-6" /></svg>
+                       <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+                        aria-hidden
+                       >
+                        <path d="m6 9 6 6 6-6" />
+                       </svg>
                       </span>
                      </li>
-                     {expanded && accts.map((account) => (
-                      <li
-                       key={account.id}
-                       onMouseDown={() => selectAccount(account.id)}
-                       className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
-                      >
-                       {account.currencyCode}{account.currencySymbol ? ` (${account.currencySymbol})` : ''}
-                      </li>
-                     ))}
+                     {expanded &&
+                      accts.map((account) => (
+                       <li
+                        key={account.id}
+                        onMouseDown={() => selectAccount(account.id)}
+                        className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                       >
+                        {account.currencyCode}
+                        {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                       </li>
+                      ))}
                     </Fragment>
                    );
                   });
@@ -9644,7 +10878,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               >
                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                <polyline points="17 8 12 3 7 8" />
-               <line x1="12" y1="3" x2="12" y2="15" />
+               <line
+                x1="12"
+                y1="3"
+                x2="12"
+                y2="15"
+               />
               </svg>
              )}
             </button>
@@ -9668,7 +10907,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              >
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
+              <line
+               x1="12"
+               y1="15"
+               x2="12"
+               y2="3"
+              />
              </svg>
             </button>
             <button
@@ -9704,8 +10948,24 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               aria-label={t('copy_transaction')}
               className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
              >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-               <rect x="9" y="9" width="11" height="11" rx="2" />
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <rect
+                x="9"
+                y="9"
+                width="11"
+                height="11"
+                rx="2"
+               />
                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
              </button>
@@ -9718,7 +10978,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               aria-label={`${t('delete')} (${selectedTransactionIds.size})`}
               className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-red-600 bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
              >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
                <path d="M3 6h18" />
                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
@@ -9736,6 +11006,54 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               <span className="text-slate-500">{sum.symbol || sum.code}</span>
              </span>
             ))}
+            {Object.keys(transactionTableDrafts).length > 0 ? (
+             <>
+              <button
+               type="button"
+               title={t('undo')}
+               onClick={txTableHistory.undo}
+               disabled={!txTableHistory.canUndo}
+               className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+               <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <path d="M9 14 4 9l5-5" />
+                <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+               </svg>
+              </button>
+              <button
+               type="button"
+               title={t('redo')}
+               onClick={txTableHistory.redo}
+               disabled={!txTableHistory.canRedo}
+               className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+               <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <path d="m15 14 5-5-5-5" />
+                <path d="M20 9H9a5 5 0 0 0 0 10h1" />
+               </svg>
+              </button>
+             </>
+            ) : null}
             {(section === 'transactions' || section === 'archive') && !isNewTransactionSectionOpen ? (
              <button
               type="button"
@@ -9770,7 +11088,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             aria-expanded={txFilterOpen}
             className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
            >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg
+             width="14"
+             height="14"
+             viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             strokeWidth="2"
+             strokeLinecap="round"
+             strokeLinejoin="round"
+             aria-hidden
+            >
              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
             {t('tx_filter_toggle')}
@@ -9814,8 +11142,29 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  aria-label={t('clear_selection')}
                  className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
                 >
-                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                 <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
+                  <line
+                   x1="18"
+                   y1="6"
+                   x2="6"
+                   y2="18"
+                  />
+                  <line
+                   x1="6"
+                   y1="6"
+                   x2="18"
+                   y2="18"
+                  />
                  </svg>
                 </button>
                ) : null}
@@ -9830,7 +11179,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               >
                <option value="">{t('tx_filter_client_all')}</option>
                {txFilterClientOptions.map((name) => (
-                <option key={name} value={name}>
+                <option
+                 key={name}
+                 value={name}
+                >
                  {name}
                 </option>
                ))}
@@ -9906,7 +11258,19 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   onClick={() => void onSaveAllTransactions()}
                   className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
                  >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12" /></svg>
+                  <svg
+                   width="13"
+                   height="13"
+                   viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   strokeWidth="2"
+                   strokeLinecap="round"
+                   strokeLinejoin="round"
+                   aria-hidden
+                  >
+                   <polyline points="20 6 9 17 4 12" />
+                  </svg>
                  </button>
                  <button
                   type="button"
@@ -9914,7 +11278,30 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   onClick={() => onCancelAllTransactions()}
                   className="rounded p-1 text-slate-400 hover:bg-slate-100"
                  >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  <svg
+                   width="13"
+                   height="13"
+                   viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   strokeWidth="2"
+                   strokeLinecap="round"
+                   strokeLinejoin="round"
+                   aria-hidden
+                  >
+                   <line
+                    x1="18"
+                    y1="6"
+                    x2="6"
+                    y2="18"
+                   />
+                   <line
+                    x1="6"
+                    y1="6"
+                    x2="18"
+                    y2="18"
+                   />
+                  </svg>
                  </button>
                 </div>
                ) : (
@@ -9924,7 +11311,20 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  onClick={() => onEditAllTransactions()}
                  className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
                 >
-                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                 <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                 </svg>
                 </button>
                )}
               </th>
@@ -9937,7 +11337,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  title={txSortDir === 'desc' ? t('sort_asc') : t('sort_desc')}
                 >
                  {t('date')}
-                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                 <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
                   {txSortDir === 'desc' ? (
                    <>
                     <path d="M12 5v14" />
@@ -10241,8 +11651,26 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      <span className="inline-flex items-center gap-1.5">
                       {txn.isArchived ? (
                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                         <rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" /><path d="M10 12h4" />
+                        <svg
+                         width="10"
+                         height="10"
+                         viewBox="0 0 24 24"
+                         fill="none"
+                         stroke="currentColor"
+                         strokeWidth="2.5"
+                         strokeLinecap="round"
+                         strokeLinejoin="round"
+                         aria-hidden
+                        >
+                         <rect
+                          x="3"
+                          y="4"
+                          width="18"
+                          height="4"
+                          rx="1"
+                         />
+                         <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+                         <path d="M10 12h4" />
                         </svg>
                         {t('transaction_archived_badge')}
                        </span>
@@ -10714,8 +12142,24 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                       title={t('archive_only_badge_hint')}
                       className="mb-1.5 inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
                      >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                       <rect x="3" y="4" width="18" height="4" rx="1" />
+                      <svg
+                       width="10"
+                       height="10"
+                       viewBox="0 0 24 24"
+                       fill="none"
+                       stroke="currentColor"
+                       strokeWidth="2.2"
+                       strokeLinecap="round"
+                       strokeLinejoin="round"
+                       aria-hidden
+                      >
+                       <rect
+                        x="3"
+                        y="4"
+                        width="18"
+                        height="4"
+                        rx="1"
+                       />
                        <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
                        <path d="M10 12h4" />
                       </svg>
@@ -10756,11 +12200,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             {section === 'archive' && archiveCurrencyTotals.length > 0 ? (
              <tfoot>
               <tr className="border-t-2 border-slate-300 bg-slate-50">
-               <td colSpan={visibleTransactionColumnCount + 1} className="px-4 py-3">
+               <td
+                colSpan={visibleTransactionColumnCount + 1}
+                className="px-4 py-3"
+               >
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
                  <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t('archive_totals')}</span>
                  {archiveCurrencyTotals.map((total) => (
-                  <span key={total.code} className="text-sm font-semibold text-slate-900">
+                  <span
+                   key={total.code}
+                   className="text-sm font-semibold text-slate-900"
+                  >
                    {total.total.toLocaleString()} <span className="font-normal text-slate-500">{total.symbol || total.code}</span>
                   </span>
                  ))}
@@ -10826,7 +12276,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         disabled={isExportingTransactions}
         className="flex items-center justify-center gap-2 rounded border border-red-600 bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
        >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+         width="16"
+         height="16"
+         viewBox="0 0 24 24"
+         fill="none"
+         stroke="currentColor"
+         strokeWidth="1.8"
+         strokeLinecap="round"
+         strokeLinejoin="round"
+         aria-hidden
+        >
          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
          <polyline points="14 2 14 8 20 8" />
         </svg>
@@ -10838,7 +12298,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         disabled={isExportingTransactions}
         className="flex items-center justify-center gap-2 rounded border border-emerald-600 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
        >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+         width="16"
+         height="16"
+         viewBox="0 0 24 24"
+         fill="none"
+         stroke="currentColor"
+         strokeWidth="1.8"
+         strokeLinecap="round"
+         strokeLinejoin="round"
+         aria-hidden
+        >
          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
          <polyline points="14 2 14 8 20 8" />
          <path d="M9 13l6 5M15 13l-6 5" />
@@ -10937,7 +12407,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          </div>
         </div>
        </div>
-
       </div>
 
       <div className="mt-6 flex justify-end gap-2">
@@ -10979,7 +12448,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          >
           <option value="">{t('import_setup_date_none')}</option>
           {pendingImportData.columnOptions.map((option) => (
-           <option key={option.index} value={option.index}>
+           <option
+            key={option.index}
+            value={option.index}
+           >
             {option.label}
            </option>
           ))}
@@ -10995,7 +12467,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          >
           <option value="">{t('import_setup_sender_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
-           <option key={option.index} value={option.index}>
+           <option
+            key={option.index}
+            value={option.index}
+           >
             {option.label}
            </option>
           ))}
@@ -11011,7 +12486,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          >
           <option value="">{t('import_setup_receiver_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
-           <option key={option.index} value={option.index}>
+           <option
+            key={option.index}
+            value={option.index}
+           >
             {option.label}
            </option>
           ))}
@@ -11027,7 +12505,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          >
           <option value="">{t('import_setup_amount_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
-           <option key={option.index} value={option.index}>
+           <option
+            key={option.index}
+            value={option.index}
+           >
             {option.label}
            </option>
           ))}
@@ -11043,7 +12524,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          >
           <option value="">{t('import_setup_description_none')}</option>
           {pendingImportData.columnOptions.map((option) => (
-           <option key={option.index} value={option.index}>
+           <option
+            key={option.index}
+            value={option.index}
+           >
             {option.label}
            </option>
           ))}
@@ -11059,7 +12543,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          >
           <option value="">{t('import_setup_currency_placeholder')}</option>
           {currencies.map((currency) => (
-           <option key={currency.id} value={currency.id}>
+           <option
+            key={currency.id}
+            value={currency.id}
+           >
             {currency.code} - {currency.name}
            </option>
           ))}
@@ -11123,9 +12610,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
            {entry.isExpense ? (
             <div className="mt-2">
-             <p className="text-xs text-amber-700">
-              {t('import_review_expense_hint', { name: entry.originalName })}
-             </p>
+             <p className="text-xs text-amber-700">{t('import_review_expense_hint', { name: entry.originalName })}</p>
              <div className="mt-2 flex flex-col gap-1.5">
               {importParsedRows
                .map((row, index) => ({ row, index }))
@@ -11195,13 +12680,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               <label className="flex-1 text-sm text-slate-700">
                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client')}</span>
                <select
-                value={
-                 entry.existingClientId != null
-                  ? String(entry.existingClientId)
-                  : entry.pendingEntryKey != null
-                   ? `__pending__${entry.pendingEntryKey}`
-                   : '__new__'
-                }
+                value={entry.existingClientId != null ? String(entry.existingClientId) : entry.pendingEntryKey != null ? `__pending__${entry.pendingEntryKey}` : '__new__'}
                 onChange={(event) => {
                  const val = event.target.value;
                  if (val === '__new__') {
@@ -11217,8 +12696,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  }
                  const clientId = Number(val);
                  const accountsForClient = clientAccounts.filter((account) => account.clientId === clientId);
-                 const defaultAccount =
-                  accountsForClient.find((account) => account.currencyId === entry.currencyId) ?? accountsForClient[0] ?? null;
+                 const defaultAccount = accountsForClient.find((account) => account.currencyId === entry.currencyId) ?? accountsForClient[0] ?? null;
                  updateImportReviewEntry(entry.key, { existingClientId: clientId, existingAccountId: defaultAccount?.id ?? null, pendingEntryKey: null, targetCurrencyId: null });
                 }}
                 className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
@@ -11230,7 +12708,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   {importReview!
                    .filter((e) => e.key !== entry.key && !e.isExpense && e.existingClientId == null && e.pendingEntryKey == null && e.name.trim())
                    .map((e) => (
-                    <option key={e.key} value={`__pending__${e.key}`}>
+                    <option
+                     key={e.key}
+                     value={`__pending__${e.key}`}
+                    >
                      {e.name.trim()}
                     </option>
                    ))}
@@ -11239,7 +12720,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 {clients.length > 0 ? (
                  <optgroup label={t('import_review_existing_clients')}>
                   {clients.map((client) => (
-                   <option key={client.id} value={client.id}>
+                   <option
+                    key={client.id}
+                    value={client.id}
+                   >
                     {client.name}
                    </option>
                   ))}
@@ -11281,7 +12765,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                >
                 <option value="">{t('overview_no_organization')}</option>
                 {organizations.map((organization) => (
-                 <option key={organization.id} value={organization.id}>
+                 <option
+                  key={organization.id}
+                  value={organization.id}
+                 >
                   {organization.name}
                  </option>
                 ))}
@@ -11291,68 +12778,74 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              ) : null}
 
              {/* Existing DB client — account selector (only when 2+ accounts) */}
-             {entry.existingClientId != null ? (() => {
-              const accountsForClient = clientAccounts.filter((account) => account.clientId === entry.existingClientId);
-              if (!accountsForClient.length) {
-               return (
-                <p className="mt-2 text-xs text-amber-600">
-                 {t('import_review_existing_no_accounts')}
-                </p>
-               );
-              }
-              if (accountsForClient.length === 1) return null;
-              return (
-               <label className="mt-3 block text-sm text-slate-700">
-                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_apply_account')}</span>
-                <select
-                 value={entry.existingAccountId ?? ''}
-                 onChange={(event) =>
-                  updateImportReviewEntry(entry.key, { existingAccountId: event.target.value === '' ? null : Number(event.target.value) })
+             {entry.existingClientId != null
+              ? (() => {
+                 const accountsForClient = clientAccounts.filter((account) => account.clientId === entry.existingClientId);
+                 if (!accountsForClient.length) {
+                  return <p className="mt-2 text-xs text-amber-600">{t('import_review_existing_no_accounts')}</p>;
                  }
-                 className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.existingAccountId == null ? 'border-red-400' : 'border-slate-300'}`}
-                >
-                 <option value="">{t('import_review_select_account')}</option>
-                 {accountsForClient.map((account) => (
-                  <option key={account.id} value={account.id}>
-                   {account.currencyCode}
-                   {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
-                  </option>
-                 ))}
-                </select>
-               </label>
-              );
-             })() : null}
+                 if (accountsForClient.length === 1) return null;
+                 return (
+                  <label className="mt-3 block text-sm text-slate-700">
+                   <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_apply_account')}</span>
+                   <select
+                    value={entry.existingAccountId ?? ''}
+                    onChange={(event) => updateImportReviewEntry(entry.key, { existingAccountId: event.target.value === '' ? null : Number(event.target.value) })}
+                    className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.existingAccountId == null ? 'border-red-400' : 'border-slate-300'}`}
+                   >
+                    <option value="">{t('import_review_select_account')}</option>
+                    {accountsForClient.map((account) => (
+                     <option
+                      key={account.id}
+                      value={account.id}
+                     >
+                      {account.currencyCode}
+                      {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                     </option>
+                    ))}
+                   </select>
+                  </label>
+                 );
+                })()
+              : null}
 
              {/* Pending-entry reference — "post rows to" from the referenced entry's accounts */}
-             {entry.pendingEntryKey != null ? (() => {
-              const refEntry = importReview!.find((e) => e.key === entry.pendingEntryKey);
-              const refCurrencies = (refEntry?.accountCurrencyIds ?? []).map((id) => enabledCurrencies.find((c) => c.id === id) ?? currencies.find((c) => c.id === id)).filter(Boolean);
-              if (refCurrencies.length === 0) {
-               return (
-                <p className="mt-2 text-xs text-amber-600">{t('import_review_ref_no_accounts', { name: refEntry?.name || refEntry?.originalName || '' })}</p>
-               );
-              }
-              if (refCurrencies.length === 1) return null;
-              return (
-               <label className="mt-3 block text-sm text-slate-700">
-                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_post_to')}</span>
-                <select
-                 value={entry.targetCurrencyId ?? ''}
-                 onChange={(event) =>
-                  updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })
+             {entry.pendingEntryKey != null
+              ? (() => {
+                 const refEntry = importReview!.find((e) => e.key === entry.pendingEntryKey);
+                 const refCurrencies = (refEntry?.accountCurrencyIds ?? [])
+                  .map((id) => enabledCurrencies.find((c) => c.id === id) ?? currencies.find((c) => c.id === id))
+                  .filter(Boolean);
+                 if (refCurrencies.length === 0) {
+                  return <p className="mt-2 text-xs text-amber-600">{t('import_review_ref_no_accounts', { name: refEntry?.name || refEntry?.originalName || '' })}</p>;
                  }
-                 className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
-                >
-                 <option value="">{t('import_review_select_account')}</option>
-                 {refCurrencies.map((currency) => currency && (
-                  <option key={currency.id} value={currency.id}>
-                   {currency.code}{currency.symbol ? ` (${currency.symbol})` : ''}
-                  </option>
-                 ))}
-                </select>
-               </label>
-              );
-             })() : null}
+                 if (refCurrencies.length === 1) return null;
+                 return (
+                  <label className="mt-3 block text-sm text-slate-700">
+                   <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_post_to')}</span>
+                   <select
+                    value={entry.targetCurrencyId ?? ''}
+                    onChange={(event) => updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })}
+                    className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
+                   >
+                    <option value="">{t('import_review_select_account')}</option>
+                    {refCurrencies.map(
+                     (currency) =>
+                      currency && (
+                       <option
+                        key={currency.id}
+                        value={currency.id}
+                       >
+                        {currency.code}
+                        {currency.symbol ? ` (${currency.symbol})` : ''}
+                       </option>
+                      ),
+                    )}
+                   </select>
+                  </label>
+                 );
+                })()
+              : null}
 
              {/* New client — accounts to open + which one to post rows to */}
              {entry.existingClientId == null && entry.pendingEntryKey == null ? (
@@ -11381,7 +12874,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      aria-label={t('close')}
                      className="text-slate-400 transition hover:text-slate-700"
                     >
-                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                     <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                     >
                       <path d="M18 6 6 18M6 6l12 12" />
                      </svg>
                     </button>
@@ -11403,7 +12906,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   >
                    <option value="">{t('import_review_add_account')}</option>
                    {addableCurrencies.map((currency) => (
-                    <option key={currency.id} value={currency.id}>
+                    <option
+                     key={currency.id}
+                     value={currency.id}
+                    >
                      {currency.code} - {currency.name}
                     </option>
                    ))}
@@ -11416,17 +12922,19 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_post_to')}</span>
                  <select
                   value={entry.targetCurrencyId ?? ''}
-                  onChange={(event) =>
-                   updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })
-                  }
+                  onChange={(event) => updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })}
                   className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
                  >
                   <option value="">{t('import_review_select_account')}</option>
                   {entry.accountCurrencyIds.map((currencyId) => {
                    const currency = enabledCurrencies.find((c) => c.id === currencyId) ?? currencies.find((c) => c.id === currencyId);
                    return currency ? (
-                    <option key={currencyId} value={currencyId}>
-                     {currency.code}{currency.symbol ? ` (${currency.symbol})` : ''}
+                    <option
+                     key={currencyId}
+                     value={currencyId}
+                    >
+                     {currency.code}
+                     {currency.symbol ? ` (${currency.symbol})` : ''}
                     </option>
                    ) : null;
                   })}
@@ -11448,9 +12956,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             ) : (
              <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">{t('import_review_badge_new')}</span>
             )}
-            <span className="text-slate-500">
-             {t('import_review_row_count', { count: entry.transactionCount })}
-            </span>
+            <span className="text-slate-500">{t('import_review_row_count', { count: entry.transactionCount })}</span>
            </div>
           </div>
          );
@@ -11504,8 +13010,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          const sendEntry = override.swap ? toEntry : fromEntry;
          const receiveEntry = override.swap ? fromEntry : toEntry;
          let skip = false;
-         if (!willHaveAccount(sendEntry)) { skip = true; if (!skipNames.includes(sendEntry.originalName)) skipNames.push(sendEntry.originalName); }
-         if (!willHaveAccount(receiveEntry)) { skip = true; if (!skipNames.includes(receiveEntry.originalName)) skipNames.push(receiveEntry.originalName); }
+         if (!willHaveAccount(sendEntry)) {
+          skip = true;
+          if (!skipNames.includes(sendEntry.originalName)) skipNames.push(sendEntry.originalName);
+         }
+         if (!willHaveAccount(receiveEntry)) {
+          skip = true;
+          if (!skipNames.includes(receiveEntry.originalName)) skipNames.push(receiveEntry.originalName);
+         }
          if (skip) skipCount += 1;
         }
        });
@@ -11514,9 +13026,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        return (
         <div className="border-t border-amber-200 bg-amber-50 px-6 py-3 text-xs text-amber-800">
          <span className="font-semibold">{t('import_skip_count', { count: skipCount })}</span>
-         {' — '}{t('import_skip_hint_pre')}{' '}
-         <span className="font-medium">{skipNames.join(', ')}</span>.
-         {' '}{t('import_skip_hint_post')}
+         {' — '}
+         {t('import_skip_hint_pre')} <span className="font-medium">{skipNames.join(', ')}</span>. {t('import_skip_hint_post')}
         </div>
        );
       })()}
@@ -11537,9 +13048,20 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          isImportingTransactions ||
          importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && !entry.name.trim()) ||
          importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length === 0) ||
-         importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null) ||
-         importReview.some((entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && (importReview.find((e) => e.key === entry.pendingEntryKey)?.accountCurrencyIds.length ?? 0) >= 2) ||
-         importReview.some((entry) => !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2)
+         importReview.some(
+          (entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null,
+         ) ||
+         importReview.some(
+          (entry) =>
+           !entry.isExpense &&
+           entry.pendingEntryKey != null &&
+           entry.targetCurrencyId == null &&
+           (importReview.find((e) => e.key === entry.pendingEntryKey)?.accountCurrencyIds.length ?? 0) >= 2,
+         ) ||
+         importReview.some(
+          (entry) =>
+           !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2,
+         )
         }
         className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
        >
@@ -11809,7 +13331,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                 >
                  {startCandidates.map((entry) => (
-                  <option key={ledgerEntryKey(entry)} value={ledgerEntryKey(entry)}>
+                  <option
+                   key={ledgerEntryKey(entry)}
+                   value={ledgerEntryKey(entry)}
+                  >
                    {entryLabel(entry)}
                   </option>
                  ))}
@@ -11825,7 +13350,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                 >
                  {endCandidates.map((entry) => (
-                  <option key={ledgerEntryKey(entry)} value={ledgerEntryKey(entry)}>
+                  <option
+                   key={ledgerEntryKey(entry)}
+                   value={ledgerEntryKey(entry)}
+                  >
                    {entryLabel(entry)}
                   </option>
                  ))}
@@ -11870,7 +13398,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              const d = e.createdAt.slice(0, 10);
              return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
             });
-            const startIdx = pdfExportModal.fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)) : 0;
+            const startIdx = pdfExportModal.fromEntryKey
+             ? Math.max(
+                0,
+                candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey),
+               )
+             : 0;
             const endIdxRaw = pdfExportModal.toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey) : -1;
             const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
             const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
@@ -11905,7 +13438,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            </button>
            <button
             type="button"
-            onClick={() => void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)}
+            onClick={() =>
+             void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)
+            }
             disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
             className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
@@ -11919,8 +13454,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     : null}
 
    {showLedgerSettingsModal ? (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowLedgerSettingsModal(false)}>
-     <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div
+     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+     onClick={() => setShowLedgerSettingsModal(false)}
+    >
+     <div
+      className="w-full max-w-md rounded bg-white p-6 shadow-2xl"
+      onClick={(e) => e.stopPropagation()}
+     >
       <h3 className="text-lg font-semibold text-slate-900">{t('nav_settings')}</h3>
 
       <div className="mt-5 flex flex-col gap-5">
@@ -11992,23 +13533,56 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         >
          {t('ledger_highlight_net_change')}
         </button>
+        {ledgerHighlightNetChange ? (
+         <div className="mt-2 flex items-center gap-2">
+          <input
+           type="color"
+           value={ledgerNetChangeHighlightColor}
+           onChange={(event) => updateLedgerNetChangeHighlightColor(event.target.value)}
+           className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+          />
+          <span
+           className="rounded px-3 py-1 text-xs font-semibold text-slate-700"
+           style={{ backgroundColor: ledgerNetChangeHighlightColor }}
+          >
+           {ledgerNetChangeHighlightColor}
+          </span>
+         </div>
+        ) : null}
        </div>
 
-       {/* Row highlight color (click a row in the ledger to highlight it) */}
+       {/* Click a row to highlight it — toggle + colour */}
        <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_row_highlight_color')}</p>
-        <p className="mt-1 text-xs text-slate-400">{t('ledger_row_highlight_hint')}</p>
-        <div className="mt-2 flex items-center gap-2">
-         <input
-          type="color"
-          value={ledgerRowHighlightColor}
-          onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
-          className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
-         />
-         <span className="rounded px-3 py-1 text-xs font-semibold text-slate-700" style={{ backgroundColor: ledgerRowHighlightColor }}>
-          {ledgerRowHighlightColor}
-         </span>
-        </div>
+        <button
+         type="button"
+         onClick={() => toggleLedgerRowClickHighlight()}
+         aria-pressed={ledgerRowClickHighlight}
+         className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+          ledgerRowClickHighlight ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+         }`}
+        >
+         {t('ledger_row_click_toggle')}
+        </button>
+        {ledgerRowClickHighlight ? (
+         <>
+          <p className="mt-2 text-xs text-slate-400">{t('ledger_row_highlight_hint')}</p>
+          <div className="mt-2 flex items-center gap-2">
+           <input
+            type="color"
+            value={ledgerRowHighlightColor}
+            onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
+            className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+           />
+           <span
+            className="rounded px-3 py-1 text-xs font-semibold text-slate-700"
+            style={{ backgroundColor: ledgerRowHighlightColor }}
+           >
+            {ledgerRowHighlightColor}
+           </span>
+          </div>
+         </>
+        ) : null}
        </div>
 
        {/* Column visibility */}
@@ -12045,7 +13619,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        </button>
        <button
         type="button"
-        onClick={() => { persistLedgerSettings({}); setShowLedgerSettingsModal(false); }}
+        onClick={() => {
+         persistLedgerSettings({});
+         setShowLedgerSettingsModal(false);
+        }}
         className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
        >
         {t('ledger_settings_save')}
@@ -12059,7 +13636,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    {toast ? (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4">
      <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <svg
+       width="16"
+       height="16"
+       viewBox="0 0 24 24"
+       fill="none"
+       stroke="currentColor"
+       strokeWidth="2.5"
+       strokeLinecap="round"
+       strokeLinejoin="round"
+       aria-hidden
+      >
        <polyline points="20 6 9 17 4 12" />
       </svg>
       {toast}
@@ -12085,8 +13672,23 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       {orgDialogError ? (
        <div className="mt-3 flex items-start gap-2 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
         <span className="flex-1">{orgDialogError}</span>
-        <button type="button" onClick={() => setOrgDialogError('')} className="shrink-0 text-red-400 hover:text-red-700" aria-label={t('close')}>
-         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <button
+         type="button"
+         onClick={() => setOrgDialogError('')}
+         className="shrink-0 text-red-400 hover:text-red-700"
+         aria-label={t('close')}
+        >
+         <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+         >
           <path d="M18 6 6 18M6 6l12 12" />
          </svg>
         </button>
@@ -12141,6 +13743,62 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 // Searchable account picker: type to filter accounts by client name / currency,
 // matching the searchable client dropdown used in the new-transaction form. Each
 // instance keeps its own open/query state so it can be reused per table row.
+// Undo/redo history for an edit-drafts map. `record()` is called right before a
+// change is applied; consecutive changes within 500ms collapse into one undo step
+// (so typing a value is a single undo, not one per keystroke).
+function useDraftHistory<T>(drafts: T, setDrafts: (value: T) => void) {
+ const past = useRef<T[]>([]);
+ const future = useRef<T[]>([]);
+ const burstActive = useRef(false);
+ const burstTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const latest = useRef(drafts);
+ latest.current = drafts;
+ const [, bump] = useReducer((x: number) => x + 1, 0);
+
+ const record = useCallback(() => {
+  if (!burstActive.current) {
+   past.current = [...past.current, latest.current].slice(-100);
+   future.current = [];
+   burstActive.current = true;
+   bump();
+  }
+  if (burstTimer.current) clearTimeout(burstTimer.current);
+  burstTimer.current = setTimeout(() => {
+   burstActive.current = false;
+  }, 500);
+ }, []);
+
+ const undo = useCallback(() => {
+  if (past.current.length === 0) return;
+  burstActive.current = false;
+  if (burstTimer.current) clearTimeout(burstTimer.current);
+  const prev = past.current[past.current.length - 1];
+  past.current = past.current.slice(0, -1);
+  future.current = [...future.current, latest.current];
+  setDrafts(prev);
+  bump();
+ }, [setDrafts]);
+
+ const redo = useCallback(() => {
+  if (future.current.length === 0) return;
+  const next = future.current[future.current.length - 1];
+  future.current = future.current.slice(0, -1);
+  past.current = [...past.current, latest.current];
+  setDrafts(next);
+  bump();
+ }, [setDrafts]);
+
+ const reset = useCallback(() => {
+  past.current = [];
+  future.current = [];
+  burstActive.current = false;
+  if (burstTimer.current) clearTimeout(burstTimer.current);
+  bump();
+ }, []);
+
+ return { record, undo, redo, reset, canUndo: past.current.length > 0, canRedo: future.current.length > 0 };
+}
+
 function AccountSearchSelect({
  accounts,
  value,
@@ -12158,7 +13816,7 @@ function AccountSearchSelect({
 }) {
  const [query, setQuery] = useState('');
  const [open, setOpen] = useState(false);
- const selected = value != null ? accounts.find((account) => account.id === value) ?? null : null;
+ const selected = value != null ? (accounts.find((account) => account.id === value) ?? null) : null;
  const selectedLabel = selected ? `${selected.clientName} · ${selected.currencyCode}` : '';
  const q = query.trim().toLowerCase();
  const filtered = q ? accounts.filter((account) => `${account.clientName} ${account.currencyCode}`.toLowerCase().includes(q)) : accounts;
@@ -12167,8 +13825,14 @@ function AccountSearchSelect({
    <input
     type="text"
     value={open ? query : selectedLabel}
-    onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
-    onFocus={() => { setQuery(''); setOpen(true); }}
+    onChange={(event) => {
+     setQuery(event.target.value);
+     setOpen(true);
+    }}
+    onFocus={() => {
+     setQuery('');
+     setOpen(true);
+    }}
     onBlur={() => setTimeout(() => setOpen(false), 150)}
     placeholder={placeholder}
     autoComplete="off"
@@ -12177,13 +13841,39 @@ function AccountSearchSelect({
    {value != null && !open ? (
     <button
      type="button"
-     onMouseDown={(event) => { event.preventDefault(); onChange(null); setQuery(''); setOpen(false); }}
+     onMouseDown={(event) => {
+      event.preventDefault();
+      onChange(null);
+      setQuery('');
+      setOpen(false);
+     }}
      title={clearLabel}
      aria-label={clearLabel}
      className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
     >
-     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+     <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+     >
+      <line
+       x1="18"
+       y1="6"
+       x2="6"
+       y2="18"
+      />
+      <line
+       x1="6"
+       y1="6"
+       x2="18"
+       y2="18"
+      />
      </svg>
     </button>
    ) : null}
@@ -12195,7 +13885,11 @@ function AccountSearchSelect({
       filtered.map((account) => (
        <li
         key={account.id}
-        onMouseDown={() => { onChange(account.id); setQuery(''); setOpen(false); }}
+        onMouseDown={() => {
+         onChange(account.id);
+         setQuery('');
+         setOpen(false);
+        }}
         className={`cursor-pointer px-3 py-2 hover:bg-blue-50 ${value === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
        >
         {account.clientName} · {account.currencyCode}
