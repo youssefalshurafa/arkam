@@ -300,6 +300,8 @@
  "ledger_rate_pending": "مطلوب سعر صرف — مستثنى من الرصيد حتى يُحدَّد",
  "ledger_swap_parties": "تبديل المُرسِل والمُستلِم",
  "ledger_highlight_net_change": "تمييز عمود صافي الحركة",
+ "commission_from_him": "عمولة منه — انقر لجعلها له",
+ "commission_for_him": "عمولة له — انقر لجعلها منه",
  "ledger_row_highlight_color": "لون تمييز الصف",
  "ledger_row_highlight_hint": "انقر على أي صف في السجل لتمييزه بهذا اللون.",
  "ledger_settings_save": "حفظ",
