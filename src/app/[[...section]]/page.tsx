@@ -475,8 +475,9 @@ type StoredLedgerSettings = {
  showCurrencySymbol: boolean;
  dateFormat: PdfSettings['dateFormat'];
  highlightNetChange: boolean;
+ rowHighlightColor: string;
 };
-const defaultLedgerSettings: StoredLedgerSettings = { decimals: 2, showCurrencySymbol: true, dateFormat: 'full', highlightNetChange: true };
+const defaultLedgerSettings: StoredLedgerSettings = { decimals: 2, showCurrencySymbol: true, dateFormat: 'full', highlightNetChange: true, rowHighlightColor: '#fde68a' };
 function getStoredLedgerSettings(clientId: number | null | undefined): StoredLedgerSettings {
  if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerSettings };
  try {
@@ -485,6 +486,19 @@ function getStoredLedgerSettings(clientId: number | null | undefined): StoredLed
   return { ...defaultLedgerSettings, ...JSON.parse(raw) };
  } catch {
   return { ...defaultLedgerSettings };
+ }
+}
+
+// Row keys the user has click-highlighted, stored per client so highlights persist.
+const ledgerHighlightsStorageKeyPrefix = 'arkam:ledger-highlights:';
+function getStoredLedgerHighlights(clientId: number | null | undefined): string[] {
+ if (typeof window === 'undefined' || !clientId) return [];
+ try {
+  const raw = window.localStorage.getItem(ledgerHighlightsStorageKeyPrefix + clientId);
+  const parsed = raw ? JSON.parse(raw) : [];
+  return Array.isArray(parsed) ? parsed.map(String) : [];
+ } catch {
+  return [];
  }
 }
 type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
@@ -1204,6 +1218,8 @@ function AuthenticatedHome() {
  const [ledgerDecimals, setLedgerDecimals] = useState(2);
  const [ledgerDateFormat, setLedgerDateFormat] = useState<PdfSettings['dateFormat']>('full');
  const [ledgerHighlightNetChange, setLedgerHighlightNetChange] = useState(true);
+ const [ledgerRowHighlightColor, setLedgerRowHighlightColor] = useState('#fde68a');
+ const [highlightedLedgerRows, setHighlightedLedgerRows] = useState<Set<string>>(new Set());
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
@@ -1495,6 +1511,8 @@ function AuthenticatedHome() {
   setShowLedgerCurrencySymbol(settings.showCurrencySymbol);
   setLedgerDateFormat(settings.dateFormat);
   setLedgerHighlightNetChange(settings.highlightNetChange);
+  setLedgerRowHighlightColor(settings.rowHighlightColor);
+  setHighlightedLedgerRows(new Set(getStoredLedgerHighlights(selectedClientForLedger?.id)));
  }, [selectedClientForLedger?.id]);
 
  const transactionTableRows = useMemo<TransactionTableRow[]>(() => {
@@ -1581,11 +1599,15 @@ function AuthenticatedHome() {
     : ordered.filter((row) => !row.isArchived);
   if (txFilterSearch) {
    const q = txFilterSearch.toLowerCase();
+   // Amount matching ignores thousands separators/spaces, so "500,000" and
+   // "500000" both match the stored numeric amount.
+   const amountQ = q.replace(/[,\s]/g, '');
    filtered = filtered.filter(
     (row) =>
      row.clientFromName.toLowerCase().includes(q) ||
      row.clientToName.toLowerCase().includes(q) ||
-     row.description.toLowerCase().includes(q),
+     row.description.toLowerCase().includes(q) ||
+     (amountQ !== '' && String(row.amount).includes(amountQ)),
    );
   }
   if (txFilterClient) {
@@ -1684,12 +1706,14 @@ function AuthenticatedHome() {
   router.push(`/organizations/${organization.id}`);
  }
 
- function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients') {
+ function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients', accountId?: number | null) {
   setClientLedgerBackSection(origin);
   setLedgerTransactionDrafts({});
   setSelectedClientForLedger(client);
-  // Account selection (restore last-viewed or default to first) is handled by the
-  // ledger-account effect, which keys off selectedClientForLedger.
+  // When a specific account is requested (e.g. clicking a client's USD vs EUR row),
+  // preselect it; the ledger-account effect keeps it since it belongs to the client.
+  // Otherwise it restores the last-viewed account or defaults to the first.
+  if (accountId != null) setSelectedLedgerAccountId(accountId);
   setSection('client-ledger');
   router.push(`/clients/${client.id}`);
  }
@@ -1715,6 +1739,7 @@ function AuthenticatedHome() {
    showCurrencySymbol: showLedgerCurrencySymbol,
    dateFormat: ledgerDateFormat,
    highlightNetChange: ledgerHighlightNetChange,
+   rowHighlightColor: ledgerRowHighlightColor,
    ...patch,
   };
   window.localStorage.setItem(ledgerSettingsStorageKeyPrefix + clientId, JSON.stringify(next));
@@ -1740,6 +1765,25 @@ function AuthenticatedHome() {
   const next = !ledgerHighlightNetChange;
   setLedgerHighlightNetChange(next);
   persistLedgerSettings({ highlightNetChange: next });
+ }
+
+ function updateLedgerRowHighlightColor(next: string) {
+  setLedgerRowHighlightColor(next);
+  persistLedgerSettings({ rowHighlightColor: next });
+ }
+
+ // Toggle a single row's highlight on click; persisted per client so it survives refresh.
+ function toggleLedgerRowHighlight(rowKey: string) {
+  setHighlightedLedgerRows((current) => {
+   const next = new Set(current);
+   if (next.has(rowKey)) next.delete(rowKey);
+   else next.add(rowKey);
+   const clientId = selectedClientForLedger?.id;
+   if (clientId && typeof window !== 'undefined') {
+    window.localStorage.setItem(ledgerHighlightsStorageKeyPrefix + clientId, JSON.stringify([...next]));
+   }
+   return next;
+  });
  }
 
  function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
@@ -7799,13 +7843,28 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-3 py-3">
                     <div className="flex min-w-36 flex-1 flex-col gap-1">
                      <label className="text-xs font-medium text-slate-500">{t('tx_filter_search')}</label>
-                     <input
-                      type="text"
-                      value={ledgerFilterSearch}
-                      onChange={(e) => setLedgerFilterSearch(e.target.value)}
-                      placeholder={t('tx_filter_search_placeholder')}
-                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
-                     />
+                     <div className="relative">
+                      <input
+                       type="text"
+                       value={ledgerFilterSearch}
+                       onChange={(e) => setLedgerFilterSearch(e.target.value)}
+                       placeholder={t('tx_filter_search_placeholder')}
+                       className={`w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-7' : 'pr-7'}`}
+                      />
+                      {ledgerFilterSearch ? (
+                       <button
+                        type="button"
+                        onClick={() => setLedgerFilterSearch('')}
+                        title={t('clear_selection')}
+                        aria-label={t('clear_selection')}
+                        className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
+                       >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                         <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                       </button>
+                      ) : null}
+                     </div>
                     </div>
                     {counterpartyOptions.length > 0 && (
                      <div className="flex min-w-36 flex-1 flex-col gap-1">
@@ -8104,6 +8163,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                    <tr
                     draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                    onClick={(e) => {
+                     const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     // Don't toggle the highlight while editing, or when the click lands on an
+                     // interactive element (buttons, links, inputs, the selection checkbox, etc.).
+                     if (editingLedgerRowKeys.has(rowKey)) return;
+                     if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+                     toggleLedgerRowHighlight(rowKey);
+                    }}
                     onDragStart={(e) => {
                      if (!dragLedgerFromHandle.current) { e.preventDefault(); return; }
                      setDragLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
@@ -8136,11 +8203,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      e.preventDefault();
                      void onSaveLedgerRow(entry.transactionId, ledger.accountId);
                     }}
-                    className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                    style={highlightedLedgerRows.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? { backgroundColor: ledgerRowHighlightColor } : undefined}
+                    className={`cursor-pointer border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
                    >
                     {(() => {
                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                      const isEditingRow = editingLedgerRowKeys.has(rowKey);
+                     const isRowHighlighted = highlightedLedgerRows.has(rowKey);
                      const draft = isEditingRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
 
                      return (
@@ -8612,7 +8681,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         return (
                          <td
                           key={column.key}
-                          className={`whitespace-nowrap px-4 py-3 font-semibold ${ledgerHighlightNetChange ? 'bg-blue-50 ' : ''}${entry.pendingRate ? 'text-amber-500' : entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                          className={`whitespace-nowrap px-4 py-3 font-semibold ${ledgerHighlightNetChange && !isRowHighlighted ? 'bg-blue-50 ' : ''}${entry.pendingRate ? 'text-amber-500' : entry.netChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                          >
                           {entry.pendingRate ? (
                            <span title={t('ledger_rate_pending')}>-</span>
@@ -9689,13 +9758,28 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-3 py-3">
              <div className="flex min-w-36 flex-1 flex-col gap-1">
               <label className="text-xs font-medium text-slate-500">{t('tx_filter_search')}</label>
-              <input
-               type="text"
-               value={txFilterSearch}
-               onChange={(e) => setTxFilterSearch(e.target.value)}
-               placeholder={t('tx_filter_search_placeholder')}
-               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
-              />
+              <div className="relative">
+               <input
+                type="text"
+                value={txFilterSearch}
+                onChange={(e) => setTxFilterSearch(e.target.value)}
+                placeholder={t('tx_filter_search_placeholder')}
+                className={`w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-7' : 'pr-7'}`}
+               />
+               {txFilterSearch ? (
+                <button
+                 type="button"
+                 onClick={() => setTxFilterSearch('')}
+                 title={t('clear_selection')}
+                 aria-label={t('clear_selection')}
+                 className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
+                >
+                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                 </svg>
+                </button>
+               ) : null}
+              </div>
              </div>
              <div className="flex min-w-36 flex-1 flex-col gap-1">
               <label className="text-xs font-medium text-slate-500">{t('tx_filter_client')}</label>
@@ -10208,7 +10292,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        return fromClient ? (
                         <button
                          type="button"
-                         onClick={() => openClientLedger(fromClient, 'clients')}
+                         onClick={() => openClientLedger(fromClient, 'clients', fromAccount?.id)}
                          className="cursor-pointer text-left hover:text-blue-700 hover:underline"
                         >
                          {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
@@ -10237,7 +10321,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        return fromClient ? (
                         <button
                          type="button"
-                         onClick={() => openClientLedger(fromClient, 'clients')}
+                         onClick={() => openClientLedger(fromClient, 'clients', fromAccount?.id)}
                          className="cursor-pointer text-left hover:text-blue-700 hover:underline"
                         >
                          {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
@@ -10350,7 +10434,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        return toClient ? (
                         <button
                          type="button"
-                         onClick={() => openClientLedger(toClient, 'clients')}
+                         onClick={() => openClientLedger(toClient, 'clients', toAccount?.id)}
                          className="cursor-pointer text-left hover:text-blue-700 hover:underline"
                         >
                          {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
@@ -10383,7 +10467,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        type="text"
                        inputMode="decimal"
                        dir="ltr"
-                       value={draft.amount}
+                       value={formatAmountInput(draft.amount)}
                        onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
                        className="min-w-0 w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                       />
@@ -10435,7 +10519,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                          type="text"
                          inputMode="decimal"
                          dir="ltr"
-                         value={draft.charges}
+                         value={formatAmountInput(draft.charges)}
                          onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
                          className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                          placeholder="0"
@@ -11868,6 +11952,23 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         >
          {t('ledger_highlight_net_change')}
         </button>
+       </div>
+
+       {/* Row highlight color (click a row in the ledger to highlight it) */}
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_row_highlight_color')}</p>
+        <p className="mt-1 text-xs text-slate-400">{t('ledger_row_highlight_hint')}</p>
+        <div className="mt-2 flex items-center gap-2">
+         <input
+          type="color"
+          value={ledgerRowHighlightColor}
+          onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
+          className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+         />
+         <span className="rounded px-3 py-1 text-xs font-semibold text-slate-700" style={{ backgroundColor: ledgerRowHighlightColor }}>
+          {ledgerRowHighlightColor}
+         </span>
+        </div>
        </div>
 
        {/* Column visibility */}
