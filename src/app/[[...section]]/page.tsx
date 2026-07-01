@@ -1251,7 +1251,6 @@ function AuthenticatedHome() {
  const [txFilterDateTo, setTxFilterDateTo] = useState('');
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
- const [ledgerCommissionExpandedEntries, setLedgerCommissionExpandedEntries] = useState<Set<string>>(new Set());
  const [isNewTransactionSectionOpen, setIsNewTransactionSectionOpen] = useState(false);
  const [isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen] = useState(false);
  const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
@@ -1833,12 +1832,8 @@ function AuthenticatedHome() {
   const isOutgoing = transaction.accountFromId === ledgerAccountId;
   const rate = isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
   const reversed = isOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed;
-  // When the amount currency differs from the account currency and the stored rate is still
-  // 1 (no rate entered yet), leave the draft field empty so the input shows blank — matching
-  // the dash shown in read mode — rather than pre-filling '1'.
-  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
-  const isPending = account != null && transaction.currencyId !== account.currencyId && rate === 1;
-  const rateStr = isPending ? '' : reversed ? formatRateValue(1 / rate) : String(rate);
+  // Always show the stored rate (including 1) so any exchange rate can be entered/edited freely.
+  const rateStr = reversed ? formatRateValue(1 / rate) : String(rate);
   return {
    transactionId: transaction.id,
    ledgerAccountId,
@@ -4829,8 +4824,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       if (transaction.isArchived) return [];
       if (transaction.accountFromId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountToId ?? -1);
-       // Amount is in a different currency than this account and no rate entered yet → pending.
-       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 1;
+       // Rates are never treated as "pending" — whatever rate is stored (including 1) is used.
+       const pendingRate = false;
        return [
         {
          transactionId: transaction.id,
@@ -4861,8 +4856,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
       if (transaction.accountToId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountFromId ?? -1);
-       // Amount is in a different currency than this account and no rate entered yet → pending.
-       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 1;
+       // Rates are never treated as "pending" — whatever rate is stored (including 1) is used.
+       const pendingRate = false;
        return [
         {
          transactionId: transaction.id,
@@ -4912,14 +4907,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         currencySymbol: adj.currencySymbol || account.currencySymbol,
         exchangeRate: adj.exchangeRate || 1,
         exchangeRateReversed: !!adj.exchangeRateReversed,
-        // Adjustment amount is in a different currency than the account and no rate set yet → pending.
-        pendingRate: adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1,
+        pendingRate: false,
         commission: 0,
         // amount is in the adjustment's own currency; convert to account currency via exchangeRate
-        netChange:
-         adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1
-          ? 0
-          : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
+        netChange: (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
         runningBalance: 0,
         description: adj.description,
         charges: 0,
@@ -5039,20 +5030,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    if (transaction.accountFromId != null && balanceByAccount.has(transaction.accountFromId)) {
     const account = clientAccountMap.get(transaction.accountFromId);
     if (account) {
-     const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 1;
-     const netChange = pendingRate
-      ? 0
-      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
+     const netChange = transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
      balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
     }
    }
    if (transaction.accountToId != null && balanceByAccount.has(transaction.accountToId)) {
     const account = clientAccountMap.get(transaction.accountToId);
     if (account) {
-     const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 1;
-     const netChange = pendingRate
-      ? 0
-      : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
+     const netChange = -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
      balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
     }
    }
@@ -5062,8 +5047,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    if (!balanceByAccount.has(adj.accountId)) continue;
    const account = clientAccountMap.get(adj.accountId);
    if (!account) continue;
-   const pendingRate = adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate || 1) === 1;
-   const netChange = pendingRate ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
+   const netChange = (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
    balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
   }
 
@@ -8641,37 +8625,99 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                           key={column.key}
                           className="px-4 py-3 text-slate-600"
                          >
-                          {draft ? (
-                           (() => {
-                            const entryKey = `${entry.transactionId}:${ledger.accountId}`;
-                            const isZero = parseFloat(draft.commission) === 0;
-                            const expanded = ledgerCommissionExpandedEntries.has(entryKey);
-                            if (isZero && !expanded) {
-                             return (
-                              <button
-                               type="button"
-                               onClick={() => setLedgerCommissionExpandedEntries((prev) => new Set([...prev, entryKey]))}
-                               className="text-sm text-blue-600 hover:underline"
-                              >
-                               + {t('add_commission')}
-                              </button>
-                             );
-                            }
-                            return (
+                          {draft ? (() => {
+                           const commVal = parseFloat(draft.commission) || 0;
+                           return (
+                            <div className="flex items-center gap-1">
                              <input
                               type="text"
                               inputMode="decimal"
                               dir="ltr"
                               value={draft.commission}
-                              onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
+                              data-ledger-commission-idx={entryIdx}
+                            data-ledger-account-id={ledger.accountId}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })}
+                            onPaste={(event) => {
+                             const text = event.clipboardData.getData('text');
+                             const values = text
+                              .split(/[\r\n]+/)
+                              .map((v) => v.trim())
+                              .filter((v) => v.length > 0);
+                             // Single value: let the browser paste normally into this one input.
+                             if (values.length <= 1) return;
+                             event.preventDefault();
+
+                             // Rebuild the same filtered visible list the table renders so pasted
+                             // values map to the right rows, then spread them down consecutive
+                             // editable commission inputs starting at the row that received the paste.
+                             const ordered = ledger.entries;
+                             const q = ledgerFilterSearch.trim().toLowerCase();
+                             const visible = ordered.filter((e) => {
+                              if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                              if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                              if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                              if (q) {
+                               const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                               const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                               const inAmount = String(e.amount).includes(q);
+                               if (!inCounterparty && !inDescription && !inAmount) return false;
+                              }
+                              return true;
+                             });
+                             const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                             const startIdx = Math.max(0, visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey));
+                             const patches: Record<string, string> = {};
+                             let valueIdx = 0;
+                             for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                              const target = visible[i];
+                              if (target.isAdjustment) continue;
+                              const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
+                              if (!editingLedgerRowKeys.has(key)) continue;
+                              patches[key] = normalizeDecimalInput(values[valueIdx]);
+                              valueIdx += 1;
+                             }
+                             if (Object.keys(patches).length === 0) return;
+                             setLedgerTransactionDrafts((prev) => {
+                              const next = { ...prev };
+                              for (const [key, commission] of Object.entries(patches)) {
+                               if (next[key]) next[key] = { ...next[key], commission };
+                              }
+                              return next;
+                             });
+                            }}
+                            onKeyDown={(event) => {
+                             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                             event.preventDefault();
+                             const delta = event.key === 'ArrowDown' ? 1 : -1;
+                             const next = document.querySelector<HTMLInputElement>(
+                              `[data-ledger-account-id="${ledger.accountId}"][data-ledger-commission-idx="${entryIdx + delta}"]`,
+                             );
+                             next?.focus();
+                            }}
                               style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
-                              className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              className={`rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-emerald-600 font-semibold' : commVal < 0 ? 'text-red-600 font-semibold' : ''}`}
                               placeholder="0"
                              />
-                            );
-                           })()
-                          ) : entry.commission ? (
-                           <>{entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%</>
+                             <button
+                              type="button"
+                              title={commVal < 0 ? t('commission_from_him') : t('commission_for_him')}
+                              onClick={() => {
+                               const v = parseFloat(draft.commission) || 0;
+                               if (v !== 0) updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: String(-v) });
+                              }}
+                              className="shrink-0 rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                             >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                               <path d="M7 4 3 8l4 4M3 8h13.5" />
+                               <path d="M17 20l4-4-4-4m4 4H7.5" />
+                              </svg>
+                             </button>
+                            </div>
+                           );
+                          })() : entry.commission ? (
+                           <span className={entry.commission < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
+                            {entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: Math.max(2, ledgerDecimals) })}%
+                           </span>
                           ) : (
                            <span className="text-slate-400">-</span>
                           )}
@@ -8710,11 +8756,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                           className="px-4 py-3 text-slate-500 whitespace-nowrap"
                          >
                           {entry.isAdjustment ? (
-                           entry.currencySymbol ? (
-                            <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
-                           ) : (
-                            entry.currencyCode || '-'
-                           )
+                           <span title={entry.currencyCode}>{entry.currencySymbol || entry.currencyCode || '-'}</span>
                           ) : draft ? (
                            <select
                             value={draft.currencyId}
@@ -8726,10 +8768,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                              <option key={cur.id} value={cur.id}>{cur.code}</option>
                             ))}
                            </select>
-                          ) : entry.currencySymbol ? (
-                           <span title={entry.currencyCode}>{entry.currencySymbol} <span className="text-slate-400">{entry.currencyCode}</span></span>
                           ) : (
-                           entry.currencyCode || '-'
+                           <span title={entry.currencyCode}>{entry.currencySymbol || entry.currencyCode || '-'}</span>
                           )}
                          </td>
                         );
