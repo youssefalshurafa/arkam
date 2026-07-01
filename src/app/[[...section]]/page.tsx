@@ -477,8 +477,9 @@ type StoredLedgerSettings = {
  highlightNetChange: boolean;
  netChangeHighlightColor: string;
  rowHighlightColor: string;
+ rowClickHighlight: boolean;
 };
-const defaultLedgerSettings: StoredLedgerSettings = { decimals: 2, showCurrencySymbol: true, dateFormat: 'full', highlightNetChange: true, netChangeHighlightColor: '#eff6ff', rowHighlightColor: '#fde68a' };
+const defaultLedgerSettings: StoredLedgerSettings = { decimals: 2, showCurrencySymbol: true, dateFormat: 'full', highlightNetChange: true, netChangeHighlightColor: '#eff6ff', rowHighlightColor: '#fde68a', rowClickHighlight: true };
 function getStoredLedgerSettings(clientId: number | null | undefined): StoredLedgerSettings {
  if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerSettings };
  try {
@@ -1221,6 +1222,7 @@ function AuthenticatedHome() {
  const [ledgerHighlightNetChange, setLedgerHighlightNetChange] = useState(true);
  const [ledgerNetChangeHighlightColor, setLedgerNetChangeHighlightColor] = useState('#eff6ff');
  const [ledgerRowHighlightColor, setLedgerRowHighlightColor] = useState('#fde68a');
+ const [ledgerRowClickHighlight, setLedgerRowClickHighlight] = useState(true);
  const [highlightedLedgerRows, setHighlightedLedgerRows] = useState<Set<string>>(new Set());
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
@@ -1528,6 +1530,7 @@ function AuthenticatedHome() {
   setLedgerHighlightNetChange(settings.highlightNetChange);
   setLedgerNetChangeHighlightColor(settings.netChangeHighlightColor);
   setLedgerRowHighlightColor(settings.rowHighlightColor);
+  setLedgerRowClickHighlight(settings.rowClickHighlight);
   setHighlightedLedgerRows(new Set(getStoredLedgerHighlights(selectedClientForLedger?.id)));
  }, [selectedClientForLedger?.id]);
 
@@ -1686,8 +1689,13 @@ function AuthenticatedHome() {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
   const selectedCurrency = currencies.find((c) => c.id === transactionForm.currencyId);
   const accountFrom = clientAccounts.find((a) => a.id === transactionForm.accountFromId);
-  if (selectedCurrency && accountFrom && selectedCurrency.code === accountFrom.currencyCode) {
+  if (!selectedCurrency || !accountFrom) return;
+  if (selectedCurrency.code === accountFrom.currencyCode) {
    setTransactionForm((current) => ({ ...current, exchangeRateFrom: '1.00' }));
+  } else {
+   // Cross-currency: never default to 1 — clear the default so the row stays pending
+   // (a dash, excluded from the balance) until the user enters a rate manually.
+   setTransactionForm((current) => (current.exchangeRateFrom === '1.00' ? { ...current, exchangeRateFrom: '' } : current));
   }
  }, [transactionForm.currencyId, transactionForm.accountFromId, currencies, clientAccounts]);
 
@@ -1695,8 +1703,11 @@ function AuthenticatedHome() {
   if (!transactionForm.currencyId || !transactionForm.accountToId) return;
   const selectedCurrency = currencies.find((c) => c.id === transactionForm.currencyId);
   const accountTo = clientAccounts.find((a) => a.id === transactionForm.accountToId);
-  if (selectedCurrency && accountTo && selectedCurrency.code === accountTo.currencyCode) {
+  if (!selectedCurrency || !accountTo) return;
+  if (selectedCurrency.code === accountTo.currencyCode) {
    setTransactionForm((current) => ({ ...current, exchangeRateTo: '1.00' }));
+  } else {
+   setTransactionForm((current) => (current.exchangeRateTo === '1.00' ? { ...current, exchangeRateTo: '' } : current));
   }
  }, [transactionForm.currencyId, transactionForm.accountToId, currencies, clientAccounts]);
 
@@ -1757,6 +1768,7 @@ function AuthenticatedHome() {
    highlightNetChange: ledgerHighlightNetChange,
    netChangeHighlightColor: ledgerNetChangeHighlightColor,
    rowHighlightColor: ledgerRowHighlightColor,
+   rowClickHighlight: ledgerRowClickHighlight,
    ...patch,
   };
   window.localStorage.setItem(ledgerSettingsStorageKeyPrefix + clientId, JSON.stringify(next));
@@ -1792,6 +1804,12 @@ function AuthenticatedHome() {
  function updateLedgerNetChangeHighlightColor(next: string) {
   setLedgerNetChangeHighlightColor(next);
   persistLedgerSettings({ netChangeHighlightColor: next });
+ }
+
+ function toggleLedgerRowClickHighlight() {
+  const next = !ledgerRowClickHighlight;
+  setLedgerRowClickHighlight(next);
+  persistLedgerSettings({ rowClickHighlight: next });
  }
 
  // Toggle a single row's highlight on click; persisted per client so it survives refresh.
@@ -1856,7 +1874,8 @@ function AuthenticatedHome() {
   const rate = isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
   const reversed = isOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed;
   // Always show the stored rate (including 1) so any exchange rate can be entered/edited freely.
-  const rateStr = reversed ? formatRateValue(1 / rate) : String(rate);
+  // Rate 0 means "not set yet" (pending cross-currency row): show a blank field so the user enters it.
+  const rateStr = rate === 0 ? '' : reversed ? formatRateValue(1 / rate) : String(rate);
   return {
    transactionId: transaction.id,
    ledgerAccountId,
@@ -2078,8 +2097,14 @@ function AuthenticatedHome() {
   }
 
   const amount = parseFloat(draft.amount);
-  const rawLedgerRate = parseFloat(draft.exchangeRate) || 1;
-  const exchangeRate = ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 / rawLedgerRate : rawLedgerRate;
+  // Cross-currency rows with an empty rate stay unset (0 → pending, excluded from balance).
+  // Same-currency rows are always 1. An entered rate (including 1) is stored as given.
+  const ledgerAccount = clientAccounts.find((a) => a.id === ledgerAccountId);
+  const crossCurrency = ledgerAccount != null && ledgerAccount.currencyId !== draft.currencyId;
+  const parsedLedgerRate = parseFloat(draft.exchangeRate);
+  const rawLedgerRate = Number.isFinite(parsedLedgerRate) && parsedLedgerRate > 0 ? parsedLedgerRate : crossCurrency ? 0 : 1;
+  const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && rawLedgerRate > 0;
+  const exchangeRate = rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
   const commission = parseFloat(draft.commission) || 0;
 
   if (!draft.counterpartyAccountId || !amount) {
@@ -2101,9 +2126,9 @@ function AuthenticatedHome() {
    exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
    commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
    exchangeRateFromReversed:
-    draft.direction === 'outgoing' ? (ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
+    draft.direction === 'outgoing' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
    exchangeRateToReversed:
-    draft.direction === 'incoming' ? (ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
+    draft.direction === 'incoming' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
    charges: transaction.charges,
    chargesCurrencyId: transaction.chargesCurrencyId,
    chargesPayer: transaction.chargesPayer,
@@ -2803,12 +2828,24 @@ function AuthenticatedHome() {
    amount: amount || 0,
    type: transactionForm.type,
    isArchived: isArchiveCreate,
-   exchangeRateFrom: txFromRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateFrom) || 1) : parseFloat(transactionForm.exchangeRateFrom) || 1,
+   // Cross-currency sides with no rate entered are stored as 0 (unset → pending). Same-currency
+   // sides are always 1. An entered rate (including 1) is stored as given.
+   exchangeRateFrom: (() => {
+    if (!showExchangeRateFrom || !transactionAccountFromCurrencyCode) return 1;
+    const raw = parseFloat(transactionForm.exchangeRateFrom);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return txFromRateReversed ? 1 / raw : raw;
+   })(),
    commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
-   exchangeRateTo: txToRateReversed ? 1 / (parseFloat(transactionForm.exchangeRateTo) || 1) : parseFloat(transactionForm.exchangeRateTo) || 1,
+   exchangeRateTo: (() => {
+    if (!showExchangeRateTo || !transactionAccountToCurrencyCode) return 1;
+    const raw = parseFloat(transactionForm.exchangeRateTo);
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return txToRateReversed ? 1 / raw : raw;
+   })(),
    commissionTo: parseFloat(transactionForm.commissionTo) || 0,
-   exchangeRateFromReversed: txFromRateReversed ? 1 : 0,
-   exchangeRateToReversed: txToRateReversed ? 1 : 0,
+   exchangeRateFromReversed: txFromRateReversed && (parseFloat(transactionForm.exchangeRateFrom) || 0) > 0 ? 1 : 0,
+   exchangeRateToReversed: txToRateReversed && (parseFloat(transactionForm.exchangeRateTo) || 0) > 0 ? 1 : 0,
    charges: parseFloat(transactionForm.charges) || 0,
    chargesCurrencyId: transactionForm.chargesCurrencyId || null,
    chargesPayer: transactionForm.chargesPayer,
@@ -3430,6 +3467,18 @@ function AuthenticatedHome() {
      return;
     }
     const currentTime = transaction.createdAt.includes(' ') ? transaction.createdAt.split(' ')[1] : '00:00:00';
+    // Preserve the "unset" (0) rate for cross-currency sides so a pending row isn't forced to 1.
+    const fromAcc = draft.accountFromId ? clientAccountMap.get(draft.accountFromId) : null;
+    const toAcc = draft.accountToId ? clientAccountMap.get(draft.accountToId) : null;
+    const fromCross = !!fromAcc && fromAcc.currencyId !== draft.currencyId;
+    const toCross = !!toAcc && toAcc.currencyId !== draft.currencyId;
+    const sideRate = (field: string, cross: boolean, reversed: boolean) => {
+     const r = parseFloat(field);
+     if (Number.isFinite(r) && r > 0) return reversed ? 1 / r : r;
+     return cross ? 0 : 1;
+    };
+    const fromRateVal = sideRate(draft.exchangeRateFrom, fromCross, !!tableRateFromReversed[transactionId]);
+    const toRateVal = sideRate(draft.exchangeRateTo, toCross, !!tableRateToReversed[transactionId]);
     await accountingApi.updateTransaction({
      id: transaction.id,
      accountFromId: draft.accountFromId,
@@ -3437,12 +3486,12 @@ function AuthenticatedHome() {
      currencyId: draft.currencyId,
      amount: amount || 0,
      type: draft.type,
-     exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+     exchangeRateFrom: fromRateVal,
      commissionFrom: parseFloat(draft.commissionFrom) || 0,
-     exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
+     exchangeRateTo: toRateVal,
      commissionTo: parseFloat(draft.commissionTo) || 0,
-     exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
-     exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
+     exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
+     exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
      charges: parseFloat(draft.charges) || 0,
      chargesCurrencyId: draft.chargesCurrencyId || null,
      chargesPayer: draft.chargesPayer,
@@ -3529,8 +3578,10 @@ function AuthenticatedHome() {
   const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
   const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
   const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-  const rawRate = parseFloat(adjustmentModal.exchangeRate) || 1;
-  const effectiveRate = needsRate ? (adjustmentModal.exchangeRateReversed ? 1 / rawRate : rawRate) : 1;
+  // Cross-currency with no rate entered → 0 (unset → pending, excluded from balance until set).
+  const parsedAdjRate = parseFloat(adjustmentModal.exchangeRate);
+  const adjRateSet = Number.isFinite(parsedAdjRate) && parsedAdjRate > 0;
+  const effectiveRate = !needsRate ? 1 : adjRateSet ? (adjustmentModal.exchangeRateReversed ? 1 / parsedAdjRate : parsedAdjRate) : 0;
 
   const createdAt = `${adjustmentModal.date} 00:00:00`;
 
@@ -3541,7 +3592,7 @@ function AuthenticatedHome() {
    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
    exchangeRate: effectiveRate,
-   exchangeRateReversed: needsRate ? adjustmentModal.exchangeRateReversed : false,
+   exchangeRateReversed: needsRate && adjRateSet ? adjustmentModal.exchangeRateReversed : false,
    description: adjustmentModal.description.trim(),
    createdAt,
   };
@@ -3799,9 +3850,10 @@ function AuthenticatedHome() {
   if (dragSet.has(targetKey)) return;
   const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
   if (!ledger || !accountingApi) return;
-  // The ledger is ordered by createdAt (ascending), so we persist the new order by
-  // rewriting the moved rows' createdAt to sit between their new neighbours' timestamps
-  // (millisecond precision). This makes the order durable and survives a refresh.
+  // The ledger is ordered by createdAt (ascending). Same-date rows often share an
+  // identical timestamp (e.g. expenses at 00:00:00), leaving no room to insert between
+  // them, so we reflow the whole target date's rows to distinct, evenly-spaced
+  // timestamps in the new order. That makes any reorder (even within one date) durable.
   const currentOrder = ledger.entries.map((e) => `${e.transactionId}:${accountId}`);
   if (!currentOrder.includes(targetKey)) return;
   const without = currentOrder.filter((k) => !dragSet.has(k));
@@ -3809,27 +3861,29 @@ function AuthenticatedHome() {
   if (insertIdx === -1) return;
   const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
   const orderedDragged = currentOrder.filter((k) => dragSet.has(k));
+  const next = [...without.slice(0, insertAt), ...orderedDragged, ...without.slice(insertAt)];
   const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
+  const dateOf = (key: string) => entryMap.get(key)?.createdAt.slice(0, 10) ?? '';
 
-  const aboveEntry = insertAt > 0 ? entryMap.get(without[insertAt - 1]) : undefined;
-  const belowEntry = insertAt < without.length ? entryMap.get(without[insertAt]) : undefined;
-  const targetDate = (aboveEntry ?? belowEntry)?.createdAt.slice(0, 10) ?? entryMap.get(orderedDragged[0])?.createdAt.slice(0, 10);
-  if (!targetDate) return;
+  // Dragged rows adopt the date of their new neighbour (above preferred); others keep theirs.
+  const aboveKey = insertAt > 0 ? without[insertAt - 1] : undefined;
+  const belowKey = insertAt < without.length ? without[insertAt] : undefined;
+  const draggedTargetDate = (aboveKey && dateOf(aboveKey)) || (belowKey && dateOf(belowKey)) || dateOf(orderedDragged[0]);
+  if (!draggedTargetDate) return;
+  const targetDateOf = (key: string) => (dragSet.has(key) ? draggedTargetDate : dateOf(key));
 
-  const tsOf = (e: { createdAt: string }) => new Date(e.createdAt).getTime();
-  // Work in UTC and keep the new timestamps inside the target UTC day so the row stays
-  // on the date it was dropped into (the ledger derives the shown date from createdAt UTC).
-  const dayStart = Date.parse(`${targetDate}T00:00:00.000Z`);
-  const dayEnd = Date.parse(`${targetDate}T23:59:59.999Z`);
-  const lo = aboveEntry && aboveEntry.createdAt.slice(0, 10) === targetDate ? tsOf(aboveEntry) : dayStart;
-  const hi = belowEntry && belowEntry.createdAt.slice(0, 10) === targetDate ? tsOf(belowEntry) : dayEnd;
-  const span = hi - lo;
-
+  // Reflow every row on each date the drag touches, so order is encoded in distinct timestamps.
+  const affectedDates = new Set<string>([draggedTargetDate]);
   const newTimes = new Map<string, string>();
-  orderedDragged.forEach((key, i) => {
-   const ts = span > 0 ? lo + (span * (i + 1)) / (orderedDragged.length + 1) : lo + (i + 1);
-   newTimes.set(key, new Date(ts).toISOString());
-  });
+  for (const date of affectedDates) {
+   const keysOnDate = next.filter((k) => targetDateOf(k) === date);
+   const dayStart = Date.parse(`${date}T00:00:00.000Z`);
+   const dayEnd = Date.parse(`${date}T23:59:59.999Z`);
+   keysOnDate.forEach((k, i) => {
+    const ts = dayStart + ((dayEnd - dayStart) * (i + 1)) / (keysOnDate.length + 1);
+    newTimes.set(k, new Date(ts).toISOString());
+   });
+  }
 
   // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
   setTransactions((prev) => prev.map((tx) => {
@@ -3842,10 +3896,11 @@ function AuthenticatedHome() {
   }));
 
   try {
-   for (const key of orderedDragged) {
+   for (const [key, newCreatedAt] of newTimes) {
     const entry = entryMap.get(key);
-    const newCreatedAt = newTimes.get(key);
     if (!entry || !newCreatedAt) continue;
+    // Skip rows whose timestamp didn't actually change, to avoid needless writes.
+    if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
     if (entry.isAdjustment && entry.adjustmentId) {
      const adj = adjustments.find((a) => a.id === entry.adjustmentId);
      if (!adj) continue;
@@ -4874,8 +4929,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       if (transaction.isArchived) return [];
       if (transaction.accountFromId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountToId ?? -1);
-       // Rates are never treated as "pending" — whatever rate is stored (including 1) is used.
-       const pendingRate = false;
+       // Cross-currency with no exchange rate set yet (0) is pending: shown as a dash and
+       // excluded from the balance until the user enters a rate. An explicit rate (incl. 1) counts.
+       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
        return [
         {
          transactionId: transaction.id,
@@ -4906,8 +4962,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
       if (transaction.accountToId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountFromId ?? -1);
-       // Rates are never treated as "pending" — whatever rate is stored (including 1) is used.
-       const pendingRate = false;
+       // Cross-currency with no exchange rate set yet (0) is pending (see note above).
+       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
        return [
         {
          transactionId: transaction.id,
@@ -4957,10 +5013,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         currencySymbol: adj.currencySymbol || account.currencySymbol,
         exchangeRate: adj.exchangeRate || 1,
         exchangeRateReversed: !!adj.exchangeRateReversed,
-        pendingRate: false,
+        pendingRate: adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0,
         commission: 0,
-        // amount is in the adjustment's own currency; convert to account currency via exchangeRate
-        netChange: (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
+        // amount is in the adjustment's own currency; convert to account currency via exchangeRate.
+        // A cross-currency adjustment with no rate set (0) is pending and excluded from the balance.
+        netChange:
+         adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0
+          ? 0
+          : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
         runningBalance: 0,
         description: adj.description,
         charges: 0,
@@ -5065,14 +5125,16 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    if (transaction.accountFromId != null && balanceByAccount.has(transaction.accountFromId)) {
     const account = clientAccountMap.get(transaction.accountFromId);
     if (account) {
-     const netChange = transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
+     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
+     const netChange = pending ? 0 : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
      balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
     }
    }
    if (transaction.accountToId != null && balanceByAccount.has(transaction.accountToId)) {
     const account = clientAccountMap.get(transaction.accountToId);
     if (account) {
-     const netChange = -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
+     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
+     const netChange = pending ? 0 : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
      balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
     }
    }
@@ -5082,7 +5144,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    if (!balanceByAccount.has(adj.accountId)) continue;
    const account = clientAccountMap.get(adj.accountId);
    if (!account) continue;
-   const netChange = (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
+   const pending = adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0;
+   const netChange = pending ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
    balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
   }
 
@@ -7021,9 +7084,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
          className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
         >
-         <option value="en">{t('english')}</option>
-         <option value="ar">{t('arabic')}</option>
-         <option value="fr">{t('french')}</option>
+         <option value="en" className="bg-white text-slate-900">{t('english')}</option>
+         <option value="ar" className="bg-white text-slate-900">{t('arabic')}</option>
+         <option value="fr" className="bg-white text-slate-900">{t('french')}</option>
         </select>
        </div>
       )}
@@ -7080,9 +7143,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
          className="rounded border border-white/20 bg-white/10 px-1.5 py-1 text-xs text-blue-100 outline-none"
         >
-         <option value="en">EN</option>
-         <option value="ar">عر</option>
-         <option value="fr">FR</option>
+         <option value="en" className="bg-white text-slate-900">EN</option>
+         <option value="ar" className="bg-white text-slate-900">عر</option>
+         <option value="fr" className="bg-white text-slate-900">FR</option>
         </select>
        </div>
       </div>
@@ -8183,6 +8246,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    <tr
                     draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
                     onClick={(e) => {
+                     if (!ledgerRowClickHighlight) return;
                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                      // Don't toggle the highlight while editing, or when the click lands on an
                      // interactive element (buttons, links, inputs, the selection checkbox, etc.).
@@ -8223,7 +8287,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      void onSaveLedgerRow(entry.transactionId, ledger.accountId);
                     }}
                     style={highlightedLedgerRows.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? { backgroundColor: ledgerRowHighlightColor } : undefined}
-                    className={`cursor-pointer border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                    className={`${ledgerRowClickHighlight ? 'cursor-pointer ' : ''}border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && (selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
                    >
                     {(() => {
                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -8762,13 +8826,15 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         );
                        case 'netChange':
                         return (() => {
-                         // While editing, recompute net change live from the draft so it
-                         // updates instantly as the amount / rate / commission are typed.
-                         const liveNetChange = draft
+                         // A cross-currency row with no rate set yet is "pending": show a dash and
+                         // leave it out of the balance. While editing, recompute live from the draft.
+                         const draftRate = draft ? parseFloat(draft.exchangeRate) : NaN;
+                         const draftPending = !!draft && entry.currencyCode !== ledger.currencyCode && !(Number.isFinite(draftRate) && draftRate > 0);
+                         const isPending = draft ? draftPending : entry.pendingRate;
+                         const liveNetChange = draft && !draftPending
                           ? (() => {
                              const amt = parseFloat(draft.amount) || 0;
-                             const rawRate = parseFloat(draft.exchangeRate) || 1;
-                             const effectiveRate = ledgerRateReversed[rowKey] ? 1 / rawRate : rawRate;
+                             const effectiveRate = ledgerRateReversed[rowKey] ? 1 / (draftRate || 1) : (draftRate || 1);
                              const base = amt * effectiveRate;
                              const commissionAmount = getCommissionAmount(base, parseFloat(draft.commission) || 0);
                              return draft.direction === 'outgoing' ? base + commissionAmount : -(base - commissionAmount);
@@ -8779,10 +8845,16 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                           <td
                            key={column.key}
                            style={highlightNet ? { backgroundColor: ledgerNetChangeHighlightColor } : undefined}
-                           className={`whitespace-nowrap px-4 py-3 font-semibold ${liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                           className={`whitespace-nowrap px-4 py-3 font-semibold ${isPending ? 'text-amber-500' : liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                           >
-                           {liveNetChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                           {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                           {isPending ? (
+                            <span title={t('ledger_rate_pending')}>-</span>
+                           ) : (
+                            <>
+                             {liveNetChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                             {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                            </>
+                           )}
                           </td>
                          );
                         })();
@@ -12082,21 +12154,35 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         ) : null}
        </div>
 
-       {/* Row highlight color (click a row in the ledger to highlight it) */}
+       {/* Click a row to highlight it — toggle + colour */}
        <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_row_highlight_color')}</p>
-        <p className="mt-1 text-xs text-slate-400">{t('ledger_row_highlight_hint')}</p>
-        <div className="mt-2 flex items-center gap-2">
-         <input
-          type="color"
-          value={ledgerRowHighlightColor}
-          onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
-          className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
-         />
-         <span className="rounded px-3 py-1 text-xs font-semibold text-slate-700" style={{ backgroundColor: ledgerRowHighlightColor }}>
-          {ledgerRowHighlightColor}
-         </span>
-        </div>
+        <button
+         type="button"
+         onClick={() => toggleLedgerRowClickHighlight()}
+         aria-pressed={ledgerRowClickHighlight}
+         className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
+          ledgerRowClickHighlight ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+         }`}
+        >
+         {t('ledger_row_click_toggle')}
+        </button>
+        {ledgerRowClickHighlight ? (
+         <>
+          <p className="mt-2 text-xs text-slate-400">{t('ledger_row_highlight_hint')}</p>
+          <div className="mt-2 flex items-center gap-2">
+           <input
+            type="color"
+            value={ledgerRowHighlightColor}
+            onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
+            className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+           />
+           <span className="rounded px-3 py-1 text-xs font-semibold text-slate-700" style={{ backgroundColor: ledgerRowHighlightColor }}>
+            {ledgerRowHighlightColor}
+           </span>
+          </div>
+         </>
+        ) : null}
        </div>
 
        {/* Column visibility */}
