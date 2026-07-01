@@ -348,7 +348,9 @@ const defaultLedgerColumnOrder: LedgerColumnKey[] = [
  'description',
 ];
 
-const ledgerColumnOrderStorageKey = 'arkam:ledger-column-order';
+const ledgerColumnOrderStorageKeyPrefix = 'arkam:ledger-col-order:';
+// Legacy global key — read once during migration so existing orders aren't lost.
+const legacyLedgerColumnOrderStorageKey = 'arkam:ledger-column-order';
 const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
 // User-defined order of organization cards on the clients page (keys: org id as
 // string, or '__unassigned__'). Persisted so the arrangement survives refreshes.
@@ -509,15 +511,26 @@ function getStoredLedgerSettings(clientId: number | null | undefined): StoredLed
 }
 
 // Row keys the user has click-highlighted, stored per client so highlights persist.
+// Each key maps to the color it was highlighted with, so changing the setting later
+// does not retroactively recolor already-highlighted rows.
 const ledgerHighlightsStorageKeyPrefix = 'arkam:ledger-highlights:';
-function getStoredLedgerHighlights(clientId: number | null | undefined): string[] {
- if (typeof window === 'undefined' || !clientId) return [];
+function getStoredLedgerHighlights(clientId: number | null | undefined): Map<string, string> {
+ if (typeof window === 'undefined' || !clientId) return new Map();
  try {
   const raw = window.localStorage.getItem(ledgerHighlightsStorageKeyPrefix + clientId);
-  const parsed = raw ? JSON.parse(raw) : [];
-  return Array.isArray(parsed) ? parsed.map(String) : [];
+  const parsed = raw ? JSON.parse(raw) : null;
+  if (!parsed) return new Map();
+  // New format: { key: color }
+  if (!Array.isArray(parsed) && typeof parsed === 'object') {
+   return new Map(Object.entries(parsed).map(([k, v]) => [k, String(v)]));
+  }
+  // Legacy format: string[] — treat each key as highlighted with a default color
+  if (Array.isArray(parsed)) {
+   return new Map((parsed as unknown[]).map((k) => [String(k), '#fde68a']));
+  }
+  return new Map();
  } catch {
-  return [];
+  return new Map();
  }
 }
 type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
@@ -920,32 +933,18 @@ function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportM
  return parsedRows;
 }
 
-function getStoredLedgerColumnOrder() {
- if (typeof window === 'undefined') {
-  return defaultLedgerColumnOrder;
- }
-
+function getStoredLedgerColumnOrder(clientId: number | null | undefined): LedgerColumnKey[] {
+ if (typeof window === 'undefined') return defaultLedgerColumnOrder;
  try {
-  const rawValue = window.localStorage.getItem(ledgerColumnOrderStorageKey);
-  if (!rawValue) {
-   return defaultLedgerColumnOrder;
-  }
-
-  const parsedValue = JSON.parse(rawValue);
-  if (!Array.isArray(parsedValue) || parsedValue.length !== defaultLedgerColumnOrder.length) {
-   return defaultLedgerColumnOrder;
-  }
-
-  const normalizedOrder = parsedValue.filter((column): column is LedgerColumnKey => defaultLedgerColumnOrder.includes(column as LedgerColumnKey));
-  if (normalizedOrder.length !== defaultLedgerColumnOrder.length) {
-   return defaultLedgerColumnOrder;
-  }
-
-  if (new Set(normalizedOrder).size !== defaultLedgerColumnOrder.length) {
-   return defaultLedgerColumnOrder;
-  }
-
-  return normalizedOrder;
+  // Per-client key first; fall back to the legacy global key so existing orders aren't lost.
+  const raw = (clientId ? window.localStorage.getItem(ledgerColumnOrderStorageKeyPrefix + clientId) : null) ?? window.localStorage.getItem(legacyLedgerColumnOrderStorageKey);
+  if (!raw) return defaultLedgerColumnOrder;
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed) || parsed.length !== defaultLedgerColumnOrder.length) return defaultLedgerColumnOrder;
+  const normalized = parsed.filter((c): c is LedgerColumnKey => defaultLedgerColumnOrder.includes(c as LedgerColumnKey));
+  if (normalized.length !== defaultLedgerColumnOrder.length) return defaultLedgerColumnOrder;
+  if (new Set(normalized).size !== defaultLedgerColumnOrder.length) return defaultLedgerColumnOrder;
+  return normalized;
  } catch {
   return defaultLedgerColumnOrder;
  }
@@ -1270,7 +1269,7 @@ function AuthenticatedHome() {
  const [ledgerNetChangeHighlightColor, setLedgerNetChangeHighlightColor] = useState('#eff6ff');
  const [ledgerRowHighlightColor, setLedgerRowHighlightColor] = useState('#fde68a');
  const [ledgerRowClickHighlight, setLedgerRowClickHighlight] = useState(true);
- const [highlightedLedgerRows, setHighlightedLedgerRows] = useState<Set<string>>(new Set());
+ const [highlightedLedgerRows, setHighlightedLedgerRows] = useState<Map<string, string>>(new Map());
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
@@ -1314,7 +1313,7 @@ function AuthenticatedHome() {
  const [dragOverLedgerRowKey, setDragOverLedgerRowKey] = useState<string | null>(null);
  const [dragOverLedgerHalf, setDragOverLedgerHalf] = useState<'top' | 'bottom'>('bottom');
  const dragLedgerFromHandle = useRef(false);
- const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
+ const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(defaultLedgerColumnOrder);
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({ ...defaultLedgerColumnVisibility });
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
  const [transactionTableDrafts, setTransactionTableDrafts] = useState<Record<number, TransactionTableDraft>>({});
@@ -1562,14 +1561,10 @@ function AuthenticatedHome() {
   }
  }, [selectedClientForLedger?.id, selectedLedgerAccountId, clientAccounts]);
 
- useEffect(() => {
-  window.localStorage.setItem(ledgerColumnOrderStorageKey, JSON.stringify(ledgerColumnOrder));
- }, [ledgerColumnOrder]);
-
- // Load the per-client column show/hide choices and display settings whenever the
- // open client changes, so each client's ledger restores its own saved preferences.
+ // Load ALL per-client ledger preferences whenever the open client changes.
  useEffect(() => {
   setLedgerColumnVisibility(getStoredLedgerColumnVisibility(selectedClientForLedger?.id));
+  setLedgerColumnOrder(getStoredLedgerColumnOrder(selectedClientForLedger?.id));
   const settings = getStoredLedgerSettings(selectedClientForLedger?.id);
   setLedgerDecimals(settings.decimals);
   setShowLedgerCurrencySymbol(settings.showCurrencySymbol);
@@ -1578,7 +1573,7 @@ function AuthenticatedHome() {
   setLedgerNetChangeHighlightColor(settings.netChangeHighlightColor);
   setLedgerRowHighlightColor(settings.rowHighlightColor);
   setLedgerRowClickHighlight(settings.rowClickHighlight);
-  setHighlightedLedgerRows(new Set(getStoredLedgerHighlights(selectedClientForLedger?.id)));
+  setHighlightedLedgerRows(getStoredLedgerHighlights(selectedClientForLedger?.id));
  }, [selectedClientForLedger?.id]);
 
  const transactionTableRows = useMemo<TransactionTableRow[]>(() => {
@@ -1860,12 +1855,17 @@ function AuthenticatedHome() {
  // Toggle a single row's highlight on click; persisted per client so it survives refresh.
  function toggleLedgerRowHighlight(rowKey: string) {
   setHighlightedLedgerRows((current) => {
-   const next = new Set(current);
-   if (next.has(rowKey)) next.delete(rowKey);
-   else next.add(rowKey);
+   const next = new Map(current);
+   if (next.has(rowKey)) {
+    next.delete(rowKey);
+   } else {
+    // Store the color active at the moment of the click so future color changes
+    // in settings don't retroactively recolor this row.
+    next.set(rowKey, ledgerRowHighlightColor);
+   }
    const clientId = selectedClientForLedger?.id;
    if (clientId && typeof window !== 'undefined') {
-    window.localStorage.setItem(ledgerHighlightsStorageKeyPrefix + clientId, JSON.stringify([...next]));
+    window.localStorage.setItem(ledgerHighlightsStorageKeyPrefix + clientId, JSON.stringify(Object.fromEntries(next)));
    }
    return next;
   });
@@ -1887,13 +1887,14 @@ function AuthenticatedHome() {
    const nextOrder = [...current];
    const draggedIndex = nextOrder.indexOf(draggedLedgerColumn);
    const targetIndex = nextOrder.indexOf(targetColumn);
-
-   if (draggedIndex === -1 || targetIndex === -1) {
-    return current;
-   }
-
+   if (draggedIndex === -1 || targetIndex === -1) return current;
    nextOrder.splice(draggedIndex, 1);
    nextOrder.splice(targetIndex, 0, draggedLedgerColumn);
+   // Save per-client so column order is independent for each client.
+   const clientId = selectedClientForLedger?.id;
+   if (clientId && typeof window !== 'undefined') {
+    window.localStorage.setItem(ledgerColumnOrderStorageKeyPrefix + clientId, JSON.stringify(nextOrder));
+   }
    return nextOrder;
   });
 
@@ -9103,9 +9104,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                       e.preventDefault();
                       void onSaveLedgerRow(entry.transactionId, ledger.accountId);
                      }}
-                     style={
-                      highlightedLedgerRows.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? { backgroundColor: ledgerRowHighlightColor } : undefined
-                     }
+                     style={(() => {
+                      const color = highlightedLedgerRows.get(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                      return color ? { backgroundColor: color } : undefined;
+                     })()}
                      className={`${ledgerRowClickHighlight ? 'cursor-pointer ' : ''}border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
                     >
                      {(() => {
