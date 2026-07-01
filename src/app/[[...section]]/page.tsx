@@ -1237,7 +1237,11 @@ function AuthenticatedHome() {
  const [transactionsPage, setTransactionsPage] = useState(99999);
  const [transactionsPageSize, setTransactionsPageSize] = useState(100);
  const [ledgerPageState, setLedgerPageState] = useState<Record<number, number>>({});
- const [ledgerPageSize, setLedgerPageSize] = useState(50);
+ const [ledgerPageSize, setLedgerPageSize] = useState<number>(() => {
+  if (typeof window === 'undefined') return 50;
+  const stored = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
+  return [25, 50, 100].includes(stored) ? stored : 50;
+ });
  const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
  const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
  const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
@@ -1261,7 +1265,6 @@ function AuthenticatedHome() {
  const [dragOverLedgerRowKey, setDragOverLedgerRowKey] = useState<string | null>(null);
  const [dragOverLedgerHalf, setDragOverLedgerHalf] = useState<'top' | 'bottom'>('bottom');
  const dragLedgerFromHandle = useRef(false);
- const [manualLedgerRowOrder, setManualLedgerRowOrder] = useState<Record<number, string[]>>({});
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(() => getStoredLedgerColumnOrder());
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({ ...defaultLedgerColumnVisibility });
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
@@ -3794,28 +3797,55 @@ function AuthenticatedHome() {
  async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) {
   const dragSet = new Set(draggedKeys);
   if (dragSet.has(targetKey)) return;
-  const currentOrder = manualLedgerRowOrder[accountId] ?? selectedClientLedgers.find((l) => l.accountId === accountId)?.entries.map((e) => `${e.transactionId}:${accountId}`) ?? [];
+  const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
+  if (!ledger || !accountingApi) return;
+  // The ledger is ordered by createdAt (ascending), so we persist the new order by
+  // rewriting the moved rows' createdAt to sit between their new neighbours' timestamps
+  // (millisecond precision). This makes the order durable and survives a refresh.
+  const currentOrder = ledger.entries.map((e) => `${e.transactionId}:${accountId}`);
   if (!currentOrder.includes(targetKey)) return;
   const without = currentOrder.filter((k) => !dragSet.has(k));
   const insertIdx = without.indexOf(targetKey);
   if (insertIdx === -1) return;
   const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
-  const next = [...without.slice(0, insertAt), ...draggedKeys, ...without.slice(insertAt)];
-  setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: next }));
-  const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
-  if (!ledger || !accountingApi) return;
+  const orderedDragged = currentOrder.filter((k) => dragSet.has(k));
   const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
+
+  const aboveEntry = insertAt > 0 ? entryMap.get(without[insertAt - 1]) : undefined;
+  const belowEntry = insertAt < without.length ? entryMap.get(without[insertAt]) : undefined;
+  const targetDate = (aboveEntry ?? belowEntry)?.createdAt.slice(0, 10) ?? entryMap.get(orderedDragged[0])?.createdAt.slice(0, 10);
+  if (!targetDate) return;
+
+  const tsOf = (e: { createdAt: string }) => new Date(e.createdAt).getTime();
+  // Work in UTC and keep the new timestamps inside the target UTC day so the row stays
+  // on the date it was dropped into (the ledger derives the shown date from createdAt UTC).
+  const dayStart = Date.parse(`${targetDate}T00:00:00.000Z`);
+  const dayEnd = Date.parse(`${targetDate}T23:59:59.999Z`);
+  const lo = aboveEntry && aboveEntry.createdAt.slice(0, 10) === targetDate ? tsOf(aboveEntry) : dayStart;
+  const hi = belowEntry && belowEntry.createdAt.slice(0, 10) === targetDate ? tsOf(belowEntry) : dayEnd;
+  const span = hi - lo;
+
+  const newTimes = new Map<string, string>();
+  orderedDragged.forEach((key, i) => {
+   const ts = span > 0 ? lo + (span * (i + 1)) / (orderedDragged.length + 1) : lo + (i + 1);
+   newTimes.set(key, new Date(ts).toISOString());
+  });
+
+  // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
+  setTransactions((prev) => prev.map((tx) => {
+   const nc = newTimes.get(`${tx.id}:${accountId}`);
+   return nc ? { ...tx, createdAt: nc } : tx;
+  }));
+  setAdjustments((prev) => prev.map((adj) => {
+   const nc = newTimes.get(`${-adj.id}:${accountId}`);
+   return nc ? { ...adj, createdAt: nc } : adj;
+  }));
+
   try {
-   for (const draggedKey of draggedKeys) {
-    const entry = entryMap.get(draggedKey);
-    if (!entry) continue;
-    const pos = next.indexOf(draggedKey);
-    const neighborAbove = (() => { for (let i = pos - 1; i >= 0; i--) { if (!dragSet.has(next[i])) return entryMap.get(next[i]); } })();
-    const neighborBelow = (() => { for (let i = pos + 1; i < next.length; i++) { if (!dragSet.has(next[i])) return entryMap.get(next[i]); } })();
-    const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
-    const draggedDate = entry.createdAt.slice(0, 10);
-    if (!zoneDate || zoneDate === draggedDate) continue;
-    const newCreatedAt = zoneDate + entry.createdAt.slice(10);
+   for (const key of orderedDragged) {
+    const entry = entryMap.get(key);
+    const newCreatedAt = newTimes.get(key);
+    if (!entry || !newCreatedAt) continue;
     if (entry.isAdjustment && entry.adjustmentId) {
      const adj = adjustments.find((a) => a.id === entry.adjustmentId);
      if (!adj) continue;
@@ -3842,12 +3872,10 @@ function AuthenticatedHome() {
     }
    }
    setError('');
-   const orderToKeep = next;
    await loadData();
-   setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: orderToKeep }));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
-   setManualLedgerRowOrder((prev) => ({ ...prev, [accountId]: currentOrder }));
+   await loadData();
   }
  }
 
@@ -4951,25 +4979,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       return leftId - rightId;
      });
 
-    // Apply the user's manual row order (drag-to-reorder) BEFORE accumulating the running
-    // balance, so the accumulated balance follows the order shown in the table. Rows not yet
-    // in the saved order (e.g. just-added entries) keep their date position at the end.
-    const manualOrder = manualLedgerRowOrder[account.id];
-    const orderedForBalance = manualOrder
-     ? (() => {
-        const entryMap = new Map<string, (typeof entries)[number]>();
-        for (const e of entries) entryMap.set(`${e.transactionId}:${account.id}`, e);
-        const inOrder = manualOrder.flatMap((k) => {
-         const e = entryMap.get(k);
-         return e ? [e] : [];
-        });
-        const seen = new Set(manualOrder);
-        return [...inOrder, ...entries.filter((e) => !seen.has(`${e.transactionId}:${account.id}`))];
-       })()
-     : entries;
-
+    // Entries are ordered purely by createdAt (drag-to-reorder persists the order by
+    // rewriting timestamps), so a running balance accumulated in this order is durable.
     let runningBalance = account.startingBalance ?? 0;
-    const entriesWithBalance = orderedForBalance.map((entry) => {
+    const entriesWithBalance = entries.map((entry) => {
      runningBalance += entry.netChange;
      return {
       ...entry,
@@ -4989,7 +5002,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
- }, [adjustments, clientAccounts, clientAccountMap, currencyMap, manualLedgerRowOrder, pdfExportModal, section, selectedClientForLedger, transactions]);
+ }, [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions]);
 
  // Totals for the rows the user has checkbox-selected in the ledger, shown next to the
  // "Delete (N)" action: sum of the entry amounts and sum of their net change.
@@ -5140,32 +5153,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
   return { groups, byOrg, hasAccounts: clientAccounts.length > 0 };
  }, [section, transactions, adjustments, clientAccounts, clients, clientAccountMap, currencyMap, language]);
-
- useEffect(() => {
-  setManualLedgerRowOrder((current) => {
-   let changed = false;
-   const next = { ...current };
-   for (const ledger of selectedClientLedgers) {
-    const currentOrder = current[ledger.accountId];
-    if (!currentOrder) continue;
-    const newKeys = ledger.entries.map((e) => `${e.transactionId}:${ledger.accountId}`);
-    const newKeySet = new Set(newKeys);
-    const currentKeySet = new Set(currentOrder);
-    const kept = currentOrder.filter((k) => newKeySet.has(k));
-    const added = newKeys.filter((k) => !currentKeySet.has(k));
-    const merged = [...kept, ...added];
-    if (merged.join(',') !== currentOrder.join(',')) {
-     next[ledger.accountId] = merged;
-     changed = true;
-    }
-   }
-   const activeIds = new Set(selectedClientLedgers.map((l) => l.accountId));
-   for (const id of Object.keys(next).map(Number)) {
-    if (!activeIds.has(id)) { delete next[id]; changed = true; }
-   }
-   return changed ? next : current;
-  });
- }, [selectedClientLedgers]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -8937,7 +8924,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   <select
                    value={ledgerPageSize}
                    onChange={(event) => {
-                    setLedgerPageSize(Number(event.target.value));
+                    const nextSize = Number(event.target.value);
+                    setLedgerPageSize(nextSize);
+                    if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
                     setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
                    }}
                    className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
