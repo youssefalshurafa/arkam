@@ -1501,6 +1501,7 @@ function AuthenticatedHome() {
  const [ledgerCounterpartyOpen, setLedgerCounterpartyOpen] = useState<string | null>(null);
  const [ledgerCounterpartyQuery, setLedgerCounterpartyQuery] = useState('');
  const [ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient] = useState<number | null>(null);
+ const [descriptionSuggestOpen, setDescriptionSuggestOpen] = useState(false);
  const [txFromRateReversed, setTxFromRateReversed] = useState(false);
  const [txToRateReversed, setTxToRateReversed] = useState(false);
  const [ledgerRateReversed, setLedgerRateReversed] = useState<Record<string, boolean>>({});
@@ -4206,44 +4207,39 @@ function AuthenticatedHome() {
  }
 
  async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) {
-  const dragSet = new Set(draggedKeys);
-  if (dragSet.has(targetKey)) return;
   const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
   if (!ledger || !accountingApi) return;
-  // The ledger is ordered by createdAt (ascending). Same-date rows often share an
-  // identical timestamp (e.g. expenses at 00:00:00), leaving no room to insert between
-  // them, so we reflow the whole target date's rows to distinct, evenly-spaced
-  // timestamps in the new order. That makes any reorder (even within one date) durable.
   const currentOrder = ledger.entries.map((e) => `${e.transactionId}:${accountId}`);
   if (!currentOrder.includes(targetKey)) return;
-  const without = currentOrder.filter((k) => !dragSet.has(k));
-  const insertIdx = without.indexOf(targetKey);
-  if (insertIdx === -1) return;
-  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
-  const orderedDragged = currentOrder.filter((k) => dragSet.has(k));
-  const next = [...without.slice(0, insertAt), ...orderedDragged, ...without.slice(insertAt)];
   const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
   const dateOf = (key: string) => entryMap.get(key)?.createdAt.slice(0, 10) ?? '';
 
-  // Dragged rows adopt the date of their new neighbour (above preferred); others keep theirs.
-  const aboveKey = insertAt > 0 ? without[insertAt - 1] : undefined;
-  const belowKey = insertAt < without.length ? without[insertAt] : undefined;
-  const draggedTargetDate = (aboveKey && dateOf(aboveKey)) || (belowKey && dateOf(belowKey)) || dateOf(orderedDragged[0]);
-  if (!draggedTargetDate) return;
-  const targetDateOf = (key: string) => (dragSet.has(key) ? draggedTargetDate : dateOf(key));
+  // A row's date is only ever changed by an explicit manual edit, never by dragging it —
+  // so only rows that already share the target row's date are eligible to move; any dragged
+  // row from a different date is dropped from this operation and keeps its position untouched.
+  const targetDate = dateOf(targetKey);
+  const dragSet = new Set(draggedKeys.filter((k) => k !== targetKey && dateOf(k) === targetDate));
+  if (dragSet.size === 0) return;
 
-  // Reflow every row on each date the drag touches, so order is encoded in distinct timestamps.
-  const affectedDates = new Set<string>([draggedTargetDate]);
+  // The ledger is ordered by createdAt (ascending). Same-date rows often share an
+  // identical timestamp (e.g. expenses at 00:00:00), leaving no room to insert between
+  // them, so we reflow the target date's rows to distinct, evenly-spaced timestamps in
+  // the new order. That makes the reorder durable without touching any row's date.
+  const dateGroup = currentOrder.filter((k) => dateOf(k) === targetDate);
+  const without = dateGroup.filter((k) => !dragSet.has(k));
+  const insertIdx = without.indexOf(targetKey);
+  if (insertIdx === -1) return;
+  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
+  const orderedDragged = dateGroup.filter((k) => dragSet.has(k));
+  const next = [...without.slice(0, insertAt), ...orderedDragged, ...without.slice(insertAt)];
+
   const newTimes = new Map<string, string>();
-  for (const date of affectedDates) {
-   const keysOnDate = next.filter((k) => targetDateOf(k) === date);
-   const dayStart = Date.parse(`${date}T00:00:00.000Z`);
-   const dayEnd = Date.parse(`${date}T23:59:59.999Z`);
-   keysOnDate.forEach((k, i) => {
-    const ts = dayStart + ((dayEnd - dayStart) * (i + 1)) / (keysOnDate.length + 1);
-    newTimes.set(k, new Date(ts).toISOString());
-   });
-  }
+  const dayStart = Date.parse(`${targetDate}T00:00:00.000Z`);
+  const dayEnd = Date.parse(`${targetDate}T23:59:59.999Z`);
+  next.forEach((k, i) => {
+   const ts = dayStart + ((dayEnd - dayStart) * (i + 1)) / (next.length + 1);
+   newTimes.set(k, new Date(ts).toISOString());
+  });
 
   // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
   setTransactions((prev) =>
@@ -4684,18 +4680,8 @@ function AuthenticatedHome() {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) => {
-     if (e.pendingRate) return '-';
-     const netHtml = `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span>`;
-     if (!e.isAdjustment && e.charges > 0) {
-      const sign = e.isChargesPayerThisAccount ? '−' : '+';
-      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
-      const chargesVal = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
-      const desc = e.chargesDescription ? ` <span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
-      return `${netHtml}<div class="charges-line"><span class="${cls}">${sign}${chargesVal}</span>${desc}</div>`;
-     }
-     return netHtml;
-    },
+    cell: (e) =>
+     e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    {
     key: 'runningBalance',
@@ -4714,6 +4700,26 @@ function AuthenticatedHome() {
   if (!visibleCols.some((col) => col.key === 'runningBalance')) {
    const rbCol = allCols.find((col) => col.key === 'runningBalance');
    if (rbCol) visibleCols.push(rbCol);
+  }
+  // Insert charges column before runningBalance when any entry has charges
+  const hasCharges = filteredEntries.some((e) => !e.isAdjustment && e.charges > 0 && (e.chargesPayer === 'from' || e.chargesPayer === 'to'));
+  if (hasCharges) {
+   const chargesCol: ColDef = {
+    key: 'charges' as unknown as LedgerColumnKey,
+    header: t('charges'),
+    isNum: true,
+    cell: (e) => {
+     if (e.isAdjustment || e.charges <= 0 || !(e.chargesPayer === 'from' || e.chargesPayer === 'to')) return '';
+     const sign = e.isChargesPayerThisAccount ? '−' : '+';
+     const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
+     const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
+     const desc = e.chargesDescription ? `<div class="charges-desc">${esc(e.chargesDescription)}</div>` : '';
+     return `<span class="${cls}">${sign}${val}</span>${desc}`;
+    },
+   };
+   const amtIdx = visibleCols.findIndex((col) => col.key === 'amount');
+   if (amtIdx === -1) visibleCols.push(chargesCol);
+   else visibleCols.splice(amtIdx + 1, 0, chargesCol);
   }
   const colCount = visibleCols.length;
 
@@ -4803,7 +4809,7 @@ function AuthenticatedHome() {
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span></div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
@@ -4813,7 +4819,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  </tbody>
 </table>
 <div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(numLocale, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}</span>
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(numLocale, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
 ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
@@ -5094,6 +5100,51 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   toastTimerRef.current = setTimeout(() => setToast(''), 1000);
  }, []);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
+
+ // Per-client balances for the clients list/group view. Keyed by clientId, each value is
+ // an array of { currencyCode, currencySymbol, balance } — one entry per account.
+ const clientPageBalances = useMemo((): Map<number, { currencyCode: string; currencySymbol: string; balance: number }[]> => {
+  const balanceByAccount = new Map<number, number>();
+  for (const account of clientAccounts) {
+   balanceByAccount.set(account.id, account.startingBalance ?? 0);
+  }
+  for (const transaction of transactions) {
+   if (transaction.isArchived) continue;
+   if (transaction.accountFromId != null && balanceByAccount.has(transaction.accountFromId)) {
+    const account = clientAccountMap.get(transaction.accountFromId);
+    if (account) {
+     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
+     const netChange = pending ? 0 : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
+     balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
+    }
+   }
+   if (transaction.accountToId != null && balanceByAccount.has(transaction.accountToId)) {
+    const account = clientAccountMap.get(transaction.accountToId);
+    if (account) {
+     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
+     const netChange = pending ? 0 : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
+     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
+    }
+   }
+  }
+  for (const adj of adjustments) {
+   if (!balanceByAccount.has(adj.accountId)) continue;
+   const account = clientAccountMap.get(adj.accountId);
+   if (!account) continue;
+   const pending = adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0;
+   const netChange = pending ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
+   balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
+  }
+  const result = new Map<number, { currencyCode: string; currencySymbol: string; balance: number }[]>();
+  for (const account of clientAccounts) {
+   const balance = balanceByAccount.get(account.id) ?? 0;
+   const arr = result.get(account.clientId) ?? [];
+   arr.push({ currencyCode: account.currencyCode, currencySymbol: account.currencySymbol, balance });
+   result.set(account.clientId, arr);
+  }
+  return result;
+ }, [clientAccounts, transactions, adjustments, clientAccountMap]);
+
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
 
@@ -5383,10 +5434,15 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          exchangeRateReversed: !!transaction.exchangeRateFromReversed,
          pendingRate,
          commission: transaction.commissionFrom,
+         // Charges only affect a counterparty's ledger when that counterparty is the one bearing
+         // them ('from'/'to'). When "paid by me"/"paid to me" is chosen, the charge is settled
+         // directly with the org and never touches either counterparty's ledger.
          netChange: pendingRate
           ? 0
           : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) +
-            (transaction.charges > 0 ? (transaction.chargesPayer === 'from' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate) : 0),
+            (transaction.charges > 0 && (transaction.chargesPayer === 'from' || transaction.chargesPayer === 'to')
+             ? (transaction.chargesPayer === 'from' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate)
+             : 0),
          runningBalance: 0,
          description: transaction.descriptionFrom?.trim() || transaction.description,
          charges: transaction.charges,
@@ -5421,7 +5477,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          netChange: pendingRate
           ? 0
           : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)) +
-            (transaction.charges > 0 ? (transaction.chargesPayer === 'to' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate) : 0),
+            (transaction.charges > 0 && (transaction.chargesPayer === 'from' || transaction.chargesPayer === 'to')
+             ? (transaction.chargesPayer === 'to' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate)
+             : 0),
          runningBalance: 0,
          description: transaction.descriptionTo?.trim() || transaction.description,
          charges: transaction.charges,
@@ -7399,7 +7457,16 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             >
              {client.name}
             </a>
-            <span className="shrink-0 text-xs text-slate-500">({client.accountCount})</span>
+            <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+             {(clientPageBalances.get(client.id) ?? []).map(({ currencyCode, currencySymbol, balance }) => (
+              <span
+               key={currencyCode}
+               className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+              >
+               {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+              </span>
+             ))}
+            </span>
            </li>
           ))}
          </ul>
@@ -7415,6 +7482,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          {clientSortHeader('name', t('name'))}
          {clientSortHeader('organization', t('client_organization'))}
          <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
+         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_page_current_balance')}</th>
         </tr>
        </thead>
        <tbody>
@@ -7434,6 +7502,18 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           </td>
           <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
           <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
+          <td className="px-4 py-3">
+           <div className="flex flex-wrap gap-1">
+            {(clientPageBalances.get(client.id) ?? []).map(({ currencyCode, currencySymbol, balance }) => (
+             <span
+              key={currencyCode}
+              className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+             >
+              {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+             </span>
+            ))}
+           </div>
+          </td>
          </tr>
         ))}
        </tbody>
@@ -8779,6 +8859,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             >
              <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
+               <p className="text-sm font-medium text-slate-500">{selectedClientForLedger?.name}</p>
                <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
                <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
                <div className="mt-2 flex items-center gap-1.5">
@@ -9103,7 +9184,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  </div>
                 );
                })()}
-               <div className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}>
+               <div
+                className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}
+                onKeyDown={(event) => {
+                 if (event.key === 'Enter' && editAllLedgerAccountIds.has(ledger.accountId)) {
+                  const tag = (event.target as HTMLElement).tagName;
+                  if (tag === 'SELECT' || tag === 'TEXTAREA') return;
+                  event.preventDefault();
+                  void onSaveAllLedger(ledger);
+                 }
+                }}
+               >
                 <table className="w-full text-sm">
                  <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
                   <tr>
@@ -9920,7 +10011,28 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                              key={column.key}
                              className="px-4 py-3"
                             >
-                             {entry.isAdjustment ? (
+                             {entry.isAdjustment && draft ? (
+                              <div className="grid grid-cols-2 gap-1">
+                               <button
+                                type="button"
+                                onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
+                                className={`rounded border px-2 py-1 text-xs font-semibold transition ${
+                                 draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                }`}
+                               >
+                                {t('adjustment_direction_debit_short')}
+                               </button>
+                               <button
+                                type="button"
+                                onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
+                                className={`rounded border px-2 py-1 text-xs font-semibold transition ${
+                                 draft.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                }`}
+                               >
+                                {t('adjustment_direction_credit_short')}
+                               </button>
+                              </div>
+                             ) : entry.isAdjustment ? (
                               <span
                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
                               >
@@ -10316,7 +10428,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                 })()
                               : entry.netChange;
                             const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
-                            const showCharges = !draft && !entry.isAdjustment && entry.charges > 0;
+                            const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && (entry.chargesPayer === 'from' || entry.chargesPayer === 'to');
                             return (
                              <td
                               key={column.key}
@@ -10411,8 +10523,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
                      const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3;
+                     // Charges only belong in this ledger when this counterparty actually bears them
+                     // ('from'/'to'); "paid by me"/"paid to me" charges are settled with the org
+                     // directly and shouldn't be editable (or visible) from either counterparty's
+                     // ledger. Gate on the saved payer, not the live draft, so the section doesn't
+                     // vanish out from under the user mid-edit while they're changing the dropdown.
+                     const chargesBelongHere = entry.charges <= 0 || entry.chargesPayer === 'from' || entry.chargesPayer === 'to';
 
-                     if (isEditingThisRow && chargesDraft && !entry.isAdjustment) {
+                     if (isEditingThisRow && chargesDraft && !entry.isAdjustment && chargesBelongHere) {
                       const isZero = parseFloat(chargesDraft.charges) === 0;
                       const expanded = ledgerExpensesExpandedKeys.has(chargesRowKey);
                       if (isZero && !expanded) {
@@ -11347,12 +11465,63 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             ) : null}
 
             <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
-            <textarea
-             value={transactionForm.description}
-             onChange={(event) => setTransactionForm((current) => ({ ...current, description: event.target.value }))}
-             className="mt-2 min-h-20 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
-             placeholder={t('transaction_description_placeholder')}
-            />
+            <div className="relative mt-2">
+             <textarea
+              value={transactionForm.description}
+              onChange={(event) => {
+               setTransactionForm((current) => ({ ...current, description: event.target.value }));
+               setDescriptionSuggestOpen(true);
+              }}
+              onFocus={() => setDescriptionSuggestOpen(true)}
+              onBlur={() => setTimeout(() => setDescriptionSuggestOpen(false), 150)}
+              className="min-h-20 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+              placeholder={t('transaction_description_placeholder')}
+              autoComplete="off"
+             />
+             {descriptionSuggestOpen &&
+              (() => {
+               const q = transactionForm.description.trim().toLowerCase();
+               const accountIds = new Set<number>([transactionForm.accountFromId, transactionForm.accountToId].filter((id): id is number => id != null));
+               const seen = new Set<string>();
+               const suggestions: string[] = [];
+               // Prioritize descriptions used on the currently selected accounts, then fall back to all past descriptions.
+               const passes = accountIds.size > 0 ? (['scoped', 'all'] as const) : (['all'] as const);
+               for (const pass of passes) {
+                for (let i = transactions.length - 1; i >= 0; i--) {
+                 const tx = transactions[i];
+                 const desc = tx.description?.trim();
+                 if (!desc) continue;
+                 if (pass === 'scoped' && !(tx.accountFromId != null && accountIds.has(tx.accountFromId)) && !(tx.accountToId != null && accountIds.has(tx.accountToId))) continue;
+                 if (q && desc.toLowerCase() === q) continue;
+                 if (q && !desc.toLowerCase().includes(q)) continue;
+                 const key = desc.toLowerCase();
+                 if (seen.has(key)) continue;
+                 seen.add(key);
+                 suggestions.push(desc);
+                 if (suggestions.length >= 8) break;
+                }
+                if (suggestions.length >= 8) break;
+               }
+               if (suggestions.length === 0) return null;
+               return (
+                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+                 {suggestions.map((desc) => (
+                  <li
+                   key={desc}
+                   onMouseDown={() => {
+                    setTransactionForm((current) => ({ ...current, description: desc }));
+                    setDescriptionSuggestOpen(false);
+                   }}
+                   className="cursor-pointer truncate px-3 py-2 text-sm text-slate-700 hover:bg-blue-50"
+                   title={desc}
+                  >
+                   {desc}
+                  </li>
+                 ))}
+                </ul>
+               );
+              })()}
+            </div>
 
             {!isAdjustmentTransaction ? (
              <div className="mt-3">
@@ -13991,7 +14160,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               <button
                type="button"
                onClick={() => {
-                const first = highlightedEntries[0];
+                const first = highlightedEntries[highlightedEntries.length - 2];
                 const last = highlightedEntries[highlightedEntries.length - 1];
                 const firstIdx = ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(first));
                 // Start one row after the first highlight so that row is excluded but its
