@@ -1498,6 +1498,9 @@ function AuthenticatedHome() {
  const [txToQuery, setTxToQuery] = useState('');
  const [txToOpen, setTxToOpen] = useState(false);
  const [txToExpandedClient, setTxToExpandedClient] = useState<number | null>(null);
+ const [ledgerCounterpartyOpen, setLedgerCounterpartyOpen] = useState<string | null>(null);
+ const [ledgerCounterpartyQuery, setLedgerCounterpartyQuery] = useState('');
+ const [ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient] = useState<number | null>(null);
  const [txFromRateReversed, setTxFromRateReversed] = useState(false);
  const [txToRateReversed, setTxToRateReversed] = useState(false);
  const [ledgerRateReversed, setLedgerRateReversed] = useState<Record<string, boolean>>({});
@@ -4595,6 +4598,7 @@ function AuthenticatedHome() {
   fromEntryKey?: string | null,
   toEntryKey?: string | null,
  ): string {
+  const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
   // Candidates are the entries within the chosen date range; the start/end transaction
   // pickers then narrow the exact boundaries (handy when a day has many transactions).
   const candidates = ledger.entries.filter((e) => {
@@ -4680,8 +4684,18 @@ function AuthenticatedHome() {
     key: 'netChange',
     header: t('net_change'),
     isNum: true,
-    cell: (e) =>
-     e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (e) => {
+     if (e.pendingRate) return '-';
+     const netHtml = `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span>`;
+     if (!e.isAdjustment && e.charges > 0) {
+      const sign = e.isChargesPayerThisAccount ? '−' : '+';
+      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
+      const chargesVal = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
+      const desc = e.chargesDescription ? ` <span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
+      return `${netHtml}<div class="charges-line"><span class="${cls}">${sign}${chargesVal}</span>${desc}</div>`;
+     }
+     return netHtml;
+    },
    },
    {
     key: 'runningBalance',
@@ -4774,6 +4788,8 @@ function AuthenticatedHome() {
  .final-balance .fb-label { font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; color: #1e293b; }
  .final-balance .fb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: 700; font-variant-numeric: tabular-nums; }
  .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
+ .charges-line { font-size: calc(${pdfSettings.fontSize}px - 1px); font-weight: 600; margin-top: 2px; }
+ .charges-desc { font-weight: 400; font-style: italic; color: #94a3b8; }
 </style>
 </head>
 <body>
@@ -5369,7 +5385,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          commission: transaction.commissionFrom,
          netChange: pendingRate
           ? 0
-          : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom),
+          : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) +
+            (transaction.charges > 0 ? (transaction.chargesPayer === 'from' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate) : 0),
          runningBalance: 0,
          description: transaction.descriptionFrom?.trim() || transaction.description,
          charges: transaction.charges,
@@ -5403,7 +5420,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          commission: transaction.commissionTo,
          netChange: pendingRate
           ? 0
-          : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)),
+          : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)) +
+            (transaction.charges > 0 ? (transaction.chargesPayer === 'to' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate) : 0),
          runningBalance: 0,
          description: transaction.descriptionTo?.trim() || transaction.description,
          charges: transaction.charges,
@@ -9040,29 +9058,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 }).length;
                 if (visibleCount === 0) return null;
                 const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
-                if (totalLedgerPages <= 1) return null;
                 const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+                if (totalLedgerPages <= 1) return null;
                 return (
                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-slate-600">
                    {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                   <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
-                   <select
-                    value={ledgerPageSize}
-                    onChange={(event) => {
-                     const nextSize = Number(event.target.value);
-                     setLedgerPageSize(nextSize);
-                     if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
-                     setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
-                    }}
-                    className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
-                   >
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                   </select>
                    <button
                     type="button"
                     onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
@@ -9746,34 +9749,127 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                               <span className="text-slate-400">-</span>
                              ) : draft ? (
                               (() => {
+                               const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                                const selectedAccount = clientAccounts.find((account) => account.id === draft.counterpartyAccountId);
-                               const selectedLabel = selectedAccount
-                                ? `${selectedAccount.clientName} - ${selectedAccount.currencySymbol || selectedAccount.currencyCode}`
-                                : t('transaction_account_placeholder');
                                return (
                                 <div className="flex items-center gap-1">
-                                 <select
-                                  value={draft.counterpartyAccountId ?? ''}
-                                  onChange={(event) =>
-                                   updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, {
-                                    counterpartyAccountId: event.target.value ? Number(event.target.value) : null,
-                                   })
-                                  }
-                                  style={{ width: ledgerSelectWidth(selectedLabel, 8, 2) }}
-                                  className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                                 >
-                                  <option value="">{t('transaction_account_placeholder')}</option>
-                                  {clientAccounts
-                                   .filter((account) => account.id !== ledger.accountId)
-                                   .map((account) => (
-                                    <option
-                                     key={account.id}
-                                     value={account.id}
-                                    >
-                                     {account.clientName} - {account.currencySymbol || account.currencyCode}
-                                    </option>
-                                   ))}
-                                 </select>
+                                 <div className="relative">
+                                  <input
+                                   type="text"
+                                   value={
+                                    ledgerCounterpartyOpen === rowKey
+                                     ? ledgerCounterpartyQuery
+                                     : selectedAccount
+                                       ? `${selectedAccount.clientName} · ${selectedAccount.currencyCode}`
+                                       : ''
+                                   }
+                                   onChange={(e) => {
+                                    setLedgerCounterpartyQuery(e.target.value);
+                                    setLedgerCounterpartyOpen(rowKey);
+                                   }}
+                                   onFocus={() => {
+                                    setLedgerCounterpartyQuery('');
+                                    setLedgerCounterpartyOpen(rowKey);
+                                   }}
+                                   onBlur={() => {
+                                    const capturedKey = rowKey;
+                                    setTimeout(() => setLedgerCounterpartyOpen((current) => current === capturedKey ? null : current), 150);
+                                   }}
+                                   placeholder={t('transaction_account_placeholder')}
+                                   style={{ width: '12rem' }}
+                                   className="rounded border border-slate-300 py-1.5 pe-6 ps-2 text-xs outline-none ring-blue-300 focus:ring"
+                                   autoComplete="off"
+                                  />
+                                  {draft.counterpartyAccountId && ledgerCounterpartyOpen !== rowKey ? (
+                                   <button
+                                    type="button"
+                                    onMouseDown={(e) => {
+                                     e.preventDefault();
+                                     updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: null });
+                                     setLedgerCounterpartyQuery('');
+                                     setLedgerCounterpartyOpen(null);
+                                    }}
+                                    title={t('clear_selection')}
+                                    className="absolute inset-y-0 end-1 my-auto flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                   >
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                     <line x1="18" y1="6" x2="6" y2="18" />
+                                     <line x1="6" y1="6" x2="18" y2="18" />
+                                    </svg>
+                                   </button>
+                                  ) : null}
+                                  {ledgerCounterpartyOpen === rowKey && (
+                                   <ul className="absolute z-30 mt-1 max-h-48 w-52 overflow-y-auto rounded border border-slate-200 bg-white text-xs shadow-lg">
+                                    {(() => {
+                                     const q = ledgerCounterpartyQuery.trim().toLowerCase();
+                                     const byClient = new Map<number, ClientAccount[]>();
+                                     for (const a of clientAccounts) {
+                                      if (a.id === ledger.accountId) continue;
+                                      if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
+                                      const arr = byClient.get(a.clientId) ?? [];
+                                      arr.push(a);
+                                      byClient.set(a.clientId, arr);
+                                     }
+                                     const groups = [...byClient.values()];
+                                     if (groups.length === 0) {
+                                      return <li className="px-3 py-2 text-slate-400">{t('transaction_account_placeholder')}</li>;
+                                     }
+                                     const selectAccount = (id: number) => {
+                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: id });
+                                      setLedgerCounterpartyQuery('');
+                                      setLedgerCounterpartyOpen(null);
+                                      setLedgerCounterpartyExpandedClient(null);
+                                     };
+                                     return groups.map((accts) => {
+                                      const clientId = accts[0].clientId;
+                                      if (accts.length === 1) {
+                                       const account = accts[0];
+                                       return (
+                                        <li
+                                         key={`g${clientId}`}
+                                         onMouseDown={() => selectAccount(account.id)}
+                                         className={`cursor-pointer px-3 py-1.5 hover:bg-blue-50 ${draft.counterpartyAccountId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                                        >
+                                         {account.clientName} · {account.currencyCode}
+                                        </li>
+                                       );
+                                      }
+                                      const expanded = !!q || ledgerCounterpartyExpandedClient === clientId;
+                                      const hasSelected = accts.some((a) => a.id === draft.counterpartyAccountId);
+                                      return (
+                                       <Fragment key={`g${clientId}`}>
+                                        <li
+                                         onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          setLedgerCounterpartyExpandedClient(expanded && !q ? null : clientId);
+                                         }}
+                                         className={`flex cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                                        >
+                                         <span>{accts[0].clientName}</span>
+                                         <span className="flex items-center gap-1 text-slate-400">
+                                          {accts.length}
+                                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden>
+                                           <path d="m6 9 6 6 6-6" />
+                                          </svg>
+                                         </span>
+                                        </li>
+                                        {expanded &&
+                                         accts.map((account) => (
+                                          <li
+                                           key={account.id}
+                                           onMouseDown={() => selectAccount(account.id)}
+                                           className={`cursor-pointer py-1.5 ps-7 pe-3 hover:bg-blue-50 ${draft.counterpartyAccountId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                                          >
+                                           {account.currencyCode}
+                                          </li>
+                                         ))}
+                                       </Fragment>
+                                      );
+                                     });
+                                    })()}
+                                   </ul>
+                                  )}
+                                 </div>
                                  <button
                                   type="button"
                                   title={t('ledger_swap_parties')}
@@ -10220,18 +10316,27 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                 })()
                               : entry.netChange;
                             const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
+                            const showCharges = !draft && !entry.isAdjustment && entry.charges > 0;
                             return (
                              <td
                               key={column.key}
                               style={highlightNet ? { backgroundColor: ledgerNetChangeHighlightColor } : undefined}
-                              className={`whitespace-nowrap px-4 py-3 font-semibold ${isPending ? 'text-amber-500' : liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                              className={`px-4 py-3 font-semibold ${isPending ? 'text-amber-500' : liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                              >
                               {isPending ? (
                                <span title={t('ledger_rate_pending')}>-</span>
                               ) : (
                                <>
-                                {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                <div className="whitespace-nowrap">
+                                 {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                 {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                </div>
+                                {showCharges && (
+                                 <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-red-500' : 'text-emerald-500'}`}>
+                                  <span>{entry.isChargesPayerThisAccount ? '−' : '+'}{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}</span>
+                                  {entry.chargesDescription && <span className="font-normal italic text-slate-400">{entry.chargesDescription}</span>}
+                                 </div>
+                                )}
                                </>
                               )}
                              </td>
@@ -10325,12 +10430,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         </tr>
                        );
                       }
+                      const ledgerAccountName = clientAccounts.find((a) => a.id === ledger.accountId)?.clientName ?? ledger.currencyCode;
                       const draftChargesCurrencyCode = chargesDraft.chargesCurrencyId ? currencyMap.get(chargesDraft.chargesCurrencyId)?.code : undefined;
-                      const draftPayerAccountCurrencyCode =
-                       chargesDraft.chargesPayer === 'from' ? entry.counterpartyName && (clientAccounts.find((a) => a.id === (chargesDraft.direction === 'outgoing' ? chargesDraft.counterpartyAccountId : chargesDraft.ledgerAccountId))?.currencyCode) :
-                       chargesDraft.chargesPayer === 'to' ? (clientAccounts.find((a) => a.id === (chargesDraft.direction === 'outgoing' ? chargesDraft.ledgerAccountId : chargesDraft.counterpartyAccountId))?.currencyCode) :
-                       undefined;
-                      const showRate = !!(draftChargesCurrencyCode && draftPayerAccountCurrencyCode && draftChargesCurrencyCode !== draftPayerAccountCurrencyCode);
+                      const showRate = !!(draftChargesCurrencyCode && draftChargesCurrencyCode !== ledger.currencyCode);
                       return (
                        <tr key={`${ledger.accountId}-${entry.transactionId}-charges-edit`} className="border-t border-dashed border-slate-200 bg-amber-50/60">
                         <td colSpan={colSpanCount} className="px-4 py-2">
@@ -10362,15 +10464,15 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                           >
                            <option value="">{t('charges_payer_placeholder')}</option>
                            <option value="from">{entry.counterpartyName}</option>
-                           <option value="to">{ledger.currencyCode}</option>
+                           <option value="to">{ledgerAccountName}</option>
                            <option value="me_to_from">{t('charges_payer_me_to_name', { name: entry.counterpartyName })}</option>
-                           <option value="me_to_to">{t('charges_payer_me_to_name', { name: ledger.currencyCode })}</option>
+                           <option value="me_to_to">{t('charges_payer_me_to_name', { name: ledgerAccountName })}</option>
                            <option value="from_to_me">{t('charges_payer_name_to_me', { name: entry.counterpartyName })}</option>
-                           <option value="to_to_me">{t('charges_payer_name_to_me', { name: ledger.currencyCode })}</option>
+                           <option value="to_to_me">{t('charges_payer_name_to_me', { name: ledgerAccountName })}</option>
                           </select>
                           {showRate && (
                            <div className="flex items-center gap-1">
-                            <span className="text-xs text-slate-500">{draftChargesCurrencyCode} → {draftPayerAccountCurrencyCode}</span>
+                            <span className="text-xs text-slate-500">{draftChargesCurrencyCode} → {ledger.currencyCode}</span>
                             <input
                              type="text"
                              inputMode="decimal"
@@ -10389,35 +10491,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                            className="field-sizing-content min-w-28 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            placeholder={t('charges_description_placeholder')}
                           />
-                         </div>
-                        </td>
-                       </tr>
-                      );
-                     }
-
-                     if (!isEditingThisRow && entry.charges > 0) {
-                      return (
-                       <tr
-                        key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}-charges`}
-                        className="border-t border-dashed border-slate-200 bg-amber-50/60"
-                       >
-                        <td colSpan={colSpanCount} className="px-4 py-2">
-                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                          <span className="font-medium text-amber-700">{t('charges')}</span>
-                          <span className="font-semibold">
-                           {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                           {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
-                          </span>
-                          {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
-                           <span className="text-slate-400">@ {formatRateValue(entry.chargesExchangeRate)}</span>
-                          )}
-                          {entry.chargesPayer && (
-                           <span className="text-slate-500">
-                            {t('charges_payer_placeholder')}:{' '}
-                            {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
-                           </span>
-                          )}
-                          {entry.chargesDescription && <span className="italic text-slate-500">"{entry.chargesDescription}"</span>}
                          </div>
                         </td>
                        </tr>
@@ -10454,6 +10527,81 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  </tbody>
                 </table>
                </div>
+               {(() => {
+                const ordered = ledger.entries;
+                const q = ledgerFilterSearch.trim().toLowerCase();
+                const visibleCount = ordered.filter((e) => {
+                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                 if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                 return true;
+                }).length;
+                if (visibleCount === 0) return null;
+                const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
+                const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+                return (
+                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-slate-600">
+                   {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                   <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+                   <select
+                    value={ledgerPageSize}
+                    onChange={(event) => {
+                     const nextSize = Number(event.target.value);
+                     setLedgerPageSize(nextSize);
+                     if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
+                     setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
+                    }}
+                    className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                   >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                   </select>
+                   {totalLedgerPages > 1 && (
+                    <>
+                     <button
+                      type="button"
+                      onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
+                      disabled={currentLedgerPage <= 1}
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                     >
+                      {t('pagination_prev')}
+                     </button>
+                     <input
+                      key={`bot-${currentLedgerPage}`}
+                      type="number"
+                      min={1}
+                      max={totalLedgerPages}
+                      defaultValue={currentLedgerPage}
+                      onBlur={(event) => {
+                       const n = parseInt(event.target.value, 10);
+                       if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
+                       else event.target.value = String(currentLedgerPage);
+                      }}
+                      onKeyDown={(event) => {
+                       if (event.key === 'Enter') event.currentTarget.blur();
+                      }}
+                      className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                     />
+                     <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
+                     <button
+                      type="button"
+                      onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
+                      disabled={currentLedgerPage >= totalLedgerPages}
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                     >
+                      {t('pagination_next')}
+                     </button>
+                    </>
+                   )}
+                  </div>
+                 </div>
+                );
+               })()}
               </>
              )}
             </div>
@@ -12042,6 +12190,26 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        <path d="M9 6V4h6v2" />
                       </svg>
                      </button>
+                     {!txn.isAdjustment && draft && (
+                      <button
+                       type="button"
+                       title={t('ledger_swap_parties')}
+                       onClick={() =>
+                        updateTransactionTableDraft(txn.id, {
+                         accountFromId: draft.accountToId,
+                         accountToId: draft.accountFromId,
+                         exchangeRateFrom: draft.exchangeRateTo,
+                         exchangeRateTo: draft.exchangeRateFrom,
+                        })
+                       }
+                       className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                      >
+                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M7 4 3 8l4 4M3 8h13.5" />
+                        <path d="M17 20l4-4-4-4m4 4H7.5" />
+                       </svg>
+                      </button>
+                     )}
                     </div>
                    ) : (
                     <div className="flex items-center gap-0.5">
@@ -13760,7 +13928,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            <button
             type="button"
             onClick={() => void onSubmitAdjustment()}
-            disabled={!adjustmentModal.amount || parseFloat(adjustmentModal.amount) <= 0 || (needsRate && !(effectiveRate > 0))}
+            disabled={!adjustmentModal.amount || parseFloat(adjustmentModal.amount) <= 0}
             className="rounded bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
             {adjustmentModal.editingId ? t('save_changes') : t('adjustment_add')}
