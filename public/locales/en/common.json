@@ -525,6 +525,7 @@
  "signup_payment_address_label": "Wallet address",
  "signup_payment_copy": "Copy",
  "signup_payment_copied": "Copied",
+ "toast_copied": "Copied",
  "signup_payment_network_warning": "Send only USDT on the {{network}} network. Sending other assets or using another network may lose your funds.",
  "signup_payment_not_configured": "Payment details are not available right now. Please contact support before paying.",
  "signup_proof_label": "Payment screenshot",

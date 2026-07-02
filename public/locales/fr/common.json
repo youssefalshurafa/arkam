@@ -524,6 +524,7 @@
  "signup_payment_address_label": "Adresse du portefeuille",
  "signup_payment_copy": "Copier",
  "signup_payment_copied": "Copié",
+ "toast_copied": "Copié",
  "signup_payment_network_warning": "Envoyez uniquement des USDT sur le réseau {{network}}. Envoyer d'autres actifs ou utiliser un autre réseau peut entraîner la perte de vos fonds.",
  "signup_payment_not_configured": "Les détails de paiement ne sont pas disponibles pour le moment. Veuillez contacter le support avant de payer.",
  "signup_proof_label": "Capture d'écran du paiement",

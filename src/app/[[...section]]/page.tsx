@@ -213,6 +213,11 @@ type LedgerTransactionDraft = {
  exchangeRateReversed?: boolean;
  commission: string;
  description: string;
+ charges: string;
+ chargesCurrencyId: number | null;
+ chargesPayer: string;
+ chargesExchangeRate: string;
+ chargesDescription: string;
 };
 
 type ClientLedgerEntry = {
@@ -564,6 +569,32 @@ function getStoredLedgerSettings(clientId: number | null | undefined): StoredLed
 // Each key maps to the color it was highlighted with, so changing the setting later
 // does not retroactively recolor already-highlighted rows.
 const ledgerHighlightsStorageKeyPrefix = 'arkam:ledger-highlights:';
+const txHighlightsStorageKey = 'arkam:tx-highlights';
+const txRowSettingsStorageKey = 'arkam:tx-row-settings';
+function getStoredTxHighlights(): Map<number, string> {
+ if (typeof window === 'undefined') return new Map();
+ try {
+  const raw = window.localStorage.getItem(txHighlightsStorageKey);
+  const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  if (!parsed || typeof parsed !== 'object') return new Map();
+  return new Map(Object.entries(parsed).map(([k, v]) => [Number(k), String(v)]));
+ } catch {
+  return new Map();
+ }
+}
+function getStoredTxRowSettings(): { rowClickHighlight: boolean; rowHighlightColor: string } {
+ if (typeof window === 'undefined') return { rowClickHighlight: true, rowHighlightColor: '#fde68a' };
+ try {
+  const raw = window.localStorage.getItem(txRowSettingsStorageKey);
+  const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  return {
+   rowClickHighlight: typeof parsed?.rowClickHighlight === 'boolean' ? parsed.rowClickHighlight : true,
+   rowHighlightColor: typeof parsed?.rowHighlightColor === 'string' ? parsed.rowHighlightColor : '#fde68a',
+  };
+ } catch {
+  return { rowClickHighlight: true, rowHighlightColor: '#fde68a' };
+ }
+}
 function getStoredLedgerHighlights(clientId: number | null | undefined): Map<string, string> {
  if (typeof window === 'undefined' || !clientId) return new Map();
  try {
@@ -1300,6 +1331,7 @@ function AuthenticatedHome() {
  const router = useRouter();
  const pathname = usePathname();
  const { language, setLanguage, isRTL } = useLanguage();
+ const numLocale = language === 'fr' ? 'fr-FR' : language;
  const { t } = useTranslation(language);
  const [section, setSection] = useState<Section>(() => getSectionFromPath(pathname).section);
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
@@ -1347,6 +1379,9 @@ function AuthenticatedHome() {
  const [ledgerRowHighlightColor, setLedgerRowHighlightColor] = useState('#fde68a');
  const [ledgerRowClickHighlight, setLedgerRowClickHighlight] = useState(true);
  const [highlightedLedgerRows, setHighlightedLedgerRows] = useState<Map<string, string>>(new Map());
+ const [txRowClickHighlight, setTxRowClickHighlight] = useState<boolean>(() => getStoredTxRowSettings().rowClickHighlight);
+ const [highlightedTxRows, setHighlightedTxRows] = useState<Map<number, string>>(() => getStoredTxHighlights());
+ const [txRowHighlightColor, setTxRowHighlightColor] = useState<string>(() => getStoredTxRowSettings().rowHighlightColor);
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
@@ -1382,6 +1417,7 @@ function AuthenticatedHome() {
  const [txFilterDateTo, setTxFilterDateTo] = useState('');
  const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
  const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
+ const [ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys] = useState<Set<string>>(new Set());
  const [isNewTransactionSectionOpen, setIsNewTransactionSectionOpen] = useState(false);
  const [isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen] = useState(false);
  const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
@@ -1471,6 +1507,7 @@ function AuthenticatedHome() {
  const [error, setError] = useState('');
  const [importSummary, setImportSummary] = useState('');
  const [toast, setToast] = useState('');
+ const [toastPos, setToastPos] = useState<{ x: number; y: number } | null>(null);
  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
  const [isImportingTransactions, setIsImportingTransactions] = useState(false);
  const [pendingImportData, setPendingImportData] = useState<PendingImportData | null>(null);
@@ -1949,6 +1986,38 @@ function AuthenticatedHome() {
   });
  }
 
+ function toggleTxRowClickHighlight() {
+  const next = !txRowClickHighlight;
+  setTxRowClickHighlight(next);
+  try {
+   const stored = JSON.parse(window.localStorage.getItem(txRowSettingsStorageKey) ?? '{}') as Record<string, unknown>;
+   window.localStorage.setItem(txRowSettingsStorageKey, JSON.stringify({ ...stored, rowClickHighlight: next }));
+  } catch { /* ignore */ }
+ }
+
+ function toggleTxRowHighlight(txnId: number) {
+  setHighlightedTxRows((current) => {
+   const next = new Map(current);
+   if (next.has(txnId)) {
+    next.delete(txnId);
+   } else {
+    next.set(txnId, txRowHighlightColor);
+   }
+   try {
+    window.localStorage.setItem(txHighlightsStorageKey, JSON.stringify(Object.fromEntries(next)));
+   } catch { /* ignore */ }
+   return next;
+  });
+ }
+
+ function updateTxRowHighlightColor(next: string) {
+  setTxRowHighlightColor(next);
+  try {
+   const stored = JSON.parse(window.localStorage.getItem(txRowSettingsStorageKey) ?? '{}') as Record<string, unknown>;
+   window.localStorage.setItem(txRowSettingsStorageKey, JSON.stringify({ ...stored, rowHighlightColor: next }));
+  } catch { /* ignore */ }
+ }
+
  function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('text/plain', column);
@@ -2012,6 +2081,11 @@ function AuthenticatedHome() {
    exchangeRate: rateStr,
    commission: String(isOutgoing ? transaction.commissionFrom : transaction.commissionTo),
    description: transaction.description,
+   charges: String(transaction.charges || 0),
+   chargesCurrencyId: transaction.chargesCurrencyId,
+   chargesPayer: transaction.chargesPayer,
+   chargesExchangeRate: String(transaction.chargesExchangeRate || 1),
+   chargesDescription: transaction.chargesDescription,
   };
  }
 
@@ -2034,6 +2108,11 @@ function AuthenticatedHome() {
    exchangeRateReversed: !!adj.exchangeRateReversed,
    commission: '0',
    description: adj.description,
+   charges: '0',
+   chargesCurrencyId: null,
+   chargesPayer: '',
+   chargesExchangeRate: '1',
+   chargesDescription: '',
   };
  }
 
@@ -2318,11 +2397,11 @@ function AuthenticatedHome() {
    commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
    exchangeRateFromReversed: draft.direction === 'outgoing' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
    exchangeRateToReversed: draft.direction === 'incoming' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
-   charges: transaction.charges,
-   chargesCurrencyId: transaction.chargesCurrencyId,
-   chargesPayer: transaction.chargesPayer,
-   chargesExchangeRate: transaction.chargesExchangeRate,
-   chargesDescription: transaction.chargesDescription,
+   charges: parseFloat(draft.charges) || 0,
+   chargesCurrencyId: draft.chargesCurrencyId,
+   chargesPayer: draft.chargesPayer,
+   chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
+   chargesDescription: draft.chargesDescription,
    description: draft.description,
    createdAt,
   };
@@ -2873,7 +2952,7 @@ function AuthenticatedHome() {
   const hours = Math.round(diffMs / 3600000);
   const days = Math.round(diffMs / 86400000);
 
-  const exact = new Date(lastBackupAt).toLocaleString(language, {
+  const exact = new Date(lastBackupAt).toLocaleString(numLocale, {
    year: 'numeric',
    month: 'short',
    day: 'numeric',
@@ -3949,11 +4028,14 @@ function AuthenticatedHome() {
   });
  }
 
- function onCopySelectedTransaction() {
+ function onCopySelectedTransaction(e: React.MouseEvent) {
   const ids = [...selectedTransactionIds];
   if (ids.length !== 1) return;
   const row = transactionTableRowMap.get(ids[0]);
-  if (row) setCopiedTransaction(row);
+  if (row) {
+   setCopiedTransaction(row);
+   showToast(t('toast_copied'), e);
+  }
  }
 
  function onPasteCopiedTransaction() {
@@ -4575,7 +4657,7 @@ function AuthenticatedHome() {
     header: t('amount'),
     isNum: true,
     cell: (e) =>
-     `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`,
+     `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`,
    },
    {
     key: 'exchangeRate',
@@ -4599,13 +4681,13 @@ function AuthenticatedHome() {
     header: t('net_change'),
     isNum: true,
     cell: (e) =>
-     e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+     e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    {
     key: 'runningBalance',
     header: t('running_balance'),
     isNum: true,
-    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
@@ -4705,7 +4787,7 @@ function AuthenticatedHome() {
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}</span></div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
@@ -4715,7 +4797,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  </tbody>
 </table>
 <div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(language, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}</span>
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(numLocale, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
 ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
@@ -4763,7 +4845,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
      ? `${esc(tx.clientToName)} <span style="color:#64748b">${esc(tx.accountToCurrencyCode)}</span>`
      : `<span class="muted">${esc(t('archive_no_receiver'))}</span>`;
     const amount = tx.amount
-     ? `${tx.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(tx.currencySymbol || tx.currencyCode)}` : ''}`
+     ? `${tx.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(tx.currencySymbol || tx.currencyCode)}` : ''}`
      : '-';
     return `<tr><td>${formatDateValue(tx.createdAt, pdfSettings.dateFormat)}</td><td>${from}</td><td>${to}</td><td class="num">${amount}</td><td>${esc(tx.archiveNote)}</td><td>${esc(tx.description)}</td></tr>`;
    })
@@ -4780,7 +4862,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   const totalsHtml = [...totals.values()]
    .map(
     (total) =>
-     `<span class="total-item">${total.total.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` <span style="color:#64748b">${esc(total.symbol || total.code)}</span>` : ''}</span>`,
+     `<span class="total-item">${total.total.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` <span style="color:#64748b">${esc(total.symbol || total.code)}</span>` : ''}</span>`,
    )
    .join('');
 
@@ -4988,8 +5070,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
  }, []);
  // Brief, auto-dismissing confirmation toast (shown ~1s) for quick create actions.
- const showToast = useCallback((message: string) => {
+ // Pass a MouseEvent to anchor the toast near the click; omit for the default bottom-center position.
+ const showToast = useCallback((message: string, e?: React.MouseEvent | MouseEvent) => {
   setToast(message);
+  setToastPos(e ? { x: e.clientX, y: e.clientY } : null);
   if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
   toastTimerRef.current = setTimeout(() => setToast(''), 1000);
  }, []);
@@ -5112,13 +5196,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     );
    }
    if (columns.amount) {
-    cells.push(txn.amount ? `${txn.amount.toLocaleString(language)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
+    cells.push(txn.amount ? `${txn.amount.toLocaleString(numLocale)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
    }
    if (columns.charges) {
     if (txn.isAdjustment || !txn.charges) {
      cells.push('-');
     } else {
-     const parts = [`${txn.charges.toLocaleString(language)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
+     const parts = [`${txn.charges.toLocaleString(numLocale)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
      if (txn.chargesPayer) parts.push(txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : '');
      if (txn.chargesDescription) parts.push(txn.chargesDescription);
      cells.push(parts.filter(Boolean).join(' — '));
@@ -6446,7 +6530,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             </div>
             <div className="flex items-center gap-3">
              <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-              {(account.startingBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              {(account.startingBalance ?? 0).toLocaleString(numLocale, { maximumFractionDigits: 2 })}
              </span>
              <svg
               width="14"
@@ -7636,31 +7720,29 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         </select>
        </div>
       ) : null}
-      {isSidebarCollapsed ? null : (
+      {isSidebarCollapsed ? (
+       <div className="flex justify-center px-2 pb-2 pt-1">
+        <select
+         value={language}
+         onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
+         title={t('select_language')}
+         className="w-full rounded border border-white/20 bg-white/10 px-1 py-1 text-center text-xs text-blue-100 outline-none transition focus:border-blue-300"
+        >
+         <option value="en" className="bg-white text-slate-900">EN</option>
+         <option value="ar" className="bg-white text-slate-900">عر</option>
+         <option value="fr" className="bg-white text-slate-900">FR</option>
+        </select>
+       </div>
+      ) : (
        <div className="px-3 pb-2 pt-1">
         <select
          value={language}
          onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
          className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
         >
-         <option
-          value="en"
-          className="bg-white text-slate-900"
-         >
-          {t('english')}
-         </option>
-         <option
-          value="ar"
-          className="bg-white text-slate-900"
-         >
-          {t('arabic')}
-         </option>
-         <option
-          value="fr"
-          className="bg-white text-slate-900"
-         >
-          {t('french')}
-         </option>
+         <option value="en" className="bg-white text-slate-900">{t('english')}</option>
+         <option value="ar" className="bg-white text-slate-900">{t('arabic')}</option>
+         <option value="fr" className="bg-white text-slate-900">{t('french')}</option>
         </select>
        </div>
       )}
@@ -7960,7 +8042,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          {(() => {
           const mainCode = mainCurrency?.code ?? '';
           const mainSymbol = mainCurrency?.symbol || mainCode;
-          const fmt = (n: number) => n.toLocaleString(language, { maximumFractionDigits: 2 });
+          const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 2 });
           const balanceColor = (n: number) => (n >= 0 ? 'text-emerald-600' : 'text-red-600');
 
           // Resolve a group's FX rate. Main currency is always 1; others use the
@@ -8519,14 +8601,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                  <span className="font-medium text-slate-500">{t('amount')}</span>
                  <span className="font-semibold text-slate-800">
-                  {selectedLedgerSummary.amountSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                  {selectedLedgerSummary.amountSum.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                   {selectedLedgerSummary.amountCurrencyCode ? ` ${selectedLedgerSummary.amountCurrencyCode}` : ''}
                  </span>
                 </span>
                 <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                  <span className="font-medium text-slate-500">{t('net_change')}</span>
                  <span className={`font-semibold ${selectedLedgerSummary.netChangeSum >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {selectedLedgerSummary.netChangeSum.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                  {selectedLedgerSummary.netChangeSum.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                   {selectedLedgerSummary.netCurrencyCode ? ` ${selectedLedgerSummary.netCurrencyCode}` : ''}
                  </span>
                 </span>
@@ -8619,6 +8701,22 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 </button>
                </>
               ) : null}
+              <button
+               type="button"
+               title={t('ledger_row_click_toggle')}
+               onClick={toggleLedgerRowClickHighlight}
+               aria-pressed={ledgerRowClickHighlight}
+               className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
+                ledgerRowClickHighlight
+                 ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100'
+                 : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+               }`}
+              >
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="m9 11-6 6v3h9l3-3" />
+                <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+               </svg>
+              </button>
               <button
                type="button"
                title={t('nav_settings')}
@@ -8714,7 +8812,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    {(ledgerStartingBalanceDrafts[ledger.accountId] !== undefined
                     ? parseFloat(normalizeDecimalInput(ledgerStartingBalanceDrafts[ledger.accountId])) || 0
                     : ledger.startingBalance
-                   ).toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                   ).toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                   </span>
                   <button
                    type="button"
@@ -8746,7 +8844,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
                 <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                 {ledger.currentBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                 {ledger.currentBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                 </p>
                 {(() => {
                  const pendingCount = ledger.entries.filter((e) => e.pendingRate).length;
@@ -9337,13 +9435,19 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                     <tr
                      draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
                      onClick={(e) => {
-                      if (!ledgerRowClickHighlight) return;
                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                      // Don't toggle the highlight while editing, or when the click lands on an
-                      // interactive element (buttons, links, inputs, the selection checkbox, etc.).
                       if (editingLedgerRowKeys.has(rowKey)) return;
                       if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
-                      toggleLedgerRowHighlight(rowKey);
+                      if (ledgerRowClickHighlight) {
+                       toggleLedgerRowHighlight(rowKey);
+                       return;
+                      }
+                      // Copy mode: copy the clicked cell's value (strip trailing currency code/symbol).
+                      const td = (e.target as HTMLElement).closest('td');
+                      if (!td || (td as HTMLTableCellElement).cellIndex < 2) return;
+                      const raw = (td as HTMLElement).innerText.trim();
+                      const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
+                      if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                      }}
                      onDragStart={(e) => {
                       if (!dragLedgerFromHandle.current) {
@@ -9387,7 +9491,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                       const isEditing = editingLedgerRowKeys.has(rowKey);
                       return {
                        ...(color ? { backgroundColor: color } : {}),
-                       ...(ledgerRowClickHighlight && !isEditing ? { cursor: HIGHLIGHT_PEN_CURSOR } : {}),
+                       ...(isEditing ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                       };
                      })()}
                      className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
@@ -9788,7 +9892,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                               />
                              ) : (
                               <>
-                               {entry.amount.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                               {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                               </>
                              )}
@@ -10091,7 +10195,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                               })()
                              ) : entry.commission ? (
                               <span className={entry.commission < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
-                               {entry.commission.toLocaleString(language, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}%
+                               {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}%
                               </span>
                              ) : (
                               <span className="text-slate-400">-</span>
@@ -10126,7 +10230,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                <span title={t('ledger_rate_pending')}>-</span>
                               ) : (
                                <>
-                                {liveNetChange.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                                {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                 {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                                </>
                               )}
@@ -10139,7 +10243,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                              key={column.key}
                              className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                             >
-                             {entry.runningBalance.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
+                             {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                              {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                             </td>
                            );
@@ -10197,35 +10301,131 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                       );
                      })()}
                     </tr>
-                    {entry.charges > 0 && (
-                     <tr
-                      key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}-charges`}
-                      className="border-t border-dashed border-slate-200 bg-amber-50/60"
-                     >
-                      <td
-                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3}
-                       className="px-4 py-2"
-                      >
-                       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                        <span className="font-medium text-amber-700">{t('charges')}</span>
-                        <span className="font-semibold">
-                         {entry.charges.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })}
-                         {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
-                        </span>
-                        {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
-                         <span className="text-slate-400">@ {formatRateValue(entry.chargesExchangeRate)}</span>
-                        )}
-                        {entry.chargesPayer && (
-                         <span className="text-slate-500">
-                          {t('charges_payer_placeholder')}:{' '}
-                          {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
-                         </span>
-                        )}
-                        {entry.chargesDescription && <span className="italic text-slate-500">"{entry.chargesDescription}"</span>}
-                       </div>
-                      </td>
-                     </tr>
-                    )}
+                    {(() => {
+                     const chargesRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
+                     const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+                     const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3;
+
+                     if (isEditingThisRow && chargesDraft && !entry.isAdjustment) {
+                      const isZero = parseFloat(chargesDraft.charges) === 0;
+                      const expanded = ledgerExpensesExpandedKeys.has(chargesRowKey);
+                      if (isZero && !expanded) {
+                       return (
+                        <tr key={`${ledger.accountId}-${entry.transactionId}-charges-edit`} className="border-t border-dashed border-slate-200 bg-slate-50/60">
+                         <td colSpan={colSpanCount} className="px-4 py-2">
+                          <button
+                           type="button"
+                           onClick={() => setLedgerExpensesExpandedKeys((prev) => new Set([...prev, chargesRowKey]))}
+                           className="text-sm text-blue-600 hover:underline"
+                          >
+                           + {t('add_expenses')}
+                          </button>
+                         </td>
+                        </tr>
+                       );
+                      }
+                      const draftChargesCurrencyCode = chargesDraft.chargesCurrencyId ? currencyMap.get(chargesDraft.chargesCurrencyId)?.code : undefined;
+                      const draftPayerAccountCurrencyCode =
+                       chargesDraft.chargesPayer === 'from' ? entry.counterpartyName && (clientAccounts.find((a) => a.id === (chargesDraft.direction === 'outgoing' ? chargesDraft.counterpartyAccountId : chargesDraft.ledgerAccountId))?.currencyCode) :
+                       chargesDraft.chargesPayer === 'to' ? (clientAccounts.find((a) => a.id === (chargesDraft.direction === 'outgoing' ? chargesDraft.ledgerAccountId : chargesDraft.counterpartyAccountId))?.currencyCode) :
+                       undefined;
+                      const showRate = !!(draftChargesCurrencyCode && draftPayerAccountCurrencyCode && draftChargesCurrencyCode !== draftPayerAccountCurrencyCode);
+                      return (
+                       <tr key={`${ledger.accountId}-${entry.transactionId}-charges-edit`} className="border-t border-dashed border-slate-200 bg-amber-50/60">
+                        <td colSpan={colSpanCount} className="px-4 py-2">
+                         <div className="flex flex-wrap items-start gap-2">
+                          <span className="mt-2 text-xs font-medium text-amber-700">{t('charges')}</span>
+                          <input
+                           type="text"
+                           inputMode="decimal"
+                           dir="ltr"
+                           value={formatAmountInput(chargesDraft.charges)}
+                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: normalizeDecimalInput(event.target.value) })}
+                           className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                           placeholder="0"
+                          />
+                          <select
+                           value={chargesDraft.chargesCurrencyId ?? ''}
+                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
+                           className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                          >
+                           <option value="">{t('currency')}</option>
+                           {enabledCurrencies.map((cur) => (
+                            <option key={cur.id} value={cur.id}>{cur.code}</option>
+                           ))}
+                          </select>
+                          <select
+                           value={chargesDraft.chargesPayer}
+                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer: event.target.value })}
+                           className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                          >
+                           <option value="">{t('charges_payer_placeholder')}</option>
+                           <option value="from">{entry.counterpartyName}</option>
+                           <option value="to">{ledger.currencyCode}</option>
+                           <option value="me_to_from">{t('charges_payer_me_to_name', { name: entry.counterpartyName })}</option>
+                           <option value="me_to_to">{t('charges_payer_me_to_name', { name: ledger.currencyCode })}</option>
+                           <option value="from_to_me">{t('charges_payer_name_to_me', { name: entry.counterpartyName })}</option>
+                           <option value="to_to_me">{t('charges_payer_name_to_me', { name: ledger.currencyCode })}</option>
+                          </select>
+                          {showRate && (
+                           <div className="flex items-center gap-1">
+                            <span className="text-xs text-slate-500">{draftChargesCurrencyCode} → {draftPayerAccountCurrencyCode}</span>
+                            <input
+                             type="text"
+                             inputMode="decimal"
+                             dir="ltr"
+                             value={chargesDraft.chargesExchangeRate}
+                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
+                             className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                             placeholder="1"
+                            />
+                           </div>
+                          )}
+                          <input
+                           type="text"
+                           value={chargesDraft.chargesDescription}
+                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: event.target.value })}
+                           className="field-sizing-content min-w-28 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                           placeholder={t('charges_description_placeholder')}
+                          />
+                         </div>
+                        </td>
+                       </tr>
+                      );
+                     }
+
+                     if (!isEditingThisRow && entry.charges > 0) {
+                      return (
+                       <tr
+                        key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}-charges`}
+                        className="border-t border-dashed border-slate-200 bg-amber-50/60"
+                       >
+                        <td colSpan={colSpanCount} className="px-4 py-2">
+                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                          <span className="font-medium text-amber-700">{t('charges')}</span>
+                          <span className="font-semibold">
+                           {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                           {entry.chargesCurrencyCode ? ` ${entry.chargesCurrencyCode}` : ''}
+                          </span>
+                          {entry.chargesExchangeRate !== 1 && entry.chargesCurrencyCode && (
+                           <span className="text-slate-400">@ {formatRateValue(entry.chargesExchangeRate)}</span>
+                          )}
+                          {entry.chargesPayer && (
+                           <span className="text-slate-500">
+                            {t('charges_payer_placeholder')}:{' '}
+                            {entry.isChargesPayerThisAccount ? <strong className="text-amber-700">{ledger.currencyCode}</strong> : entry.counterpartyName}
+                           </span>
+                          )}
+                          {entry.chargesDescription && <span className="italic text-slate-500">"{entry.chargesDescription}"</span>}
+                         </div>
+                        </td>
+                       </tr>
+                      );
+                     }
+
+                     return null;
+                    })()}
                    </Fragment>
                   ))}
                   {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) &&
@@ -11156,6 +11356,22 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             </button>
             <button
              type="button"
+             title={t('ledger_row_click_toggle')}
+             onClick={toggleTxRowClickHighlight}
+             aria-pressed={txRowClickHighlight}
+             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
+              txRowClickHighlight
+               ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100'
+               : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+             }`}
+            >
+             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="m9 11-6 6v3h9l3-3" />
+              <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+             </svg>
+            </button>
+            <button
+             type="button"
              onClick={openTransactionTableSettingsModal}
              title={t('transactions_more_settings')}
              className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
@@ -11182,7 +11398,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             {selectedTransactionIds.size === 1 ? (
              <button
               type="button"
-              onClick={onCopySelectedTransaction}
+              onClick={(e) => onCopySelectedTransaction(e)}
               title={t('copy_transaction')}
               aria-label={t('copy_transaction')}
               className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
@@ -11241,7 +11457,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               key={sum.code || 'none'}
               className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700"
              >
-              <span className="font-semibold text-slate-900">{sum.total.toLocaleString(language)}</span>
+              <span className="font-semibold text-slate-900">{sum.total.toLocaleString(numLocale)}</span>
               <span className="text-slate-500">{sum.symbol || sum.code}</span>
              </span>
             ))}
@@ -11659,6 +11875,28 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
                }`}
+               style={(() => {
+                const color = highlightedTxRows.get(txn.id);
+                const isEditingRow = editingRowIds.has(txn.id);
+                return {
+                 ...(color ? { backgroundColor: color } : {}),
+                 ...(isEditingRow ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
+                };
+               })()}
+               onClick={(e) => {
+                const isEditingRow = editingRowIds.has(txn.id);
+                if (isEditingRow) return;
+                if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+                if (txRowClickHighlight) {
+                 toggleTxRowHighlight(txn.id);
+                 return;
+                }
+                const td = (e.target as HTMLElement).closest('td');
+                if (!td || (td as HTMLTableCellElement).cellIndex < 2) return;
+                const raw = (td as HTMLElement).innerText.trim();
+                const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
+                if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
+               }}
               >
                {(() => {
                 const isEditingRow = editingRowIds.has(txn.id);
@@ -11920,13 +12158,13 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.description ? (
-                   <td className={`px-4 py-3 text-slate-600 whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
+                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                     {isEditingRow && draft ? (
                      <input
                       type="text"
                       value={draft.description}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      className="field-sizing-content min-w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                       placeholder={t('transaction_description_placeholder')}
                      />
                     ) : (
@@ -11985,7 +12223,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         dir="ltr"
                         value={draft.exchangeRateFrom}
                         onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
-                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         placeholder={t('transaction_exchange_rate')}
                        />
                       ) : null}
@@ -12125,7 +12363,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         dir="ltr"
                         value={draft.exchangeRateTo}
                         onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
-                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         placeholder={t('transaction_exchange_rate')}
                        />
                       ) : null}
@@ -12176,7 +12414,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        dir="ltr"
                        value={formatAmountInput(draft.amount)}
                        onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
-                       className="min-w-0 w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                       />
                       <select
                        value={draft.currencyId ?? ''}
@@ -12196,7 +12434,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      </div>
                     ) : (
                      <span className="whitespace-nowrap">
-                      <span className="font-semibold">{txn.amount.toLocaleString()}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
+                      <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
                      </span>
                     )}
                    </td>
@@ -12228,7 +12466,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                          dir="ltr"
                          value={formatAmountInput(draft.charges)}
                          onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
-                         className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                          placeholder="0"
                         />
                         <select
@@ -12275,7 +12513,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                             dir="ltr"
                             value={draft.chargesExchangeRate}
                             onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
-                            className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                            className="mt-1 field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                             placeholder="1"
                            />
                           </div>
@@ -12286,7 +12524,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                           type="text"
                           value={draft.chargesDescription}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
-                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className="field-sizing-content min-w-28 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder={t('charges_description_placeholder')}
                          />
                         </div>
@@ -12296,7 +12534,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                     ) : txn.charges ? (
                      <div>
                       <span className="whitespace-nowrap">
-                       <span>{txn.charges.toLocaleString()}</span>
+                       <span>{txn.charges.toLocaleString(numLocale)}</span>
                        {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
                       </span>
                       {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
@@ -12353,7 +12591,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                           dir="ltr"
                           value={draft.commissionFrom}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
-                          className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className="field-sizing-content min-w-12 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder="0"
                          />
                          <span className="text-xs text-slate-400">%</span>
@@ -12366,7 +12604,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                           dir="ltr"
                           value={draft.commissionTo}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
-                          className="min-w-0 w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className="field-sizing-content min-w-12 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder="0"
                          />
                          <span className="text-xs text-slate-400">%</span>
@@ -12468,7 +12706,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    key={total.code}
                    className="text-sm font-semibold text-slate-900"
                   >
-                   {total.total.toLocaleString()} <span className="font-normal text-slate-500">{total.symbol || total.code}</span>
+                   {total.total.toLocaleString(numLocale)} <span className="font-normal text-slate-500">{total.symbol || total.code}</span>
                   </span>
                  ))}
                 </div>
@@ -12662,6 +12900,14 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            <option value="month-day">MM/DD</option>
           </select>
          </div>
+        </div>
+       </div>
+
+       <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_row_highlight_color')}</p>
+        <div className="mt-2 flex items-center gap-2">
+         <input type="color" value={txRowHighlightColor} onChange={(event) => updateTxRowHighlightColor(event.target.value)} className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5" />
+         <span className="rounded px-3 py-1 text-xs font-semibold text-slate-700" style={{ backgroundColor: txRowHighlightColor }}>{txRowHighlightColor}</span>
         </div>
        </div>
       </div>
@@ -13475,7 +13721,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              />
              {amountValue > 0 && effectiveRate > 0 ? (
               <span className="text-xs text-slate-500">
-               = {convertedAmount.toLocaleString(language, { maximumFractionDigits: ledgerDecimals })} {accountCurrencyCode}
+               = {convertedAmount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {accountCurrencyCode}
               </span>
              ) : null}
             </div>
@@ -13619,7 +13865,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 ? ledgerEntryKey(endCandidates[endCandidates.length - 1])
                 : '';
             const entryLabel = (e: ClientLedgerEntry) =>
-             `${formatDateValue(e.createdAt, pdfSettings.dateFormat)} · ${e.counterpartyName} · ${e.direction === 'outgoing' ? '−' : '+'}${e.amount.toLocaleString(language, { maximumFractionDigits: pdfSettings.decimals })} ${e.currencySymbol || e.currencyCode}`;
+             `${formatDateValue(e.createdAt, pdfSettings.dateFormat)} · ${e.counterpartyName} · ${e.direction === 'outgoing' ? '−' : '+'}${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })} ${e.currencySymbol || e.currencyCode}`;
             return (
              <>
               {startCandidates.length > 0 ? (
@@ -13716,7 +13962,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               <div className="flex justify-between">
                <span className="text-slate-500">{t('export_pre_balance')}</span>
                <span className={`font-semibold ${preBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {preBalance.toLocaleString(language, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+                {preBalance.toLocaleString(numLocale, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
                </span>
               </div>
               <div className="mt-1 flex justify-between">
@@ -13851,38 +14097,23 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         ) : null}
        </div>
 
-       {/* Click a row to highlight it — toggle + colour */}
+       {/* Row highlight colour */}
        <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_row_highlight_color')}</p>
-        <button
-         type="button"
-         onClick={() => toggleLedgerRowClickHighlight()}
-         aria-pressed={ledgerRowClickHighlight}
-         className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-          ledgerRowClickHighlight ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-         }`}
-        >
-         {t('ledger_row_click_toggle')}
-        </button>
-        {ledgerRowClickHighlight ? (
-         <>
-          <p className="mt-2 text-xs text-slate-400">{t('ledger_row_highlight_hint')}</p>
-          <div className="mt-2 flex items-center gap-2">
-           <input
-            type="color"
-            value={ledgerRowHighlightColor}
-            onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
-            className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
-           />
-           <span
-            className="rounded px-3 py-1 text-xs font-semibold text-slate-700"
-            style={{ backgroundColor: ledgerRowHighlightColor }}
-           >
-            {ledgerRowHighlightColor}
-           </span>
-          </div>
-         </>
-        ) : null}
+        <div className="mt-2 flex items-center gap-2">
+         <input
+          type="color"
+          value={ledgerRowHighlightColor}
+          onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
+          className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+         />
+         <span
+          className="rounded px-3 py-1 text-xs font-semibold text-slate-700"
+          style={{ backgroundColor: ledgerRowHighlightColor }}
+         >
+          {ledgerRowHighlightColor}
+         </span>
+        </div>
        </div>
 
        {/* Column visibility */}
@@ -13934,24 +14165,28 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
    {/* Transient confirmation toast (auto-dismisses after ~1s) */}
    {toast ? (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4">
-     <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg">
-      <svg
-       width="16"
-       height="16"
-       viewBox="0 0 24 24"
-       fill="none"
-       stroke="currentColor"
-       strokeWidth="2.5"
-       strokeLinecap="round"
-       strokeLinejoin="round"
-       aria-hidden
-      >
-       <polyline points="20 6 9 17 4 12" />
-      </svg>
-      {toast}
+    toastPos ? (
+     <div
+      className="pointer-events-none fixed z-[80]"
+      style={{ left: toastPos.x, top: toastPos.y, transform: 'translate(-50%, calc(-100% - 10px))' }}
+     >
+      <div className="flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg whitespace-nowrap">
+       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <polyline points="20 6 9 17 4 12" />
+       </svg>
+       {toast}
+      </div>
      </div>
-    </div>
+    ) : (
+     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg">
+       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <polyline points="20 6 9 17 4 12" />
+       </svg>
+       {toast}
+      </div>
+     </div>
+    )
    ) : null}
 
    {/* Create Organization dialog */}
