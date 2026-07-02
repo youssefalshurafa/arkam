@@ -8371,14 +8371,22 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
                          <div className="flex items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-3 py-2">
                           <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
-                          <button
-                           type="button"
-                           title={t('overview_show_original')}
-                           onClick={toggleFlip}
-                           className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
-                          >
-                           {flipIcon}
-                          </button>
+                          <div className="flex items-center gap-2">
+                           <span
+                            className="text-xs text-blue-600"
+                            dir="ltr"
+                           >
+                            1 {group.currencyCode} = {overviewRates[group.currencyCode] ?? rate} {mainCode}
+                           </span>
+                           <button
+                            type="button"
+                            title={t('overview_show_original')}
+                            onClick={toggleFlip}
+                            className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
+                           >
+                            {flipIcon}
+                           </button>
+                          </div>
                          </div>
 
                          <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
@@ -8464,12 +8472,49 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
            <div className={panelClassName}>
             <h2 className="text-xl font-semibold">{t('overview_general_balance')}</h2>
-            <p
-             className={`mt-3 text-3xl font-bold ${balanceColor(grandTotal)}`}
-             dir="ltr"
-            >
-             {fmt(grandTotal)} {mainSymbol}
-            </p>
+
+            <div className="mt-4 overflow-hidden rounded border border-slate-200">
+             {orgEntries.map(([orgKey, orgGroups], orgIndex) => {
+              const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
+              // This org's balance in the main currency: sum of its currency groups
+              // converted at their rates. Groups with a missing rate are skipped.
+              let orgTotal = 0;
+              let orgRateMissing = false;
+              for (const group of orgGroups) {
+               const rate = rateOf(group);
+               if (Number.isNaN(rate)) {
+                orgRateMissing = true;
+                continue;
+               }
+               orgTotal += group.total * rate;
+              }
+              return (
+               <div
+                key={orgKey}
+                className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm ${orgIndex % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
+               >
+                <span className="truncate font-medium text-slate-700">{orgName}</span>
+                <span
+                 className={`shrink-0 font-semibold ${balanceColor(orgTotal)}`}
+                 dir="ltr"
+                >
+                 {fmt(orgTotal)} {mainSymbol}
+                 {orgRateMissing ? <span className="ml-1 text-amber-500">*</span> : null}
+                </span>
+               </div>
+              );
+             })}
+             <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-100 px-4 py-3">
+              <span className="text-sm font-bold uppercase tracking-wide text-slate-600">{t('overview_grand_total')}</span>
+              <span
+               className={`text-lg font-bold ${balanceColor(grandTotal)}`}
+               dir="ltr"
+              >
+               {fmt(grandTotal)} {mainSymbol}
+              </span>
+             </div>
+            </div>
+
             {anyRateMissing ? <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
            </div>
            </>
