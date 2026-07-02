@@ -362,7 +362,19 @@ async function inviteWorkspaceMember({ workspaceId, email, name, role, invitedBy
              WHERE workspace_members.role <> 'owner'`,
             [workspaceId, existing.id, normalizedRole],
         );
-        return { status: 'added', email: normalizedEmail };
+
+        // Notify them they now have access. We never have their existing plaintext
+        // password to send (it's stored as a bcrypt hash), so reuse the same
+        // set-password token flow as a brand-new invite.
+        const addedRawToken = crypto.randomBytes(32).toString('hex');
+        const addedTokenHash = hashResetToken(addedRawToken);
+        const addedExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        await runQuery(
+            'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
+            [generateId(), existing.id, addedTokenHash, addedExpiresAt],
+        );
+
+        return { status: 'added', email: normalizedEmail, rawToken: addedRawToken };
     }
 
     const userId = generateId();
@@ -843,15 +855,21 @@ async function renewSubscription({ userId, durationDays }) {
             throw new Error('User not found.');
         }
 
+        // The most recent request drives the fallback duration below, and is also
+        // the row the admin panel's status badge/buttons are keyed on — so it must
+        // be flipped back to 'approved' here too, or the UI keeps showing
+        // "rejected"/Reactivate forever even though the user's login gate (users.status)
+        // was already fixed.
+        const lastRequest = await fetchOne(
+            'SELECT id, duration_days AS "durationDays" FROM access_requests WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+            [userId],
+            client,
+        );
+
         // Use the explicit duration if provided, else the duration of the user's
         // most recent paid request, else fall back to 30 days.
         let days = Number(durationDays) > 0 ? Number(durationDays) : 0;
         if (!days) {
-            const lastRequest = await fetchOne(
-                'SELECT duration_days AS "durationDays" FROM access_requests WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
-                [userId],
-                client,
-            );
             days = Number(lastRequest?.durationDays) > 0 ? Number(lastRequest.durationDays) : 30;
         }
 
@@ -866,6 +884,14 @@ async function renewSubscription({ userId, durationDays }) {
             ['approved', startedAt, endsAt.toISOString(), userId],
             client,
         );
+
+        if (lastRequest?.id) {
+            await runQuery(
+                "UPDATE access_requests SET status = 'approved', reviewed_at = NOW() WHERE id = $1",
+                [lastRequest.id],
+                client,
+            );
+        }
 
         return { email: user.email || '', name: user.name || '', endsAt: endsAt.toISOString() };
     });

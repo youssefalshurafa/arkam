@@ -59,8 +59,9 @@ export async function POST(request: NextRequest, context: Context) {
    invitedByUserId: userId,
   });
 
-  // New teammate → email them a set-password link (best-effort).
-  if (result.status === 'invited' && result.rawToken) {
+  // New teammate, or an existing user added to this workspace → email them a
+  // set-password link so they know they now have access (best-effort).
+  if ((result.status === 'invited' || result.status === 'added') && result.rawToken) {
    try {
     const workspaces = await authDb.listUserWorkspaces(userId);
     const workspaceName = workspaces.find((w: { id: string; name: string }) => w.id === workspaceId)?.name || '';

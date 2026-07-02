@@ -35,7 +35,7 @@ const ALLOWED_PROOF_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 const panelClass = 'rounded-lg border border-gray-200 bg-white p-5 shadow-sm';
 
-export default function AccountSettings() {
+export default function AccountSettings({ hideSubscription = false }: { hideSubscription?: boolean }) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
 
@@ -269,6 +269,7 @@ export default function AccountSettings() {
  return (
   <section className="flex flex-col gap-6">
    {/* Subscription */}
+   {!hideSubscription && (
    <div className={panelClass}>
     <h2 className="text-2xl font-semibold">{t('account_subscription_title')}</h2>
     <p className="mt-2 text-sm text-slate-600">{t('account_subscription_desc')}</p>
@@ -405,6 +406,7 @@ export default function AccountSettings() {
      </form>
     )}
    </div>
+   )}
 
    {/* Change email */}
    <div className={panelClass}>
