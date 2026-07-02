@@ -2316,10 +2316,13 @@ function AuthenticatedHome() {
   setAdjustments((prev) => prev.map((adjustment) => (adjustment.id === input.id ? { ...adjustment, ...input } : adjustment)));
  }
 
- async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}) {
+ // Returns whether the save actually succeeded, so callers only exit edit mode /
+ // discard the draft on success — otherwise a validation or API failure would be
+ // silently swallowed and the row would revert as if nothing had been typed.
+ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}): Promise<boolean> {
   if (!accountingApi) {
    setError(t('error_bridge'));
-   return;
+   return false;
   }
 
   const draft = ledgerTransactionDrafts[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
@@ -2327,11 +2330,11 @@ function AuthenticatedHome() {
   // ── Adjustment (expense) save path ──────────────────────────────────────────
   if (draft?.isAdjustment && draft.adjustmentId) {
    const adj = adjustments.find((a) => a.id === draft.adjustmentId);
-   if (!adj) return;
+   if (!adj) return false;
    const amount = parseFloat(draft.amount);
    if (!Number.isFinite(amount) || amount <= 0) {
     setError(t('adjustment_amount_required'));
-    return;
+    return false;
    }
    const account = clientAccounts.find((a) => a.id === ledgerAccountId);
    const selectedCurrency = draft.currencyId ? currencyMap.get(draft.currencyId) : undefined;
@@ -2358,17 +2361,18 @@ function AuthenticatedHome() {
     setError('');
     applyAdjustmentPatch(updatedAdj);
     if (!skipReload) void loadData();
+    return true;
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
+    return false;
    }
-   return;
   }
 
   // ── Transaction save path ────────────────────────────────────────────────────
   const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
 
   if (!draft || !transaction) {
-   return;
+   return false;
   }
 
   const amount = parseFloat(draft.amount);
@@ -2382,9 +2386,14 @@ function AuthenticatedHome() {
   const exchangeRate = rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
   const commission = parseFloat(draft.commission) || 0;
 
-  if (!draft.counterpartyAccountId || !amount || draft.currencyId == null) {
+  // Senderless/receiverless transactions are a legitimate, permanent shape (no
+  // counterparty on that side) — only require a counterparty here if the
+  // transaction already had one, so editing (e.g. just the exchange rate)
+  // doesn't get blocked by a side that was never meant to be filled in.
+  const originalCounterpartyId = draft.direction === 'outgoing' ? transaction.accountToId : transaction.accountFromId;
+  if ((originalCounterpartyId != null && !draft.counterpartyAccountId) || !amount || draft.currencyId == null) {
    setError(t('transaction_required'));
-   return;
+   return false;
   }
 
   const createdAt = resolveCreatedAt(draft.createdDate, transaction.createdAt);
@@ -2417,8 +2426,10 @@ function AuthenticatedHome() {
    // no account jump). The batch saver passes skipReload and reconciles once at the end.
    applyTransactionPatch(payload);
    if (!skipReload) void loadData();
+   return true;
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
+   return false;
   }
  }
 
@@ -2490,28 +2501,34 @@ function AuthenticatedHome() {
   const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)).filter((k) => editingLedgerRowKeys.has(k));
   // Fire all saves in parallel so 100+ rows finish in one round-trip batch rather than sequentially.
   // Each save applies its optimistic patch, so the table is already up to date here.
-  await Promise.all(
-   keys.map((key) => {
+  const results = await Promise.all(
+   keys.map(async (key) => {
     const [txIdStr, accIdStr] = key.split(':');
-    return onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { skipReload: true });
+    const ok = await onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { skipReload: true });
+    return [key, ok] as const;
    }),
   );
-  // Exit edit mode immediately; reconcile with the server in the background.
+  // Only exit edit mode / discard the draft for rows that actually saved — a
+  // failed row stays open with its typed value intact and the error visible,
+  // instead of silently reverting as if the save had succeeded.
+  const succeededKeys = results.filter(([, ok]) => ok).map(([key]) => key);
   setEditingLedgerRowKeys((prev) => {
    const n = new Set(prev);
-   keys.forEach((k) => n.delete(k));
+   succeededKeys.forEach((k) => n.delete(k));
    return n;
   });
   setLedgerTransactionDrafts((prev) => {
    const n = { ...prev };
-   keys.forEach((k) => delete n[k]);
+   succeededKeys.forEach((k) => delete n[k]);
    return n;
   });
-  setEditAllLedgerAccountIds((prev) => {
-   const n = new Set(prev);
-   n.delete(ledger.accountId);
-   return n;
-  });
+  if (succeededKeys.length === keys.length) {
+   setEditAllLedgerAccountIds((prev) => {
+    const n = new Set(prev);
+    n.delete(ledger.accountId);
+    return n;
+   });
+  }
   void loadData();
  }
 
@@ -2525,7 +2542,9 @@ function AuthenticatedHome() {
    });
    return;
   }
-  await onSaveLedgerTransaction(transactionId, ledgerAccountId);
+  const success = await onSaveLedgerTransaction(transactionId, ledgerAccountId);
+  // On failure, keep edit mode and the draft intact so the user sees the error and can retry.
+  if (!success) return;
   setEditingLedgerRowKeys((prev) => {
    const n = new Set(prev);
    n.delete(draftKey);
@@ -4972,6 +4991,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   { key: 'archive', label: t('nav_archive'), icon: 'archive' },
  ];
 
+ // Editors (workspace role 'member') don't get destructive/billing controls.
+ const currentWorkspaceRole = userWorkspaces.find((workspace) => workspace.id === activeWorkspaceId)?.role ?? '';
+ const isEditorRole = currentWorkspaceRole === 'member';
+
  const settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }> = [
   { key: 'account', label: t('account_title'), icon: 'auth' },
   { key: 'team', label: t('team_title'), icon: 'clients' },
@@ -4981,7 +5004,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
-  { key: 'danger', label: t('settings_danger_title'), icon: 'settings' },
+  ...(isEditorRole ? [] : [{ key: 'danger' as const, label: t('settings_danger_title'), icon: 'settings' as IconName }]),
  ];
 
  const getLocalizedCurrencyName = (currencyCode: string, fallbackName: string) => {
@@ -5699,7 +5722,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    currencySymbol: group.currencySymbol,
    isMain: group.isMain,
    clients: Array.from(group.clientMap.values())
-    .filter((c) => c.balance !== 0)
+    // Balances within ±100 are treated as negligible/settled and hidden from the overview list.
+    .filter((c) => Math.abs(c.balance) > 100)
     .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
    total: group.total,
   }));
@@ -7677,12 +7701,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       </button>
      </div>
     ) : null}
-    {settingsTab === 'account' ? <AccountSettings /> : null}
+    {settingsTab === 'account' ? <AccountSettings hideSubscription={isEditorRole} /> : null}
     {settingsTab === 'team' ? <TeamSettings /> : null}
     {settingsTab === 'database' ? databaseSection : null}
     {settingsTab === 'language' ? languageSection : null}
     {settingsTab === 'pdf' ? pdfSettingsSection : null}
-    {settingsTab === 'danger' ? dangerSection : null}
+    {settingsTab === 'danger' && !isEditorRole ? dangerSection : null}
     {settingsTab === 'clients' ? clientsSection : null}
     {settingsTab === 'organizations' ? organizationsSection : null}
     {settingsTab === 'currencies' ? currenciesSection : null}
@@ -8140,7 +8164,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          {(() => {
           const mainCode = mainCurrency?.code ?? '';
           const mainSymbol = mainCurrency?.symbol || mainCode;
-          const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 2 });
+          const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 0 });
           const balanceColor = (n: number) => (n >= 0 ? 'text-emerald-600' : 'text-red-600');
 
           // Resolve a group's FX rate. Main currency is always 1; others use the
@@ -8178,6 +8202,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           });
 
           return (
+           <>
            <div className={panelClassName}>
             <div className="flex flex-wrap items-center justify-between gap-3">
              <h2 className="text-xl font-semibold">{t('overview_balances_title')}</h2>
@@ -8209,8 +8234,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
             {!overviewOrgBalances.hasAccounts ? (
              <p className="mt-4 text-sm text-slate-600">{t('overview_no_balances')}</p>
             ) : (
-             <div className="mt-5 space-y-6">
-              {orgEntries.map(([orgKey, orgGroups]) => {
+             <div className="mt-5 divide-y-2 divide-slate-300">
+              {orgEntries.map(([orgKey, orgGroups], orgIndex) => {
                const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
                const showMerged = orgGroups.length >= 2;
                // Merged main-currency total for this org (sum of its currency cards).
@@ -8239,8 +8264,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
 
                return (
-                <div key={orgKey}>
-                 <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{orgName}</h3>
+                <div
+                 key={orgKey}
+                 className={`-mx-5 px-5 pb-6 pt-6 last:pb-0 first:pt-0 ${orgIndex % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
+                >
+                 <h3 className="mb-3 text-lg font-bold uppercase tracking-wide text-slate-700">{orgName}</h3>
                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {orgGroups
                    .filter((group) => group.total !== 0)
@@ -8343,14 +8371,22 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                         <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
                          <div className="flex items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-3 py-2">
                           <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
-                          <button
-                           type="button"
-                           title={t('overview_show_original')}
-                           onClick={toggleFlip}
-                           className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
-                          >
-                           {flipIcon}
-                          </button>
+                          <div className="flex items-center gap-2">
+                           <span
+                            className="text-xs text-blue-600"
+                            dir="ltr"
+                           >
+                            1 {group.currencyCode} = {overviewRates[group.currencyCode] ?? rate} {mainCode}
+                           </span>
+                           <button
+                            type="button"
+                            title={t('overview_show_original')}
+                            onClick={toggleFlip}
+                            className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
+                           >
+                            {flipIcon}
+                           </button>
+                          </div>
                          </div>
 
                          <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
@@ -8389,7 +8425,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   {showMerged ? (
                    <div className="flex flex-col rounded border-2 border-blue-200 bg-blue-50/50">
                     <div className="border-b border-blue-200 bg-blue-100/60 px-3 py-2">
-                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">{mainCurrency?.name ?? mainCode}</p>
+                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                      {t('overview_merged_total', { org: orgName, currency: getLocalizedCurrencyName(mainCurrency?.code ?? mainCode, mainCurrency?.name ?? mainCode) })}
+                     </p>
                     </div>
                     {mergedReady ? (
                      <>
@@ -8431,6 +8469,55 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              </div>
             )}
            </div>
+
+           <div className={panelClassName}>
+            <h2 className="text-xl font-semibold">{t('overview_general_balance')}</h2>
+
+            <div className="mt-4 overflow-hidden rounded border border-slate-200">
+             {orgEntries.map(([orgKey, orgGroups], orgIndex) => {
+              const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
+              // This org's balance in the main currency: sum of its currency groups
+              // converted at their rates. Groups with a missing rate are skipped.
+              let orgTotal = 0;
+              let orgRateMissing = false;
+              for (const group of orgGroups) {
+               const rate = rateOf(group);
+               if (Number.isNaN(rate)) {
+                orgRateMissing = true;
+                continue;
+               }
+               orgTotal += group.total * rate;
+              }
+              return (
+               <div
+                key={orgKey}
+                className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm ${orgIndex % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
+               >
+                <span className="truncate font-medium text-slate-700">{orgName}</span>
+                <span
+                 className={`shrink-0 font-semibold ${balanceColor(orgTotal)}`}
+                 dir="ltr"
+                >
+                 {fmt(orgTotal)} {mainSymbol}
+                 {orgRateMissing ? <span className="ml-1 text-amber-500">*</span> : null}
+                </span>
+               </div>
+              );
+             })}
+             <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-100 px-4 py-3">
+              <span className="text-sm font-bold uppercase tracking-wide text-slate-600">{t('overview_grand_total')}</span>
+              <span
+               className={`text-lg font-bold ${balanceColor(grandTotal)}`}
+               dir="ltr"
+              >
+               {fmt(grandTotal)} {mainSymbol}
+              </span>
+             </div>
+            </div>
+
+            {anyRateMissing ? <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
+           </div>
+           </>
           );
          })()}
         </section>

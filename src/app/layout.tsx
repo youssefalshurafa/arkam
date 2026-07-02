@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono, Noto_Sans_Arabic } from 'next/font/google';
+import { Cairo } from 'next/font/google';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { AuthSessionProvider } from '@/components/providers/AuthSessionProvider';
 import { DialogHost } from '@/components/ui/AppDialog';
@@ -11,19 +11,10 @@ export const metadata: Metadata = {
  description: 'Arkam — accounting & bookkeeping.',
 };
 
-const geistSans = Geist({
- variable: '--font-geist-sans',
- subsets: ['latin'],
-});
-
-const geistMono = Geist_Mono({
- variable: '--font-geist-mono',
- subsets: ['latin'],
-});
-
-const notoSansArabic = Noto_Sans_Arabic({
- variable: '--font-arabic-sans',
- subsets: ['arabic'],
+// Cairo covers both Latin and Arabic, so it's the single app-wide font.
+const cairo = Cairo({
+ variable: '--font-cairo',
+ subsets: ['latin', 'arabic'],
 });
 
 export default function RootLayout({
@@ -32,7 +23,7 @@ export default function RootLayout({
  children: React.ReactNode;
 }>) {
  return (
-  <html className={`${geistSans.variable} ${geistMono.variable} ${notoSansArabic.variable} h-full antialiased`}>
+  <html className={`${cairo.variable} h-full antialiased`}>
    <body className="min-h-full flex flex-col">
     <AuthSessionProvider>
      <LanguageProvider>

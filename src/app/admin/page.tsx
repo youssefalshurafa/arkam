@@ -106,6 +106,128 @@ function Avatar({ user }: { user: AdminUser }) {
  return <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-semibold shrink-0">{getInitials(user.name)}</div>;
 }
 
+function teamRoleLabel(role: string) {
+ switch (role) {
+  case 'owner':
+   return 'Owner';
+  case 'admin':
+   return 'Admin';
+  case 'member':
+   return 'Editor';
+  case 'viewer':
+   return 'Reviewer';
+  default:
+   return role;
+ }
+}
+
+function UserRow({
+ user,
+ nested,
+ roleInTeam,
+ expandedUser,
+ setExpandedUser,
+ setPendingDelete,
+}: {
+ user: AdminUser;
+ nested: boolean;
+ roleInTeam?: string;
+ expandedUser: string | null;
+ setExpandedUser: React.Dispatch<React.SetStateAction<string | null>>;
+ setPendingDelete: (user: AdminUser) => void;
+}) {
+ return (
+  <React.Fragment key={user.id}>
+   <tr className={`hover:bg-gray-50 transition-colors ${nested ? 'bg-gray-50/50' : ''}`}>
+    <td className="px-4 py-3">
+     <div className={`flex items-center gap-3 ${nested ? 'pl-8' : ''}`}>
+      {nested && <span className="text-gray-300">↳</span>}
+      <Avatar user={user} />
+      <div>
+       <div className="font-medium text-gray-900 flex items-center gap-1.5">
+        {user.name}
+        {roleInTeam && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500">{teamRoleLabel(roleInTeam)}</span>}
+       </div>
+       <div className="text-xs text-gray-400">{user.email}</div>
+      </div>
+     </div>
+    </td>
+    <td className="px-4 py-3 hidden md:table-cell">
+     <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+       user.authProvider === 'oauth' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'
+      }`}
+     >
+      {user.authProvider === 'oauth' ? 'Google' : 'Password'}
+     </span>
+    </td>
+    <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{formatDate(user.createdAt)}</td>
+    <td className="px-4 py-3 text-center">
+     {user.workspaceCount > 0 ? (
+      <button
+       onClick={() => setExpandedUser((prev) => (prev === user.id ? null : user.id))}
+       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+      >
+       {user.workspaceCount}
+       <svg
+        width="10"
+        height="10"
+        viewBox="0 0 10 10"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className={`transition-transform ${expandedUser === user.id ? 'rotate-180' : ''}`}
+       >
+        <path
+         d="M2 3.5L5 6.5L8 3.5"
+         stroke="currentColor"
+         strokeWidth="1.2"
+         strokeLinecap="round"
+         strokeLinejoin="round"
+        />
+       </svg>
+      </button>
+     ) : (
+      <span className="text-gray-300">—</span>
+     )}
+    </td>
+    <td className="px-4 py-3 text-right">
+     <button
+      onClick={() => setPendingDelete(user)}
+      className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+     >
+      Delete
+     </button>
+    </td>
+   </tr>
+   {expandedUser === user.id && (
+    <tr
+     key={`${user.id}-workspaces`}
+     className="bg-indigo-50/40"
+    >
+     <td
+      colSpan={5}
+      className="px-4 py-3"
+     >
+      <div className="pl-11 flex flex-wrap gap-2">
+       {user.workspaces.map((ws) => (
+        <div
+         key={ws.id}
+         className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs"
+        >
+         <span className="text-gray-700 font-medium">{ws.name}</span>
+         <span className="text-gray-400">/</span>
+         <span className="text-gray-400">{ws.slug}</span>
+         <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs ${ws.isOwner ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{ws.role}</span>
+        </div>
+       ))}
+      </div>
+     </td>
+    </tr>
+   )}
+  </React.Fragment>
+ );
+}
+
 function StatCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
  return (
   <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-1">
@@ -331,7 +453,7 @@ function AccessRequestsPanel({ requests, loading, reviewingId, onRefresh, onRevi
              disabled={reviewingId === request.id}
              className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
             >
-             Revoke
+             Deactivate
             </button>
            </div>
           ) : (
@@ -492,7 +614,47 @@ export default function AdminPage() {
   }
  };
 
- const filtered = users.filter((u) => u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()));
+ // Group users so teammates who don't own any workspace of their own are nested
+ // under the owner of the workspace they belong to, instead of appearing as
+ // separate top-level rows.
+ const workspaceOwnerId = new Map<string, string>();
+ for (const u of users) {
+  for (const ws of u.workspaces) {
+   if (ws.isOwner) workspaceOwnerId.set(ws.id, u.id);
+  }
+ }
+
+ const childrenByParentId = new Map<string, Array<{ user: AdminUser; role: string }>>();
+ const nestedChildIds = new Set<string>();
+ for (const u of users) {
+  const ownsAny = u.workspaces.some((ws) => ws.isOwner);
+  if (ownsAny) continue;
+  for (const ws of u.workspaces) {
+   const ownerId = workspaceOwnerId.get(ws.id);
+   if (ownerId && ownerId !== u.id) {
+    const arr = childrenByParentId.get(ownerId) ?? [];
+    arr.push({ user: u, role: ws.role });
+    childrenByParentId.set(ownerId, arr);
+    nestedChildIds.add(u.id);
+    break;
+   }
+  }
+ }
+
+ const searchLower = search.toLowerCase();
+ const matchesSearch = (u: AdminUser) => u.name.toLowerCase().includes(searchLower) || u.email.toLowerCase().includes(searchLower);
+
+ const userGroups = users
+  .filter((u) => !nestedChildIds.has(u.id))
+  .map((user) => {
+   const children = childrenByParentId.get(user.id) ?? [];
+   const parentMatches = !search || matchesSearch(user);
+   const visibleChildren = parentMatches ? children : children.filter((c) => matchesSearch(c.user));
+   return { user, children: visibleChildren, include: parentMatches || children.some((c) => matchesSearch(c.user)) };
+  })
+  .filter((g) => g.include);
+
+ const visibleUserCount = userGroups.reduce((sum, g) => sum + 1 + g.children.length, 0);
 
  const stats: Stats = {
   totalUsers: users.length,
@@ -626,7 +788,7 @@ export default function AdminPage() {
       Refresh
      </button>
      <span className="text-xs text-gray-400 ml-auto">
-      {filtered.length} of {users.length} users
+      {visibleUserCount} of {users.length} users
      </span>
     </div>
 
@@ -636,7 +798,7 @@ export default function AdminPage() {
       <div className="py-16 text-center text-sm text-gray-400">Loading users…</div>
      ) : error ? (
       <div className="py-16 text-center text-sm text-red-500">{error}</div>
-     ) : filtered.length === 0 ? (
+     ) : userGroups.length === 0 ? (
       <div className="py-16 text-center text-sm text-gray-400">No users found.</div>
      ) : (
       <table className="w-full text-sm">
@@ -650,90 +812,26 @@ export default function AdminPage() {
         </tr>
        </thead>
        <tbody className="divide-y divide-gray-100">
-        {filtered.map((user) => (
+        {userGroups.map(({ user, children }) => (
          <React.Fragment key={user.id}>
-          <tr className="hover:bg-gray-50 transition-colors">
-           <td className="px-4 py-3">
-            <div className="flex items-center gap-3">
-             <Avatar user={user} />
-             <div>
-              <div className="font-medium text-gray-900">{user.name}</div>
-              <div className="text-xs text-gray-400">{user.email}</div>
-             </div>
-            </div>
-           </td>
-           <td className="px-4 py-3 hidden md:table-cell">
-            <span
-             className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-              user.authProvider === 'oauth' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'
-             }`}
-            >
-             {user.authProvider === 'oauth' ? 'Google' : 'Password'}
-            </span>
-           </td>
-           <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{formatDate(user.createdAt)}</td>
-           <td className="px-4 py-3 text-center">
-            {user.workspaceCount > 0 ? (
-             <button
-              onClick={() => setExpandedUser((prev) => (prev === user.id ? null : user.id))}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-             >
-              {user.workspaceCount}
-              <svg
-               width="10"
-               height="10"
-               viewBox="0 0 10 10"
-               fill="none"
-               xmlns="http://www.w3.org/2000/svg"
-               className={`transition-transform ${expandedUser === user.id ? 'rotate-180' : ''}`}
-              >
-               <path
-                d="M2 3.5L5 6.5L8 3.5"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-               />
-              </svg>
-             </button>
-            ) : (
-             <span className="text-gray-300">—</span>
-            )}
-           </td>
-           <td className="px-4 py-3 text-right">
-            <button
-             onClick={() => setPendingDelete(user)}
-             className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-            >
-             Delete
-            </button>
-           </td>
-          </tr>
-          {expandedUser === user.id && (
-           <tr
-            key={`${user.id}-workspaces`}
-            className="bg-indigo-50/40"
-           >
-            <td
-             colSpan={5}
-             className="px-4 py-3"
-            >
-             <div className="pl-11 flex flex-wrap gap-2">
-              {user.workspaces.map((ws) => (
-               <div
-                key={ws.id}
-                className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-xs"
-               >
-                <span className="text-gray-700 font-medium">{ws.name}</span>
-                <span className="text-gray-400">/</span>
-                <span className="text-gray-400">{ws.slug}</span>
-                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-xs ${ws.isOwner ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{ws.role}</span>
-               </div>
-              ))}
-             </div>
-            </td>
-           </tr>
-          )}
+          <UserRow
+           user={user}
+           nested={false}
+           expandedUser={expandedUser}
+           setExpandedUser={setExpandedUser}
+           setPendingDelete={setPendingDelete}
+          />
+          {children.map(({ user: child, role }) => (
+           <UserRow
+            key={child.id}
+            user={child}
+            nested
+            roleInTeam={role}
+            expandedUser={expandedUser}
+            setExpandedUser={setExpandedUser}
+            setPendingDelete={setPendingDelete}
+           />
+          ))}
          </React.Fragment>
         ))}
        </tbody>

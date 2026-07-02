@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(grep -nE '>[A-Za-z][A-Za-z ]{3,}<|\"[A-Z][a-z]+ [A-Za-z ]+\"|title=\"[A-Za-z]')"
+    ]
+  }
+}
