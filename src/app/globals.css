@@ -15,22 +15,22 @@
 @theme inline {
  --color-background: var(--background);
  --color-foreground: var(--foreground);
- --font-sans: var(--font-geist-sans);
- --font-mono: var(--font-geist-mono);
- --font-arabic: var(--font-arabic-sans);
+ --font-sans: var(--font-cairo);
+ --font-mono: var(--font-cairo);
+ --font-arabic: var(--font-cairo);
 }
 
 body {
  min-height: 100vh;
  background: var(--background);
  color: var(--foreground);
- font-family: var(--font-geist-sans), 'Segoe UI', Tahoma, sans-serif;
+ font-family: var(--font-cairo), 'Segoe UI', Tahoma, sans-serif;
  text-rendering: optimizeLegibility;
  font-size: 14px;
 }
 
 html[lang='ar'] body {
- font-family: var(--font-arabic), 'Segoe UI', Tahoma, sans-serif;
+ font-family: var(--font-cairo), 'Segoe UI', Tahoma, sans-serif;
  font-size: 13px;
 }
 
