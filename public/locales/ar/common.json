@@ -525,6 +525,7 @@
  "signup_payment_address_label": "عنوان المحفظة",
  "signup_payment_copy": "نسخ",
  "signup_payment_copied": "تم النسخ",
+ "toast_copied": "تم النسخ",
  "signup_payment_network_warning": "أرسل USDT فقط عبر شبكة {{network}}. إرسال أصول أخرى أو استخدام شبكة أخرى قد يؤدي إلى فقدان أموالك.",
  "signup_payment_not_configured": "تفاصيل الدفع غير متوفرة حالياً. يرجى التواصل مع الدعم قبل الدفع.",
  "signup_proof_label": "لقطة شاشة الدفع",
