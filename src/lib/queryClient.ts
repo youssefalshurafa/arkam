@@ -32,6 +32,12 @@ export function createQueryClient(): QueryClient {
  */
 export const queryKeys = {
  all: ['accounting'] as const,
+ // Bundled workspace snapshot (all collections fetched together in one round-trip,
+ // mirroring the app's original single loadData(); a mutation on any entity can
+ // affect balances across the others, so they invalidate/refetch as a unit).
+ // Scoped by user id so a different account signing in on the same browser gets a
+ // distinct cache entry and can never read the previous user's in-memory data.
+ workspaceData: (userId: string | null | undefined) => [...queryKeys.all, 'workspaceData', userId ?? '__anon__'] as const,
  organizations: () => [...queryKeys.all, 'organizations'] as const,
  clients: () => [...queryKeys.all, 'clients'] as const,
  currencies: () => [...queryKeys.all, 'currencies'] as const,

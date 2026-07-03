@@ -91,18 +91,30 @@ export function saveOverviewRates(rates: Record<string, string>) {
 }
 export const dataCacheStorageKey = 'arkam:data-cache';
 
-export function readDataCache(): DataCache | null {
+// The snapshot is tagged with the id of the user who wrote it. readDataCache only
+// returns it to that same user, so another account signing in on the same browser
+// can never read the previous user's financial data from the cache — regardless of
+// any purge timing. This is the structural guard behind the leak fix.
+type StoredDataCache = DataCache & { ownerId: string | null };
+
+export function readDataCache(ownerId: string | null | undefined): DataCache | null {
  try {
   const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem(dataCacheStorageKey) : null;
-  return raw ? (JSON.parse(raw) as DataCache) : null;
+  if (!raw) return null;
+  const parsed = JSON.parse(raw) as StoredDataCache;
+  // Only hand back a cache that belongs to the current user.
+  if (!ownerId || parsed.ownerId !== ownerId) return null;
+  delete (parsed as { ownerId?: unknown }).ownerId;
+  return parsed;
  } catch {
   return null;
  }
 }
 
-export function saveDataCache(data: DataCache) {
+export function saveDataCache(data: DataCache, ownerId: string | null | undefined) {
  try {
-  window.sessionStorage.setItem(dataCacheStorageKey, JSON.stringify(data));
+  const payload: StoredDataCache = { ...data, ownerId: ownerId ?? null };
+  window.sessionStorage.setItem(dataCacheStorageKey, JSON.stringify(payload));
  } catch {
   /* ignore — cache is best-effort */
  }

@@ -30,7 +30,6 @@ import type {
  ClientLedgerEntry,
  ClientAdjustment,
  ClientAccountLedger,
- OverviewBalanceGroup,
  ImportedTransactionRow,
  ImportMappingState,
  PendingImportData,
@@ -38,7 +37,6 @@ import type {
  ImportRowOverride,
  LedgerColumnKey,
  TransactionColumnKey,
- DataCache,
  PdfColVisibility,
  StoredLedgerSettings,
  TransactionTableSettings,
@@ -51,10 +49,6 @@ import {
  getStoredClientsOrgOrder,
  getStoredLedgerAccountId,
  setStoredLedgerAccountId,
- getStoredOverviewRates,
- saveOverviewRates,
- readDataCache,
- saveDataCache,
  getStoredLedgerColumnVisibility,
  getStoredLedgerSettings,
  getStoredTxHighlights,
@@ -96,6 +90,11 @@ import {
  DEFAULT_IMPORT_ROW_OVERRIDE,
 } from '@/features/transactions/utils/import';
 import { SkBar, SkTablePanel, SK_TX, SK_LEDGER, SK_CLIENTS, SK_CURRENCIES } from '@/shared/components/skeletons/Skeletons';
+import { useWorkspaceData, useWorkspaceCache } from '@/features/workspace/hooks/useWorkspaceData';
+import { useQueryClient } from '@tanstack/react-query';
+import { ensureCacheOwner } from '@/shared/lib/cacheOwner';
+import { panelClassName, mutedPanelClassName } from '@/shared/styles';
+import OverviewSection from '@/features/overview/components/OverviewSection';
 
 const emptyOrganizationForm = (): OrganizationForm => ({
  name: '',
@@ -136,6 +135,15 @@ const emptyTransactionForm = (): TransactionForm => ({
  descriptionTo: '',
 });
 
+// Stable empty arrays so the derived server-data views keep a constant identity
+// while the workspace query is still loading (avoids needless downstream re-memos).
+const EMPTY_ORGANIZATIONS: Organization[] = [];
+const EMPTY_CLIENTS: Client[] = [];
+const EMPTY_CURRENCIES: Currency[] = [];
+const EMPTY_TRANSACTIONS: Transaction[] = [];
+const EMPTY_ADJUSTMENTS: ClientAdjustment[] = [];
+const EMPTY_CLIENT_ACCOUNTS: ClientAccount[] = [];
+
 function AuthenticatedHome() {
  const router = useRouter();
  const pathname = usePathname();
@@ -149,10 +157,31 @@ function AuthenticatedHome() {
  });
  const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
- // Read once so all data-state initializers share one JSON parse
- const [_initialCache] = useState<DataCache | null>(() => readDataCache());
- const [organizations, setOrganizations] = useState<Organization[]>(() => _initialCache?.organizations ?? []);
- const [clients, setClients] = useState<Client[]>(() => _initialCache?.clients ?? []);
+ // SECURITY: browser caches are per-browser, not per-account. Before the workspace
+ // query reads any cached data, purge everything left by a different user on this
+ // browser (and clear the in-memory query cache) so one user's data can never bleed
+ // into another's on a shared browser. Runs once per mount, synchronously, ahead of
+ // useWorkspaceData's cache read below.
+ const { data: authSession } = useSession();
+ const sessionUserId = authSession?.user?.id ?? null;
+ const queryClient = useQueryClient();
+ useState(() => {
+  if (ensureCacheOwner(sessionUserId)) {
+   queryClient.removeQueries();
+  }
+  return null;
+ });
+
+ // Server data is owned by a single TanStack Query cache (useWorkspaceData). The
+ // arrays below are derived views; the setX shims write to that cache so the
+ // existing optimistic-update sites keep working, and loadData() maps to a refetch.
+ const workspaceQuery = useWorkspaceData(sessionUserId);
+ const workspaceData = workspaceQuery.data;
+ const { invalidate: invalidateWorkspace, setters: workspaceSetters } = useWorkspaceCache(sessionUserId);
+ const { setOrganizations, setClients, setCurrencies, setTransactions, setAdjustments, setClientAccounts } = workspaceSetters;
+ const isLoading = workspaceQuery.isPending;
+ const organizations = workspaceData?.organizations ?? EMPTY_ORGANIZATIONS;
+ const clients = workspaceData?.clients ?? EMPTY_CLIENTS;
  const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
  const [clientSearch, setClientSearch] = useState('');
  const [clientsPage, setClientsPage] = useState(1);
@@ -161,19 +190,15 @@ function AuthenticatedHome() {
  const [clientsOrgOrder, setClientsOrgOrder] = useState<string[]>(() => getStoredClientsOrgOrder());
  const [draggedOrgKey, setDraggedOrgKey] = useState<string | null>(null);
  const [dragOverOrgKey, setDragOverOrgKey] = useState<string | null>(null);
- const [currencies, setCurrencies] = useState<Currency[]>(() => _initialCache?.currencies ?? []);
- const [transactions, setTransactions] = useState<Transaction[]>(() => _initialCache?.transactions ?? []);
- const [adjustments, setAdjustments] = useState<ClientAdjustment[]>(() => _initialCache?.adjustments ?? []);
- const [clientAccounts, setClientAccounts] = useState<ClientAccount[]>(() => _initialCache?.clientAccounts ?? []);
+ const currencies = workspaceData?.currencies ?? EMPTY_CURRENCIES;
+ const transactions = workspaceData?.transactions ?? EMPTY_TRANSACTIONS;
+ const adjustments = workspaceData?.adjustments ?? EMPTY_ADJUSTMENTS;
+ const clientAccounts = workspaceData?.clientAccounts ?? EMPTY_CLIENT_ACCOUNTS;
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
  const [clientLedgerBackSection, setClientLedgerBackSection] = useState<'clients' | 'organization-clients'>('clients');
  const [editingLedgerRowKeys, setEditingLedgerRowKeys] = useState<Set<string>>(new Set());
  const [editAllLedgerAccountIds, setEditAllLedgerAccountIds] = useState<Set<number>>(new Set());
- // Overview "balances by organization" state.
- const [overviewRates, setOverviewRates] = useState<Record<string, string>>(() => getStoredOverviewRates());
- const [overviewFlipAll, setOverviewFlipAll] = useState(false);
- const [overviewFlipped, setOverviewFlipped] = useState<Set<string>>(new Set());
  const [selectedLedgerEntryKeys, setSelectedLedgerEntryKeys] = useState<Set<string>>(new Set());
  const [showLedgerSettingsModal, setShowLedgerSettingsModal] = useState(false);
  const [ledgerFilterOpen, setLedgerFilterOpen] = useState(false);
@@ -348,69 +373,48 @@ function AuthenticatedHome() {
  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
  const [lastBackupDevice, setLastBackupDevice] = useState<string | null>(null);
- const [isLoading, setIsLoading] = useState(() => _initialCache === null);
  const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
  const lastInitializedSubIdRef = useRef<string>('');
- const hasLoadedRef = useRef(false);
 
+ // The workspace query (useWorkspaceData) owns fetching + the currency reseed +
+ // the sessionStorage cache write and auto-fetches on mount. loadData() now just
+ // refetches that snapshot; every mutation site that awaited it keeps working
+ // (the promise resolves once the refetch settles).
  const loadData = useCallback(async () => {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
+  await invalidateWorkspace();
+ }, [invalidateWorkspace]);
 
-  try {
-   const [organizationRows, clientRows, currencyRows, transactionRows, clientAccountRows, adjustmentRows, backupInfo] = (await Promise.all([
-    accountingApi.listOrganizations(),
-    accountingApi.listClients(),
-    accountingApi.listCurrencies(),
-    accountingApi.listTransactions(),
-    accountingApi.listAllClientAccounts(),
-    accountingApi.listClientAdjustments(),
-    accountingApi.getBackupInfo(),
-   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[], BackupInfo];
-
-   let nextCurrencies = currencyRows;
-   if (!nextCurrencies.length) {
-    await accountingApi.reseedCurrencies();
-    nextCurrencies = (await accountingApi.listCurrencies()) as Currency[];
-   }
-
-   setOrganizations(organizationRows);
-   setClients(clientRows);
-   setCurrencies(nextCurrencies);
-   setTransactions(transactionRows);
-   setAdjustments(adjustmentRows);
-   setClientAccounts(clientAccountRows);
-   setLastBackupAt(backupInfo?.lastBackupAt ?? null);
-   setLastBackupDevice(backupInfo?.lastBackupDevice ?? null);
-   setSelectedOrganizationForClients((current) => (current ? (organizationRows.find((organization) => organization.id === current.id) ?? null) : null));
-   setSelectedClientForAccounts((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
-   setSelectedClientForLedger((current) => (current ? (clientRows.find((client) => client.id === current.id) ?? null) : null));
-   setError('');
-   saveDataCache({ organizations: organizationRows, clients: clientRows, currencies: nextCurrencies, transactions: transactionRows, adjustments: adjustmentRows, clientAccounts: clientAccountRows });
-   if (!hasLoadedRef.current) {
-    hasLoadedRef.current = true;
-    setIsLoading(false);
-   }
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_load'));
-   if (!hasLoadedRef.current) {
-    hasLoadedRef.current = true;
-    setIsLoading(false);
-   }
-  }
- }, [t]);
-
+ // Surface load failures and clear the banner on each successful (re)fetch —
+ // mirrors the setError handling that used to live inside loadData.
  useEffect(() => {
-  const timeoutId = window.setTimeout(() => {
-   void loadData();
-  }, 0);
+  if (workspaceQuery.isError) {
+   setError(workspaceQuery.error instanceof Error ? workspaceQuery.error.message : t('error_failed_load'));
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [workspaceQuery.isError, workspaceQuery.errorUpdatedAt, t]);
+ useEffect(() => {
+  if (workspaceQuery.isSuccess) setError('');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [workspaceQuery.dataUpdatedAt, workspaceQuery.isSuccess]);
 
-  return () => {
-   window.clearTimeout(timeoutId);
-  };
- }, [loadData]);
+ // Keep the backup indicator in sync with the fetched snapshot. recordBackup still
+ // updates these directly for its own optimistic result.
+ useEffect(() => {
+  const backup = workspaceData?.backup;
+  if (backup) {
+   setLastBackupAt(backup.lastBackupAt ?? null);
+   setLastBackupDevice(backup.lastBackupDevice ?? null);
+  }
+ }, [workspaceData?.backup]);
+
+ // Reconcile the selected org/client against fresh rows after any data change, so
+ // edits are reflected and deletions clear the selection (was done inside loadData).
+ useEffect(() => {
+  setSelectedOrganizationForClients((current) => (current ? (organizations.find((organization) => organization.id === current.id) ?? null) : null));
+  setSelectedClientForAccounts((current) => (current ? (clients.find((client) => client.id === current.id) ?? null) : null));
+  setSelectedClientForLedger((current) => (current ? (clients.find((client) => client.id === current.id) ?? null) : null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [organizations, clients]);
 
  // Load the user's workspaces for the sidebar switcher (shown only when 2+).
  useEffect(() => {
@@ -420,7 +424,15 @@ function AuthenticatedHome() {
    .then(({ workspaces, defaultWorkspaceId }) => {
     if (!mounted) return;
     setUserWorkspaces(workspaces);
-    setActiveWorkspaceIdState(accountingApi.getActiveWorkspaceId() || defaultWorkspaceId || workspaces[0]?.id || null);
+    // Only honour a stored workspace id if it actually belongs to this user;
+    // otherwise a stale id from a previous account (or a workspace this user was
+    // removed from) would target the wrong tenant. Fall back to their default.
+    const stored = accountingApi.getActiveWorkspaceId();
+    const chosen = (stored && workspaces.some((workspace) => workspace.id === stored) ? stored : null) || defaultWorkspaceId || workspaces[0]?.id || null;
+    if (chosen !== stored) {
+     accountingApi.setActiveWorkspaceId(chosen);
+    }
+    setActiveWorkspaceIdState(chosen);
    })
    .catch(() => {
     /* non-fatal */
@@ -4319,13 +4331,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
  const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 2; // +1 actions col, +1 checkbox col
 
- const overviewCards = [
-  { label: t('overview_currencies'), value: enabledCurrencies.length },
-  { label: t('overview_organizations'), value: organizations.length },
-  { label: t('overview_clients'), value: clients.length },
-  { label: t('overview_transactions'), value: transactionTableRows.length },
- ];
-
  const selectedClientLedgers: ClientAccountLedger[] = useMemo(() => {
   // Skip expensive ledger computations unless the ledger view/modal is active.
   if (!selectedClientForLedger || (section !== 'client-ledger' && !pdfExportModal)) {
@@ -4523,130 +4528,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
  const mainCurrency = useMemo(() => currencies.find((currency) => currency.isMain === 1) ?? null, [currencies]);
 
- function updateOverviewRate(currencyCode: string, value: string) {
-  setOverviewRates((current) => {
-   const next = { ...current, [currencyCode]: value };
-   saveOverviewRates(next);
-   return next;
-  });
- }
-
- // Net balance of every client account, grouped into (organization, currency) cards
- // for the overview. Mirrors the netChange formula used by selectedClientLedgers,
- // but in a single pass over all transactions/adjustments instead of per-account.
- const overviewOrgBalances = useMemo(() => {
-  if (section !== 'overview') {
-   return { groups: [] as OverviewBalanceGroup[], byOrg: new Map<string, OverviewBalanceGroup[]>(), hasAccounts: false };
-  }
-
-  const balanceByAccount = new Map<number, number>();
-  for (const account of clientAccounts) {
-   balanceByAccount.set(account.id, account.startingBalance ?? 0);
-  }
-
-  for (const transaction of transactions) {
-   if (transaction.isArchived) continue;
-   if (transaction.accountFromId != null && balanceByAccount.has(transaction.accountFromId)) {
-    const account = clientAccountMap.get(transaction.accountFromId);
-    if (account) {
-     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
-     const netChange = pending
-      ? 0
-      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
-     balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
-    }
-   }
-   if (transaction.accountToId != null && balanceByAccount.has(transaction.accountToId)) {
-    const account = clientAccountMap.get(transaction.accountToId);
-    if (account) {
-     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
-     const netChange = pending
-      ? 0
-      : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
-     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
-    }
-   }
-  }
-
-  for (const adj of adjustments) {
-   if (!balanceByAccount.has(adj.accountId)) continue;
-   const account = clientAccountMap.get(adj.accountId);
-   if (!account) continue;
-   const pending = adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0;
-   const netChange = pending ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
-   balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
-  }
-
-  const clientById = new Map(clients.map((client) => [client.id, client]));
-  const groupMap = new Map<string, OverviewBalanceGroup & { clientMap: Map<number, { clientId: number; clientName: string; balance: number }> }>();
-
-  for (const account of clientAccounts) {
-   const client = clientById.get(account.clientId);
-   const organizationId = client?.organizationId ?? null;
-   const organizationName = client?.organizationName ?? null;
-   const currency = currencyMap.get(account.currencyId);
-   const key = `${organizationId ?? 'none'}:${account.currencyId}`;
-   const balance = balanceByAccount.get(account.id) ?? 0;
-
-   let group = groupMap.get(key);
-   if (!group) {
-    group = {
-     key,
-     organizationId,
-     organizationName,
-     currencyId: account.currencyId,
-     currencyCode: account.currencyCode,
-     currencySymbol: account.currencySymbol,
-     isMain: currency?.isMain === 1,
-     clients: [],
-     total: 0,
-     clientMap: new Map(),
-    };
-    groupMap.set(key, group);
-   }
-
-   const existingClient = group.clientMap.get(account.clientId);
-   if (existingClient) {
-    existingClient.balance += balance;
-   } else {
-    group.clientMap.set(account.clientId, { clientId: account.clientId, clientName: account.clientName, balance });
-   }
-   group.total += balance;
-  }
-
-  const groups: OverviewBalanceGroup[] = Array.from(groupMap.values()).map((group) => ({
-   key: group.key,
-   organizationId: group.organizationId,
-   organizationName: group.organizationName,
-   currencyId: group.currencyId,
-   currencyCode: group.currencyCode,
-   currencySymbol: group.currencySymbol,
-   isMain: group.isMain,
-   clients: Array.from(group.clientMap.values())
-    // Balances within ±100 are treated as negligible/settled and hidden from the overview list.
-    .filter((c) => Math.abs(c.balance) > 100)
-    .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
-   total: group.total,
-  }));
-
-  // Main-currency cards first, then by organization name, then by currency code.
-  groups.sort((a, b) => {
-   if (a.isMain !== b.isMain) return a.isMain ? -1 : 1;
-   const orgCompare = (a.organizationName ?? '').localeCompare(b.organizationName ?? '', language, { sensitivity: 'base' });
-   if (orgCompare !== 0) return orgCompare;
-   return a.currencyCode.localeCompare(b.currencyCode);
-  });
-
-  const byOrg = new Map<string, OverviewBalanceGroup[]>();
-  for (const group of groups) {
-   const orgKey = String(group.organizationId ?? 'none');
-   const list = byOrg.get(orgKey);
-   if (list) list.push(group);
-   else byOrg.set(orgKey, [group]);
-  }
-
-  return { groups, byOrg, hasAccounts: clientAccounts.length > 0 };
- }, [section, transactions, adjustments, clientAccounts, clients, clientAccountMap, currencyMap, language]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -4675,8 +4556,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   .map((key) => ledgerColumnOptions.find((column) => column.key === key))
   .filter((column): column is { key: LedgerColumnKey; label: string } => Boolean(column));
 
- const panelClassName = 'border border-gray-200 bg-white p-5 shadow-sm';
- const mutedPanelClassName = 'border border-gray-200 bg-gray-50 p-4';
  const tableWrapClassName = 'mt-3 overflow-x-auto border border-gray-200 bg-white';
  const transactionsPager = (() => {
   if (transactionTableRows.length === 0) return null;
@@ -6968,466 +6847,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           })()
         : null}
 
-       {section === 'overview' && isLoading ? (
-        <section className="flex flex-col gap-6">
-         <div className={panelClassName}>
-          <div className="flex items-start justify-between gap-4">
-           <div className="flex flex-col gap-2">
-            <SkBar
-             w="w-48"
-             h="h-7"
-            />
-            <SkBar
-             w="w-72"
-             h="h-3.5"
-            />
-           </div>
-           <SkBar
-            w="w-40"
-            h="h-9"
-           />
-          </div>
-          <div className="mt-6 grid gap-4 md:grid-cols-4">
-           {Array.from({ length: 4 }, (_, i) => (
-            <div
-             key={i}
-             className="rounded border border-slate-200 bg-slate-50 p-4 flex flex-col gap-2"
-            >
-             <SkBar
-              w="w-24"
-              h="h-3"
-             />
-             <SkBar
-              w="w-16"
-              h="h-7"
-             />
-            </div>
-           ))}
-          </div>
-         </div>
-         <div className={panelClassName}>
-          <SkBar
-           w="w-56"
-           h="h-6"
-          />
-          <div className="mt-4 flex flex-col gap-3">
-           {Array.from({ length: 3 }, (_, i) => (
-            <div
-             key={i}
-             className="rounded border border-slate-200 p-4 flex flex-col gap-2"
-            >
-             <SkBar
-              w="w-40"
-              h="h-4"
-             />
-             <SkBar
-              w="w-64"
-              h="h-3"
-             />
-            </div>
-           ))}
-          </div>
-         </div>
-        </section>
-       ) : null}
-
-       {section === 'overview' && !isLoading ? (
-        <section className="flex flex-col gap-6">
-         <div className={panelClassName}>
-          <div className="flex items-start justify-between gap-4">
-           <div>
-            <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
-            <p className="mt-2 text-sm text-slate-600">{t('overview_description')}</p>
-           </div>
-           <button
-            type="button"
-            onClick={() => navigateToSection('transactions')}
-            className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
-           >
-            {renderIcon('transactions', 'h-4 w-4')}
-            {t('overview_go_to_transactions')}
-           </button>
-          </div>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-4">
-           {overviewCards.map((card) => (
-            <div
-             key={card.label}
-             className={mutedPanelClassName}
-            >
-             <p className="text-sm text-slate-500">{card.label}</p>
-             <p className="mt-3 text-3xl font-bold text-slate-900">{isLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}</p>
-            </div>
-           ))}
-          </div>
-         </div>
-
-         {(() => {
-          const mainCode = mainCurrency?.code ?? '';
-          const mainSymbol = mainCurrency?.symbol || mainCode;
-          const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 0 });
-          const balanceColor = (n: number) => (n >= 0 ? 'text-emerald-600' : 'text-red-600');
-
-          // Resolve a group's FX rate. Main currency is always 1; others use the
-          // user-entered rate, or NaN when unset/invalid (excluded from conversions).
-          const rateOf = (group: OverviewBalanceGroup) => {
-           if (group.isMain) return 1;
-           const raw = overviewRates[group.currencyCode];
-           const value = raw != null ? Number(raw) : NaN;
-           return value > 0 ? value : NaN;
-          };
-          const isFlipped = (group: OverviewBalanceGroup) => !group.isMain && (overviewFlipAll || overviewFlipped.has(group.key));
-
-          // Grand total across every group, always in the main currency.
-          let grandTotal = 0;
-          let anyRateMissing = false;
-          for (const group of overviewOrgBalances.groups) {
-           const rate = rateOf(group);
-           if (Number.isNaN(rate)) {
-            anyRateMissing = true;
-            continue;
-           }
-           grandTotal += group.total * rate;
-          }
-
-          // Render orgs in their own labelled subsections: orgs that have a main-
-          // currency card first, then alphabetically, with "no organization" last.
-          const orgEntries = Array.from(overviewOrgBalances.byOrg.entries());
-          orgEntries.sort(([aKey, aGroups], [bKey, bGroups]) => {
-           const aMain = aGroups.some((g) => g.isMain);
-           const bMain = bGroups.some((g) => g.isMain);
-           if (aMain !== bMain) return aMain ? -1 : 1;
-           if (aKey === 'none') return 1;
-           if (bKey === 'none') return -1;
-           return (aGroups[0].organizationName ?? '').localeCompare(bGroups[0].organizationName ?? '', language, { sensitivity: 'base' });
-          });
-
-          return (
-           <>
-           <div className={panelClassName}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-             <h2 className="text-xl font-semibold">{t('overview_balances_title')}</h2>
-             <div className="flex items-center gap-4">
-              <div className={`text-right ${balanceColor(grandTotal)}`}>
-               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('overview_grand_total')}</p>
-               <p
-                className="text-lg font-bold"
-                dir="ltr"
-               >
-                {fmt(grandTotal)} {mainSymbol}
-               </p>
-              </div>
-              <button
-               type="button"
-               onClick={() => {
-                setOverviewFlipAll((value) => !value);
-                setOverviewFlipped(new Set());
-               }}
-               className="shrink-0 rounded border border-blue-700 bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
-              >
-               {overviewFlipAll ? t('overview_show_original') : t('overview_show_in_main', { currency: mainCode })}
-              </button>
-             </div>
-            </div>
-
-            {anyRateMissing ? <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
-
-            {!overviewOrgBalances.hasAccounts ? (
-             <p className="mt-4 text-sm text-slate-600">{t('overview_no_balances')}</p>
-            ) : (
-             <div className="mt-5 divide-y-2 divide-slate-300">
-              {orgEntries.map(([orgKey, orgGroups], orgIndex) => {
-               const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
-               const showMerged = orgGroups.length >= 2;
-               // Merged main-currency total for this org (sum of its currency cards).
-               // Also build per-client converted balances across all currencies.
-               let mergedTotal = 0;
-               let mergedReady = true;
-               const mergedClientMap = new Map<number, { clientId: number; clientName: string; balance: number }>();
-               for (const group of orgGroups) {
-                const rate = rateOf(group);
-                if (Number.isNaN(rate)) {
-                 mergedReady = false;
-                 break;
-                }
-                mergedTotal += group.total * rate;
-                for (const client of group.clients) {
-                 const existing = mergedClientMap.get(client.clientId);
-                 if (existing) {
-                  existing.balance += client.balance * rate;
-                 } else {
-                  mergedClientMap.set(client.clientId, { clientId: client.clientId, clientName: client.clientName, balance: client.balance * rate });
-                 }
-                }
-               }
-               const mergedClients = Array.from(mergedClientMap.values())
-                .filter((c) => c.balance !== 0)
-                .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
-
-               return (
-                <div
-                 key={orgKey}
-                 className={`-mx-5 px-5 pb-6 pt-6 last:pb-0 first:pt-0 ${orgIndex % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
-                >
-                 <h3 className="mb-3 text-lg font-bold uppercase tracking-wide text-slate-700">{orgName}</h3>
-                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {orgGroups
-                   .filter((group) => group.total !== 0)
-                   .map((group) => {
-                    const rate = rateOf(group);
-                    const rateValid = !Number.isNaN(rate);
-                    // A card only shows its converted (back) face when flipped AND a valid rate exists.
-                    const flipped = isFlipped(group) && rateValid;
-                    const converted = group.total * rate;
-                    const toggleFlip = () =>
-                     setOverviewFlipped((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(group.key)) next.delete(group.key);
-                      else next.add(group.key);
-                      return next;
-                     });
-                    const flipIcon = (
-                     <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                     >
-                      <path d="M7 4 3 8l4 4M3 8h13.5" />
-                      <path d="M17 20l4-4-4-4m4 4H7.5" />
-                     </svg>
-                    );
-                    return (
-                     <div
-                      key={group.key}
-                      className="[perspective:1200px]"
-                     >
-                      <div className={`relative transition-transform duration-500 [transform-style:preserve-3d] ${flipped ? '[transform:rotateY(180deg)]' : ''}`}>
-                       {/* FRONT — original currency */}
-                       <div className="flex flex-col rounded border border-slate-200 bg-white [backface-visibility:hidden]">
-                        <div className="flex flex-col gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2">
-                         <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">{orgName}</span>
-                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
-                          {!group.isMain ? (
-                          <div className="flex items-center gap-2">
-                           <label className="flex items-center gap-1 text-xs text-slate-500">
-                            <span>{t('overview_rate_label', { currency: mainCode })}</span>
-                            <input
-                             type="text"
-                             inputMode="decimal"
-                             dir="ltr"
-                             value={overviewRates[group.currencyCode] ?? ''}
-                             onChange={(event) => updateOverviewRate(group.currencyCode, normalizeDecimalInput(event.target.value))}
-                             className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
-                            />
-                           </label>
-                           {rateValid ? (
-                            <button
-                             type="button"
-                             title={t('overview_show_in_main', { currency: mainCode })}
-                             onClick={toggleFlip}
-                             className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
-                            >
-                             {flipIcon}
-                            </button>
-                           ) : null}
-                          </div>
-                          ) : null}
-                         </div>
-                        </div>
-
-                        <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
-                         {group.clients.map((client) => (
-                          <div
-                           key={client.clientId}
-                           className="flex items-center justify-between gap-3 py-1.5 text-sm"
-                          >
-                           <span className="truncate text-slate-700">{client.clientName}</span>
-                           <span
-                            className={`shrink-0 font-medium ${balanceColor(client.balance)}`}
-                            dir="ltr"
-                           >
-                            {fmt(client.balance)}
-                           </span>
-                          </div>
-                         ))}
-                        </div>
-
-                        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
-                         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_card_total')}</span>
-                         <span
-                          className={`font-bold ${balanceColor(group.total)}`}
-                          dir="ltr"
-                         >
-                          {fmt(group.total)} {group.currencySymbol || group.currencyCode}
-                         </span>
-                        </div>
-                       </div>
-
-                       {/* BACK — converted to main currency */}
-                       {!group.isMain ? (
-                        <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                         <div className="flex flex-col gap-1 border-b border-blue-100 bg-blue-50 px-3 py-2">
-                          <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-blue-400">{orgName}</span>
-                          <div className="flex items-center justify-between gap-2">
-                           <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
-                           <div className="flex items-center gap-2">
-                            <span
-                             className="text-xs text-blue-600"
-                             dir="ltr"
-                            >
-                             1 {group.currencyCode} = {overviewRates[group.currencyCode] ?? rate} {mainCode}
-                            </span>
-                            <button
-                             type="button"
-                             title={t('overview_show_original')}
-                             onClick={toggleFlip}
-                             className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
-                            >
-                             {flipIcon}
-                            </button>
-                           </div>
-                          </div>
-                         </div>
-
-                         <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
-                          {group.clients.map((client) => (
-                           <div
-                            key={client.clientId}
-                            className="flex items-center justify-between gap-3 py-1.5 text-sm"
-                           >
-                            <span className="truncate text-slate-700">{client.clientName}</span>
-                            <span
-                             className={`shrink-0 font-medium ${balanceColor(client.balance * rate)}`}
-                             dir="ltr"
-                            >
-                             {fmt(client.balance * rate)}
-                            </span>
-                           </div>
-                          ))}
-                         </div>
-
-                         <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-50 px-3 py-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
-                          <span
-                           className={`font-bold ${balanceColor(converted)}`}
-                           dir="ltr"
-                          >
-                           {fmt(converted)} {mainSymbol}
-                          </span>
-                         </div>
-                        </div>
-                       ) : null}
-                      </div>
-                     </div>
-                    );
-                   })}
-
-                  {showMerged ? (
-                   <div className="flex flex-col rounded border-2 border-blue-200 bg-blue-50/50">
-                    <div className="border-b border-blue-200 bg-blue-100/60 px-3 py-2">
-                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-                      {t('overview_merged_total', { org: orgName, currency: getLocalizedCurrencyName(mainCurrency?.code ?? mainCode, mainCurrency?.name ?? mainCode) })}
-                     </p>
-                    </div>
-                    {mergedReady ? (
-                     <>
-                      <div className="flex-1 divide-y divide-blue-100 px-3 py-1">
-                       {mergedClients.map((client) => (
-                        <div
-                         key={client.clientId}
-                         className="flex items-center justify-between gap-3 py-1.5 text-sm"
-                        >
-                         <span className="truncate text-slate-700">{client.clientName}</span>
-                         <span
-                          className={`shrink-0 font-medium ${balanceColor(client.balance)}`}
-                          dir="ltr"
-                         >
-                          {fmt(client.balance)}
-                         </span>
-                        </div>
-                       ))}
-                      </div>
-                      <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-100/60 px-3 py-2">
-                       <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
-                       <span
-                        className={`font-bold ${balanceColor(mergedTotal)}`}
-                        dir="ltr"
-                       >
-                        {fmt(mergedTotal)} {mainSymbol}
-                       </span>
-                      </div>
-                     </>
-                    ) : (
-                     <p className="px-3 py-3 text-xs text-amber-600">{t('overview_set_rate')}</p>
-                    )}
-                   </div>
-                  ) : null}
-                 </div>
-                </div>
-               );
-              })}
-             </div>
-            )}
-           </div>
-
-           <div className={panelClassName}>
-            <h2 className="text-xl font-semibold">{t('overview_general_balance')}</h2>
-
-            <div className="mt-4 overflow-hidden rounded border border-slate-200">
-             {orgEntries.map(([orgKey, orgGroups], orgIndex) => {
-              const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
-              // This org's balance in the main currency: sum of its currency groups
-              // converted at their rates. Groups with a missing rate are skipped.
-              let orgTotal = 0;
-              let orgRateMissing = false;
-              for (const group of orgGroups) {
-               const rate = rateOf(group);
-               if (Number.isNaN(rate)) {
-                orgRateMissing = true;
-                continue;
-               }
-               orgTotal += group.total * rate;
-              }
-              return (
-               <div
-                key={orgKey}
-                className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm ${orgIndex % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
-               >
-                <span className="truncate font-medium text-slate-700">{orgName}</span>
-                <span
-                 className={`shrink-0 font-semibold ${balanceColor(orgTotal)}`}
-                 dir="ltr"
-                >
-                 {fmt(orgTotal)} {mainSymbol}
-                 {orgRateMissing ? <span className="ml-1 text-amber-500">*</span> : null}
-                </span>
-               </div>
-              );
-             })}
-             <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-100 px-4 py-3">
-              <span className="text-sm font-bold uppercase tracking-wide text-slate-600">{t('overview_grand_total')}</span>
-              <span
-               className={`text-lg font-bold ${balanceColor(grandTotal)}`}
-               dir="ltr"
-              >
-               {fmt(grandTotal)} {mainSymbol}
-              </span>
-             </div>
-            </div>
-
-            {anyRateMissing ? <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
-           </div>
-           </>
-          );
-         })()}
-        </section>
+       {section === 'overview' ? (
+        <OverviewSection
+         organizations={organizations}
+         clients={clients}
+         clientAccounts={clientAccounts}
+         currencies={currencies}
+         transactions={transactions}
+         adjustments={adjustments}
+         isLoading={isLoading}
+         navigateToSection={navigateToSection}
+        />
        ) : null}
 
        {section === 'organizations' && isLoading ? (
