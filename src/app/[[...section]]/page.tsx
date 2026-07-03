@@ -78,7 +78,7 @@ import { getCommissionAmount, chargeShowsInLedger } from '@/shared/utils/commiss
 import { renderIcon } from '@/shared/utils/icons';
 import { getSectionFromPath } from '@/shared/utils/section';
 import { getDeviceLabel } from '@/shared/utils/device';
-import { ledgerEntryKey } from '@/features/ledger/utils/ledgerEntries';
+import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import {
  normalizeImportHeader,
  toImportString,
@@ -102,7 +102,7 @@ import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml } from '@/features/pdf/pdfExport';
-import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
+import { computeClientLedgers, computeLedgerSelectionSummary } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances } from '@/features/clients/utils/clientBalances';
 
@@ -903,9 +903,6 @@ function AuthenticatedHome() {
   };
  }
 
- function getLedgerTransactionDraftKey(transactionId: number, ledgerAccountId: number) {
-  return `${transactionId}:${ledgerAccountId}`;
- }
 
  function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: number, nextValues: Partial<LedgerTransactionDraft>) {
   ledgerHistory.record();
@@ -3706,36 +3703,10 @@ function AuthenticatedHome() {
 
  // Totals for the rows the user has checkbox-selected in the ledger, shown next to the
  // "Delete (N)" action: sum of the entry amounts and sum of their net change.
- const selectedLedgerSummary = useMemo(() => {
-  if (selectedLedgerEntryKeys.size === 0) return null;
-  const entryByKey = new Map<string, ClientLedgerEntry>();
-  for (const ledger of selectedClientLedgers) {
-   for (const entry of ledger.entries) {
-    entryByKey.set(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId), entry);
-   }
-  }
-  let amountSum = 0;
-  let netChangeSum = 0;
-  let count = 0;
-  const currencyCodes = new Set<string>();
-  for (const key of selectedLedgerEntryKeys) {
-   const entry = entryByKey.get(key);
-   if (!entry) continue;
-   amountSum += entry.amount;
-   netChangeSum += entry.netChange;
-   currencyCodes.add(entry.currencyCode);
-   count += 1;
-  }
-  // Net change is always expressed in the account's currency.
-  const accountCurrency = selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0];
-  return {
-   count,
-   amountSum,
-   netChangeSum,
-   amountCurrencyCode: currencyCodes.size === 1 ? [...currencyCodes][0] : '',
-   netCurrencyCode: accountCurrency?.currencyCode ?? '',
-  };
- }, [selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId]);
+ const selectedLedgerSummary = useMemo(
+  () => computeLedgerSelectionSummary({ selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId }),
+  [selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId],
+ );
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
