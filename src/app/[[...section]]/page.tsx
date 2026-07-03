@@ -99,6 +99,7 @@ import LanguageSettings from '@/features/settings/components/LanguageSettings';
 import DangerZone from '@/features/settings/components/DangerZone';
 import PdfSettingsTab from '@/features/settings/components/PdfSettings';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
+import { useAppStatusStore } from '@/shared/store/appStatusStore';
 
 const emptyOrganizationForm = (): OrganizationForm => ({
  name: '',
@@ -347,11 +348,11 @@ function AuthenticatedHome() {
  const [ledgerDisplayRateReversed, setLedgerDisplayRateReversed] = useState<Record<string, boolean>>({});
  const [tableRateFromReversed, setTableRateFromReversed] = useState<Record<number, boolean>>({});
  const [tableRateToReversed, setTableRateToReversed] = useState<Record<number, boolean>>({});
- const [error, setError] = useState('');
+ const error = useAppStatusStore((s) => s.error);
+ const setError = useAppStatusStore((s) => s.setError);
  const [importSummary, setImportSummary] = useState('');
- const [toast, setToast] = useState('');
- const [toastPos, setToastPos] = useState<{ x: number; y: number } | null>(null);
- const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const toast = useAppStatusStore((s) => s.toast);
+ const toastPos = useAppStatusStore((s) => s.toastPos);
  const [isImportingTransactions, setIsImportingTransactions] = useState(false);
  const [pendingImportData, setPendingImportData] = useState<PendingImportData | null>(null);
  const [importMapping, setImportMapping] = useState<ImportMappingState>({
@@ -3927,14 +3928,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
  const toggleClientSort = useCallback((key: 'name' | 'organization') => {
   setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
  }, []);
- // Brief, auto-dismissing confirmation toast (shown ~1s) for quick create actions.
- // Pass a MouseEvent to anchor the toast near the click; omit for the default bottom-center position.
- const showToast = useCallback((message: string, e?: React.MouseEvent | MouseEvent) => {
-  setToast(message);
-  setToastPos(e ? { x: e.clientX, y: e.clientY } : null);
-  if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-  toastTimerRef.current = setTimeout(() => setToast(''), 1000);
- }, []);
+ const showToast = useAppStatusStore((s) => s.showToast);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
 
  // Per-client balances for the clients list/group view. Keyed by clientId, each value is
