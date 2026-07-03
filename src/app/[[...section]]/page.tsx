@@ -98,6 +98,7 @@ import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadO
 import LanguageSettings from '@/features/settings/components/LanguageSettings';
 import DangerZone from '@/features/settings/components/DangerZone';
 import PdfSettingsTab from '@/features/settings/components/PdfSettings';
+import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 
@@ -4526,91 +4527,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    </div>
   );
  })();
- const databaseSection = (
-  <section className="flex flex-col gap-6">
-   <div className={panelClassName}>
-    <h2 className="text-2xl font-semibold">{t('backup_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('backup_description')}</p>
-
-    <input
-     ref={backupRestoreInputRef}
-     type="file"
-     accept=".json,application/json"
-     onChange={onRestoreBackupFile}
-     className="hidden"
-    />
-
-    <div className="mt-6 grid gap-4 md:grid-cols-2">
-     <div className="rounded border border-slate-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{t('backup_download_title')}</h3>
-      <p className="mt-1 text-sm text-slate-600">{t('backup_download_hint')}</p>
-      <button
-       type="button"
-       onClick={() => void onDownloadBackup()}
-       disabled={isBackingUp || isRestoringBackup}
-       className="mt-4 inline-flex items-center gap-2 rounded border border-blue-600 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-       <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-       >
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line
-         x1="12"
-         y1="15"
-         x2="12"
-         y2="3"
-        />
-       </svg>
-       {isBackingUp ? t('backup_download_loading') : t('backup_download_button')}
-      </button>
-      <p className={`mt-3 text-xs ${lastBackupAt ? 'text-slate-500' : 'text-amber-600'}`}>{lastBackupLabel()}</p>
-     </div>
-
-     <div className="rounded border border-amber-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{t('backup_restore_title')}</h3>
-      <p className="mt-1 text-sm text-slate-600">{t('backup_restore_hint')}</p>
-      <button
-       type="button"
-       onClick={() => backupRestoreInputRef.current?.click()}
-       disabled={isBackingUp || isRestoringBackup}
-       className="mt-4 inline-flex items-center gap-2 rounded border border-amber-600 bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-       <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-       >
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="17 8 12 3 7 8" />
-        <line
-         x1="12"
-         y1="3"
-         x2="12"
-         y2="15"
-        />
-       </svg>
-       {isRestoringBackup ? t('backup_restore_loading') : t('backup_restore_button')}
-      </button>
-     </div>
-    </div>
-   </div>
-  </section>
- );
  const sectionMeta: Record<Section, { title: string; description: string; accent: string }> = {
   overview: {
    title: t('nav_overview'),
@@ -5936,7 +5852,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     ) : null}
     {settingsTab === 'account' ? <AccountSettings hideSubscription={isEditorRole} /> : null}
     {settingsTab === 'team' ? <TeamSettings /> : null}
-    {settingsTab === 'database' ? databaseSection : null}
+    {settingsTab === 'database' ? (
+     <DatabaseSettings
+      isBackingUp={isBackingUp}
+      isRestoringBackup={isRestoringBackup}
+      backupRestoreInputRef={backupRestoreInputRef}
+      lastBackupAt={lastBackupAt}
+      lastBackupLabel={lastBackupLabel}
+      onDownloadBackup={onDownloadBackup}
+      onRestoreBackupFile={onRestoreBackupFile}
+     />
+    ) : null}
     {settingsTab === 'language' ? <LanguageSettings /> : null}
     {settingsTab === 'pdf' ? <PdfSettingsTab /> : null}
     {settingsTab === 'danger' && !isEditorRole ? (
