@@ -107,6 +107,7 @@ import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml
 import { computeClientLedgers, computeLedgerSelectionSummary } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances } from '@/features/clients/utils/clientBalances';
+import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
 
 const emptyOrganizationForm = (): OrganizationForm => ({
  name: '',
@@ -3429,17 +3430,7 @@ function AuthenticatedHome() {
  const enabledCurrencies = useMemo(() => localizedCurrencies.filter((currency) => currency.isEnabled === 1), [localizedCurrencies]);
  const currencyMap = useMemo(() => new Map(localizedCurrencies.map((currency) => [currency.id, currency])), [localizedCurrencies]);
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const sortedClients = useMemo(() => {
-  const factor = clientSort.dir === 'asc' ? 1 : -1;
-  const sorted = [...clients].sort((a, b) => {
-   const aVal = clientSort.key === 'organization' ? a.organizationName || '' : a.name;
-   const bVal = clientSort.key === 'organization' ? b.organizationName || '' : b.name;
-   return aVal.localeCompare(bVal, language, { sensitivity: 'base' }) * factor;
-  });
-  const q = clientSearch.trim().toLowerCase();
-  if (!q) return sorted;
-  return sorted.filter((c) => c.name.toLowerCase().includes(q) || (c.organizationName ?? '').toLowerCase().includes(q));
- }, [clients, clientSort, clientSearch, language]);
+ const sortedClients = useMemo(() => sortAndFilterClients({ clients, clientSort, clientSearch, language }), [clients, clientSort, clientSearch, language]);
  const totalClientPages = Math.max(1, Math.ceil(sortedClients.length / clientsPageSize));
  const clampedClientsPage = Math.min(clientsPage, totalClientPages);
  const paginatedClients = useMemo(() => {
@@ -3448,31 +3439,7 @@ function AuthenticatedHome() {
  }, [sortedClients, clampedClientsPage, clientsPageSize]);
  // Clients grouped per organization for the card view; respects the active
  // search/sort (built from sortedClients) and lists clients with no organization last.
- const clientsByOrganization = useMemo(() => {
-  const groups = new Map<string, { id: number | null; name: string; clients: Client[] }>();
-  for (const client of sortedClients) {
-   const key = client.organizationId == null ? '__unassigned__' : String(client.organizationId);
-   let group = groups.get(key);
-   if (!group) {
-    group = { id: client.organizationId, name: client.organizationName || t('unassigned'), clients: [] };
-    groups.set(key, group);
-   }
-   group.clients.push(client);
-  }
-  const keyOf = (g: { id: number | null }) => (g.id == null ? '__unassigned__' : String(g.id));
-  return Array.from(groups.values()).sort((a, b) => {
-   // Honour the user's drag-arranged order first; groups without a saved
-   // position fall back to alphabetical with "unassigned" last.
-   const ia = clientsOrgOrder.indexOf(keyOf(a));
-   const ib = clientsOrgOrder.indexOf(keyOf(b));
-   if (ia !== -1 && ib !== -1) return ia - ib;
-   if (ia !== -1) return -1;
-   if (ib !== -1) return 1;
-   if (a.id == null) return 1;
-   if (b.id == null) return -1;
-   return a.name.localeCompare(b.name, language, { sensitivity: 'base' });
-  });
- }, [sortedClients, language, t, clientsOrgOrder]);
+ const clientsByOrganization = useMemo(() => groupClientsByOrganization({ sortedClients, clientsOrgOrder, language, t }), [sortedClients, language, t, clientsOrgOrder]);
 
  // Drop a dragged organization card before the target card and persist the new order.
  function onClientsOrgDrop(targetKey: string) {
