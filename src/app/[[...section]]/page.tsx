@@ -1058,6 +1058,15 @@ function getCommissionAmount(baseAmount: number, commissionPercent: number) {
  return baseAmount * (commissionPercent / 100);
 }
 
+// A charge whose payer settles it directly with the org ("paid by me" / "paid to me")
+// never appears in — or affects the balance of — a counterparty's ledger. Every other
+// payer, including the counterparty itself ('from'/'to') and an unset/legacy value (''),
+// does. So only these four explicit variants are excluded.
+const ORG_SETTLED_CHARGE_PAYERS = new Set(['me_to_from', 'me_to_to', 'from_to_me', 'to_to_me']);
+function chargeShowsInLedger(chargesPayer: string) {
+ return !ORG_SETTLED_CHARGE_PAYERS.has(chargesPayer);
+}
+
 // Stable identifier for a ledger entry (used to pick exact start/end boundaries for PDF export).
 function ledgerEntryKey(entry: ClientLedgerEntry) {
  return entry.isAdjustment ? `a-${entry.adjustmentId}` : `t-${entry.transactionId}`;
@@ -1488,6 +1497,11 @@ function AuthenticatedHome() {
  const [openAccountOnCreate, setOpenAccountOnCreate] = useState(true);
  const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
+ // Disables the submit button while a new transaction/adjustment is being created, so a
+ // double-click can't create a duplicate. The ref is the synchronous guard (state hasn't
+ // re-rendered yet on a rapid second click); the state drives the disabled UI.
+ const [isSubmittingTransaction, setIsSubmittingTransaction] = useState(false);
+ const transactionSubmitLock = useRef(false);
  // When enabled, the sender and receiver ledgers each get their own description override.
  const [txSplitDescription, setTxSplitDescription] = useState(false);
  const [newTransactionDate, setNewTransactionDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -1965,10 +1979,10 @@ function AuthenticatedHome() {
   persistLedgerSettings({ netChangeHighlightColor: next });
  }
 
- function toggleLedgerRowClickHighlight() {
-  const next = !ledgerRowClickHighlight;
-  setLedgerRowClickHighlight(next);
-  persistLedgerSettings({ rowClickHighlight: next });
+ // Explicit mode setters for the highlight / copy toggle pair shown above the table.
+ function setLedgerRowClickMode(highlight: boolean) {
+  setLedgerRowClickHighlight(highlight);
+  persistLedgerSettings({ rowClickHighlight: highlight });
  }
 
  // Toggle a single row's highlight on click; persisted per client so it survives refresh.
@@ -3157,6 +3171,9 @@ function AuthenticatedHome() {
 
  async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
+  // Guard against a rapid double-submit creating a duplicate (button disabled may not have
+  // re-rendered yet). Reset in the finally of whichever create branch runs below.
+  if (transactionSubmitLock.current) return;
   if (!accountingApi) {
    setError(t('error_bridge'));
    return;
@@ -3199,6 +3216,8 @@ function AuthenticatedHome() {
     createdAt: newTransactionCreatedAt,
    };
 
+   transactionSubmitLock.current = true;
+   setIsSubmittingTransaction(true);
    try {
     const created = await accountingApi.createClientAdjustment(adjPayload);
 
@@ -3235,6 +3254,9 @@ function AuthenticatedHome() {
     void loadData();
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_save'));
+   } finally {
+    transactionSubmitLock.current = false;
+    setIsSubmittingTransaction(false);
    }
 
    return;
@@ -3281,6 +3303,8 @@ function AuthenticatedHome() {
    createdAt: newTransactionCreatedAt,
   };
 
+  transactionSubmitLock.current = true;
+  setIsSubmittingTransaction(true);
   try {
    await accountingApi.createTransaction(txPayload);
 
@@ -3345,6 +3369,9 @@ function AuthenticatedHome() {
    void loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   transactionSubmitLock.current = false;
+   setIsSubmittingTransaction(false);
   }
  }
 
@@ -4796,14 +4823,14 @@ function AuthenticatedHome() {
    if (rbCol) visibleCols.push(rbCol);
   }
   // Insert charges column before runningBalance when any entry has charges
-  const hasCharges = filteredEntries.some((e) => !e.isAdjustment && e.charges > 0 && (e.chargesPayer === 'from' || e.chargesPayer === 'to'));
+  const hasCharges = filteredEntries.some((e) => !e.isAdjustment && e.charges > 0 && chargeShowsInLedger(e.chargesPayer));
   if (hasCharges) {
    const chargesCol: ColDef = {
     key: 'charges' as unknown as LedgerColumnKey,
     header: t('charges'),
     isNum: true,
     cell: (e) => {
-     if (e.isAdjustment || e.charges <= 0 || !(e.chargesPayer === 'from' || e.chargesPayer === 'to')) return '';
+     if (e.isAdjustment || e.charges <= 0 || !chargeShowsInLedger(e.chargesPayer)) return '';
      const sign = e.isChargesPayerThisAccount ? '−' : '+';
      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
      const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
@@ -5532,13 +5559,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          exchangeRateReversed: !!transaction.exchangeRateFromReversed,
          pendingRate,
          commission: transaction.commissionFrom,
-         // Charges only affect a counterparty's ledger when that counterparty is the one bearing
-         // them ('from'/'to'). When "paid by me"/"paid to me" is chosen, the charge is settled
-         // directly with the org and never touches either counterparty's ledger.
+         // "Paid by me"/"paid to me" charges are settled directly with the org and never touch a
+         // counterparty's ledger; every other payer (incl. the counterparty itself or an unset value) does.
          netChange: pendingRate
           ? 0
           : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) +
-            (transaction.charges > 0 && (transaction.chargesPayer === 'from' || transaction.chargesPayer === 'to')
+            (transaction.charges > 0 && chargeShowsInLedger(transaction.chargesPayer)
              ? (transaction.chargesPayer === 'from' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate)
              : 0),
          runningBalance: 0,
@@ -5575,7 +5601,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          netChange: pendingRate
           ? 0
           : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)) +
-            (transaction.charges > 0 && (transaction.chargesPayer === 'from' || transaction.chargesPayer === 'to')
+            (transaction.charges > 0 && chargeShowsInLedger(transaction.chargesPayer)
              ? (transaction.chargesPayer === 'to' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate)
              : 0),
          runningBalance: 0,
@@ -8969,22 +8995,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
               ) : null}
               <button
                type="button"
-               title={t('ledger_row_click_toggle')}
-               onClick={toggleLedgerRowClickHighlight}
-               aria-pressed={ledgerRowClickHighlight}
-               className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-                ledgerRowClickHighlight
-                 ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100'
-                 : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-               }`}
-              >
-               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="m9 11-6 6v3h9l3-3" />
-                <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
-               </svg>
-              </button>
-              <button
-               type="button"
                title={t('nav_settings')}
                onClick={() => setShowLedgerSettingsModal(true)}
                className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
@@ -9295,6 +9305,39 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                  </div>
                 );
                })()}
+
+               {/* Row-click mode: highlight rows, or click cells to copy their value. */}
+               <div className="mt-3 flex items-center gap-1.5">
+                <button
+                 type="button"
+                 title={t('ledger_click_highlight_mode')}
+                 onClick={() => setLedgerRowClickMode(true)}
+                 aria-pressed={ledgerRowClickHighlight}
+                 className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                  ledgerRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                 }`}
+                >
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="m9 11-6 6v3h9l3-3" />
+                  <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+                 </svg>
+                </button>
+                <button
+                 type="button"
+                 title={t('ledger_click_copy_mode')}
+                 onClick={() => setLedgerRowClickMode(false)}
+                 aria-pressed={!ledgerRowClickHighlight}
+                 className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                  !ledgerRowClickHighlight ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                 }`}
+                >
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                 </svg>
+                </button>
+               </div>
+
                {(() => {
                 const ordered = ledger.entries;
                 const q = ledgerFilterSearch.trim().toLowerCase();
@@ -10551,7 +10594,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                 })()
                               : entry.netChange;
                             const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
-                            const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && (entry.chargesPayer === 'from' || entry.chargesPayer === 'to');
+                            const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && chargeShowsInLedger(entry.chargesPayer);
                             return (
                              <td
                               key={column.key}
@@ -10646,12 +10689,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
                      const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3;
-                     // Charges only belong in this ledger when this counterparty actually bears them
-                     // ('from'/'to'); "paid by me"/"paid to me" charges are settled with the org
-                     // directly and shouldn't be editable (or visible) from either counterparty's
-                     // ledger. Gate on the saved payer, not the live draft, so the section doesn't
-                     // vanish out from under the user mid-edit while they're changing the dropdown.
-                     const chargesBelongHere = entry.charges <= 0 || entry.chargesPayer === 'from' || entry.chargesPayer === 'to';
+                     // "Paid by me"/"paid to me" charges are settled with the org directly and aren't
+                     // editable/visible from a counterparty's ledger; everything else is — including a
+                     // charge still being added (charges <= 0) with no payer picked yet. Gate on the
+                     // saved payer, not the live draft, so the section doesn't vanish mid-edit while
+                     // the user is changing the dropdown.
+                     const chargesBelongHere = entry.charges <= 0 || chargeShowsInLedger(entry.chargesPayer);
 
                      if (isEditingThisRow && chargesDraft && !entry.isAdjustment && chargesBelongHere) {
                       const isZero = parseFloat(chargesDraft.charges) === 0;
@@ -11690,7 +11733,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 
             <button
              type="submit"
-             className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+             disabled={isSubmittingTransaction}
+             className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
              {isAdjustmentTransaction ? t('adjustment_add') : t('save_transaction')}
             </button>

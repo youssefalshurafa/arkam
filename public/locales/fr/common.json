@@ -308,6 +308,8 @@
  "commission_for_him": "Commission pour le client — cliquez pour la mettre du client",
  "ledger_row_highlight_color": "Couleur de surlignage des lignes",
  "ledger_row_click_toggle": "Cliquer sur une ligne pour la surligner",
+ "ledger_click_highlight_mode": "Cliquer sur les lignes pour surligner",
+ "ledger_click_copy_mode": "Cliquer sur les cellules pour copier",
  "ledger_row_highlight_hint": "Cliquez sur une ligne du registre pour la surligner avec cette couleur.",
  "ledger_settings_save": "Enregistrer",
  "ledger_pending_balance_note": "{{count}} écriture en attente d'un taux de change — exclue de ce solde",
