@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ChangeEvent, DragEvent, Fragment, FormEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, Fragment, FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
@@ -2070,9 +2070,12 @@ function AuthenticatedHome() {
   const isOutgoing = transaction.accountFromId === ledgerAccountId;
   const rate = isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
   const reversed = isOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed;
+  const ledgerAccountForDraft = clientAccounts.find((a) => a.id === ledgerAccountId);
+  const sameCurrency = ledgerAccountForDraft != null && ledgerAccountForDraft.currencyId === transaction.currencyId;
   // Always show the stored rate (including 1) so any exchange rate can be entered/edited freely.
-  // Rate 0 means "not set yet" (pending cross-currency row): show a blank field so the user enters it.
-  const rateStr = rate === 0 ? '' : reversed ? formatRateValue(1 / rate) : String(rate);
+  // Rate 0 on a cross-currency row means "not set yet" (pending): show a blank field so the user enters it.
+  // On a same-currency row, 0 is a value the user deliberately chose, so show it as "0" so it round-trips.
+  const rateStr = rate === 0 ? (sameCurrency ? '0' : '') : reversed ? formatRateValue(1 / rate) : String(rate);
   return {
    transactionId: transaction.id,
    ledgerAccountId,
@@ -2376,12 +2379,14 @@ function AuthenticatedHome() {
   }
 
   const amount = parseFloat(draft.amount);
-  // Cross-currency rows with an empty rate stay unset (0 → pending, excluded from balance).
-  // Same-currency rows are always 1. An entered rate (including 1) is stored as given.
+  // An explicitly-entered rate is stored as given — including 0, so a same-currency row can be
+  // zeroed out (contributing 0 to the balance) instead of being forced to 1. An empty field
+  // falls back to the default: 0 (pending, excluded from balance) cross-currency, 1 same-currency.
   const ledgerAccount = clientAccounts.find((a) => a.id === ledgerAccountId);
   const crossCurrency = ledgerAccount != null && ledgerAccount.currencyId !== draft.currencyId;
   const parsedLedgerRate = parseFloat(draft.exchangeRate);
-  const rawLedgerRate = Number.isFinite(parsedLedgerRate) && parsedLedgerRate > 0 ? parsedLedgerRate : crossCurrency ? 0 : 1;
+  const rateEntered = draft.exchangeRate.trim() !== '' && Number.isFinite(parsedLedgerRate) && parsedLedgerRate >= 0;
+  const rawLedgerRate = rateEntered ? parsedLedgerRate : crossCurrency ? 0 : 1;
   const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && rawLedgerRate > 0;
   const exchangeRate = rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
   const commission = parseFloat(draft.commission) || 0;
@@ -2555,6 +2560,76 @@ function AuthenticatedHome() {
    delete n[draftKey];
    return n;
   });
+ }
+
+ // Puts a single ledger row into inline-edit mode (builds its draft + seeds the
+ // reversed-rate flag). Shared by the row's Edit (pencil) button and the arrow-key
+ // "save and move to next row" flow below.
+ function openLedgerRowForEdit(entry: ClientLedgerEntry, ledgerAccountId: number) {
+  const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
+  if (entry.isAdjustment && entry.adjustmentId) {
+   const adjustment = adjustments.find((a) => a.id === entry.adjustmentId);
+   if (adjustment && !ledgerTransactionDrafts[rowKey]) {
+    if (adjustment.exchangeRateReversed) {
+     setLedgerRateReversed((prev) => ({ ...prev, [rowKey]: true }));
+    }
+    setLedgerTransactionDrafts((prev) => ({ ...prev, [rowKey]: buildLedgerAdjustmentDraft(adjustment, ledgerAccountId) }));
+   }
+   setEditingLedgerRowKeys((prev) => new Set([...prev, rowKey]));
+   return;
+  }
+  const transaction = transactions.find((tx) => tx.id === entry.transactionId);
+  if (transaction && !ledgerTransactionDrafts[rowKey]) {
+   const isOutgoing = transaction.accountFromId === ledgerAccountId;
+   setLedgerRateReversed((prev) => ({
+    ...prev,
+    ...(isOutgoing
+     ? transaction.exchangeRateFromReversed
+       ? { [rowKey]: true }
+       : {}
+     : transaction.exchangeRateToReversed
+       ? { [rowKey]: true }
+       : {}),
+   }));
+   setLedgerTransactionDrafts((prev) => ({ ...prev, [rowKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId) }));
+  }
+  setEditingLedgerRowKeys((prev) => new Set([...prev, rowKey]));
+ }
+
+ // Arrow up/down while editing a row's amount / exchange rate / commission: move to the
+ // adjacent row in the same field. If that row isn't being edited yet (single-row edit),
+ // save the current row first and open the neighbour for editing; if it's already open
+ // (e.g. "edit all" mode) just move the caret. `pagedEntries` is the exact rendered order.
+ function onLedgerEditFieldArrowKey(
+  event: ReactKeyboardEvent<HTMLInputElement>,
+  field: 'amount' | 'exchangeRate' | 'commission',
+  entry: ClientLedgerEntry,
+  ledgerAccountId: number,
+  pagedEntries: ClientLedgerEntry[],
+  entryIdx: number,
+ ) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  event.preventDefault();
+  const neighbor = pagedEntries[entryIdx + (event.key === 'ArrowDown' ? 1 : -1)];
+  if (!neighbor) return;
+  const neighborKey = getLedgerTransactionDraftKey(neighbor.transactionId, ledgerAccountId);
+  const focusNeighborField = () => {
+   const target =
+    document.querySelector<HTMLInputElement>(`[data-ledger-field="${field}"][data-ledger-key="${neighborKey}"]`) ??
+    document.querySelector<HTMLInputElement>(`[data-ledger-key="${neighborKey}"]`);
+   if (target) {
+    target.focus();
+    target.select?.();
+   }
+  };
+  if (editingLedgerRowKeys.has(neighborKey)) {
+   focusNeighborField();
+   return;
+  }
+  openLedgerRowForEdit(neighbor, ledgerAccountId);
+  void onSaveLedgerRow(entry.transactionId, ledgerAccountId);
+  // Wait for the neighbour's inputs to render before focusing.
+  setTimeout(focusNeighborField, 0);
  }
 
  async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
@@ -8309,9 +8384,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                       <div className={`relative transition-transform duration-500 [transform-style:preserve-3d] ${flipped ? '[transform:rotateY(180deg)]' : ''}`}>
                        {/* FRONT — original currency */}
                        <div className="flex flex-col rounded border border-slate-200 bg-white [backface-visibility:hidden]">
-                        <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
-                         <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
-                         {!group.isMain ? (
+                        <div className="flex flex-col gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                         <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">{orgName}</span>
+                         <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
+                          {!group.isMain ? (
                           <div className="flex items-center gap-2">
                            <label className="flex items-center gap-1 text-xs text-slate-500">
                             <span>{t('overview_rate_label', { currency: mainCode })}</span>
@@ -8335,7 +8412,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                             </button>
                            ) : null}
                           </div>
-                         ) : null}
+                          ) : null}
+                         </div>
                         </div>
 
                         <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
@@ -8369,23 +8447,26 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        {/* BACK — converted to main currency */}
                        {!group.isMain ? (
                         <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                         <div className="flex items-center justify-between gap-2 border-b border-blue-100 bg-blue-50 px-3 py-2">
-                          <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
-                          <div className="flex items-center gap-2">
-                           <span
-                            className="text-xs text-blue-600"
-                            dir="ltr"
-                           >
-                            1 {group.currencyCode} = {overviewRates[group.currencyCode] ?? rate} {mainCode}
-                           </span>
-                           <button
-                            type="button"
-                            title={t('overview_show_original')}
-                            onClick={toggleFlip}
-                            className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
-                           >
-                            {flipIcon}
-                           </button>
+                         <div className="flex flex-col gap-1 border-b border-blue-100 bg-blue-50 px-3 py-2">
+                          <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-blue-400">{orgName}</span>
+                          <div className="flex items-center justify-between gap-2">
+                           <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
+                           <div className="flex items-center gap-2">
+                            <span
+                             className="text-xs text-blue-600"
+                             dir="ltr"
+                            >
+                             1 {group.currencyCode} = {overviewRates[group.currencyCode] ?? rate} {mainCode}
+                            </span>
+                            <button
+                             type="button"
+                             title={t('overview_show_original')}
+                             onClick={toggleFlip}
+                             className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
+                            >
+                             {flipIcon}
+                            </button>
+                           </div>
                           </div>
                          </div>
 
@@ -9610,8 +9691,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    const totalLedgerPages = Math.max(1, Math.ceil(visible.length / ledgerPageSize));
                    const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
-                   return visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
-                  })().map((entry, entryIdx) => (
+                   const pagedEntries = visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
+                   return pagedEntries.map((entry, entryIdx) => (
                    <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                     <tr
                      draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
@@ -9835,43 +9916,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                            <button
                             type="button"
                             title={t('edit')}
-                            onClick={() => {
-                             // Expense (adjustment) rows now use the same inline-edit path.
-                             if (entry.isAdjustment && entry.adjustmentId) {
-                              const adjustment = adjustments.find((a) => a.id === entry.adjustmentId);
-                              if (adjustment && !ledgerTransactionDrafts[rowKey]) {
-                               if (adjustment.exchangeRateReversed) {
-                                setLedgerRateReversed((prev) => ({ ...prev, [rowKey]: true }));
-                               }
-                               setLedgerTransactionDrafts((prev) => ({
-                                ...prev,
-                                [rowKey]: buildLedgerAdjustmentDraft(adjustment, ledger.accountId),
-                               }));
-                              }
-                              setEditingLedgerRowKeys((prev) => new Set([...prev, rowKey]));
-                              return;
-                             }
-                             const draftKey = rowKey;
-                             const transaction = transactions.find((tx) => tx.id === entry.transactionId);
-                             if (transaction && !ledgerTransactionDrafts[draftKey]) {
-                              const isOutgoing = transaction.accountFromId === ledger.accountId;
-                              setLedgerRateReversed((prev) => ({
-                               ...prev,
-                               ...(isOutgoing
-                                ? transaction.exchangeRateFromReversed
-                                  ? { [draftKey]: true }
-                                  : {}
-                                : transaction.exchangeRateToReversed
-                                  ? { [draftKey]: true }
-                                  : {}),
-                              }));
-                              setLedgerTransactionDrafts((prev) => ({
-                               ...prev,
-                               [draftKey]: buildLedgerTransactionDraft(transaction, ledger.accountId),
-                              }));
-                             }
-                             setEditingLedgerRowKeys((prev) => new Set([...prev, draftKey]));
-                            }}
+                            onClick={() => openLedgerRowForEdit(entry, ledger.accountId)}
                             className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
                            >
                             <svg
@@ -10181,7 +10226,10 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                inputMode="decimal"
                                dir="ltr"
                                value={formatAmountInput(draft.amount)}
+                               data-ledger-field="amount"
+                               data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                                onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
+                               onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'amount', entry, ledger.accountId, pagedEntries, entryIdx)}
                                style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                               />
@@ -10218,6 +10266,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                     value={draft.exchangeRate}
                                     data-ledger-rate-idx={entryIdx}
                                     data-ledger-account-id={ledger.accountId}
+                                    data-ledger-field="exchangeRate"
+                                    data-ledger-key={ledgerRateKey}
                                     onChange={(event) =>
                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
                                     }
@@ -10279,15 +10329,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                       return next;
                                      });
                                     }}
-                                    onKeyDown={(event) => {
-                                     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-                                     event.preventDefault();
-                                     const delta = event.key === 'ArrowDown' ? 1 : -1;
-                                     const next = document.querySelector<HTMLInputElement>(
-                                      `[data-ledger-account-id="${ledger.accountId}"][data-ledger-rate-idx="${entryIdx + delta}"]`,
-                                     );
-                                     next?.focus();
-                                    }}
+                                    onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'exchangeRate', entry, ledger.accountId, pagedEntries, entryIdx)}
                                     style={{ width: ledgerFieldWidth(draft.exchangeRate, 5, 2) }}
                                     className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                    />
@@ -10393,6 +10435,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                   value={draft.commission}
                                   data-ledger-commission-idx={entryIdx}
                                   data-ledger-account-id={ledger.accountId}
+                                  data-ledger-field="commission"
+                                  data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                                   onChange={(event) =>
                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })
                                   }
@@ -10448,15 +10492,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                     return next;
                                    });
                                   }}
-                                  onKeyDown={(event) => {
-                                   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-                                   event.preventDefault();
-                                   const delta = event.key === 'ArrowDown' ? 1 : -1;
-                                   const next = document.querySelector<HTMLInputElement>(
-                                    `[data-ledger-account-id="${ledger.accountId}"][data-ledger-commission-idx="${entryIdx + delta}"]`,
-                                   );
-                                   next?.focus();
-                                  }}
+                                  onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'commission', entry, ledger.accountId, pagedEntries, entryIdx)}
                                   style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
                                   className={`rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-emerald-600 font-semibold' : commVal < 0 ? 'text-red-600 font-semibold' : ''}`}
                                   placeholder="0"
@@ -10705,7 +10741,8 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                      return null;
                     })()}
                    </Fragment>
-                  ))}
+                  ));
+                  })()}
                   {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) &&
                    ledger.entries.length > 0 &&
                    (() => {
