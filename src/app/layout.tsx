@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Cairo } from 'next/font/google';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { AuthSessionProvider } from '@/components/providers/AuthSessionProvider';
+import { QueryProvider } from '@/components/providers/QueryProvider';
 import { DialogHost } from '@/components/ui/AppDialog';
 import { GlobalLoadingBar } from '@/components/ui/GlobalLoadingBar';
 import './globals.css';
@@ -26,11 +27,13 @@ export default function RootLayout({
   <html className={`${cairo.variable} h-full antialiased`}>
    <body className="min-h-full flex flex-col">
     <AuthSessionProvider>
-     <LanguageProvider>
-      {children}
-      <DialogHost />
-      <GlobalLoadingBar />
-     </LanguageProvider>
+     <QueryProvider>
+      <LanguageProvider>
+       {children}
+       <DialogHost />
+       <GlobalLoadingBar />
+      </LanguageProvider>
+     </QueryProvider>
     </AuthSessionProvider>
    </body>
   </html>

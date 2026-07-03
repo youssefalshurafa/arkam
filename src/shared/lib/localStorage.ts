@@ -1,0 +1,341 @@
+import type {
+ DataCache,
+ LedgerColumnKey,
+ PdfColVisibility,
+ PdfSettings,
+ StoredLedgerSettings,
+ TransactionColumnVisibility,
+ TransactionTableSettings,
+} from '@/shared/types';
+
+export const defaultLedgerColumnOrder: LedgerColumnKey[] = [
+ 'created',
+ 'counterparty',
+ 'direction',
+ 'type',
+ 'amount',
+ 'currency',
+ 'exchangeRate',
+ 'commission',
+ 'netChange',
+ 'runningBalance',
+ 'description',
+];
+export const ledgerColumnOrderStorageKeyPrefix = 'arkam:ledger-col-order:';
+// Legacy global key — read once during migration so existing orders aren't lost.
+export const legacyLedgerColumnOrderStorageKey = 'arkam:ledger-column-order';
+export const ledgerColumnVisibilityStorageKeyPrefix = 'arkam:ledger-cols:';
+// User-defined order of organization cards on the clients page (keys: org id as
+// string, or '__unassigned__'). Persisted so the arrangement survives refreshes.
+export const clientsOrgOrderStorageKey = 'arkam:clients-org-order';
+export function getStoredClientsOrgOrder(): string[] {
+ if (typeof window === 'undefined') return [];
+ try {
+  const raw = window.localStorage.getItem(clientsOrgOrderStorageKey);
+  const parsed = raw ? JSON.parse(raw) : [];
+  return Array.isArray(parsed) ? parsed.map(String) : [];
+ } catch {
+  return [];
+ }
+}
+export const pdfSettingsStorageKey = 'arkam:pdf-settings';
+export const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
+export const pdfDateRangeStorageKeyPrefix = 'arkam:pdf-date-range:';
+export const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
+// Remembers the last ledger account the user viewed per client, so refreshing the
+// page (or revisiting the client) restores that account instead of jumping to the first.
+export const ledgerLastAccountStorageKeyPrefix = 'arkam:ledger-last-account:';
+
+export function getStoredLedgerAccountId(clientId: number): number | null {
+ if (typeof window === 'undefined') return null;
+ try {
+  const raw = window.localStorage.getItem(ledgerLastAccountStorageKeyPrefix + clientId);
+  if (!raw) return null;
+  const parsed = parseInt(raw, 10);
+  return isNaN(parsed) ? null : parsed;
+ } catch {
+  return null;
+ }
+}
+
+export function setStoredLedgerAccountId(clientId: number, accountId: number) {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(ledgerLastAccountStorageKeyPrefix + clientId, String(accountId));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+// User-entered FX rates for the overview balance cards, keyed by currency code
+// (e.g. { EUR: '10.92', USD: '9.50' }). Stable across currency reseeds.
+export const overviewRatesStorageKey = 'arkam:overview-rates';
+
+export function getStoredOverviewRates(): Record<string, string> {
+ if (typeof window === 'undefined') return {};
+ try {
+  const raw = window.localStorage.getItem(overviewRatesStorageKey);
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+ } catch {
+  return {};
+ }
+}
+
+export function saveOverviewRates(rates: Record<string, string>) {
+ try {
+  window.localStorage.setItem(overviewRatesStorageKey, JSON.stringify(rates));
+ } catch {
+  /* ignore */
+ }
+}
+export const dataCacheStorageKey = 'arkam:data-cache';
+
+export function readDataCache(): DataCache | null {
+ try {
+  const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem(dataCacheStorageKey) : null;
+  return raw ? (JSON.parse(raw) as DataCache) : null;
+ } catch {
+  return null;
+ }
+}
+
+export function saveDataCache(data: DataCache) {
+ try {
+  window.sessionStorage.setItem(dataCacheStorageKey, JSON.stringify(data));
+ } catch {
+  /* ignore — cache is best-effort */
+ }
+}
+export const defaultLedgerColumnVisibility: Record<LedgerColumnKey, boolean> = {
+ created: true,
+ counterparty: true,
+ direction: false,
+ type: false,
+ amount: true,
+ currency: false,
+ exchangeRate: true,
+ commission: true,
+ netChange: true,
+ runningBalance: true,
+ description: true,
+};
+
+// Column show/hide is stored per client so each client's ledger keeps its own choice.
+export function getStoredLedgerColumnVisibility(clientId: number | null | undefined): Record<LedgerColumnKey, boolean> {
+ if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerColumnVisibility };
+ try {
+  const raw = window.localStorage.getItem(ledgerColumnVisibilityStorageKeyPrefix + clientId);
+  if (!raw) return { ...defaultLedgerColumnVisibility };
+  return { ...defaultLedgerColumnVisibility, ...JSON.parse(raw) };
+ } catch {
+  return { ...defaultLedgerColumnVisibility };
+ }
+}
+// Per-client ledger display settings (decimals, currency symbol, date format), stored
+// alongside column visibility so each client's ledger keeps its own preferences.
+export const ledgerSettingsStorageKeyPrefix = 'arkam:ledger-settings:';
+export const defaultLedgerSettings: StoredLedgerSettings = {
+ decimals: 2,
+ showCurrencySymbol: true,
+ dateFormat: 'full',
+ highlightNetChange: true,
+ netChangeHighlightColor: '#eff6ff',
+ rowHighlightColor: '#fde68a',
+ rowClickHighlight: true,
+};
+export function getStoredLedgerSettings(clientId: number | null | undefined): StoredLedgerSettings {
+ if (typeof window === 'undefined' || !clientId) return { ...defaultLedgerSettings };
+ try {
+  const raw = window.localStorage.getItem(ledgerSettingsStorageKeyPrefix + clientId);
+  if (!raw) return { ...defaultLedgerSettings };
+  return { ...defaultLedgerSettings, ...JSON.parse(raw) };
+ } catch {
+  return { ...defaultLedgerSettings };
+ }
+}
+// Row keys the user has click-highlighted, stored per client so highlights persist.
+// Each key maps to the color it was highlighted with, so changing the setting later
+// does not retroactively recolor already-highlighted rows.
+export const ledgerHighlightsStorageKeyPrefix = 'arkam:ledger-highlights:';
+export const txHighlightsStorageKey = 'arkam:tx-highlights';
+export const txRowSettingsStorageKey = 'arkam:tx-row-settings';
+export function getStoredTxHighlights(): Map<number, string> {
+ if (typeof window === 'undefined') return new Map();
+ try {
+  const raw = window.localStorage.getItem(txHighlightsStorageKey);
+  const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  if (!parsed || typeof parsed !== 'object') return new Map();
+  return new Map(Object.entries(parsed).map(([k, v]) => [Number(k), String(v)]));
+ } catch {
+  return new Map();
+ }
+}
+export function getStoredTxRowSettings(): { rowClickHighlight: boolean; rowHighlightColor: string } {
+ if (typeof window === 'undefined') return { rowClickHighlight: true, rowHighlightColor: '#fde68a' };
+ try {
+  const raw = window.localStorage.getItem(txRowSettingsStorageKey);
+  const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  return {
+   rowClickHighlight: typeof parsed?.rowClickHighlight === 'boolean' ? parsed.rowClickHighlight : true,
+   rowHighlightColor: typeof parsed?.rowHighlightColor === 'string' ? parsed.rowHighlightColor : '#fde68a',
+  };
+ } catch {
+  return { rowClickHighlight: true, rowHighlightColor: '#fde68a' };
+ }
+}
+export function getStoredLedgerHighlights(clientId: number | null | undefined): Map<string, string> {
+ if (typeof window === 'undefined' || !clientId) return new Map();
+ try {
+  const raw = window.localStorage.getItem(ledgerHighlightsStorageKeyPrefix + clientId);
+  const parsed = raw ? JSON.parse(raw) : null;
+  if (!parsed) return new Map();
+  // New format: { key: color }
+  if (!Array.isArray(parsed) && typeof parsed === 'object') {
+   return new Map(Object.entries(parsed).map(([k, v]) => [k, String(v)]));
+  }
+  // Legacy format: string[] — treat each key as highlighted with a default color
+  if (Array.isArray(parsed)) {
+   return new Map((parsed as unknown[]).map((k) => [String(k), '#fde68a']));
+  }
+  return new Map();
+ } catch {
+  return new Map();
+ }
+}
+export const defaultPdfColVisibility: PdfColVisibility = {
+ created: true,
+ counterparty: false,
+ direction: false,
+ type: false,
+ amount: true,
+ currency: false,
+ exchangeRate: true,
+ commission: true,
+ netChange: true,
+ runningBalance: true,
+ description: true,
+};
+
+export const defaultTransactionColumnVisibility: TransactionColumnVisibility = {
+ created: true,
+ description: true,
+ accountFrom: true,
+ accountTo: true,
+ amount: true,
+ charges: true,
+ commission: true,
+};
+
+export const defaultTransactionTableSettings: TransactionTableSettings = {
+ columns: defaultTransactionColumnVisibility,
+ showExchangeRate: true,
+ dateFormat: 'full',
+};
+export function getStoredPdfCols(accountId: number): PdfColVisibility {
+ if (typeof window === 'undefined') return defaultPdfColVisibility;
+ try {
+  const raw = window.localStorage.getItem(pdfColsStorageKeyPrefix + accountId);
+  if (!raw) return defaultPdfColVisibility;
+  return { ...defaultPdfColVisibility, ...JSON.parse(raw) };
+ } catch {
+  return defaultPdfColVisibility;
+ }
+}
+
+export function savePdfCols(accountId: number, cols: PdfColVisibility) {
+ try {
+  window.localStorage.setItem(pdfColsStorageKeyPrefix + accountId, JSON.stringify(cols));
+ } catch {
+  /* ignore */
+ }
+}
+
+export function getStoredPdfDateRange(accountId: number): { fromDate: string; toDate: string } | null {
+ if (typeof window === 'undefined') return null;
+ try {
+  const raw = window.localStorage.getItem(pdfDateRangeStorageKeyPrefix + accountId);
+  if (!raw) return null;
+  const parsed = JSON.parse(raw);
+  if (typeof parsed?.fromDate === 'string' && typeof parsed?.toDate === 'string') {
+   return { fromDate: parsed.fromDate, toDate: parsed.toDate };
+  }
+  return null;
+ } catch {
+  return null;
+ }
+}
+
+export function savePdfDateRange(accountId: number, fromDate: string, toDate: string) {
+ try {
+  window.localStorage.setItem(pdfDateRangeStorageKeyPrefix + accountId, JSON.stringify({ fromDate, toDate }));
+ } catch {
+  /* ignore */
+ }
+}
+
+export function getStoredTransactionTableSettings(): TransactionTableSettings {
+ if (typeof window === 'undefined') return defaultTransactionTableSettings;
+ try {
+  const raw = window.localStorage.getItem(transactionTableSettingsStorageKey);
+  if (!raw) return defaultTransactionTableSettings;
+  const parsed = JSON.parse(raw);
+  return {
+   ...defaultTransactionTableSettings,
+   ...parsed,
+   columns: { ...defaultTransactionColumnVisibility, ...(parsed?.columns ?? {}) },
+  };
+ } catch {
+  return defaultTransactionTableSettings;
+ }
+}
+
+export function saveTransactionTableSettings(settings: TransactionTableSettings) {
+ try {
+  window.localStorage.setItem(transactionTableSettingsStorageKey, JSON.stringify(settings));
+ } catch {
+  /* ignore */
+ }
+}
+export const defaultPdfSettings: PdfSettings = {
+ decimals: 2,
+ fontFamily: 'Arial, Helvetica, sans-serif',
+ fontSize: 12,
+ headFontSize: 13,
+ dateFormat: 'full',
+ showPreBalance: true,
+ showMetaClient: true,
+ showMetaCurrency: true,
+ showMetaPeriod: true,
+ showFooter: true,
+ showGeneratedOn: true,
+ showCurrencySymbol: true,
+ highlightNetChange: true,
+};
+export function getStoredPdfSettings(): PdfSettings {
+ if (typeof window === 'undefined') return defaultPdfSettings;
+ try {
+  const raw = window.localStorage.getItem(pdfSettingsStorageKey);
+  if (!raw) return defaultPdfSettings;
+  const parsed = JSON.parse(raw);
+  return { ...defaultPdfSettings, ...parsed };
+ } catch {
+  return defaultPdfSettings;
+ }
+}
+export function getStoredLedgerColumnOrder(clientId: number | null | undefined): LedgerColumnKey[] {
+ if (typeof window === 'undefined') return defaultLedgerColumnOrder;
+ try {
+  // Per-client key first; fall back to the legacy global key so existing orders aren't lost.
+  const raw = (clientId ? window.localStorage.getItem(ledgerColumnOrderStorageKeyPrefix + clientId) : null) ?? window.localStorage.getItem(legacyLedgerColumnOrderStorageKey);
+  if (!raw) return defaultLedgerColumnOrder;
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed) || parsed.length !== defaultLedgerColumnOrder.length) return defaultLedgerColumnOrder;
+  const normalized = parsed.filter((c): c is LedgerColumnKey => defaultLedgerColumnOrder.includes(c as LedgerColumnKey));
+  if (normalized.length !== defaultLedgerColumnOrder.length) return defaultLedgerColumnOrder;
+  if (new Set(normalized).size !== defaultLedgerColumnOrder.length) return defaultLedgerColumnOrder;
+  return normalized;
+ } catch {
+  return defaultLedgerColumnOrder;
+ }
+}
