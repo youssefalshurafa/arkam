@@ -25,3 +25,18 @@ export function ledgerFieldWidth(text: string, floor: number, pad = 2) {
 export function ledgerSelectWidth(text: string, floor: number, pad = 2) {
  return `calc(${Math.max(floor, [...text].length + pad)}ch + 1.5rem)`;
 }
+
+// Formats an exchange-rate number with at least 2 decimals (up to 6), no trailing noise.
+export function formatRateValue(value: number): string {
+ if (!Number.isFinite(value)) {
+  return '1.00';
+ }
+ const trimmed = parseFloat(value.toFixed(6));
+ // Always show at least 2 decimal places
+ const str = trimmed.toString();
+ const dotIdx = str.indexOf('.');
+ if (dotIdx === -1) return str + '.00';
+ const decimals = str.length - dotIdx - 1;
+ if (decimals < 2) return str + '0'.repeat(2 - decimals);
+ return str;
+}
