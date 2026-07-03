@@ -108,23 +108,11 @@ import { computeClientLedgers, computeLedgerSelectionSummary } from '@/features/
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
+import { useClientsStore } from '@/features/clients/store/clientsStore';
+import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
 
 const emptyOrganizationForm = (): OrganizationForm => ({
  name: '',
-});
-
-const emptyClientForm = (): ClientForm => ({
- organizationId: null,
- name: '',
- email: '',
- phone: '',
- address: '',
-});
-
-const createNewClientAccountDraft = (): NewClientAccountDraft => ({
- currencyId: null,
- startingBalance: '0',
- balanceType: 'debit',
 });
 
 const emptyTransactionForm = (): TransactionForm => ({
@@ -199,14 +187,22 @@ function AuthenticatedHome() {
  const isLoading = workspaceQuery.isPending;
  const organizations = workspaceData?.organizations ?? EMPTY_ORGANIZATIONS;
  const clients = workspaceData?.clients ?? EMPTY_CLIENTS;
- const [clientSort, setClientSort] = useState<{ key: 'name' | 'organization'; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
- const [clientSearch, setClientSearch] = useState('');
- const [clientsPage, setClientsPage] = useState(1);
- const [clientsPageSize, setClientsPageSize] = useState(25);
- const [clientsGroupByOrg, setClientsGroupByOrg] = useState(true);
- const [clientsOrgOrder, setClientsOrgOrder] = useState<string[]>(() => getStoredClientsOrgOrder());
- const [draggedOrgKey, setDraggedOrgKey] = useState<string | null>(null);
- const [dragOverOrgKey, setDragOverOrgKey] = useState<string | null>(null);
+ const clientSort = useClientsStore((s) => s.clientSort);
+ const setClientSort = useClientsStore((s) => s.setClientSort);
+ const clientSearch = useClientsStore((s) => s.clientSearch);
+ const setClientSearch = useClientsStore((s) => s.setClientSearch);
+ const clientsPage = useClientsStore((s) => s.clientsPage);
+ const setClientsPage = useClientsStore((s) => s.setClientsPage);
+ const clientsPageSize = useClientsStore((s) => s.clientsPageSize);
+ const setClientsPageSize = useClientsStore((s) => s.setClientsPageSize);
+ const clientsGroupByOrg = useClientsStore((s) => s.clientsGroupByOrg);
+ const setClientsGroupByOrg = useClientsStore((s) => s.setClientsGroupByOrg);
+ const clientsOrgOrder = useClientsStore((s) => s.clientsOrgOrder);
+ const setClientsOrgOrder = useClientsStore((s) => s.setClientsOrgOrder);
+ const draggedOrgKey = useClientsStore((s) => s.draggedOrgKey);
+ const setDraggedOrgKey = useClientsStore((s) => s.setDraggedOrgKey);
+ const dragOverOrgKey = useClientsStore((s) => s.dragOverOrgKey);
+ const setDragOverOrgKey = useClientsStore((s) => s.setDragOverOrgKey);
  const currencies = workspaceData?.currencies ?? EMPTY_CURRENCIES;
  const transactions = workspaceData?.transactions ?? EMPTY_TRANSACTIONS;
  const adjustments = workspaceData?.adjustments ?? EMPTY_ADJUSTMENTS;
@@ -293,23 +289,33 @@ function AuthenticatedHome() {
   if (Object.keys(transactionTableDrafts).length === 0) resetTxTableHistory();
  }, [transactionTableDrafts, resetTxTableHistory]);
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
- const [newAccountCurrencyId, setNewAccountCurrencyId] = useState<number | null>(null);
- const [newAccountStartingBalance, setNewAccountStartingBalance] = useState<string>('0');
- const [newAccountBalanceType, setNewAccountBalanceType] = useState<'debit' | 'credit'>('debit');
- const [showAddAccountForm, setShowAddAccountForm] = useState(false);
+ const newAccountCurrencyId = useClientsStore((s) => s.newAccountCurrencyId);
+ const setNewAccountCurrencyId = useClientsStore((s) => s.setNewAccountCurrencyId);
+ const newAccountStartingBalance = useClientsStore((s) => s.newAccountStartingBalance);
+ const setNewAccountStartingBalance = useClientsStore((s) => s.setNewAccountStartingBalance);
+ const newAccountBalanceType = useClientsStore((s) => s.newAccountBalanceType);
+ const setNewAccountBalanceType = useClientsStore((s) => s.setNewAccountBalanceType);
+ const showAddAccountForm = useClientsStore((s) => s.showAddAccountForm);
+ const setShowAddAccountForm = useClientsStore((s) => s.setShowAddAccountForm);
  const [showCreateOrgDialog, setShowCreateOrgDialog] = useState(false);
  const [isSavingOrg, setIsSavingOrg] = useState(false);
  const [orgDialogError, setOrgDialogError] = useState('');
  // When the create-organization popup is opened from an import-review row, this
  // holds that row's key so the new org is assigned back to it (not the client form).
  const [orgDialogTargetReviewKey, setOrgDialogTargetReviewKey] = useState<string | null>(null);
- const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
- const [editingAccountCurrencyId, setEditingAccountCurrencyId] = useState<number | null>(null);
- const [editingAccountBalance, setEditingAccountBalance] = useState<string>('0');
- const [editingAccountBalanceType, setEditingAccountBalanceType] = useState<'debit' | 'credit'>('debit');
+ const editingAccountId = useClientsStore((s) => s.editingAccountId);
+ const setEditingAccountId = useClientsStore((s) => s.setEditingAccountId);
+ const editingAccountCurrencyId = useClientsStore((s) => s.editingAccountCurrencyId);
+ const setEditingAccountCurrencyId = useClientsStore((s) => s.setEditingAccountCurrencyId);
+ const editingAccountBalance = useClientsStore((s) => s.editingAccountBalance);
+ const setEditingAccountBalance = useClientsStore((s) => s.setEditingAccountBalance);
+ const editingAccountBalanceType = useClientsStore((s) => s.editingAccountBalanceType);
+ const setEditingAccountBalanceType = useClientsStore((s) => s.setEditingAccountBalanceType);
  // "Move all transactions to another account" picker, scoped to the account being edited.
- const [moveTargetAccountId, setMoveTargetAccountId] = useState<number | null>(null);
- const [isMovingAccount, setIsMovingAccount] = useState(false);
+ const moveTargetAccountId = useClientsStore((s) => s.moveTargetAccountId);
+ const setMoveTargetAccountId = useClientsStore((s) => s.setMoveTargetAccountId);
+ const isMovingAccount = useClientsStore((s) => s.isMovingAccount);
+ const setIsMovingAccount = useClientsStore((s) => s.setIsMovingAccount);
  const [pdfExportModal, setPdfExportModal] = useState<{
   accountId: number;
   fromDate: string;
@@ -331,9 +337,12 @@ function AuthenticatedHome() {
  } | null>(null);
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
- const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
- const [openAccountOnCreate, setOpenAccountOnCreate] = useState(true);
- const [newClientAccountDrafts, setNewClientAccountDrafts] = useState<NewClientAccountDraft[]>([createNewClientAccountDraft()]);
+ const clientForm = useClientsStore((s) => s.clientForm);
+ const setClientForm = useClientsStore((s) => s.setClientForm);
+ const openAccountOnCreate = useClientsStore((s) => s.openAccountOnCreate);
+ const setOpenAccountOnCreate = useClientsStore((s) => s.setOpenAccountOnCreate);
+ const newClientAccountDrafts = useClientsStore((s) => s.newClientAccountDrafts);
+ const setNewClientAccountDrafts = useClientsStore((s) => s.setNewClientAccountDrafts);
  const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
  // Disables the submit button while a new transaction/adjustment is being created, so a
  // double-click can't create a duplicate. The ref is the synchronous guard (state hasn't
