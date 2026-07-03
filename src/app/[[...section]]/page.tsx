@@ -158,7 +158,11 @@ function AuthenticatedHome() {
  const [section, setSection] = useState<Section>(() => getSectionFromPath(pathname).section);
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-  try { return localStorage.getItem('arkam:sidebar-collapsed') === 'true'; } catch { return false; }
+  try {
+   return localStorage.getItem('arkam:sidebar-collapsed') === 'true';
+  } catch {
+   return false;
+  }
  });
  const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
@@ -823,7 +827,9 @@ function AuthenticatedHome() {
   try {
    const stored = JSON.parse(window.localStorage.getItem(txRowSettingsStorageKey) ?? '{}') as Record<string, unknown>;
    window.localStorage.setItem(txRowSettingsStorageKey, JSON.stringify({ ...stored, rowClickHighlight: next }));
-  } catch { /* ignore */ }
+  } catch {
+   /* ignore */
+  }
  }
 
  function toggleTxRowHighlight(txnId: number) {
@@ -836,7 +842,9 @@ function AuthenticatedHome() {
    }
    try {
     window.localStorage.setItem(txHighlightsStorageKey, JSON.stringify(Object.fromEntries(next)));
-   } catch { /* ignore */ }
+   } catch {
+    /* ignore */
+   }
    return next;
   });
  }
@@ -846,7 +854,9 @@ function AuthenticatedHome() {
   try {
    const stored = JSON.parse(window.localStorage.getItem(txRowSettingsStorageKey) ?? '{}') as Record<string, unknown>;
    window.localStorage.setItem(txRowSettingsStorageKey, JSON.stringify({ ...stored, rowHighlightColor: next }));
-  } catch { /* ignore */ }
+  } catch {
+   /* ignore */
+  }
  }
 
  function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
@@ -1410,13 +1420,7 @@ function AuthenticatedHome() {
    const isOutgoing = transaction.accountFromId === ledgerAccountId;
    setLedgerRateReversed((prev) => ({
     ...prev,
-    ...(isOutgoing
-     ? transaction.exchangeRateFromReversed
-       ? { [rowKey]: true }
-       : {}
-     : transaction.exchangeRateToReversed
-       ? { [rowKey]: true }
-       : {}),
+    ...(isOutgoing ? (transaction.exchangeRateFromReversed ? { [rowKey]: true } : {}) : transaction.exchangeRateToReversed ? { [rowKey]: true } : {}),
    }));
    setLedgerTransactionDrafts((prev) => ({ ...prev, [rowKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId) }));
   }
@@ -1924,9 +1928,7 @@ function AuthenticatedHome() {
    const adjCrossCurrency = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
    const adjRawRate = parseFloat(transactionForm.exchangeRateFrom);
    const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
-   const adjExchangeRate = adjCrossCurrency
-    ? adjRateSet ? (txFromRateReversed ? 1 / adjRawRate : adjRawRate) : 0
-    : 1;
+   const adjExchangeRate = adjCrossCurrency ? (adjRateSet ? (txFromRateReversed ? 1 / adjRawRate : adjRawRate) : 0) : 1;
 
    const adjPayload = {
     accountId: transactionForm.accountFromId,
@@ -3944,7 +3946,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     const account = clientAccountMap.get(transaction.accountFromId);
     if (account) {
      const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
-     const netChange = pending ? 0 : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
+     const netChange = pending
+      ? 0
+      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
      balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
     }
    }
@@ -3952,7 +3956,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     const account = clientAccountMap.get(transaction.accountToId);
     if (account) {
      const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
-     const netChange = pending ? 0 : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
+     const netChange = pending
+      ? 0
+      : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
      balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
     }
    }
@@ -4261,9 +4267,12 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          // counterparty's ledger; every other payer (incl. the counterparty itself or an unset value) does.
          netChange: pendingRate
           ? 0
-          : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) +
+          : transaction.amount * transaction.exchangeRateFrom +
+            getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) +
             (transaction.charges > 0 && chargeShowsInLedger(transaction.chargesPayer)
-             ? (transaction.chargesPayer === 'from' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate)
+             ? transaction.chargesPayer === 'from'
+               ? -(transaction.charges * transaction.chargesExchangeRate)
+               : transaction.charges * transaction.chargesExchangeRate
              : 0),
          runningBalance: 0,
          description: transaction.descriptionFrom?.trim() || transaction.description,
@@ -4300,7 +4309,9 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           ? 0
           : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)) +
             (transaction.charges > 0 && chargeShowsInLedger(transaction.chargesPayer)
-             ? (transaction.chargesPayer === 'to' ? -(transaction.charges * transaction.chargesExchangeRate) : transaction.charges * transaction.chargesExchangeRate)
+             ? transaction.chargesPayer === 'to'
+               ? -(transaction.charges * transaction.chargesExchangeRate)
+               : transaction.charges * transaction.chargesExchangeRate
              : 0),
          runningBalance: 0,
          description: transaction.descriptionTo?.trim() || transaction.description,
@@ -4418,7 +4429,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    netCurrencyCode: accountCurrency?.currencyCode ?? '',
   };
  }, [selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId]);
-
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -4715,7 +4725,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          <td className="px-4 py-3 font-medium text-slate-900">
           <a
            href={`/organizations/${organization.id}`}
-           onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openOrganizationClientsPage(organization); }}
+           onClick={(e) => {
+            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+            e.preventDefault();
+            openOrganizationClientsPage(organization);
+           }}
            className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
           >
            {organization.name}
@@ -4725,7 +4739,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           <div className="flex flex-wrap gap-2">
            <a
             href={`/organizations/${organization.id}`}
-            onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openOrganizationClientsPage(organization); }}
+            onClick={(e) => {
+             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+             e.preventDefault();
+             openOrganizationClientsPage(organization);
+            }}
             className="cursor-pointer rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
            >
             {t('organization_page_open')}
@@ -5373,7 +5391,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           <td className="px-4 py-3 font-medium text-slate-900">
            <a
             href={`/clients/${client.id}`}
-            onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openClientLedger(client, 'clients'); }}
+            onClick={(e) => {
+             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+             e.preventDefault();
+             openClientLedger(client, 'clients');
+            }}
             className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
            >
             {client.name}
@@ -5530,7 +5552,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
   </section>
  );
 
-
  const organizationsReadOnlySection = (
   <section className={panelClassName}>
    <div className="flex items-start justify-between gap-4">
@@ -5566,7 +5587,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
         <td className="px-4 py-3 font-medium text-slate-900">
          <a
           href={`/organizations/${organization.id}`}
-          onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openOrganizationClientsPage(organization); }}
+          onClick={(e) => {
+           if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+           e.preventDefault();
+           openOrganizationClientsPage(organization);
+          }}
           className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
          >
           {organization.name}
@@ -5738,7 +5763,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            >
             <a
              href={`/clients/${client.id}`}
-             onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openClientLedger(client, 'clients'); }}
+             onClick={(e) => {
+              if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+              e.preventDefault();
+              openClientLedger(client, 'clients');
+             }}
              className="min-w-0 flex-1 truncate text-left font-medium text-slate-900 transition hover:text-blue-700"
             >
              {client.name}
@@ -5780,7 +5809,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
           <td className="px-4 py-3 font-medium text-slate-900">
            <a
             href={`/clients/${client.id}`}
-            onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openClientLedger(client, 'clients'); }}
+            onClick={(e) => {
+             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+             e.preventDefault();
+             openClientLedger(client, 'clients');
+            }}
             className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
            >
             {client.name}
@@ -5840,7 +5873,6 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
    ) : null}
   </section>
  );
-
 
  const settingsSection = (
   <section className="flex flex-col gap-0">
@@ -5905,16 +5937,16 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     {settingsTab === 'account' ? <AccountSettings hideSubscription={isEditorRole} /> : null}
     {settingsTab === 'team' ? <TeamSettings /> : null}
     {settingsTab === 'database' ? databaseSection : null}
-     {settingsTab === 'language' ? <LanguageSettings /> : null}
-     {settingsTab === 'pdf' ? <PdfSettingsTab /> : null}
-     {settingsTab === 'danger' && !isEditorRole ? (
-      <DangerZone
-       transactionCount={transactions.length}
-       clientCount={clients.length}
-       onDeleteAllTransactions={onDeleteAllTransactions}
-       onDeleteAllClients={onDeleteAllClients}
-      />
-     ) : null}
+    {settingsTab === 'language' ? <LanguageSettings /> : null}
+    {settingsTab === 'pdf' ? <PdfSettingsTab /> : null}
+    {settingsTab === 'danger' && !isEditorRole ? (
+     <DangerZone
+      transactionCount={transactions.length}
+      clientCount={clients.length}
+      onDeleteAllTransactions={onDeleteAllTransactions}
+      onDeleteAllClients={onDeleteAllClients}
+     />
+    ) : null}
     {settingsTab === 'clients' ? clientsSection : null}
     {settingsTab === 'organizations' ? organizationsSection : null}
     {settingsTab === 'currencies' ? (
@@ -5958,11 +5990,15 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       )}
       <button
        type="button"
-       onClick={() => setIsSidebarCollapsed((current) => {
-        const next = !current;
-        try { localStorage.setItem('arkam:sidebar-collapsed', String(next)); } catch {}
-        return next;
-       })}
+       onClick={() =>
+        setIsSidebarCollapsed((current) => {
+         const next = !current;
+         try {
+          localStorage.setItem('arkam:sidebar-collapsed', String(next));
+         } catch {}
+         return next;
+        })
+       }
        aria-label={isSidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
        title={isSidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/20 text-blue-200 transition hover:bg-white/10 hover:text-white"
@@ -6068,9 +6104,24 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          title={t('select_language')}
          className="w-full rounded border border-white/20 bg-white/10 px-1 py-1 text-center text-xs text-blue-100 outline-none transition focus:border-blue-300"
         >
-         <option value="en" className="bg-white text-slate-900">EN</option>
-         <option value="ar" className="bg-white text-slate-900">عر</option>
-         <option value="fr" className="bg-white text-slate-900">FR</option>
+         <option
+          value="en"
+          className="bg-white text-slate-900"
+         >
+          EN
+         </option>
+         <option
+          value="ar"
+          className="bg-white text-slate-900"
+         >
+          عر
+         </option>
+         <option
+          value="fr"
+          className="bg-white text-slate-900"
+         >
+          FR
+         </option>
         </select>
        </div>
       ) : (
@@ -6080,9 +6131,24 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
          onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
          className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
         >
-         <option value="en" className="bg-white text-slate-900">{t('english')}</option>
-         <option value="ar" className="bg-white text-slate-900">{t('arabic')}</option>
-         <option value="fr" className="bg-white text-slate-900">{t('french')}</option>
+         <option
+          value="en"
+          className="bg-white text-slate-900"
+         >
+          {t('english')}
+         </option>
+         <option
+          value="ar"
+          className="bg-white text-slate-900"
+         >
+          {t('arabic')}
+         </option>
+         <option
+          value="fr"
+          className="bg-white text-slate-900"
+         >
+          {t('french')}
+         </option>
         </select>
        </div>
       )}
@@ -6412,7 +6478,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 <td className="px-4 py-3 font-medium text-slate-900">
                  <a
                   href={`/clients/${client.id}`}
-                  onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openClientLedger(client, 'organization-clients'); }}
+                  onClick={(e) => {
+                   if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                   e.preventDefault();
+                   openClientLedger(client, 'organization-clients');
+                  }}
                   className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
                  >
                   {client.name}
@@ -6497,18 +6567,23 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">{t('client_page_title')}</p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-900">{selectedClientForLedger?.name ?? t('clients_title')}</h2>
-            {selectedClientForLedger?.organizationId != null && (() => {
-             const org = organizations.find((o) => o.id === selectedClientForLedger.organizationId);
-             return org ? (
-              <a
-               href={`/organizations/${org.id}`}
-               onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openOrganizationClientsPage(org); }}
-               className="mt-1 cursor-pointer text-sm text-slate-500 transition hover:text-blue-600 hover:underline"
-              >
-               {org.name}
-              </a>
-             ) : null;
-            })()}
+            {selectedClientForLedger?.organizationId != null &&
+             (() => {
+              const org = organizations.find((o) => o.id === selectedClientForLedger.organizationId);
+              return org ? (
+               <a
+                href={`/organizations/${org.id}`}
+                onClick={(e) => {
+                 if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                 e.preventDefault();
+                 openOrganizationClientsPage(org);
+                }}
+                className="mt-1 cursor-pointer text-sm text-slate-500 transition hover:text-blue-600 hover:underline"
+               >
+                {org.name}
+               </a>
+              ) : null;
+             })()}
             <p className="mt-2 text-sm text-slate-600">{selectedClientForLedger ? t('client_page_description') : t('client_page_no_client')}</p>
            </div>
 
@@ -6548,144 +6623,144 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
             <>
              {selectedLedgerEntryKeys.size > 0 ? (
+              <button
+               type="button"
+               onClick={() => void onDeleteSelectedLedgerEntries()}
+               className="cursor-pointer rounded border border-red-500 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+              >
+               {t('delete')} ({selectedLedgerEntryKeys.size})
+              </button>
+             ) : null}
+             {selectedLedgerSummary ? (
+              <>
+               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                <span className="font-medium text-slate-500">{t('amount')}</span>
+                <span className="font-semibold text-slate-800">
+                 {selectedLedgerSummary.amountSum.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                 {selectedLedgerSummary.amountCurrencyCode ? ` ${selectedLedgerSummary.amountCurrencyCode}` : ''}
+                </span>
+               </span>
+               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                <span className="font-medium text-slate-500">{t('net_change')}</span>
+                <span className={`font-semibold ${selectedLedgerSummary.netChangeSum >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                 {selectedLedgerSummary.netChangeSum.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                 {selectedLedgerSummary.netCurrencyCode ? ` ${selectedLedgerSummary.netCurrencyCode}` : ''}
+                </span>
+               </span>
+              </>
+             ) : null}
+             <button
+              type="button"
+              onClick={() => {
+               const targetLedger =
+                selectedClientLedgers.length === 1
+                 ? selectedClientLedgers[0]
+                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+               if (!targetLedger) return;
+               const today = new Date().toISOString().slice(0, 10);
+               const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
+               // Reuse the last date range chosen for this account, if any.
+               const storedRange = getStoredPdfDateRange(targetLedger.accountId);
+               setPdfExportModal({
+                accountId: targetLedger.accountId,
+                fromDate: storedRange?.fromDate ?? firstEntry,
+                toDate: storedRange?.toDate ?? today,
+                fromEntryKey: null,
+                toEntryKey: null,
+                cols: getStoredPdfCols(targetLedger.accountId),
+               });
+              }}
+              className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+             >
+              {t('export_pdf')}
+             </button>
+             <button
+              type="button"
+              onClick={() => {
+               const targetLedger =
+                selectedClientLedgers.length === 1
+                 ? selectedClientLedgers[0]
+                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+               if (!targetLedger) return;
+               openAdjustmentModal(targetLedger.accountId);
+              }}
+              className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
+             >
+              {t('adjustment_add')}
+             </button>
+             {Object.keys(ledgerTransactionDrafts).length > 0 ? (
+              <>
                <button
                 type="button"
-                onClick={() => void onDeleteSelectedLedgerEntries()}
-                className="cursor-pointer rounded border border-red-500 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+                title={t('undo')}
+                onClick={ledgerHistory.undo}
+                disabled={!ledgerHistory.canUndo}
+                className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                >
-                {t('delete')} ({selectedLedgerEntryKeys.size})
+                <svg
+                 width="16"
+                 height="16"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 strokeWidth="1.8"
+                 strokeLinecap="round"
+                 strokeLinejoin="round"
+                 aria-hidden
+                >
+                 <path d="M9 14 4 9l5-5" />
+                 <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+                </svg>
                </button>
-              ) : null}
-              {selectedLedgerSummary ? (
-               <>
-                <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                 <span className="font-medium text-slate-500">{t('amount')}</span>
-                 <span className="font-semibold text-slate-800">
-                  {selectedLedgerSummary.amountSum.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                  {selectedLedgerSummary.amountCurrencyCode ? ` ${selectedLedgerSummary.amountCurrencyCode}` : ''}
-                 </span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                 <span className="font-medium text-slate-500">{t('net_change')}</span>
-                 <span className={`font-semibold ${selectedLedgerSummary.netChangeSum >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {selectedLedgerSummary.netChangeSum.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                  {selectedLedgerSummary.netCurrencyCode ? ` ${selectedLedgerSummary.netCurrencyCode}` : ''}
-                 </span>
-                </span>
-               </>
-              ) : null}
-              <button
-               type="button"
-               onClick={() => {
-                const targetLedger =
-                 selectedClientLedgers.length === 1
-                  ? selectedClientLedgers[0]
-                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-                if (!targetLedger) return;
-                const today = new Date().toISOString().slice(0, 10);
-                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
-                // Reuse the last date range chosen for this account, if any.
-                const storedRange = getStoredPdfDateRange(targetLedger.accountId);
-                setPdfExportModal({
-                 accountId: targetLedger.accountId,
-                 fromDate: storedRange?.fromDate ?? firstEntry,
-                 toDate: storedRange?.toDate ?? today,
-                 fromEntryKey: null,
-                 toEntryKey: null,
-                 cols: getStoredPdfCols(targetLedger.accountId),
-                });
-               }}
-               className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-               {t('export_pdf')}
-              </button>
-              <button
-               type="button"
-               onClick={() => {
-                const targetLedger =
-                 selectedClientLedgers.length === 1
-                  ? selectedClientLedgers[0]
-                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-                if (!targetLedger) return;
-                openAdjustmentModal(targetLedger.accountId);
-               }}
-               className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
-              >
-               {t('adjustment_add')}
-              </button>
-              {Object.keys(ledgerTransactionDrafts).length > 0 ? (
-               <>
-                <button
-                 type="button"
-                 title={t('undo')}
-                 onClick={ledgerHistory.undo}
-                 disabled={!ledgerHistory.canUndo}
-                 className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                 <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                 >
-                  <path d="M9 14 4 9l5-5" />
-                  <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
-                 </svg>
-                </button>
-                <button
-                 type="button"
-                 title={t('redo')}
-                 onClick={ledgerHistory.redo}
-                 disabled={!ledgerHistory.canRedo}
-                 className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                 <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                 >
-                  <path d="m15 14 5-5-5-5" />
-                  <path d="M20 9H9a5 5 0 0 0 0 10h1" />
-                 </svg>
-                </button>
-               </>
-              ) : null}
-              <button
-               type="button"
-               title={t('nav_settings')}
-               onClick={() => setShowLedgerSettingsModal(true)}
-               className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-               <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
+               <button
+                type="button"
+                title={t('redo')}
+                onClick={ledgerHistory.redo}
+                disabled={!ledgerHistory.canRedo}
+                className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                >
-                <circle
-                 cx="12"
-                 cy="12"
-                 r="3"
-                />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-               </svg>
-              </button>
+                <svg
+                 width="16"
+                 height="16"
+                 viewBox="0 0 24 24"
+                 fill="none"
+                 stroke="currentColor"
+                 strokeWidth="1.8"
+                 strokeLinecap="round"
+                 strokeLinejoin="round"
+                 aria-hidden
+                >
+                 <path d="m15 14 5-5-5-5" />
+                 <path d="M20 9H9a5 5 0 0 0 0 10h1" />
+                </svg>
+               </button>
+              </>
+             ) : null}
+             <button
+              type="button"
+              title={t('nav_settings')}
+              onClick={() => setShowLedgerSettingsModal(true)}
+              className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+             >
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <circle
+                cx="12"
+                cy="12"
+                r="3"
+               />
+               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+             </button>
             </>
            </div>
           )}
@@ -6985,7 +7060,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   ledgerRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
                  }`}
                 >
-                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                 <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
                   <path d="m9 11-6 6v3h9l3-3" />
                   <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
                  </svg>
@@ -6999,8 +7084,25 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                   !ledgerRowClickHighlight ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
                  }`}
                 >
-                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                 <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
+                  <rect
+                   x="9"
+                   y="9"
+                   width="13"
+                   height="13"
+                   rx="2"
+                   ry="2"
+                  />
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                  </svg>
                 </button>
@@ -7404,656 +7506,740 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
                    const pagedEntries = visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
                    return pagedEntries.map((entry, entryIdx) => (
-                   <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
-                    <tr
-                     draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
-                     onClick={(e) => {
-                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                      if (editingLedgerRowKeys.has(rowKey)) return;
-                      if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
-                      if (ledgerRowClickHighlight) {
-                       toggleLedgerRowHighlight(rowKey);
-                       return;
-                      }
-                      // Copy mode: copy the clicked cell's value (strip trailing currency code/symbol).
-                      const td = (e.target as HTMLElement).closest('td');
-                      if (!td || (td as HTMLTableCellElement).cellIndex < 2) return;
-                      const raw = (td as HTMLElement).innerText.trim();
-                      const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
-                      if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
-                     }}
-                     onDragStart={(e) => {
-                      if (!dragLedgerFromHandle.current) {
+                    <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
+                     <tr
+                      draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                      onClick={(e) => {
+                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                       if (editingLedgerRowKeys.has(rowKey)) return;
+                       if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+                       if (ledgerRowClickHighlight) {
+                        toggleLedgerRowHighlight(rowKey);
+                        return;
+                       }
+                       // Copy mode: copy the clicked cell's value (strip trailing currency code/symbol).
+                       const td = (e.target as HTMLElement).closest('td');
+                       if (!td || (td as HTMLTableCellElement).cellIndex < 2) return;
+                       const raw = (td as HTMLElement).innerText.trim();
+                       const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
+                       if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
+                      }}
+                      onDragStart={(e) => {
+                       if (!dragLedgerFromHandle.current) {
+                        e.preventDefault();
+                        return;
+                       }
+                       setDragLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                      }}
+                      onDragEnd={() => {
+                       dragLedgerFromHandle.current = false;
+                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                       if (dragLedgerRowKey !== null && dragOverLedgerRowKey !== null && dragLedgerRowKey !== dragOverLedgerRowKey) {
+                        const keysToMove =
+                         selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.size > 1
+                          ? [...selectedLedgerEntryKeys].filter((k) => k.endsWith(`:${ledger.accountId}`))
+                          : [dragLedgerRowKey];
+                        void onLedgerRowDrop(keysToMove, dragOverLedgerRowKey, dragOverLedgerHalf, ledger.accountId);
+                       }
+                       setDragLedgerRowKey(null);
+                       setDragOverLedgerRowKey(null);
+                      }}
+                      onDragOver={(e) => {
                        e.preventDefault();
-                       return;
-                      }
-                      setDragLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
-                     }}
-                     onDragEnd={() => {
-                      dragLedgerFromHandle.current = false;
-                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                      if (dragLedgerRowKey !== null && dragOverLedgerRowKey !== null && dragLedgerRowKey !== dragOverLedgerRowKey) {
-                       const keysToMove =
-                        selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.size > 1
-                         ? [...selectedLedgerEntryKeys].filter((k) => k.endsWith(`:${ledger.accountId}`))
-                         : [dragLedgerRowKey];
-                       void onLedgerRowDrop(keysToMove, dragOverLedgerRowKey, dragOverLedgerHalf, ledger.accountId);
-                      }
-                      setDragLedgerRowKey(null);
-                      setDragOverLedgerRowKey(null);
-                     }}
-                     onDragOver={(e) => {
-                      e.preventDefault();
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setDragOverLedgerHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
-                      setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
-                     }}
-                     onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
-                     onKeyDown={(e) => {
-                      // Enter saves the row being edited (ignore Enter inside multi-line fields).
-                      if (e.key !== 'Enter') return;
-                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                      if (!editingLedgerRowKeys.has(rowKey)) return;
-                      if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
-                      e.preventDefault();
-                      void onSaveLedgerRow(entry.transactionId, ledger.accountId);
-                     }}
-                     style={(() => {
-                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                      const color = highlightedLedgerRows.get(rowKey);
-                      const isEditing = editingLedgerRowKeys.has(rowKey);
-                      return {
-                       ...(color ? { backgroundColor: color } : {}),
-                       ...(isEditing ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
-                      };
-                     })()}
-                     className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
-                    >
-                     {(() => {
-                      const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                      const isEditingRow = editingLedgerRowKeys.has(rowKey);
-                      const isRowHighlighted = highlightedLedgerRows.has(rowKey);
-                      const draft = isEditingRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+                       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                       setDragOverLedgerHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
+                       setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
+                      }}
+                      onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
+                      onKeyDown={(e) => {
+                       // Enter saves the row being edited (ignore Enter inside multi-line fields).
+                       if (e.key !== 'Enter') return;
+                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                       if (!editingLedgerRowKeys.has(rowKey)) return;
+                       if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+                       e.preventDefault();
+                       void onSaveLedgerRow(entry.transactionId, ledger.accountId);
+                      }}
+                      style={(() => {
+                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                       const color = highlightedLedgerRows.get(rowKey);
+                       const isEditing = editingLedgerRowKeys.has(rowKey);
+                       return {
+                        ...(color ? { backgroundColor: color } : {}),
+                        ...(isEditing ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
+                       };
+                      })()}
+                      className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                     >
+                      {(() => {
+                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                       const isEditingRow = editingLedgerRowKeys.has(rowKey);
+                       const isRowHighlighted = highlightedLedgerRows.has(rowKey);
+                       const draft = isEditingRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
 
-                      return (
-                       <>
-                        {/* checkbox */}
-                        <td className="px-2 py-3 align-middle w-8">
-                         <input
-                          type="checkbox"
-                          checked={selectedLedgerEntryKeys.has(rowKey)}
-                          onChange={() => onToggleLedgerEntrySelection(rowKey)}
-                          className="cursor-pointer"
-                         />
-                        </td>
-                        {/* actions */}
-                        <td className="px-2 py-3 align-top w-10">
-                         {isEditingRow ? (
-                          <div className="flex flex-col items-center gap-1">
-                           <button
-                            type="button"
-                            title={t('save_changes')}
-                            onClick={() => void onSaveLedgerRow(entry.transactionId, ledger.accountId)}
-                            className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
-                           >
-                            <svg
-                             width="14"
-                             height="14"
-                             viewBox="0 0 24 24"
-                             fill="none"
-                             stroke="currentColor"
-                             strokeWidth="2"
-                             strokeLinecap="round"
-                             strokeLinejoin="round"
-                             aria-hidden
+                       return (
+                        <>
+                         {/* checkbox */}
+                         <td className="px-2 py-3 align-middle w-8">
+                          <input
+                           type="checkbox"
+                           checked={selectedLedgerEntryKeys.has(rowKey)}
+                           onChange={() => onToggleLedgerEntrySelection(rowKey)}
+                           className="cursor-pointer"
+                          />
+                         </td>
+                         {/* actions */}
+                         <td className="px-2 py-3 align-top w-10">
+                          {isEditingRow ? (
+                           <div className="flex flex-col items-center gap-1">
+                            <button
+                             type="button"
+                             title={t('save_changes')}
+                             onClick={() => void onSaveLedgerRow(entry.transactionId, ledger.accountId)}
+                             className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
                             >
-                             <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                           </button>
-                           <button
-                            type="button"
-                            title={t('cancel')}
-                            onClick={() => {
-                             setEditingLedgerRowKeys((prev) => {
-                              const n = new Set(prev);
-                              n.delete(rowKey);
-                              return n;
-                             });
-                             setLedgerTransactionDrafts((prev) => {
-                              const n = { ...prev };
-                              delete n[rowKey];
-                              return n;
-                             });
-                            }}
-                            className="rounded p-1 text-slate-400 hover:bg-slate-100"
-                           >
-                            <svg
-                             width="14"
-                             height="14"
-                             viewBox="0 0 24 24"
-                             fill="none"
-                             stroke="currentColor"
-                             strokeWidth="2"
-                             strokeLinecap="round"
-                             strokeLinejoin="round"
-                             aria-hidden
+                             <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden
+                             >
+                              <polyline points="20 6 9 17 4 12" />
+                             </svg>
+                            </button>
+                            <button
+                             type="button"
+                             title={t('cancel')}
+                             onClick={() => {
+                              setEditingLedgerRowKeys((prev) => {
+                               const n = new Set(prev);
+                               n.delete(rowKey);
+                               return n;
+                              });
+                              setLedgerTransactionDrafts((prev) => {
+                               const n = { ...prev };
+                               delete n[rowKey];
+                               return n;
+                              });
+                             }}
+                             className="rounded p-1 text-slate-400 hover:bg-slate-100"
                             >
-                             <line
-                              x1="18"
-                              y1="6"
-                              x2="6"
-                              y2="18"
-                             />
-                             <line
-                              x1="6"
-                              y1="6"
-                              x2="18"
-                              y2="18"
-                             />
-                            </svg>
-                           </button>
-                           <button
-                            type="button"
-                            title={t('delete')}
-                            onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
-                            className="rounded p-1 text-red-500 hover:bg-red-50"
-                           >
-                            <svg
-                             width="14"
-                             height="14"
-                             viewBox="0 0 24 24"
-                             fill="none"
-                             stroke="currentColor"
-                             strokeWidth="1.8"
-                             strokeLinecap="round"
-                             strokeLinejoin="round"
-                             aria-hidden
+                             <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden
+                             >
+                              <line
+                               x1="18"
+                               y1="6"
+                               x2="6"
+                               y2="18"
+                              />
+                              <line
+                               x1="6"
+                               y1="6"
+                               x2="18"
+                               y2="18"
+                              />
+                             </svg>
+                            </button>
+                            <button
+                             type="button"
+                             title={t('delete')}
+                             onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
+                             className="rounded p-1 text-red-500 hover:bg-red-50"
                             >
-                             <polyline points="3 6 5 6 21 6" />
-                             <path d="M19 6l-1 14H6L5 6" />
-                             <path d="M10 11v6M14 11v6" />
-                             <path d="M9 6V4h6v2" />
-                            </svg>
-                           </button>
-                          </div>
-                         ) : (
-                          <div className="flex items-center gap-0.5">
-                           <span
-                            className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                            title="Drag to reorder"
-                            onMouseDown={() => {
-                             dragLedgerFromHandle.current = true;
-                            }}
-                           >
-                            <svg
-                             width="12"
-                             height="12"
-                             viewBox="0 0 24 24"
-                             fill="currentColor"
-                             aria-hidden
+                             <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden
+                             >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                              <path d="M10 11v6M14 11v6" />
+                              <path d="M9 6V4h6v2" />
+                             </svg>
+                            </button>
+                           </div>
+                          ) : (
+                           <div className="flex items-center gap-0.5">
+                            <span
+                             className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                             title="Drag to reorder"
+                             onMouseDown={() => {
+                              dragLedgerFromHandle.current = true;
+                             }}
                             >
-                             <circle
-                              cx="9"
-                              cy="5"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="15"
-                              cy="5"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="9"
-                              cy="12"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="15"
-                              cy="12"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="9"
-                              cy="19"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="15"
-                              cy="19"
-                              r="1.5"
-                             />
-                            </svg>
-                           </span>
-                           <button
-                            type="button"
-                            title={t('edit')}
-                            onClick={() => openLedgerRowForEdit(entry, ledger.accountId)}
-                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
-                           >
-                            <svg
-                             width="14"
-                             height="14"
-                             viewBox="0 0 24 24"
-                             fill="none"
-                             stroke="currentColor"
-                             strokeWidth="1.8"
-                             strokeLinecap="round"
-                             strokeLinejoin="round"
-                             aria-hidden
+                             <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              aria-hidden
+                             >
+                              <circle
+                               cx="9"
+                               cy="5"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="15"
+                               cy="5"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="9"
+                               cy="12"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="15"
+                               cy="12"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="9"
+                               cy="19"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="15"
+                               cy="19"
+                               r="1.5"
+                              />
+                             </svg>
+                            </span>
+                            <button
+                             type="button"
+                             title={t('edit')}
+                             onClick={() => openLedgerRowForEdit(entry, ledger.accountId)}
+                             className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
                             >
-                             <path d="M12 20h9" />
-                             <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                            </svg>
-                           </button>
-                          </div>
-                         )}
-                        </td>
-                        {orderedLedgerColumnOptions.map((column) => {
-                         if (!ledgerColumnVisibility[column.key]) {
-                          return null;
-                         }
+                             <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden
+                             >
+                              <path d="M12 20h9" />
+                              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                             </svg>
+                            </button>
+                           </div>
+                          )}
+                         </td>
+                         {orderedLedgerColumnOptions.map((column) => {
+                          if (!ledgerColumnVisibility[column.key]) {
+                           return null;
+                          }
 
-                         switch (column.key) {
-                          case 'created':
-                           return (
-                            <td
-                             key={column.key}
-                             className="px-4 py-3 text-slate-500"
-                            >
-                             {draft ? (
-                              <input
-                               type="date"
-                               value={draft.createdDate}
-                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
-                               style={{ width: '8.5rem' }}
-                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                              />
-                             ) : (
-                              formatDateValue(entry.createdAt, ledgerDateFormat)
-                             )}
-                            </td>
-                           );
-                          case 'counterparty':
-                           return (
-                            <td
-                             key={column.key}
-                             className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap"
-                            >
-                             {entry.isAdjustment ? (
-                              <span className="text-slate-400">-</span>
-                             ) : draft ? (
-                              (() => {
-                               const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                               const selectedAccount = clientAccounts.find((account) => account.id === draft.counterpartyAccountId);
-                               return (
-                                <div className="flex items-center gap-1">
-                                 <div className="relative">
-                                  <input
-                                   type="text"
-                                   value={
-                                    ledgerCounterpartyOpen === rowKey
-                                     ? ledgerCounterpartyQuery
-                                     : selectedAccount
-                                       ? `${selectedAccount.clientName} · ${selectedAccount.currencyCode}`
-                                       : ''
-                                   }
-                                   onChange={(e) => {
-                                    setLedgerCounterpartyQuery(e.target.value);
-                                    setLedgerCounterpartyOpen(rowKey);
-                                   }}
-                                   onFocus={() => {
-                                    setLedgerCounterpartyQuery('');
-                                    setLedgerCounterpartyOpen(rowKey);
-                                   }}
-                                   onBlur={() => {
-                                    const capturedKey = rowKey;
-                                    setTimeout(() => setLedgerCounterpartyOpen((current) => current === capturedKey ? null : current), 150);
-                                   }}
-                                   placeholder={t('transaction_account_placeholder')}
-                                   style={{ width: '12rem' }}
-                                   className="rounded border border-slate-300 py-1.5 pe-6 ps-2 text-xs outline-none ring-blue-300 focus:ring"
-                                   autoComplete="off"
-                                  />
-                                  {draft.counterpartyAccountId && ledgerCounterpartyOpen !== rowKey ? (
-                                   <button
-                                    type="button"
-                                    onMouseDown={(e) => {
-                                     e.preventDefault();
-                                     updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: null });
-                                     setLedgerCounterpartyQuery('');
-                                     setLedgerCounterpartyOpen(null);
-                                    }}
-                                    title={t('clear_selection')}
-                                    className="absolute inset-y-0 end-1 my-auto flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                   >
-                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                     <line x1="18" y1="6" x2="6" y2="18" />
-                                     <line x1="6" y1="6" x2="18" y2="18" />
-                                    </svg>
-                                   </button>
-                                  ) : null}
-                                  {ledgerCounterpartyOpen === rowKey && (
-                                   <ul className="absolute z-30 mt-1 max-h-48 w-52 overflow-y-auto rounded border border-slate-200 bg-white text-xs shadow-lg">
-                                    {(() => {
-                                     const q = ledgerCounterpartyQuery.trim().toLowerCase();
-                                     const byClient = new Map<number, ClientAccount[]>();
-                                     for (const a of clientAccounts) {
-                                      if (a.id === ledger.accountId) continue;
-                                      if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
-                                      const arr = byClient.get(a.clientId) ?? [];
-                                      arr.push(a);
-                                      byClient.set(a.clientId, arr);
-                                     }
-                                     const groups = [...byClient.values()];
-                                     if (groups.length === 0) {
-                                      return <li className="px-3 py-2 text-slate-400">{t('transaction_account_placeholder')}</li>;
-                                     }
-                                     const selectAccount = (id: number) => {
-                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: id });
-                                      setLedgerCounterpartyQuery('');
-                                      setLedgerCounterpartyOpen(null);
-                                      setLedgerCounterpartyExpandedClient(null);
-                                     };
-                                     return groups.map((accts) => {
-                                      const clientId = accts[0].clientId;
-                                      if (accts.length === 1) {
-                                       const account = accts[0];
-                                       return (
-                                        <li
-                                         key={`g${clientId}`}
-                                         onMouseDown={() => selectAccount(account.id)}
-                                         className={`cursor-pointer px-3 py-1.5 hover:bg-blue-50 ${draft.counterpartyAccountId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
-                                        >
-                                         {account.clientName} · {account.currencyCode}
-                                        </li>
-                                       );
-                                      }
-                                      const expanded = !!q || ledgerCounterpartyExpandedClient === clientId;
-                                      const hasSelected = accts.some((a) => a.id === draft.counterpartyAccountId);
-                                      return (
-                                       <Fragment key={`g${clientId}`}>
-                                        <li
-                                         onMouseDown={(e) => {
-                                          e.preventDefault();
-                                          setLedgerCounterpartyExpandedClient(expanded && !q ? null : clientId);
-                                         }}
-                                         className={`flex cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
-                                        >
-                                         <span>{accts[0].clientName}</span>
-                                         <span className="flex items-center gap-1 text-slate-400">
-                                          {accts.length}
-                                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden>
-                                           <path d="m6 9 6 6 6-6" />
-                                          </svg>
-                                         </span>
-                                        </li>
-                                        {expanded &&
-                                         accts.map((account) => (
-                                          <li
-                                           key={account.id}
-                                           onMouseDown={() => selectAccount(account.id)}
-                                           className={`cursor-pointer py-1.5 ps-7 pe-3 hover:bg-blue-50 ${draft.counterpartyAccountId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
-                                          >
-                                           {account.currencyCode}
-                                          </li>
-                                         ))}
-                                       </Fragment>
-                                      );
-                                     });
-                                    })()}
-                                   </ul>
-                                  )}
-                                 </div>
-                                 <button
-                                  type="button"
-                                  title={t('ledger_swap_parties')}
-                                  onClick={() =>
-                                   updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: draft.direction === 'outgoing' ? 'incoming' : 'outgoing' })
-                                  }
-                                  className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
-                                 >
-                                  <svg
-                                   width="14"
-                                   height="14"
-                                   viewBox="0 0 24 24"
-                                   fill="none"
-                                   stroke="currentColor"
-                                   strokeWidth="1.8"
-                                   strokeLinecap="round"
-                                   strokeLinejoin="round"
-                                   aria-hidden
-                                  >
-                                   <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                   <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                  </svg>
-                                 </button>
-                                </div>
-                               );
-                              })()
-                             ) : entry.counterpartyClientId ? (
-                              <a
-                               href={`/clients/${entry.counterpartyClientId}`}
-                               onClick={(e) => {
-                                if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-                                e.preventDefault();
-                                const client = clients.find((c) => c.id === entry.counterpartyClientId);
-                                if (client) openClientLedger(client, clientLedgerBackSection);
-                               }}
-                               className="cursor-pointer font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
-                              >
-                               {entry.counterpartyName}
-                              </a>
-                             ) : (
-                              entry.counterpartyName
-                             )}
-                            </td>
-                           );
-                          case 'direction':
-                           return (
-                            <td
-                             key={column.key}
-                             className="px-4 py-3"
-                            >
-                             {entry.isAdjustment && draft ? (
-                              <div className="grid grid-cols-2 gap-1">
-                               <button
-                                type="button"
-                                onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
-                                className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                 draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                                }`}
-                               >
-                                {t('adjustment_direction_debit_short')}
-                               </button>
-                               <button
-                                type="button"
-                                onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
-                                className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                 draft.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                                }`}
-                               >
-                                {t('adjustment_direction_credit_short')}
-                               </button>
-                              </div>
-                             ) : entry.isAdjustment ? (
-                              <span
-                               className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
-                              >
-                               {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
-                              </span>
-                             ) : draft ? (
-                              <select
-                               value={draft.direction}
-                               onChange={(event) =>
-                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })
-                               }
-                               style={{ width: ledgerSelectWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 2) }}
-                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                              >
-                               <option value="incoming">{t('incoming')}</option>
-                               <option value="outgoing">{t('outgoing')}</option>
-                              </select>
-                             ) : (
-                              <span
-                               className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
-                              >
-                               {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
-                              </span>
-                             )}
-                            </td>
-                           );
-                          case 'type':
-                           return (
-                            <td
-                             key={column.key}
-                             className="px-4 py-3 text-slate-600"
-                            >
-                             {entry.isAdjustment ? (
-                              <span className="inline-flex rounded bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">{t('adjustment_label')}</span>
-                             ) : draft ? (
-                              <select
-                               value={draft.type}
-                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
-                               style={{ width: ledgerSelectWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 2) }}
-                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                              >
-                               <option value="exchange">{t('transaction_type_exchange')}</option>
-                               <option value="transfer">{t('transaction_type_transfer')}</option>
-                              </select>
-                             ) : (
-                              t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
-                             )}
-                            </td>
-                           );
-                          case 'amount':
-                           return (
-                            <td
-                             key={column.key}
-                             className={`whitespace-nowrap px-4 py-3 font-semibold ${(draft?.direction ?? entry.direction) === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
-                            >
-                             {draft ? (
-                              <input
-                               type="text"
-                               inputMode="decimal"
-                               dir="ltr"
-                               value={formatAmountInput(draft.amount)}
-                               data-ledger-field="amount"
-                               data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
-                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
-                               onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'amount', entry, ledger.accountId, pagedEntries, entryIdx)}
-                               style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
-                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                              />
-                             ) : (
-                              <>
-                               {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                               {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
-                              </>
-                             )}
-                            </td>
-                           );
-                          case 'exchangeRate':
-                           return (
-                            <td
-                             key={column.key}
-                             className="px-4 py-3 text-slate-600"
-                            >
-                             {draft
-                              ? (() => {
-                                 const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                                 const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
-                                 const txCurr = entry.currencyCode;
-                                 const accCurr = ledger.currencyCode;
-                                 // Adjustment with same currency as account: no rate needed
-                                 if (entry.isAdjustment && txCurr === accCurr) {
-                                  return <span className="text-slate-400">-</span>;
-                                 }
-                                 return (
-                                  <div className="flex items-center gap-1">
+                          switch (column.key) {
+                           case 'created':
+                            return (
+                             <td
+                              key={column.key}
+                              className="px-4 py-3 text-slate-500"
+                             >
+                              {draft ? (
+                               <input
+                                type="date"
+                                value={draft.createdDate}
+                                onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
+                                style={{ width: '8.5rem' }}
+                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                               />
+                              ) : (
+                               formatDateValue(entry.createdAt, ledgerDateFormat)
+                              )}
+                             </td>
+                            );
+                           case 'counterparty':
+                            return (
+                             <td
+                              key={column.key}
+                              className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap"
+                             >
+                              {entry.isAdjustment ? (
+                               <span className="text-slate-400">-</span>
+                              ) : draft ? (
+                               (() => {
+                                const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                                const selectedAccount = clientAccounts.find((account) => account.id === draft.counterpartyAccountId);
+                                return (
+                                 <div className="flex items-center gap-1">
+                                  <div className="relative">
                                    <input
                                     type="text"
-                                    inputMode="decimal"
-                                    dir="ltr"
-                                    value={draft.exchangeRate}
-                                    data-ledger-rate-idx={entryIdx}
-                                    data-ledger-account-id={ledger.accountId}
-                                    data-ledger-field="exchangeRate"
-                                    data-ledger-key={ledgerRateKey}
-                                    onChange={(event) =>
-                                     updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
+                                    value={
+                                     ledgerCounterpartyOpen === rowKey
+                                      ? ledgerCounterpartyQuery
+                                      : selectedAccount
+                                        ? `${selectedAccount.clientName} · ${selectedAccount.currencyCode}`
+                                        : ''
                                     }
-                                    onPaste={(event) => {
-                                     const text = event.clipboardData.getData('text');
-                                     const values = text
-                                      .split(/[\r\n]+/)
-                                      .map((v) => v.trim())
-                                      .filter((v) => v.length > 0);
-                                     // Single value: let the browser paste normally into this one input.
-                                     if (values.length <= 1) return;
-                                     event.preventDefault();
-
-                                     // Rebuild the same filtered visible list the table renders, so we
-                                     // can map row positions to transaction drafts. ledger.entries is
-                                     // already in the user's manual order (applied in the memo).
-                                     const ordered = ledger.entries;
-                                     const q = ledgerFilterSearch.trim().toLowerCase();
-                                     const visible = ordered.filter((e) => {
-                                      if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                                      if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                                      if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                                      if (q) {
-                                       const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
-                                       const inDescription = (e.description ?? '').toLowerCase().includes(q);
-                                       const inAmount = String(e.amount).includes(q);
-                                       if (!inCounterparty && !inDescription && !inAmount) return false;
-                                      }
-                                      return true;
-                                     });
-
-                                     // Spread each pasted value down consecutive editable rate inputs,
-                                     // starting at the row that received the paste. Adjustment rows and
-                                     // rows not in edit mode have no rate input, so they are skipped.
-                                     // Locate the start row by key in the full (unpaginated) visible list —
-                                     // entryIdx is page-relative, so it can't be used to index `visible`.
-                                     const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                                     const startIdx = Math.max(
-                                      0,
-                                      visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey),
-                                     );
-                                     const patches: Record<string, string> = {};
-                                     let valueIdx = 0;
-                                     for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
-                                      const target = visible[i];
-                                      if (target.isAdjustment) continue;
-                                      const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
-                                      if (!editingLedgerRowKeys.has(key)) continue;
-                                      patches[key] = normalizeDecimalInput(values[valueIdx]);
-                                      valueIdx += 1;
-                                     }
-                                     if (Object.keys(patches).length === 0) return;
-                                     ledgerHistory.record();
-                                     setLedgerTransactionDrafts((prev) => {
-                                      const next = { ...prev };
-                                      for (const [key, rate] of Object.entries(patches)) {
-                                       if (next[key]) next[key] = { ...next[key], exchangeRate: rate };
-                                      }
-                                      return next;
-                                     });
+                                    onChange={(e) => {
+                                     setLedgerCounterpartyQuery(e.target.value);
+                                     setLedgerCounterpartyOpen(rowKey);
                                     }}
-                                    onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'exchangeRate', entry, ledger.accountId, pagedEntries, entryIdx)}
-                                    style={{ width: ledgerFieldWidth(draft.exchangeRate, 5, 2) }}
-                                    className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                    onFocus={() => {
+                                     setLedgerCounterpartyQuery('');
+                                     setLedgerCounterpartyOpen(rowKey);
+                                    }}
+                                    onBlur={() => {
+                                     const capturedKey = rowKey;
+                                     setTimeout(() => setLedgerCounterpartyOpen((current) => (current === capturedKey ? null : current)), 150);
+                                    }}
+                                    placeholder={t('transaction_account_placeholder')}
+                                    style={{ width: '12rem' }}
+                                    className="rounded border border-slate-300 py-1.5 pe-6 ps-2 text-xs outline-none ring-blue-300 focus:ring"
+                                    autoComplete="off"
                                    />
-                                   {txCurr && accCurr && txCurr !== accCurr && (
+                                   {draft.counterpartyAccountId && ledgerCounterpartyOpen !== rowKey ? (
+                                    <button
+                                     type="button"
+                                     onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: null });
+                                      setLedgerCounterpartyQuery('');
+                                      setLedgerCounterpartyOpen(null);
+                                     }}
+                                     title={t('clear_selection')}
+                                     className="absolute inset-y-0 end-1 my-auto flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                    >
+                                     <svg
+                                      width="10"
+                                      height="10"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2.5"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      aria-hidden
+                                     >
+                                      <line
+                                       x1="18"
+                                       y1="6"
+                                       x2="6"
+                                       y2="18"
+                                      />
+                                      <line
+                                       x1="6"
+                                       y1="6"
+                                       x2="18"
+                                       y2="18"
+                                      />
+                                     </svg>
+                                    </button>
+                                   ) : null}
+                                   {ledgerCounterpartyOpen === rowKey && (
+                                    <ul className="absolute z-30 mt-1 max-h-48 w-52 overflow-y-auto rounded border border-slate-200 bg-white text-xs shadow-lg">
+                                     {(() => {
+                                      const q = ledgerCounterpartyQuery.trim().toLowerCase();
+                                      const byClient = new Map<number, ClientAccount[]>();
+                                      for (const a of clientAccounts) {
+                                       if (a.id === ledger.accountId) continue;
+                                       if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
+                                       const arr = byClient.get(a.clientId) ?? [];
+                                       arr.push(a);
+                                       byClient.set(a.clientId, arr);
+                                      }
+                                      const groups = [...byClient.values()];
+                                      if (groups.length === 0) {
+                                       return <li className="px-3 py-2 text-slate-400">{t('transaction_account_placeholder')}</li>;
+                                      }
+                                      const selectAccount = (id: number) => {
+                                       updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: id });
+                                       setLedgerCounterpartyQuery('');
+                                       setLedgerCounterpartyOpen(null);
+                                       setLedgerCounterpartyExpandedClient(null);
+                                      };
+                                      return groups.map((accts) => {
+                                       const clientId = accts[0].clientId;
+                                       if (accts.length === 1) {
+                                        const account = accts[0];
+                                        return (
+                                         <li
+                                          key={`g${clientId}`}
+                                          onMouseDown={() => selectAccount(account.id)}
+                                          className={`cursor-pointer px-3 py-1.5 hover:bg-blue-50 ${draft.counterpartyAccountId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                                         >
+                                          {account.clientName} · {account.currencyCode}
+                                         </li>
+                                        );
+                                       }
+                                       const expanded = !!q || ledgerCounterpartyExpandedClient === clientId;
+                                       const hasSelected = accts.some((a) => a.id === draft.counterpartyAccountId);
+                                       return (
+                                        <Fragment key={`g${clientId}`}>
+                                         <li
+                                          onMouseDown={(e) => {
+                                           e.preventDefault();
+                                           setLedgerCounterpartyExpandedClient(expanded && !q ? null : clientId);
+                                          }}
+                                          className={`flex cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                                         >
+                                          <span>{accts[0].clientName}</span>
+                                          <span className="flex items-center gap-1 text-slate-400">
+                                           {accts.length}
+                                           <svg
+                                            width="10"
+                                            height="10"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+                                            aria-hidden
+                                           >
+                                            <path d="m6 9 6 6 6-6" />
+                                           </svg>
+                                          </span>
+                                         </li>
+                                         {expanded &&
+                                          accts.map((account) => (
+                                           <li
+                                            key={account.id}
+                                            onMouseDown={() => selectAccount(account.id)}
+                                            className={`cursor-pointer py-1.5 ps-7 pe-3 hover:bg-blue-50 ${draft.counterpartyAccountId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                                           >
+                                            {account.currencyCode}
+                                           </li>
+                                          ))}
+                                        </Fragment>
+                                       );
+                                      });
+                                     })()}
+                                    </ul>
+                                   )}
+                                  </div>
+                                  <button
+                                   type="button"
+                                   title={t('ledger_swap_parties')}
+                                   onClick={() =>
+                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: draft.direction === 'outgoing' ? 'incoming' : 'outgoing' })
+                                   }
+                                   className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                                  >
+                                   <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    aria-hidden
+                                   >
+                                    <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                    <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                   </svg>
+                                  </button>
+                                 </div>
+                                );
+                               })()
+                              ) : entry.counterpartyClientId ? (
+                               <a
+                                href={`/clients/${entry.counterpartyClientId}`}
+                                onClick={(e) => {
+                                 if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                                 e.preventDefault();
+                                 const client = clients.find((c) => c.id === entry.counterpartyClientId);
+                                 if (client) openClientLedger(client, clientLedgerBackSection);
+                                }}
+                                className="cursor-pointer font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
+                               >
+                                {entry.counterpartyName}
+                               </a>
+                              ) : (
+                               entry.counterpartyName
+                              )}
+                             </td>
+                            );
+                           case 'direction':
+                            return (
+                             <td
+                              key={column.key}
+                              className="px-4 py-3"
+                             >
+                              {entry.isAdjustment && draft ? (
+                               <div className="grid grid-cols-2 gap-1">
+                                <button
+                                 type="button"
+                                 onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
+                                 className={`rounded border px-2 py-1 text-xs font-semibold transition ${
+                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                 }`}
+                                >
+                                 {t('adjustment_direction_debit_short')}
+                                </button>
+                                <button
+                                 type="button"
+                                 onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
+                                 className={`rounded border px-2 py-1 text-xs font-semibold transition ${
+                                  draft.adjustmentDirection === 'credit'
+                                   ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                 }`}
+                                >
+                                 {t('adjustment_direction_credit_short')}
+                                </button>
+                               </div>
+                              ) : entry.isAdjustment ? (
+                               <span
+                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                               >
+                                {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
+                               </span>
+                              ) : draft ? (
+                               <select
+                                value={draft.direction}
+                                onChange={(event) =>
+                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })
+                                }
+                                style={{ width: ledgerSelectWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 2) }}
+                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                               >
+                                <option value="incoming">{t('incoming')}</option>
+                                <option value="outgoing">{t('outgoing')}</option>
+                               </select>
+                              ) : (
+                               <span
+                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                               >
+                                {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
+                               </span>
+                              )}
+                             </td>
+                            );
+                           case 'type':
+                            return (
+                             <td
+                              key={column.key}
+                              className="px-4 py-3 text-slate-600"
+                             >
+                              {entry.isAdjustment ? (
+                               <span className="inline-flex rounded bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">{t('adjustment_label')}</span>
+                              ) : draft ? (
+                               <select
+                                value={draft.type}
+                                onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
+                                style={{ width: ledgerSelectWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 2) }}
+                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                               >
+                                <option value="exchange">{t('transaction_type_exchange')}</option>
+                                <option value="transfer">{t('transaction_type_transfer')}</option>
+                               </select>
+                              ) : (
+                               t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
+                              )}
+                             </td>
+                            );
+                           case 'amount':
+                            return (
+                             <td
+                              key={column.key}
+                              className={`whitespace-nowrap px-4 py-3 font-semibold ${(draft?.direction ?? entry.direction) === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
+                             >
+                              {draft ? (
+                               <input
+                                type="text"
+                                inputMode="decimal"
+                                dir="ltr"
+                                value={formatAmountInput(draft.amount)}
+                                data-ledger-field="amount"
+                                data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
+                                onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
+                                onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'amount', entry, ledger.accountId, pagedEntries, entryIdx)}
+                                style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
+                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                               />
+                              ) : (
+                               <>
+                                {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
+                               </>
+                              )}
+                             </td>
+                            );
+                           case 'exchangeRate':
+                            return (
+                             <td
+                              key={column.key}
+                              className="px-4 py-3 text-slate-600"
+                             >
+                              {draft
+                               ? (() => {
+                                  const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                                  const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
+                                  const txCurr = entry.currencyCode;
+                                  const accCurr = ledger.currencyCode;
+                                  // Adjustment with same currency as account: no rate needed
+                                  if (entry.isAdjustment && txCurr === accCurr) {
+                                   return <span className="text-slate-400">-</span>;
+                                  }
+                                  return (
+                                   <div className="flex items-center gap-1">
+                                    <input
+                                     type="text"
+                                     inputMode="decimal"
+                                     dir="ltr"
+                                     value={draft.exchangeRate}
+                                     data-ledger-rate-idx={entryIdx}
+                                     data-ledger-account-id={ledger.accountId}
+                                     data-ledger-field="exchangeRate"
+                                     data-ledger-key={ledgerRateKey}
+                                     onChange={(event) =>
+                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
+                                     }
+                                     onPaste={(event) => {
+                                      const text = event.clipboardData.getData('text');
+                                      const values = text
+                                       .split(/[\r\n]+/)
+                                       .map((v) => v.trim())
+                                       .filter((v) => v.length > 0);
+                                      // Single value: let the browser paste normally into this one input.
+                                      if (values.length <= 1) return;
+                                      event.preventDefault();
+
+                                      // Rebuild the same filtered visible list the table renders, so we
+                                      // can map row positions to transaction drafts. ledger.entries is
+                                      // already in the user's manual order (applied in the memo).
+                                      const ordered = ledger.entries;
+                                      const q = ledgerFilterSearch.trim().toLowerCase();
+                                      const visible = ordered.filter((e) => {
+                                       if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                                       if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                                       if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                                       if (q) {
+                                        const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                                        const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                                        const inAmount = String(e.amount).includes(q);
+                                        if (!inCounterparty && !inDescription && !inAmount) return false;
+                                       }
+                                       return true;
+                                      });
+
+                                      // Spread each pasted value down consecutive editable rate inputs,
+                                      // starting at the row that received the paste. Adjustment rows and
+                                      // rows not in edit mode have no rate input, so they are skipped.
+                                      // Locate the start row by key in the full (unpaginated) visible list —
+                                      // entryIdx is page-relative, so it can't be used to index `visible`.
+                                      const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                                      const startIdx = Math.max(
+                                       0,
+                                       visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey),
+                                      );
+                                      const patches: Record<string, string> = {};
+                                      let valueIdx = 0;
+                                      for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                                       const target = visible[i];
+                                       if (target.isAdjustment) continue;
+                                       const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
+                                       if (!editingLedgerRowKeys.has(key)) continue;
+                                       patches[key] = normalizeDecimalInput(values[valueIdx]);
+                                       valueIdx += 1;
+                                      }
+                                      if (Object.keys(patches).length === 0) return;
+                                      ledgerHistory.record();
+                                      setLedgerTransactionDrafts((prev) => {
+                                       const next = { ...prev };
+                                       for (const [key, rate] of Object.entries(patches)) {
+                                        if (next[key]) next[key] = { ...next[key], exchangeRate: rate };
+                                       }
+                                       return next;
+                                      });
+                                     }}
+                                     onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'exchangeRate', entry, ledger.accountId, pagedEntries, entryIdx)}
+                                     style={{ width: ledgerFieldWidth(draft.exchangeRate, 5, 2) }}
+                                     className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                    />
+                                    {txCurr && accCurr && txCurr !== accCurr && (
+                                     <button
+                                      type="button"
+                                      title="Reverse rate direction"
+                                      onClick={() => {
+                                       const val = parseFloat(draft.exchangeRate) || 1;
+                                       updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                                       setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
+                                      }}
+                                      className="shrink-0 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                     >
+                                      <svg
+                                       width="14"
+                                       height="14"
+                                       viewBox="0 0 24 24"
+                                       fill="none"
+                                       stroke="currentColor"
+                                       strokeWidth="1.8"
+                                       strokeLinecap="round"
+                                       strokeLinejoin="round"
+                                       aria-hidden
+                                      >
+                                       <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                       <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                      </svg>
+                                     </button>
+                                    )}
+                                   </div>
+                                  );
+                                 })()
+                               : (() => {
+                                  const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
+                                  const txCurr = entry.currencyCode;
+                                  const accCurr = ledger.currencyCode;
+                                  const defaultReversed = entry.exchangeRateReversed;
+                                  const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
+                                  // Different currency but no rate entered yet: show a dash. This entry is
+                                  // excluded from the balance until the user sets a rate.
+                                  if (entry.pendingRate) {
+                                   return (
+                                    <span
+                                     className="text-amber-500"
+                                     title={t('ledger_rate_pending')}
+                                    >
+                                     -
+                                    </span>
+                                   );
+                                  }
+                                  if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
+                                   return formatRateValue(entry.exchangeRate);
+                                  }
+                                  const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
+                                  const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                                  return (
+                                   <div className="flex items-center gap-1">
+                                    <span title={rateLabel}>{rateNumber}</span>
                                     <button
                                      type="button"
                                      title="Reverse rate direction"
-                                     onClick={() => {
-                                      const val = parseFloat(draft.exchangeRate) || 1;
-                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                                      setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
-                                     }}
-                                     className="shrink-0 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                     onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
+                                     className="rounded p-0.5 text-slate-400 hover:text-slate-700"
                                     >
                                      <svg
                                       width="14"
@@ -8070,389 +8256,364 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                                       <path d="M17 20l4-4-4-4m4 4H7.5" />
                                      </svg>
                                     </button>
-                                   )}
-                                  </div>
-                                 );
-                                })()
-                              : (() => {
-                                 const displayRateKey = `${entry.transactionId}:${ledger.accountId}`;
-                                 const txCurr = entry.currencyCode;
-                                 const accCurr = ledger.currencyCode;
-                                 const defaultReversed = entry.exchangeRateReversed;
-                                 const isReversed = ledgerDisplayRateReversed[displayRateKey] ?? defaultReversed;
-                                 // Different currency but no rate entered yet: show a dash. This entry is
-                                 // excluded from the balance until the user sets a rate.
-                                 if (entry.pendingRate) {
-                                  return (
-                                   <span
-                                    className="text-amber-500"
-                                    title={t('ledger_rate_pending')}
-                                   >
-                                    -
-                                   </span>
+                                   </div>
                                   );
-                                 }
-                                 if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
-                                  return formatRateValue(entry.exchangeRate);
-                                 }
-                                 const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
-                                 const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
-                                 return (
-                                  <div className="flex items-center gap-1">
-                                   <span title={rateLabel}>{rateNumber}</span>
-                                   <button
-                                    type="button"
-                                    title="Reverse rate direction"
-                                    onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
-                                    className="rounded p-0.5 text-slate-400 hover:text-slate-700"
-                                   >
-                                    <svg
-                                     width="14"
-                                     height="14"
-                                     viewBox="0 0 24 24"
-                                     fill="none"
-                                     stroke="currentColor"
-                                     strokeWidth="1.8"
-                                     strokeLinecap="round"
-                                     strokeLinejoin="round"
-                                     aria-hidden
-                                    >
-                                     <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                     <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                    </svg>
-                                   </button>
-                                  </div>
-                                 );
-                                })()}
-                            </td>
-                           );
-                          case 'commission':
-                           return (
-                            <td
-                             key={column.key}
-                             className="px-4 py-3 text-slate-600"
-                            >
-                             {draft && entry.isAdjustment ? (
-                              <span className="text-slate-400">-</span>
-                             ) : draft ? (
-                              (() => {
-                               const commVal = parseFloat(draft.commission) || 0;
-                               return (
-                                <div className="flex items-center gap-1">
-                                 <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  dir="ltr"
-                                  value={draft.commission}
-                                  data-ledger-commission-idx={entryIdx}
-                                  data-ledger-account-id={ledger.accountId}
-                                  data-ledger-field="commission"
-                                  data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
-                                  onChange={(event) =>
-                                   updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })
-                                  }
-                                  onPaste={(event) => {
-                                   const text = event.clipboardData.getData('text');
-                                   const values = text
-                                    .split(/[\r\n]+/)
-                                    .map((v) => v.trim())
-                                    .filter((v) => v.length > 0);
-                                   // Single value: let the browser paste normally into this one input.
-                                   if (values.length <= 1) return;
-                                   event.preventDefault();
-
-                                   // Rebuild the same filtered visible list the table renders so pasted
-                                   // values map to the right rows, then spread them down consecutive
-                                   // editable commission inputs starting at the row that received the paste.
-                                   const ordered = ledger.entries;
-                                   const q = ledgerFilterSearch.trim().toLowerCase();
-                                   const visible = ordered.filter((e) => {
-                                    if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                                    if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                                    if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                                    if (q) {
-                                     const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
-                                     const inDescription = (e.description ?? '').toLowerCase().includes(q);
-                                     const inAmount = String(e.amount).includes(q);
-                                     if (!inCounterparty && !inDescription && !inAmount) return false;
-                                    }
-                                    return true;
-                                   });
-                                   const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                                   const startIdx = Math.max(
-                                    0,
-                                    visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey),
-                                   );
-                                   const patches: Record<string, string> = {};
-                                   let valueIdx = 0;
-                                   for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
-                                    const target = visible[i];
-                                    if (target.isAdjustment) continue;
-                                    const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
-                                    if (!editingLedgerRowKeys.has(key)) continue;
-                                    patches[key] = normalizeDecimalInput(values[valueIdx]);
-                                    valueIdx += 1;
-                                   }
-                                   if (Object.keys(patches).length === 0) return;
-                                   ledgerHistory.record();
-                                   setLedgerTransactionDrafts((prev) => {
-                                    const next = { ...prev };
-                                    for (const [key, commission] of Object.entries(patches)) {
-                                     if (next[key]) next[key] = { ...next[key], commission };
-                                    }
-                                    return next;
-                                   });
-                                  }}
-                                  onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'commission', entry, ledger.accountId, pagedEntries, entryIdx)}
-                                  style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
-                                  className={`rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-emerald-600 font-semibold' : commVal < 0 ? 'text-red-600 font-semibold' : ''}`}
-                                  placeholder="0"
-                                 />
-                                 <button
-                                  type="button"
-                                  title={commVal < 0 ? t('commission_from_him') : t('commission_for_him')}
-                                  onClick={() => {
-                                   const v = parseFloat(draft.commission) || 0;
-                                   if (v !== 0) updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: String(-v) });
-                                  }}
-                                  className="shrink-0 rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                                 >
-                                  <svg
-                                   width="14"
-                                   height="14"
-                                   viewBox="0 0 24 24"
-                                   fill="none"
-                                   stroke="currentColor"
-                                   strokeWidth="1.8"
-                                   strokeLinecap="round"
-                                   strokeLinejoin="round"
-                                   aria-hidden
-                                  >
-                                   <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                   <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                  </svg>
-                                 </button>
-                                </div>
-                               );
-                              })()
-                             ) : entry.commission ? (
-                              <span className={entry.commission < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
-                               {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}%
-                              </span>
-                             ) : (
-                              <span className="text-slate-400">-</span>
-                             )}
-                            </td>
-                           );
-                          case 'netChange':
-                           return (() => {
-                            // A cross-currency row with no rate set yet is "pending": show a dash and
-                            // leave it out of the balance. While editing, recompute live from the draft.
-                            const draftRate = draft ? parseFloat(draft.exchangeRate) : NaN;
-                            const draftPending = !!draft && entry.currencyCode !== ledger.currencyCode && !(Number.isFinite(draftRate) && draftRate > 0);
-                            const isPending = draft ? draftPending : entry.pendingRate;
-                            const liveNetChange =
-                             draft && !draftPending
-                              ? (() => {
-                                 const amt = parseFloat(draft.amount) || 0;
-                                 const effectiveRate = ledgerRateReversed[rowKey] ? 1 / (draftRate || 1) : draftRate || 1;
-                                 const base = amt * effectiveRate;
-                                 const commissionAmount = getCommissionAmount(base, parseFloat(draft.commission) || 0);
-                                 return draft.direction === 'outgoing' ? base + commissionAmount : -(base - commissionAmount);
-                                })()
-                              : entry.netChange;
-                            const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
-                            const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && chargeShowsInLedger(entry.chargesPayer);
+                                 })()}
+                             </td>
+                            );
+                           case 'commission':
                             return (
                              <td
                               key={column.key}
-                              style={highlightNet ? { backgroundColor: ledgerNetChangeHighlightColor } : undefined}
-                              className={`px-4 py-3 font-semibold ${isPending ? 'text-amber-500' : liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                              className="px-4 py-3 text-slate-600"
                              >
-                              {isPending ? (
-                               <span title={t('ledger_rate_pending')}>-</span>
-                              ) : (
-                               <>
-                                <div className="whitespace-nowrap">
-                                 {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                 {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                                </div>
-                                {showCharges && (
-                                 <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-red-500' : 'text-emerald-500'}`}>
-                                  <span>{entry.isChargesPayerThisAccount ? '−' : '+'}{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}</span>
-                                  {entry.chargesDescription && <span className="font-normal italic text-slate-400">{entry.chargesDescription}</span>}
+                              {draft && entry.isAdjustment ? (
+                               <span className="text-slate-400">-</span>
+                              ) : draft ? (
+                               (() => {
+                                const commVal = parseFloat(draft.commission) || 0;
+                                return (
+                                 <div className="flex items-center gap-1">
+                                  <input
+                                   type="text"
+                                   inputMode="decimal"
+                                   dir="ltr"
+                                   value={draft.commission}
+                                   data-ledger-commission-idx={entryIdx}
+                                   data-ledger-account-id={ledger.accountId}
+                                   data-ledger-field="commission"
+                                   data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
+                                   onChange={(event) =>
+                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })
+                                   }
+                                   onPaste={(event) => {
+                                    const text = event.clipboardData.getData('text');
+                                    const values = text
+                                     .split(/[\r\n]+/)
+                                     .map((v) => v.trim())
+                                     .filter((v) => v.length > 0);
+                                    // Single value: let the browser paste normally into this one input.
+                                    if (values.length <= 1) return;
+                                    event.preventDefault();
+
+                                    // Rebuild the same filtered visible list the table renders so pasted
+                                    // values map to the right rows, then spread them down consecutive
+                                    // editable commission inputs starting at the row that received the paste.
+                                    const ordered = ledger.entries;
+                                    const q = ledgerFilterSearch.trim().toLowerCase();
+                                    const visible = ordered.filter((e) => {
+                                     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+                                     if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+                                     if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+                                     if (q) {
+                                      const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
+                                      const inDescription = (e.description ?? '').toLowerCase().includes(q);
+                                      const inAmount = String(e.amount).includes(q);
+                                      if (!inCounterparty && !inDescription && !inAmount) return false;
+                                     }
+                                     return true;
+                                    });
+                                    const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                                    const startIdx = Math.max(
+                                     0,
+                                     visible.findIndex((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) === startKey),
+                                    );
+                                    const patches: Record<string, string> = {};
+                                    let valueIdx = 0;
+                                    for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
+                                     const target = visible[i];
+                                     if (target.isAdjustment) continue;
+                                     const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
+                                     if (!editingLedgerRowKeys.has(key)) continue;
+                                     patches[key] = normalizeDecimalInput(values[valueIdx]);
+                                     valueIdx += 1;
+                                    }
+                                    if (Object.keys(patches).length === 0) return;
+                                    ledgerHistory.record();
+                                    setLedgerTransactionDrafts((prev) => {
+                                     const next = { ...prev };
+                                     for (const [key, commission] of Object.entries(patches)) {
+                                      if (next[key]) next[key] = { ...next[key], commission };
+                                     }
+                                     return next;
+                                    });
+                                   }}
+                                   onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'commission', entry, ledger.accountId, pagedEntries, entryIdx)}
+                                   style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
+                                   className={`rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-emerald-600 font-semibold' : commVal < 0 ? 'text-red-600 font-semibold' : ''}`}
+                                   placeholder="0"
+                                  />
+                                  <button
+                                   type="button"
+                                   title={commVal < 0 ? t('commission_from_him') : t('commission_for_him')}
+                                   onClick={() => {
+                                    const v = parseFloat(draft.commission) || 0;
+                                    if (v !== 0) updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: String(-v) });
+                                   }}
+                                   className="shrink-0 rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                                  >
+                                   <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    aria-hidden
+                                   >
+                                    <path d="M7 4 3 8l4 4M3 8h13.5" />
+                                    <path d="M17 20l4-4-4-4m4 4H7.5" />
+                                   </svg>
+                                  </button>
                                  </div>
-                                )}
-                               </>
+                                );
+                               })()
+                              ) : entry.commission ? (
+                               <span className={entry.commission < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
+                                {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}%
+                               </span>
+                              ) : (
+                               <span className="text-slate-400">-</span>
                               )}
                              </td>
                             );
-                           })();
-                          case 'runningBalance':
-                           return (
-                            <td
-                             key={column.key}
-                             className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
-                            >
-                             {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                             {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                            </td>
-                           );
-                          case 'currency':
-                           return (
-                            <td
-                             key={column.key}
-                             className="px-4 py-3 text-slate-500 whitespace-nowrap"
-                            >
-                             {draft ? (
-                              <select
-                               value={draft.currencyId ?? ''}
-                               onChange={(event) =>
-                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })
-                               }
-                               style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
-                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                           case 'netChange':
+                            return (() => {
+                             // A cross-currency row with no rate set yet is "pending": show a dash and
+                             // leave it out of the balance. While editing, recompute live from the draft.
+                             const draftRate = draft ? parseFloat(draft.exchangeRate) : NaN;
+                             const draftPending = !!draft && entry.currencyCode !== ledger.currencyCode && !(Number.isFinite(draftRate) && draftRate > 0);
+                             const isPending = draft ? draftPending : entry.pendingRate;
+                             const liveNetChange =
+                              draft && !draftPending
+                               ? (() => {
+                                  const amt = parseFloat(draft.amount) || 0;
+                                  const effectiveRate = ledgerRateReversed[rowKey] ? 1 / (draftRate || 1) : draftRate || 1;
+                                  const base = amt * effectiveRate;
+                                  const commissionAmount = getCommissionAmount(base, parseFloat(draft.commission) || 0);
+                                  return draft.direction === 'outgoing' ? base + commissionAmount : -(base - commissionAmount);
+                                 })()
+                               : entry.netChange;
+                             const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
+                             const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && chargeShowsInLedger(entry.chargesPayer);
+                             return (
+                              <td
+                               key={column.key}
+                               style={highlightNet ? { backgroundColor: ledgerNetChangeHighlightColor } : undefined}
+                               className={`px-4 py-3 font-semibold ${isPending ? 'text-amber-500' : liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                               >
-                               {enabledCurrencies.map((cur) => (
-                                <option
-                                 key={cur.id}
-                                 value={cur.id}
-                                >
-                                 {cur.code}
-                                </option>
-                               ))}
-                              </select>
-                             ) : (
-                              <span title={entry.currencyCode}>{entry.currencySymbol || entry.currencyCode || '-'}</span>
-                             )}
-                            </td>
-                           );
-                          case 'description':
-                           return (
-                            <td
-                             key={column.key}
-                             className="px-4 py-3 text-slate-500 whitespace-nowrap"
-                            >
-                             {draft ? (
-                              <input
-                               type="text"
-                               value={draft.description}
-                               onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
-                               style={{ width: ledgerFieldWidth(draft.description, 6, 3) }}
-                               className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                              />
-                             ) : (
-                              entry.description || '-'
-                             )}
-                            </td>
-                           );
-                         }
-                        })}
-                       </>
-                      );
-                     })()}
-                    </tr>
-                    {(() => {
-                     const chargesRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                     const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
-                     const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
-                     const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3;
-                     // "Paid by me"/"paid to me" charges are settled with the org directly and aren't
-                     // editable/visible from a counterparty's ledger; everything else is — including a
-                     // charge still being added (charges <= 0) with no payer picked yet. Gate on the
-                     // saved payer, not the live draft, so the section doesn't vanish mid-edit while
-                     // the user is changing the dropdown.
-                     const chargesBelongHere = entry.charges <= 0 || chargeShowsInLedger(entry.chargesPayer);
+                               {isPending ? (
+                                <span title={t('ledger_rate_pending')}>-</span>
+                               ) : (
+                                <>
+                                 <div className="whitespace-nowrap">
+                                  {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                  {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                 </div>
+                                 {showCharges && (
+                                  <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-red-500' : 'text-emerald-500'}`}>
+                                   <span>
+                                    {entry.isChargesPayerThisAccount ? '−' : '+'}
+                                    {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                   </span>
+                                   {entry.chargesDescription && <span className="font-normal italic text-slate-400">{entry.chargesDescription}</span>}
+                                  </div>
+                                 )}
+                                </>
+                               )}
+                              </td>
+                             );
+                            })();
+                           case 'runningBalance':
+                            return (
+                             <td
+                              key={column.key}
+                              className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                             >
+                              {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                              {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                             </td>
+                            );
+                           case 'currency':
+                            return (
+                             <td
+                              key={column.key}
+                              className="px-4 py-3 text-slate-500 whitespace-nowrap"
+                             >
+                              {draft ? (
+                               <select
+                                value={draft.currencyId ?? ''}
+                                onChange={(event) =>
+                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })
+                                }
+                                style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
+                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                               >
+                                {enabledCurrencies.map((cur) => (
+                                 <option
+                                  key={cur.id}
+                                  value={cur.id}
+                                 >
+                                  {cur.code}
+                                 </option>
+                                ))}
+                               </select>
+                              ) : (
+                               <span title={entry.currencyCode}>{entry.currencySymbol || entry.currencyCode || '-'}</span>
+                              )}
+                             </td>
+                            );
+                           case 'description':
+                            return (
+                             <td
+                              key={column.key}
+                              className="px-4 py-3 text-slate-500 whitespace-nowrap"
+                             >
+                              {draft ? (
+                               <input
+                                type="text"
+                                value={draft.description}
+                                onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
+                                style={{ width: ledgerFieldWidth(draft.description, 6, 3) }}
+                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                               />
+                              ) : (
+                               entry.description || '-'
+                              )}
+                             </td>
+                            );
+                          }
+                         })}
+                        </>
+                       );
+                      })()}
+                     </tr>
+                     {(() => {
+                      const chargesRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                      const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
+                      const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
+                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3;
+                      // "Paid by me"/"paid to me" charges are settled with the org directly and aren't
+                      // editable/visible from a counterparty's ledger; everything else is — including a
+                      // charge still being added (charges <= 0) with no payer picked yet. Gate on the
+                      // saved payer, not the live draft, so the section doesn't vanish mid-edit while
+                      // the user is changing the dropdown.
+                      const chargesBelongHere = entry.charges <= 0 || chargeShowsInLedger(entry.chargesPayer);
 
-                     if (isEditingThisRow && chargesDraft && !entry.isAdjustment && chargesBelongHere) {
-                      const isZero = parseFloat(chargesDraft.charges) === 0;
-                      const expanded = ledgerExpensesExpandedKeys.has(chargesRowKey);
-                      if (isZero && !expanded) {
-                       return (
-                        <tr key={`${ledger.accountId}-${entry.transactionId}-charges-edit`} className="border-t border-dashed border-slate-200 bg-slate-50/60">
-                         <td colSpan={colSpanCount} className="px-4 py-2">
-                          <button
-                           type="button"
-                           onClick={() => setLedgerExpensesExpandedKeys((prev) => new Set([...prev, chargesRowKey]))}
-                           className="text-sm text-blue-600 hover:underline"
+                      if (isEditingThisRow && chargesDraft && !entry.isAdjustment && chargesBelongHere) {
+                       const isZero = parseFloat(chargesDraft.charges) === 0;
+                       const expanded = ledgerExpensesExpandedKeys.has(chargesRowKey);
+                       if (isZero && !expanded) {
+                        return (
+                         <tr
+                          key={`${ledger.accountId}-${entry.transactionId}-charges-edit`}
+                          className="border-t border-dashed border-slate-200 bg-slate-50/60"
+                         >
+                          <td
+                           colSpan={colSpanCount}
+                           className="px-4 py-2"
                           >
-                           + {t('add_expenses')}
-                          </button>
+                           <button
+                            type="button"
+                            onClick={() => setLedgerExpensesExpandedKeys((prev) => new Set([...prev, chargesRowKey]))}
+                            className="text-sm text-blue-600 hover:underline"
+                           >
+                            + {t('add_expenses')}
+                           </button>
+                          </td>
+                         </tr>
+                        );
+                       }
+                       const ledgerAccountName = clientAccounts.find((a) => a.id === ledger.accountId)?.clientName ?? ledger.currencyCode;
+                       const draftChargesCurrencyCode = chargesDraft.chargesCurrencyId ? currencyMap.get(chargesDraft.chargesCurrencyId)?.code : undefined;
+                       const showRate = !!(draftChargesCurrencyCode && draftChargesCurrencyCode !== ledger.currencyCode);
+                       return (
+                        <tr
+                         key={`${ledger.accountId}-${entry.transactionId}-charges-edit`}
+                         className="border-t border-dashed border-slate-200 bg-amber-50/60"
+                        >
+                         <td
+                          colSpan={colSpanCount}
+                          className="px-4 py-2"
+                         >
+                          <div className="flex flex-wrap items-start gap-2">
+                           <span className="mt-2 text-xs font-medium text-amber-700">{t('charges')}</span>
+                           <input
+                            type="text"
+                            inputMode="decimal"
+                            dir="ltr"
+                            value={formatAmountInput(chargesDraft.charges)}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: normalizeDecimalInput(event.target.value) })}
+                            className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            placeholder="0"
+                           />
+                           <select
+                            value={chargesDraft.chargesCurrencyId ?? ''}
+                            onChange={(event) =>
+                             updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })
+                            }
+                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                           >
+                            <option value="">{t('currency')}</option>
+                            {enabledCurrencies.map((cur) => (
+                             <option
+                              key={cur.id}
+                              value={cur.id}
+                             >
+                              {cur.code}
+                             </option>
+                            ))}
+                           </select>
+                           <select
+                            value={chargesDraft.chargesPayer}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer: event.target.value })}
+                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                           >
+                            <option value="">{t('charges_payer_placeholder')}</option>
+                            <option value="from">{entry.counterpartyName}</option>
+                            <option value="to">{ledgerAccountName}</option>
+                            <option value="me_to_from">{t('charges_payer_me_to_name', { name: entry.counterpartyName })}</option>
+                            <option value="me_to_to">{t('charges_payer_me_to_name', { name: ledgerAccountName })}</option>
+                            <option value="from_to_me">{t('charges_payer_name_to_me', { name: entry.counterpartyName })}</option>
+                            <option value="to_to_me">{t('charges_payer_name_to_me', { name: ledgerAccountName })}</option>
+                           </select>
+                           {showRate && (
+                            <div className="flex items-center gap-1">
+                             <span className="text-xs text-slate-500">
+                              {draftChargesCurrencyCode} → {ledger.currencyCode}
+                             </span>
+                             <input
+                              type="text"
+                              inputMode="decimal"
+                              dir="ltr"
+                              value={chargesDraft.chargesExchangeRate}
+                              onChange={(event) =>
+                               updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })
+                              }
+                              className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              placeholder="1"
+                             />
+                            </div>
+                           )}
+                           <input
+                            type="text"
+                            value={chargesDraft.chargesDescription}
+                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: event.target.value })}
+                            className="field-sizing-content min-w-28 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            placeholder={t('charges_description_placeholder')}
+                           />
+                          </div>
                          </td>
                         </tr>
                        );
                       }
-                      const ledgerAccountName = clientAccounts.find((a) => a.id === ledger.accountId)?.clientName ?? ledger.currencyCode;
-                      const draftChargesCurrencyCode = chargesDraft.chargesCurrencyId ? currencyMap.get(chargesDraft.chargesCurrencyId)?.code : undefined;
-                      const showRate = !!(draftChargesCurrencyCode && draftChargesCurrencyCode !== ledger.currencyCode);
-                      return (
-                       <tr key={`${ledger.accountId}-${entry.transactionId}-charges-edit`} className="border-t border-dashed border-slate-200 bg-amber-50/60">
-                        <td colSpan={colSpanCount} className="px-4 py-2">
-                         <div className="flex flex-wrap items-start gap-2">
-                          <span className="mt-2 text-xs font-medium text-amber-700">{t('charges')}</span>
-                          <input
-                           type="text"
-                           inputMode="decimal"
-                           dir="ltr"
-                           value={formatAmountInput(chargesDraft.charges)}
-                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: normalizeDecimalInput(event.target.value) })}
-                           className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                           placeholder="0"
-                          />
-                          <select
-                           value={chargesDraft.chargesCurrencyId ?? ''}
-                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
-                           className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                          >
-                           <option value="">{t('currency')}</option>
-                           {enabledCurrencies.map((cur) => (
-                            <option key={cur.id} value={cur.id}>{cur.code}</option>
-                           ))}
-                          </select>
-                          <select
-                           value={chargesDraft.chargesPayer}
-                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer: event.target.value })}
-                           className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                          >
-                           <option value="">{t('charges_payer_placeholder')}</option>
-                           <option value="from">{entry.counterpartyName}</option>
-                           <option value="to">{ledgerAccountName}</option>
-                           <option value="me_to_from">{t('charges_payer_me_to_name', { name: entry.counterpartyName })}</option>
-                           <option value="me_to_to">{t('charges_payer_me_to_name', { name: ledgerAccountName })}</option>
-                           <option value="from_to_me">{t('charges_payer_name_to_me', { name: entry.counterpartyName })}</option>
-                           <option value="to_to_me">{t('charges_payer_name_to_me', { name: ledgerAccountName })}</option>
-                          </select>
-                          {showRate && (
-                           <div className="flex items-center gap-1">
-                            <span className="text-xs text-slate-500">{draftChargesCurrencyCode} → {ledger.currencyCode}</span>
-                            <input
-                             type="text"
-                             inputMode="decimal"
-                             dir="ltr"
-                             value={chargesDraft.chargesExchangeRate}
-                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
-                             className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                             placeholder="1"
-                            />
-                           </div>
-                          )}
-                          <input
-                           type="text"
-                           value={chargesDraft.chargesDescription}
-                           onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: event.target.value })}
-                           className="field-sizing-content min-w-28 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                           placeholder={t('charges_description_placeholder')}
-                          />
-                         </div>
-                        </td>
-                       </tr>
-                      );
-                     }
 
-                     return null;
-                    })()}
-                   </Fragment>
-                  ));
+                      return null;
+                     })()}
+                    </Fragment>
+                   ));
                   })()}
                   {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) &&
                    ledger.entries.length > 0 &&
@@ -9521,12 +9682,20 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
              onClick={toggleTxRowClickHighlight}
              aria-pressed={txRowClickHighlight}
              className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-              txRowClickHighlight
-               ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100'
-               : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+              txRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
              }`}
             >
-             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
               <path d="m9 11-6 6v3h9l3-3" />
               <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
              </svg>
@@ -10217,7 +10386,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        }
                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
                       >
-                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                       <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                       >
                         <path d="M7 4 3 8l4 4M3 8h13.5" />
                         <path d="M17 20l4-4-4-4m4 4H7.5" />
                        </svg>
@@ -10418,7 +10597,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        return fromClient ? (
                         <a
                          href={`/clients/${fromClient.id}`}
-                         onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openClientLedger(fromClient, 'clients', fromAccount?.id); }}
+                         onClick={(e) => {
+                          if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                          e.preventDefault();
+                          openClientLedger(fromClient, 'clients', fromAccount?.id);
+                         }}
                          className="cursor-pointer text-left hover:text-blue-700 hover:underline"
                         >
                          {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
@@ -10447,7 +10630,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        return fromClient ? (
                         <a
                          href={`/clients/${fromClient.id}`}
-                         onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openClientLedger(fromClient, 'clients', fromAccount?.id); }}
+                         onClick={(e) => {
+                          if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                          e.preventDefault();
+                          openClientLedger(fromClient, 'clients', fromAccount?.id);
+                         }}
                          className="cursor-pointer text-left hover:text-blue-700 hover:underline"
                         >
                          {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
@@ -10560,7 +10747,11 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                        return toClient ? (
                         <a
                          href={`/clients/${toClient.id}`}
-                         onClick={(e) => { if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return; e.preventDefault(); openClientLedger(toClient, 'clients', toAccount?.id); }}
+                         onClick={(e) => {
+                          if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                          e.preventDefault();
+                          openClientLedger(toClient, 'clients', toAccount?.id);
+                         }}
                          className="cursor-pointer text-left hover:text-blue-700 hover:underline"
                         >
                          {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
@@ -11087,8 +11278,18 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
        <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_row_highlight_color')}</p>
         <div className="mt-2 flex items-center gap-2">
-         <input type="color" value={txRowHighlightColor} onChange={(event) => updateTxRowHighlightColor(event.target.value)} className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5" />
-         <span className="rounded px-3 py-1 text-xs font-semibold text-slate-700" style={{ backgroundColor: txRowHighlightColor }}>{txRowHighlightColor}</span>
+         <input
+          type="color"
+          value={txRowHighlightColor}
+          onChange={(event) => updateTxRowHighlightColor(event.target.value)}
+          className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+         />
+         <span
+          className="rounded px-3 py-1 text-xs font-semibold text-slate-700"
+          style={{ backgroundColor: txRowHighlightColor }}
+         >
+          {txRowHighlightColor}
+         </span>
         </div>
        </div>
       </div>
@@ -11995,9 +12196,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                the pre-balance boundary (excluded; its accumulated balance becomes the pre-balance),
                the last highlighted row is the final row shown. */}
            {(() => {
-            const highlightedEntries = ledger.entries.filter((e) =>
-             highlightedLedgerRows.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)),
-            );
+            const highlightedEntries = ledger.entries.filter((e) => highlightedLedgerRows.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)));
             if (highlightedEntries.length < 2) return null;
             return (
              <div className="flex flex-col gap-1">
@@ -12014,9 +12213,7 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
                 const newTo = last.createdAt.slice(0, 10);
                 savePdfDateRange(pdfExportModal.accountId, newFrom, newTo);
                 setPdfExportModal((prev) =>
-                 prev
-                  ? { ...prev, fromDate: newFrom, toDate: newTo, fromEntryKey: ledgerEntryKey(afterFirst), toEntryKey: ledgerEntryKey(last) }
-                  : prev,
+                 prev ? { ...prev, fromDate: newFrom, toDate: newTo, fromEntryKey: ledgerEntryKey(afterFirst), toEntryKey: ledgerEntryKey(last) } : prev,
                 );
                }}
                className="cursor-pointer rounded border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
@@ -12352,7 +12549,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
       style={{ left: toastPos.x, top: toastPos.y, transform: 'translate(-50%, calc(-100% - 10px))' }}
      >
       <div className="flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg whitespace-nowrap">
-       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+       <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
         <polyline points="20 6 9 17 4 12" />
        </svg>
        {toast}
@@ -12361,7 +12568,17 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
     ) : (
      <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4">
       <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg">
-       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+       <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
         <polyline points="20 6 9 17 4 12" />
        </svg>
        {toast}
