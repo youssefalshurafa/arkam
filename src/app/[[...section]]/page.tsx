@@ -2822,6 +2822,9 @@ function AuthenticatedHome() {
   const row = transactionTableRowMap.get(ids[0]);
   if (row) {
    setCopiedTransaction(row);
+   // Unmark the row once copied: the selection toolbar collapses and the row is free to be
+   // re-selected, so a follow-up copy/paste doesn't act on a stale marking.
+   setSelectedTransactionIds(new Set());
    showToast(t('toast_copied'), e);
   }
  }
