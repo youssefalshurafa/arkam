@@ -12,7 +12,7 @@ import { getStoredPdfCols, getStoredPdfDateRange } from '@/shared/lib/localStora
 import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
-import { getCommissionAmount, chargeShowsInLedger } from '@/shared/utils/commission';
+import { getCommissionAmount } from '@/shared/utils/commission';
 import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
@@ -1988,7 +1988,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  })()
                                : entry.netChange;
                              const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
-                             const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && chargeShowsInLedger(entry.chargesPayer);
+                             const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount;
                              return (
                               <td
                                key={column.key}
@@ -2086,12 +2086,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
                       const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
                       const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3;
-                      // "Paid by me"/"paid to me" charges are settled with the org directly and aren't
-                      // editable/visible from a counterparty's ledger; everything else is — including a
-                      // charge still being added (charges <= 0) with no payer picked yet. Gate on the
-                      // saved payer, not the live draft, so the section doesn't vanish mid-edit while
-                      // the user is changing the dropdown.
-                      const chargesBelongHere = entry.charges <= 0 || chargeShowsInLedger(entry.chargesPayer);
+                      // An org-settled charge only affects the one named client, so it is editable
+                      // from that client's ledger but not the other side's. Everything else is
+                      // editable here — including a charge still being added (charges <= 0) with no
+                      // payer picked yet. Gate on the saved effect, not the live draft, so the section
+                      // doesn't vanish mid-edit while the user is changing the dropdown.
+                      const chargesBelongHere = entry.charges <= 0 || entry.chargeAffectsThisAccount;
 
                       if (isEditingThisRow && chargesDraft && !entry.isAdjustment && chargesBelongHere) {
                        const isZero = parseFloat(chargesDraft.charges) === 0;
@@ -2118,6 +2118,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         );
                        }
                        const ledgerAccountName = clientAccounts.find((a) => a.id === ledger.accountId)?.clientName ?? ledger.currencyCode;
+                       // The payer values 'from'/'to' refer to the transaction's accountFrom/accountTo,
+                       // which side this ledger account sits on depends on the entry direction: on an
+                       // outgoing entry this account is the "from" side, on an incoming entry the "to" side.
+                       const fromSideName = entry.direction === 'outgoing' ? ledgerAccountName : entry.counterpartyName;
+                       const toSideName = entry.direction === 'outgoing' ? entry.counterpartyName : ledgerAccountName;
                        const draftChargesCurrencyCode = chargesDraft.chargesCurrencyId ? currencyMap.get(chargesDraft.chargesCurrencyId)?.code : undefined;
                        const showRate = !!(draftChargesCurrencyCode && draftChargesCurrencyCode !== ledger.currencyCode);
                        return (
@@ -2163,12 +2168,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            >
                             <option value="">{t('charges_payer_placeholder')}</option>
-                            <option value="from">{entry.counterpartyName}</option>
-                            <option value="to">{ledgerAccountName}</option>
-                            <option value="me_to_from">{t('charges_payer_me_to_name', { name: entry.counterpartyName })}</option>
-                            <option value="me_to_to">{t('charges_payer_me_to_name', { name: ledgerAccountName })}</option>
-                            <option value="from_to_me">{t('charges_payer_name_to_me', { name: entry.counterpartyName })}</option>
-                            <option value="to_to_me">{t('charges_payer_name_to_me', { name: ledgerAccountName })}</option>
+                            <option value="from">{fromSideName}</option>
+                            <option value="to">{toSideName}</option>
+                            <option value="me_to_from">{t('charges_payer_me_to_name', { name: fromSideName })}</option>
+                            <option value="me_to_to">{t('charges_payer_me_to_name', { name: toSideName })}</option>
+                            <option value="from_to_me">{t('charges_payer_name_to_me', { name: fromSideName })}</option>
+                            <option value="to_to_me">{t('charges_payer_name_to_me', { name: toSideName })}</option>
                            </select>
                            {showRate && (
                             <div className="flex items-center gap-1">

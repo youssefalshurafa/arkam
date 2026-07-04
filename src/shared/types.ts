@@ -231,7 +231,12 @@ export type ClientLedgerEntry = {
  chargesPayer: string;
  chargesExchangeRate: number;
  chargesDescription: string;
+ // True when the charge is displayed as reducing this account's balance (shown red with a
+ // minus). Derived from the signed ledger effect for this account's side.
  isChargesPayerThisAccount: boolean;
+ // Whether the charge touches this account's ledger at all (shown + counted). False for the
+ // "off side" of an org-settled charge, which only affects the one named client.
+ chargeAffectsThisAccount: boolean;
 };
 
 export type ClientAdjustment = {

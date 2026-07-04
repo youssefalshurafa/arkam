@@ -1,4 +1,4 @@
-import { getCommissionAmount, chargeShowsInLedger } from '@/shared/utils/commission';
+import { getCommissionAmount, chargeLedgerEffect } from '@/shared/utils/commission';
 import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import type {
  Client,
@@ -57,16 +57,14 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          exchangeRateReversed: !!transaction.exchangeRateFromReversed,
          pendingRate,
          commission: transaction.commissionFrom,
-         // "Paid by me"/"paid to me" charges are settled directly with the org and never touch a
-         // counterparty's ledger; every other payer (incl. the counterparty itself or an unset value) does.
+         // The charge's effect on this (the "from"-side) account depends on the payer: a
+         // client-to-client fee is double-entry, an org-settled fee only hits the named client.
          netChange: pendingRate
           ? 0
           : transaction.amount * transaction.exchangeRateFrom +
             getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) +
-            (transaction.charges > 0 && chargeShowsInLedger(transaction.chargesPayer)
-             ? transaction.chargesPayer === 'from'
-               ? -(transaction.charges * transaction.chargesExchangeRate)
-               : transaction.charges * transaction.chargesExchangeRate
+            (transaction.charges > 0
+             ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (transaction.charges * transaction.chargesExchangeRate)
              : 0),
          runningBalance: 0,
          description: transaction.descriptionFrom?.trim() || transaction.description,
@@ -75,7 +73,8 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          chargesPayer: transaction.chargesPayer,
          chargesExchangeRate: transaction.chargesExchangeRate,
          chargesDescription: transaction.chargesDescription,
-         isChargesPayerThisAccount: transaction.chargesPayer === 'from',
+         isChargesPayerThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'from') < 0,
+         chargeAffectsThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'from') !== 0,
         },
        ];
       }
@@ -102,10 +101,8 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          netChange: pendingRate
           ? 0
           : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)) +
-            (transaction.charges > 0 && chargeShowsInLedger(transaction.chargesPayer)
-             ? transaction.chargesPayer === 'to'
-               ? -(transaction.charges * transaction.chargesExchangeRate)
-               : transaction.charges * transaction.chargesExchangeRate
+            (transaction.charges > 0
+             ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * transaction.chargesExchangeRate)
              : 0),
          runningBalance: 0,
          description: transaction.descriptionTo?.trim() || transaction.description,
@@ -114,7 +111,8 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          chargesPayer: transaction.chargesPayer,
          chargesExchangeRate: transaction.chargesExchangeRate,
          chargesDescription: transaction.chargesDescription,
-         isChargesPayerThisAccount: transaction.chargesPayer === 'to',
+         isChargesPayerThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'to') < 0,
+         chargeAffectsThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'to') !== 0,
         },
        ];
       }
@@ -156,6 +154,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
         chargesExchangeRate: 1,
         chargesDescription: '',
         isChargesPayerThisAccount: false,
+        chargeAffectsThisAccount: false,
        })),
      )
      .sort((left, right) => {

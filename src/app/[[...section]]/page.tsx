@@ -71,7 +71,7 @@ import {
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { HIGHLIGHT_PEN_CURSOR, formatRateValue } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
-import { getCommissionAmount, chargeShowsInLedger } from '@/shared/utils/commission';
+import { getCommissionAmount } from '@/shared/utils/commission';
 import { renderIcon } from '@/shared/utils/icons';
 import { getSectionFromPath } from '@/shared/utils/section';
 import { getDeviceLabel } from '@/shared/utils/device';

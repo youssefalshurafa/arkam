@@ -1,6 +1,5 @@
 import { formatDateValue } from '@/shared/utils/date';
 import { formatRateValue } from '@/shared/utils/format';
-import { chargeShowsInLedger } from '@/shared/utils/commission';
 import { ledgerEntryKey } from '@/features/ledger/utils/ledgerEntries';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction } from '@/shared/types';
 
@@ -312,14 +311,14 @@ export function generateLedgerHtml(
    if (rbCol) visibleCols.push(rbCol);
   }
   // Insert charges column before runningBalance when any entry has charges
-  const hasCharges = filteredEntries.some((e) => !e.isAdjustment && e.charges > 0 && chargeShowsInLedger(e.chargesPayer));
+  const hasCharges = filteredEntries.some((e) => !e.isAdjustment && e.charges > 0 && e.chargeAffectsThisAccount);
   if (hasCharges) {
    const chargesCol: ColDef = {
     key: 'charges' as unknown as LedgerColumnKey,
     header: t('charges'),
     isNum: true,
     cell: (e) => {
-     if (e.isAdjustment || e.charges <= 0 || !chargeShowsInLedger(e.chargesPayer)) return '';
+     if (e.isAdjustment || e.charges <= 0 || !e.chargeAffectsThisAccount) return '';
      const sign = e.isChargesPayerThisAccount ? '−' : '+';
      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
      const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
