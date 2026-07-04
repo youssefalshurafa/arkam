@@ -109,5 +109,12 @@ export function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="M10 12h4" />
     </svg>
    );
+  case 'rates':
+   return (
+    <svg {...commonProps}>
+     <path d="M3 17l6-6 4 4 8-8" />
+     <path d="M17 7h4v4" />
+    </svg>
+   );
  }
 }

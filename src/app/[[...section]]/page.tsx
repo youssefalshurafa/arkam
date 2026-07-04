@@ -90,6 +90,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ensureCacheOwner } from '@/shared/lib/cacheOwner';
 import { panelClassName, mutedPanelClassName, tableWrapClassName } from '@/shared/styles';
 import OverviewSection from '@/features/overview/components/OverviewSection';
+import LiveRatesSection from '@/features/live-rates/components/LiveRatesSection';
 import CurrenciesSection from '@/features/currencies/components/CurrenciesSection';
 import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadOnly';
 import OrganizationsSection from '@/features/organizations/components/OrganizationsSection';
@@ -100,7 +101,7 @@ import PdfSettingsTab from '@/features/settings/components/PdfSettings';
 import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
-import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml } from '@/features/pdf/pdfExport';
+import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml, generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers, computeLedgerSelectionSummary } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances } from '@/features/clients/utils/clientBalances';
@@ -3470,6 +3471,18 @@ function AuthenticatedHome() {
   }
  }
 
+ async function onExportOverviewPdf(cards: OverviewPdfCard[], mainCode: string, mainSymbol: string) {
+  if (!accountingApi || cards.length === 0) return;
+  try {
+   const html = generateOverviewCardsHtml({ t, numLocale, isRTL, language, pdfSettings }, { cards, mainCode, mainSymbol });
+   const exportDate = new Date().toISOString().slice(0, 10);
+   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `overview_${exportDate}.pdf` });
+   if (!result.ok) setError(t('error_failed_save'));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
  const navItems: Array<{ key: Section; label: string; icon: IconName }> = [
   { key: 'overview', label: t('nav_overview'), icon: 'home' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
@@ -3477,6 +3490,7 @@ function AuthenticatedHome() {
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
   { key: 'transactions', label: t('nav_transactions'), icon: 'transactions' },
   { key: 'archive', label: t('nav_archive'), icon: 'archive' },
+  { key: 'live-rates', label: t('nav_live_rates'), icon: 'rates' },
  ];
 
  // Editors (workspace role 'member') don't get destructive/billing controls.
@@ -3919,6 +3933,11 @@ function AuthenticatedHome() {
    title: t('archive_title'),
    description: t('archive_description'),
    accent: `${transactions.filter((tx) => tx.isArchived || !tx.accountFromId || !tx.accountToId).length} ${t('nav_archive')}`,
+  },
+  'live-rates': {
+   title: t('live_rates_title'),
+   description: t('live_rates_description'),
+   accent: t('nav_live_rates'),
   },
  };
 
@@ -4537,6 +4556,7 @@ function AuthenticatedHome() {
          adjustments={adjustments}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
+         onExportOverviewPdf={onExportOverviewPdf}
         />
        ) : null}
 
@@ -4772,6 +4792,8 @@ function AuthenticatedHome() {
          }}
         />
        ) : null}
+
+       {section === 'live-rates' ? <LiveRatesSection /> : null}
 
        {section === 'transactions' || section === 'archive' ? (
         <TransactionsSection

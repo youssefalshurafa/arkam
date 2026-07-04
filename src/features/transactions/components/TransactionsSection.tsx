@@ -6,6 +6,8 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
+import { TableZoomControl } from '@/shared/components/TableZoomControl';
+import { getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
@@ -167,6 +169,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // grouping the dropdowns render, so index N always points at the Nth rendered row.
  const [txFromHighlight, setTxFromHighlight] = useState(0);
  const [txToHighlight, setTxToHighlight] = useState(0);
+ // Spreadsheet-style zoom for the (often very wide) transactions table, so it fits on narrow screens.
+ const [tableZoom, setTableZoom] = useState(() => getStoredTableZoom('transactions'));
+ const changeTableZoom = (z: number) => {
+  setTableZoom(z);
+  saveTableZoom('transactions', z);
+ };
  const txFromOptions = useMemo(() => buildAccountOptions(clientAccounts, txFromQuery, txFromExpandedClient), [clientAccounts, txFromQuery, txFromExpandedClient]);
  const txToOptions = useMemo(() => buildAccountOptions(clientAccounts, txToQuery, txToExpandedClient), [clientAccounts, txToQuery, txToExpandedClient]);
 
@@ -1566,8 +1574,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
            )}
           </div>
           {transactionsPager}
+          <TableZoomControl
+           zoom={tableZoom}
+           onZoomChange={changeTableZoom}
+          />
           <div className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}>
-           <table className="w-full text-sm">
+           <table
+            className="w-full text-sm"
+            style={{ zoom: String(tableZoom) }}
+           >
             <colgroup>
              <col className="w-8" />
              <col className="w-10" />

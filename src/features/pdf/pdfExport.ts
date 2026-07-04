@@ -435,3 +435,106 @@ ${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${ex
 </body>
 </html>`;
 }
+
+/** One overview balance card, flattened to plain data for the PDF/print builder. */
+export type OverviewPdfCard = {
+ orgName: string;
+ currencyCode: string;
+ currencySymbol: string;
+ isMain: boolean;
+ total: number;
+ // The card's own FX rate to the main currency, or null when unset / not applicable.
+ rate: number | null;
+ clients: { clientName: string; balance: number }[];
+};
+
+/** Standalone HTML document for printing selected overview balance cards. */
+export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: OverviewPdfCard[]; mainCode: string; mainSymbol: string }): string {
+ const { t, numLocale, isRTL, language, pdfSettings } = ctx;
+ const { cards, mainCode, mainSymbol } = params;
+ const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
+ // Overview cards show whole-number balances on screen, so match that here.
+ const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 0 });
+ const sign = (n: number) => (n >= 0 ? 'pos' : 'neg');
+
+ const dir = isRTL ? 'rtl' : 'ltr';
+ const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
+ const exportDate = new Date().toLocaleDateString(language);
+
+ const cardHtml = cards
+  .map((card) => {
+   const symbol = card.currencySymbol || card.currencyCode;
+   const clientRows = card.clients
+    .map((c) => `<div class="row"><span class="name">${esc(c.clientName)}</span><span class="bal ${sign(c.balance)}">${fmt(c.balance)}</span></div>`)
+    .join('');
+   const converted = !card.isMain && card.rate != null ? card.total * card.rate : null;
+   const convertedHtml =
+    converted != null
+     ? `<div class="converted"><span class="rate">1 ${esc(card.currencyCode)} = ${card.rate} ${esc(mainCode)}</span><span class="conv-total ${sign(converted)}">${fmt(converted)} ${esc(mainSymbol)}</span></div>`
+     : '';
+   return `<div class="card">
+ <div class="card-head">
+  <span class="org">${esc(card.orgName)}</span>
+  <span class="cur">${esc(symbol)}</span>
+ </div>
+ <div class="card-body">${clientRows || `<div class="row muted">${esc(t('overview_no_balances'))}</div>`}</div>
+ <div class="card-total">
+  <span class="ct-label">${esc(t('overview_card_total'))}</span>
+  <span class="ct-value ${sign(card.total)}">${fmt(card.total)} ${esc(symbol)}</span>
+ </div>
+ ${convertedHtml}
+</div>`;
+  })
+  .join('');
+
+ return `<!DOCTYPE html>
+<html lang="${language}" dir="${dir}">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
+<style>
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+ body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
+ .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
+ .header-left { display: flex; align-items: center; gap: 14px; }
+ .brand-logo { height: 54px; width: auto; }
+ .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
+ .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
+ .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+ .card { border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; break-inside: avoid; }
+ .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; }
+ .card-head .org { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
+ .card-head .cur { font-weight: 700; }
+ .card-body { padding: 4px 12px; }
+ .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; border-bottom: 1px solid #f1f5f9; }
+ .row:last-child { border-bottom: none; }
+ .row .name { color: #334155; }
+ .row .bal { font-variant-numeric: tabular-nums; font-weight: 500; }
+ .row.muted { color: #94a3b8; font-style: italic; justify-content: center; }
+ .card-total { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 8px 12px; }
+ .card-total .ct-label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
+ .card-total .ct-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+ .converted { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #eff6ff; border-top: 1px solid #bfdbfe; padding: 8px 12px; }
+ .converted .rate { font-size: calc(${pdfSettings.fontSize}px - 2px); color: #2563eb; }
+ .converted .conv-total { font-weight: 700; font-variant-numeric: tabular-nums; }
+ .pos { color: #059669; }
+ .neg { color: #dc2626; }
+ .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
+ .empty { margin-top: 24px; text-align: center; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div class="header">
+ <div class="header-left">
+  <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
+  <div><p>${esc(t('overview_balances_title'))}</p></div>
+ </div>
+ ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
+</div>
+${cards.length > 0 ? `<div class="grid">${cardHtml}</div>` : `<div class="empty">${esc(t('overview_no_balances'))}</div>`}
+${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
+</body>
+</html>`;
+}

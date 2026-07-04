@@ -42,6 +42,33 @@ export const pdfSettingsStorageKey = 'arkam:pdf-settings';
 export const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 export const pdfDateRangeStorageKeyPrefix = 'arkam:pdf-date-range:';
 export const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
+// On-screen table zoom level, keyed per table ('ledger' | 'transactions'). A pure
+// viewing preference (like a spreadsheet's zoom), so it is stored globally rather
+// than per-client. Lets mobile users shrink these wide tables to see every column.
+export const tableZoomStorageKeyPrefix = 'arkam:table-zoom:';
+export const minTableZoom = 0.5;
+export const maxTableZoom = 1.2;
+
+export function getStoredTableZoom(key: 'ledger' | 'transactions'): number {
+ if (typeof window === 'undefined') return 1;
+ try {
+  const raw = window.localStorage.getItem(tableZoomStorageKeyPrefix + key);
+  if (!raw) return 1;
+  const parsed = parseFloat(raw);
+  if (isNaN(parsed)) return 1;
+  return Math.min(maxTableZoom, Math.max(minTableZoom, parsed));
+ } catch {
+  return 1;
+ }
+}
+
+export function saveTableZoom(key: 'ledger' | 'transactions', value: number) {
+ try {
+  window.localStorage.setItem(tableZoomStorageKeyPrefix + key, String(value));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
 // Remembers the last ledger account the user viewed per client, so refreshing the
 // page (or revisiting the client) restores that account instead of jumping to the first.
 export const ledgerLastAccountStorageKeyPrefix = 'arkam:ledger-last-account:';

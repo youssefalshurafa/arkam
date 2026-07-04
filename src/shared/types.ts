@@ -370,5 +370,16 @@ export type PdfSettings = {
 };
 export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
-export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive';
-export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive';
+export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates';
+export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates';
+
+// A normalized live FX/gold quote, as returned by the /api/live-rates proxy.
+export type LiveRate = {
+ code: string;
+ buy: number;
+ sell: number;
+ high: number;
+ low: number;
+ time: string;
+};
+export type LiveRatesResponse = { ok: boolean; rates?: LiveRate[]; timestamp?: string; error?: string };

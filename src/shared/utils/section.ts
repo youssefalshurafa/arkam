@@ -1,6 +1,6 @@
 import type { Section } from '@/shared/types';
 
-export const mainSections: Section[] = ['overview', 'settings', 'organizations', 'clients', 'currencies', 'transactions', 'archive'];
+export const mainSections: Section[] = ['overview', 'settings', 'organizations', 'clients', 'currencies', 'transactions', 'archive', 'live-rates'];
 
 export function getSectionFromPath(pathname: string): { section: Section; subId?: string } {
  const parts = pathname.split('/').filter(Boolean);

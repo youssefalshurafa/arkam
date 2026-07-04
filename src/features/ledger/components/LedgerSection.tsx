@@ -8,7 +8,8 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { SkBar, SkTablePanel, SK_LEDGER } from '@/shared/components/skeletons/Skeletons';
-import { getStoredPdfCols, getStoredPdfDateRange } from '@/shared/lib/localStorage';
+import { TableZoomControl } from '@/shared/components/TableZoomControl';
+import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
@@ -101,6 +102,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // Tracks which account's "entries awaiting an exchange rate" note has been expanded to list
  // the specific pending entries. Ephemeral UI state — no need to persist across sessions.
  const [pendingEntriesOpenAccountIds, setPendingEntriesOpenAccountIds] = useState<Set<number>>(new Set());
+ // Spreadsheet-style zoom for the (often very wide) ledger table, so it fits on narrow screens.
+ const [tableZoom, setTableZoom] = useState(() => getStoredTableZoom('ledger'));
+ const changeTableZoom = (z: number) => {
+  setTableZoom(z);
+  saveTableZoom('ledger', z);
+ };
  const togglePendingEntriesOpen = (accountId: number) => {
   setPendingEntriesOpenAccountIds((prev) => {
    const next = new Set(prev);
@@ -868,6 +875,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  </div>
                 );
                })()}
+               <TableZoomControl
+                zoom={tableZoom}
+                onZoomChange={changeTableZoom}
+               />
                <div
                 className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}
                 onKeyDown={(event) => {
@@ -879,7 +890,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  }
                 }}
                >
-                <table className="w-full text-sm">
+                <table
+                 className="w-full text-sm"
+                 style={{ zoom: String(tableZoom) }}
+                >
                  <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
                   <tr>
                    <th className="w-8 px-2 py-3">

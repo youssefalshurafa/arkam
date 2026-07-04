@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Spinner } from '@/components/ui/Spinner';
@@ -18,6 +18,7 @@ import type {
  Section,
  Transaction,
 } from '@/shared/types';
+import type { OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { useOverviewStore } from '../store/overviewStore';
 import { computeOverviewBalances } from '../utils/overviewBalances';
 
@@ -30,14 +31,25 @@ type OverviewSectionProps = {
  adjustments: ClientAdjustment[];
  isLoading: boolean;
  navigateToSection: (section: Section) => void;
+ onExportOverviewPdf: (cards: OverviewPdfCard[], mainCode: string, mainSymbol: string) => void;
 };
 
-export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, adjustments, isLoading, navigateToSection }: OverviewSectionProps) {
+export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, adjustments, isLoading, navigateToSection, onExportOverviewPdf }: OverviewSectionProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const numLocale = language === 'fr' ? 'fr-FR' : language;
 
  const { overviewRates, overviewFlipAll, overviewFlipped, setOverviewFlipAll, setOverviewFlipped, updateOverviewRate } = useOverviewStore();
+
+ // Cards the user has ticked for printing, keyed by group.key. Ephemeral (not persisted).
+ const [selectedCardKeys, setSelectedCardKeys] = useState<Set<string>>(new Set());
+ const toggleCardSelected = (key: string) =>
+  setSelectedCardKeys((prev) => {
+   const next = new Set(prev);
+   if (next.has(key)) next.delete(key);
+   else next.add(key);
+   return next;
+  });
 
  const mainCurrency = useMemo(() => currencies.find((currency) => currency.isMain === 1) ?? null, [currencies]);
 
@@ -167,15 +179,62 @@ export default function OverviewSection({ organizations, clients, clientAccounts
           const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 0 });
           const balanceColor = (n: number) => (n >= 0 ? 'text-emerald-600' : 'text-red-600');
 
+          // The user-entered rate string for a card, keyed per card (orgId:currencyId)
+          // so each organization's card keeps its own rate. Falls back to any legacy
+          // entry keyed by bare currency code so previously saved rates still apply.
+          const rateStringOf = (group: OverviewBalanceGroup) => overviewRates[group.key] ?? overviewRates[group.currencyCode];
+
           // Resolve a group's FX rate. Main currency is always 1; others use the
           // user-entered rate, or NaN when unset/invalid (excluded from conversions).
           const rateOf = (group: OverviewBalanceGroup) => {
            if (group.isMain) return 1;
-           const raw = overviewRates[group.currencyCode];
+           const raw = rateStringOf(group);
            const value = raw != null ? Number(raw) : NaN;
            return value > 0 ? value : NaN;
           };
           const isFlipped = (group: OverviewBalanceGroup) => !group.isMain && (overviewFlipAll || overviewFlipped.has(group.key));
+
+          // Flatten a card (org + currency group) to the plain shape the PDF builder expects.
+          const cardFromGroup = (group: OverviewBalanceGroup, orgName: string): OverviewPdfCard => {
+           const rate = rateOf(group);
+           return {
+            orgName,
+            currencyCode: group.currencyCode,
+            currencySymbol: group.currencySymbol || group.currencyCode,
+            isMain: group.isMain,
+            total: group.total,
+            rate: Number.isNaN(rate) ? null : rate,
+            clients: group.clients.map((c) => ({ clientName: c.clientName, balance: c.balance })),
+           };
+          };
+          const printCards = (cards: OverviewPdfCard[]) => onExportOverviewPdf(cards, mainCode, mainSymbol);
+          const printIcon = (
+           <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+           >
+            <path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z" />
+           </svg>
+          );
+          // Collect the ticked cards across every org (only those still shown, i.e. total !== 0).
+          const printSelected = () => {
+           const cards: OverviewPdfCard[] = [];
+           for (const [, orgGroups] of overviewOrgBalances.byOrg) {
+            const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
+            for (const group of orgGroups) {
+             if (group.total !== 0 && selectedCardKeys.has(group.key)) cards.push(cardFromGroup(group, orgName));
+            }
+           }
+           printCards(cards);
+          };
+          const selectedShownCount = overviewOrgBalances.groups.filter((g) => g.total !== 0 && selectedCardKeys.has(g.key)).length;
 
           // Grand total across every group, always in the main currency.
           let grandTotal = 0;
@@ -216,6 +275,16 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                 {fmt(grandTotal)} {mainSymbol}
                </p>
               </div>
+              {selectedShownCount > 0 ? (
+               <button
+                type="button"
+                onClick={printSelected}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800"
+               >
+                {printIcon}
+                {t('overview_print_selected', { count: selectedShownCount })}
+               </button>
+              ) : null}
               <button
                type="button"
                onClick={() => {
@@ -310,7 +379,27 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                        {/* FRONT — original currency */}
                        <div className="flex flex-col rounded border border-slate-200 bg-white [backface-visibility:hidden]">
                         <div className="flex flex-col gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2">
-                         <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">{orgName}</span>
+                         <div className="flex items-center justify-between gap-2">
+                          <label className="flex min-w-0 items-center gap-1.5">
+                           <input
+                            type="checkbox"
+                            checked={selectedCardKeys.has(group.key)}
+                            onChange={() => toggleCardSelected(group.key)}
+                            aria-label={t('overview_select_card')}
+                            className="shrink-0"
+                           />
+                           <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">{orgName}</span>
+                          </label>
+                          <button
+                           type="button"
+                           title={t('overview_print_card')}
+                           aria-label={t('overview_print_card')}
+                           onClick={() => printCards([cardFromGroup(group, orgName)])}
+                           className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-emerald-600"
+                          >
+                           {printIcon}
+                          </button>
+                         </div>
                          <div className="flex items-center justify-between gap-2">
                           <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
                           {!group.isMain ? (
@@ -321,8 +410,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                              type="text"
                              inputMode="decimal"
                              dir="ltr"
-                             value={overviewRates[group.currencyCode] ?? ''}
-                             onChange={(event) => updateOverviewRate(group.currencyCode, normalizeDecimalInput(event.target.value))}
+                             value={rateStringOf(group) ?? ''}
+                             onChange={(event) => updateOverviewRate(group.key, normalizeDecimalInput(event.target.value))}
                              className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
                             />
                            </label>
@@ -381,7 +470,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                              className="text-xs text-blue-600"
                              dir="ltr"
                             >
-                             1 {group.currencyCode} = {overviewRates[group.currencyCode] ?? rate} {mainCode}
+                             1 {group.currencyCode} = {rateStringOf(group) ?? rate} {mainCode}
                             </span>
                             <button
                              type="button"
