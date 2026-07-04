@@ -96,7 +96,34 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const showToast = useAppStatusStore((s) => s.showToast);
  const setError = useAppStatusStore((s) => s.setError);
  const dragLedgerFromHandle = useRef(false);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+
+ // Sum mode: toggling it off clears whatever was accumulated so the next session starts fresh.
+ const toggleLedgerSumMode = () => {
+  setLedgerSumMode((on) => {
+   if (on) setLedgerSumSelection(new Map());
+   return !on;
+  });
+ };
+ // Add the clicked amount to the running total, or remove it if it was already added.
+ const toggleLedgerSumEntry = (key: string, amount: number, currencyCode: string) => {
+  setLedgerSumSelection((prev) => {
+   const next = new Map(prev);
+   if (next.has(key)) next.delete(key);
+   else next.set(key, { amount, currencyCode });
+   return next;
+  });
+ };
+ // Grouped by currency so mixing e.g. USD and EUR clicks shows one total box per currency
+ // instead of adding incompatible currencies together.
+ const ledgerSumByCurrency = new Map<string, { total: number; count: number }>();
+ for (const entry of ledgerSumSelection.values()) {
+  const code = entry.currencyCode || '';
+  const bucket = ledgerSumByCurrency.get(code) ?? { total: 0, count: 0 };
+  bucket.total += entry.amount;
+  bucket.count += 1;
+  ledgerSumByCurrency.set(code, bucket);
+ }
 
  if (isLoading) {
   return (
@@ -640,8 +667,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 );
                })()}
 
-               {/* Row-click mode: highlight rows, or click cells to copy their value. */}
-               <div className="mt-3 flex items-center gap-1.5">
+               {/* Row-click mode: highlight rows, click cells to copy their value, or sum clicked amounts. */}
+               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <button
                  type="button"
                  title={t('ledger_click_highlight_mode')}
@@ -697,6 +724,40 @@ export default function LedgerSection(props: LedgerSectionProps) {
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                  </svg>
                 </button>
+                <button
+                 type="button"
+                 title={t('ledger_sum_mode_hint')}
+                 onClick={toggleLedgerSumMode}
+                 aria-pressed={ledgerSumMode}
+                 className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                  ledgerSumMode ? 'border-purple-400 bg-purple-50 text-purple-600 hover:bg-purple-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                 }`}
+                >
+                 <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
+                  <path d="M18 6H7l5 6-5 6h11" />
+                 </svg>
+                </button>
+                {[...ledgerSumByCurrency.entries()].map(([code, bucket]) => (
+                 <span
+                  key={code || 'none'}
+                  className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm text-slate-600"
+                 >
+                  <span className="font-medium text-slate-500">
+                   {code || t('amount')} ({bucket.count})
+                  </span>
+                  <span className="font-semibold text-slate-800">{bucket.total.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}</span>
+                 </span>
+                ))}
                </div>
 
                {(() => {
@@ -1670,6 +1731,21 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
                                 className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                />
+                              ) : ledgerSumMode ? (
+                               (() => {
+                                const sumKey = `${rowKey}:amount`;
+                                const inSum = ledgerSumSelection.has(sumKey);
+                                return (
+                                 <button
+                                  type="button"
+                                  onClick={() => toggleLedgerSumEntry(sumKey, entry.amount, entry.currencyCode)}
+                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                                 >
+                                  {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                  {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
+                                 </button>
+                                );
+                               })()
                               ) : (
                                <>
                                 {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
@@ -1997,6 +2073,32 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               >
                                {isPending ? (
                                 <span title={t('ledger_rate_pending')}>-</span>
+                               ) : ledgerSumMode && !draft ? (
+                                (() => {
+                                 const sumKey = `${rowKey}:netChange`;
+                                 const inSum = ledgerSumSelection.has(sumKey);
+                                 return (
+                                  <>
+                                   <button
+                                    type="button"
+                                    onClick={() => toggleLedgerSumEntry(sumKey, liveNetChange, ledger.currencyCode)}
+                                    className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                                   >
+                                    {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                    {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                   </button>
+                                   {showCharges && (
+                                    <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-red-500' : 'text-emerald-500'}`}>
+                                     <span>
+                                      {entry.isChargesPayerThisAccount ? '−' : '+'}
+                                      {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                     </span>
+                                     {entry.chargesDescription && <span className="font-normal italic text-slate-400">{entry.chargesDescription}</span>}
+                                    </div>
+                                   )}
+                                  </>
+                                 );
+                                })()
                                ) : (
                                 <>
                                  <div className="whitespace-nowrap">

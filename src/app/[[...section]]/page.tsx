@@ -288,6 +288,8 @@ function AuthenticatedHome() {
  const setLedgerColumnVisibility = useLedgerStore((s) => s.setLedgerColumnVisibility);
  const ledgerTransactionDrafts = useLedgerStore((s) => s.ledgerTransactionDrafts);
  const setLedgerTransactionDrafts = useLedgerStore((s) => s.setLedgerTransactionDrafts);
+ const setLedgerSumMode = useLedgerStore((s) => s.setLedgerSumMode);
+ const setLedgerSumSelection = useLedgerStore((s) => s.setLedgerSumSelection);
  const transactionTableDrafts = useTransactionsStore((s) => s.transactionTableDrafts);
  const setTransactionTableDrafts = useTransactionsStore((s) => s.setTransactionTableDrafts);
  const ledgerHistory = useDraftHistory(ledgerTransactionDrafts, setLedgerTransactionDrafts);
@@ -670,6 +672,10 @@ function AuthenticatedHome() {
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients', accountId?: number | null) {
   setClientLedgerBackSection(origin);
   setLedgerTransactionDrafts({});
+  // Start each client's ledger with a clean sum-mode calculator (a running total from the
+  // previous client would be meaningless here).
+  setLedgerSumMode(false);
+  setLedgerSumSelection(new Map());
   setSelectedClientForLedger(client);
   // When a specific account is requested (e.g. clicking a client's USD vs EUR row),
   // preselect it; the ledger-account effect keeps it since it belongs to the client.

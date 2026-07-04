@@ -1,7 +1,7 @@
 'use client';
 
-import { Fragment, useMemo, useRef } from 'react';
-import type { ChangeEvent, FormEvent, ReactNode, RefObject } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, RefObject } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
@@ -13,6 +13,7 @@ import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
+import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
 import type {
  Client,
  ClientAccount,
@@ -95,6 +96,60 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const { selectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
  const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
+
+ // Keyboard navigation for the From/To account pickers: the highlighted index tracks the row
+ // that ↑/↓ move through and Enter activates. The option lists are flattened from the same
+ // grouping the dropdowns render, so index N always points at the Nth rendered row.
+ const [txFromHighlight, setTxFromHighlight] = useState(0);
+ const [txToHighlight, setTxToHighlight] = useState(0);
+ const txFromOptions = useMemo(() => buildAccountOptions(clientAccounts, txFromQuery, txFromExpandedClient), [clientAccounts, txFromQuery, txFromExpandedClient]);
+ const txToOptions = useMemo(() => buildAccountOptions(clientAccounts, txToQuery, txToExpandedClient), [clientAccounts, txToQuery, txToExpandedClient]);
+
+ const selectFromAccount = (id: number) => {
+  setTransactionForm((current) => ({ ...current, accountFromId: id }));
+  setTxFromQuery('');
+  setTxFromOpen(false);
+  setTxFromExpandedClient(null);
+ };
+ const selectToAccount = (id: number) => {
+  setTransactionForm((current) => ({ ...current, accountToId: id }));
+  setTxToQuery('');
+  setTxToOpen(false);
+  setTxToExpandedClient(null);
+ };
+
+ // Shared arrow/Enter/Escape behaviour for both pickers. Enter on a group header expands or
+ // collapses it (keeping the highlight put so the user can arrow into its accounts); Enter on
+ // an account selects it.
+ const handleAccountPickerKeyDown = (
+  event: KeyboardEvent<HTMLInputElement>,
+  isOpen: boolean,
+  options: AccountOption[],
+  highlight: number,
+  setHighlight: (updater: (h: number) => number) => void,
+  toggleExpanded: (clientId: number, expanded: boolean) => void,
+  selectAccount: (id: number) => void,
+  close: () => void,
+ ) => {
+  // Dropdown closed → let the keystroke do its normal thing (e.g. Enter submits the form).
+  if (!isOpen) return;
+  if (event.key === 'ArrowDown') {
+   event.preventDefault();
+   setHighlight((h) => (options.length ? (h + 1) % options.length : 0));
+  } else if (event.key === 'ArrowUp') {
+   event.preventDefault();
+   setHighlight((h) => (options.length ? (h - 1 + options.length) % options.length : 0));
+  } else if (event.key === 'Enter') {
+   const option = options[highlight];
+   if (!option) return;
+   event.preventDefault();
+   if (option.kind === 'group') toggleExpanded(option.clientId, option.expanded);
+   else selectAccount(option.account.id);
+  } else if (event.key === 'Escape') {
+   close();
+  }
+ };
+
  const chargesCurrencyCode = transactionForm.chargesCurrencyId ? currencyMap.get(transactionForm.chargesCurrencyId)?.code : undefined;
  const chargesPayerAccountCurrencyCode =
   transactionForm.chargesPayer === 'from' ? transactionAccountFromCurrencyCode : transactionForm.chargesPayer === 'to' ? transactionAccountToCurrencyCode : undefined;
@@ -252,12 +307,26 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               onChange={(event) => {
                setTxFromQuery(event.target.value);
                setTxFromOpen(true);
+               setTxFromHighlight(0);
               }}
               onFocus={() => {
                setTxFromQuery('');
                setTxFromOpen(true);
+               setTxFromHighlight(0);
               }}
               onBlur={() => setTimeout(() => setTxFromOpen(false), 150)}
+              onKeyDown={(event) =>
+               handleAccountPickerKeyDown(
+                event,
+                txFromOpen,
+                txFromOptions,
+                txFromHighlight,
+                setTxFromHighlight,
+                (clientId, expanded) => setTxFromExpandedClient(expanded && !txFromQuery.trim() ? null : clientId),
+                selectFromAccount,
+                () => setTxFromOpen(false),
+               )
+              }
               placeholder={t('transaction_account_placeholder')}
               className={`w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
               autoComplete="off"
@@ -303,54 +372,43 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              ) : null}
              {txFromOpen && (
               <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-               {(() => {
-                const q = txFromQuery.trim().toLowerCase();
-                const byClient = new Map<number, ClientAccount[]>();
-                for (const a of clientAccounts) {
-                 if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
-                 const arr = byClient.get(a.clientId) ?? [];
-                 arr.push(a);
-                 byClient.set(a.clientId, arr);
-                }
-                const groups = [...byClient.values()];
-                if (groups.length === 0) {
-                 return <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>;
-                }
-                const selectAccount = (id: number) => {
-                 setTransactionForm((current) => ({ ...current, accountFromId: id }));
-                 setTxFromQuery('');
-                 setTxFromOpen(false);
-                 setTxFromExpandedClient(null);
-                };
-                return groups.map((accts) => {
-                 const clientId = accts[0].clientId;
-                 // Single-account client: pick it directly.
-                 if (accts.length === 1) {
-                  const account = accts[0];
+               {txFromOptions.length === 0 ? (
+                <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+               ) : (
+                txFromOptions.map((option, index) => {
+                 const highlighted = index === txFromHighlight;
+                 // Keeps the keyboard-highlighted row scrolled into view as ↑/↓ move past the fold.
+                 const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
+                 if (option.kind === 'single') {
+                  const account = option.account;
+                  const selected = transactionForm.accountFromId === account.id;
                   return (
                    <li
-                    key={`g${clientId}`}
-                    onMouseDown={() => selectAccount(account.id)}
-                    className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                    key={`s${account.id}`}
+                    ref={highlightRef}
+                    onMouseDown={() => selectFromAccount(account.id)}
+                    onMouseEnter={() => setTxFromHighlight(index)}
+                    className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-blue-100' : selected ? 'bg-blue-50' : ''} ${selected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
                    >
                     {account.clientName} · {account.currencyCode}
                    </li>
                   );
                  }
-                 // Multi-account client: show the name; click to expand its accounts.
-                 const expanded = !!q || txFromExpandedClient === clientId;
-                 const hasSelected = accts.some((a) => a.id === transactionForm.accountFromId);
-                 return (
-                  <Fragment key={`g${clientId}`}>
+                 if (option.kind === 'group') {
+                  const groupHasSelected = clientAccounts.some((a) => a.clientId === option.clientId && a.id === transactionForm.accountFromId);
+                  return (
                    <li
+                    key={`g${option.clientId}`}
+                    ref={highlightRef}
                     onMouseDown={(e) => {
                      e.preventDefault();
-                     setTxFromExpandedClient(expanded && !q ? null : clientId);
+                     setTxFromExpandedClient(option.expanded && !txFromQuery.trim() ? null : option.clientId);
                     }}
-                    className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                    onMouseEnter={() => setTxFromHighlight(index)}
+                    className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-blue-100' : ''} ${groupHasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
                    >
                     <span>
-                     {accts[0].clientName} <span className="text-slate-400">({accts.length})</span>
+                     {option.clientName} <span className="text-slate-400">({option.count})</span>
                     </span>
                     <svg
                      width="12"
@@ -361,27 +419,30 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      strokeWidth="2"
                      strokeLinecap="round"
                      strokeLinejoin="round"
-                     className={`text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                     className={`text-slate-400 transition-transform ${option.expanded ? 'rotate-180' : ''}`}
                      aria-hidden
                     >
                      <path d="m6 9 6 6 6-6" />
                     </svg>
                    </li>
-                   {expanded &&
-                    accts.map((account) => (
-                     <li
-                      key={account.id}
-                      onMouseDown={() => selectAccount(account.id)}
-                      className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountFromId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
-                     >
-                      {account.currencyCode}
-                      {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
-                     </li>
-                    ))}
-                  </Fragment>
+                  );
+                 }
+                 const account = option.account;
+                 const selected = transactionForm.accountFromId === account.id;
+                 return (
+                  <li
+                   key={`c${account.id}`}
+                   ref={highlightRef}
+                   onMouseDown={() => selectFromAccount(account.id)}
+                   onMouseEnter={() => setTxFromHighlight(index)}
+                   className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-blue-100' : selected ? 'bg-blue-50' : ''} ${selected ? 'font-medium text-blue-700' : 'text-slate-600'}`}
+                  >
+                   {account.currencyCode}
+                   {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                  </li>
                  );
-                });
-               })()}
+                })
+               )}
               </ul>
              )}
             </div>
@@ -404,12 +465,26 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 onChange={(event) => {
                  setTxToQuery(event.target.value);
                  setTxToOpen(true);
+                 setTxToHighlight(0);
                 }}
                 onFocus={() => {
                  setTxToQuery('');
                  setTxToOpen(true);
+                 setTxToHighlight(0);
                 }}
                 onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
+                onKeyDown={(event) =>
+                 handleAccountPickerKeyDown(
+                  event,
+                  txToOpen,
+                  txToOptions,
+                  txToHighlight,
+                  setTxToHighlight,
+                  (clientId, expanded) => setTxToExpandedClient(expanded && !txToQuery.trim() ? null : clientId),
+                  selectToAccount,
+                  () => setTxToOpen(false),
+                 )
+                }
                 placeholder={t('transaction_account_placeholder')}
                 className={`w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
                 autoComplete="off"
@@ -455,53 +530,43 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                ) : null}
                {txToOpen && (
                 <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
-                 {(() => {
-                  const q = txToQuery.trim().toLowerCase();
-                  const byClient = new Map<number, ClientAccount[]>();
-                  for (const a of clientAccounts) {
-                   if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
-                   const arr = byClient.get(a.clientId) ?? [];
-                   arr.push(a);
-                   byClient.set(a.clientId, arr);
-                  }
-                  const groups = [...byClient.values()];
-                  if (groups.length === 0) {
-                   return <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>;
-                  }
-                  const selectAccount = (id: number) => {
-                   setTransactionForm((current) => ({ ...current, accountToId: id }));
-                   setTxToQuery('');
-                   setTxToOpen(false);
-                   setTxToExpandedClient(null);
-                  };
-                  return groups.map((accts) => {
-                   const clientId = accts[0].clientId;
-                   if (accts.length === 1) {
-                    const account = accts[0];
+                 {txToOptions.length === 0 ? (
+                  <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+                 ) : (
+                  txToOptions.map((option, index) => {
+                   const highlighted = index === txToHighlight;
+                   const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
+                   if (option.kind === 'single') {
+                    const account = option.account;
+                    const selected = transactionForm.accountToId === account.id;
                     return (
                      <li
-                      key={`g${clientId}`}
-                      onMouseDown={() => selectAccount(account.id)}
-                      className={`cursor-pointer px-3 py-2 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                      key={`s${account.id}`}
+                      ref={highlightRef}
+                      onMouseDown={() => selectToAccount(account.id)}
+                      onMouseEnter={() => setTxToHighlight(index)}
+                      className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-blue-100' : selected ? 'bg-blue-50' : ''} ${selected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
                      >
                       {account.clientName} · {account.currencyCode}
                      </li>
                     );
                    }
-                   const expanded = !!q || txToExpandedClient === clientId;
-                   const hasSelected = accts.some((a) => a.id === transactionForm.accountToId);
-                   return (
-                    <Fragment key={`g${clientId}`}>
+                   if (option.kind === 'group') {
+                    const groupHasSelected = clientAccounts.some((a) => a.clientId === option.clientId && a.id === transactionForm.accountToId);
+                    return (
                      <li
+                      key={`g${option.clientId}`}
+                      ref={highlightRef}
                       onMouseDown={(e) => {
                        e.preventDefault();
-                       setTxToExpandedClient(expanded && !q ? null : clientId);
+                       setTxToExpandedClient(option.expanded && !txToQuery.trim() ? null : option.clientId);
                       }}
-                      className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                      onMouseEnter={() => setTxToHighlight(index)}
+                      className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-blue-100' : ''} ${groupHasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
                      >
-                      <span>{accts[0].clientName}</span>
+                      <span>{option.clientName}</span>
                       <span className="flex items-center gap-1 text-xs text-slate-400">
-                       {accts.length}
+                       {option.count}
                        <svg
                         width="12"
                         height="12"
@@ -511,28 +576,31 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+                        className={`transition-transform ${option.expanded ? 'rotate-180' : ''}`}
                         aria-hidden
                        >
                         <path d="m6 9 6 6 6-6" />
                        </svg>
                       </span>
                      </li>
-                     {expanded &&
-                      accts.map((account) => (
-                       <li
-                        key={account.id}
-                        onMouseDown={() => selectAccount(account.id)}
-                        className={`cursor-pointer py-2 pl-8 pr-3 text-sm hover:bg-blue-50 ${transactionForm.accountToId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
-                       >
-                        {account.currencyCode}
-                        {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
-                       </li>
-                      ))}
-                    </Fragment>
+                    );
+                   }
+                   const account = option.account;
+                   const selected = transactionForm.accountToId === account.id;
+                   return (
+                    <li
+                     key={`c${account.id}`}
+                     ref={highlightRef}
+                     onMouseDown={() => selectToAccount(account.id)}
+                     onMouseEnter={() => setTxToHighlight(index)}
+                     className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-blue-100' : selected ? 'bg-blue-50' : ''} ${selected ? 'font-medium text-blue-700' : 'text-slate-600'}`}
+                    >
+                     {account.currencyCode}
+                     {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+                    </li>
                    );
-                  });
-                 })()}
+                  })
+                 )}
                 </ul>
                )}
               </div>
