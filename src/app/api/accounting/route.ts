@@ -22,6 +22,8 @@ const readOnlyActions = new Set([
  // export (viewers included), so it stays out of the viewer-blocked writeActions.
  'getBackupInfo',
  'recordBackup',
+ // Shared workspace UI settings: readable by anyone in the workspace.
+ 'getWorkspaceSettings',
 ]);
 
 const writeActions = new Set([
@@ -56,6 +58,8 @@ const writeActions = new Set([
  'deleteClientAdjustment',
  'importWorkspaceData',
  'bulkImportTransactions',
+ // Shared workspace UI settings: owner-only (gated further below).
+ 'saveWorkspaceSettings',
 ]);
 
 type Body = {
@@ -178,6 +182,11 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Viewers cannot modify workspace data.' }, { status: 403 });
   }
 
+  // Only the workspace owner may change the shared UI settings (toggle or push).
+  if (action === 'saveWorkspaceSettings' && role !== 'owner') {
+   return NextResponse.json({ error: 'Only the workspace owner can change shared settings.' }, { status: 403 });
+  }
+
   const appLike = createAppLike(workspaceId);
 
   switch (action) {
@@ -285,6 +294,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.importWorkspaceData(appLike, payload));
    case 'bulkImportTransactions':
     return NextResponse.json(await db.bulkImportTransactions(appLike, payload));
+   case 'getWorkspaceSettings':
+    return NextResponse.json(await db.getWorkspaceSettings(appLike));
+   case 'saveWorkspaceSettings':
+    return NextResponse.json(await db.saveWorkspaceSettings(appLike, payload));
    case 'getBackupInfo':
     return NextResponse.json(await authDb.getWorkspaceBackupInfo(workspaceId));
    case 'recordBackup':

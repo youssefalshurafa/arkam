@@ -1070,6 +1070,56 @@ async function bulkImportTransactions(app, { transactions = [], adjustments = []
     return { createdTransactions: transactions.length, createdAdjustments: adjustments.length };
 }
 
+// Workspace-wide shared UI settings (single row). Returns defaults when unset.
+async function getWorkspaceSettings(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(
+        `SELECT shared_enabled AS "sharedEnabled", settings, version
+         FROM ${schema}.workspace_settings WHERE id = 1`,
+    );
+    const row = result.rows[0];
+    if (!row) {
+        return { sharedEnabled: false, settings: {}, version: 0 };
+    }
+    return {
+        sharedEnabled: Boolean(row.sharedEnabled),
+        settings: row.settings && typeof row.settings === 'object' ? row.settings : {},
+        version: Number(row.version) || 0,
+    };
+}
+
+// Upserts the shared settings. When `settings` is provided the version bumps so
+// clients know to re-apply. `sharedEnabled` toggles sharing on/off (no bump).
+async function saveWorkspaceSettings(app, payload) {
+    const { schema } = await getSchemaInfo(app);
+    const hasEnabled = typeof payload?.sharedEnabled === 'boolean';
+    const hasSettings = payload?.settings && typeof payload.settings === 'object';
+
+    const result = await query(
+        `INSERT INTO ${schema}.workspace_settings (id, shared_enabled, settings, version, updated_at)
+         VALUES (1, $1, $2, $3, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+             shared_enabled = CASE WHEN $4 THEN EXCLUDED.shared_enabled ELSE ${schema}.workspace_settings.shared_enabled END,
+             settings = CASE WHEN $5 THEN EXCLUDED.settings ELSE ${schema}.workspace_settings.settings END,
+             version = CASE WHEN $5 THEN ${schema}.workspace_settings.version + 1 ELSE ${schema}.workspace_settings.version END,
+             updated_at = NOW()
+         RETURNING shared_enabled AS "sharedEnabled", settings, version`,
+        [
+            hasEnabled ? payload.sharedEnabled : false,
+            hasSettings ? JSON.stringify(payload.settings) : '{}',
+            hasSettings ? 1 : 0,
+            hasEnabled,
+            hasSettings,
+        ],
+    );
+    const row = result.rows[0];
+    return {
+        sharedEnabled: Boolean(row.sharedEnabled),
+        settings: row.settings && typeof row.settings === 'object' ? row.settings : {},
+        version: Number(row.version) || 0,
+    };
+}
+
 module.exports = {
     getDbInfo,
     setDbDirectory,
@@ -1111,4 +1161,6 @@ module.exports = {
     exportWorkspaceData,
     importWorkspaceData,
     bulkImportTransactions,
+    getWorkspaceSettings,
+    saveWorkspaceSettings,
 };

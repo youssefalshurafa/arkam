@@ -86,7 +86,15 @@ import {
 } from '@/features/transactions/utils/import';
 import { SkBar, SkTablePanel, SK_TX, SK_LEDGER, SK_CLIENTS, SK_CURRENCIES } from '@/shared/components/skeletons/Skeletons';
 import { useWorkspaceData, useWorkspaceCache } from '@/features/workspace/hooks/useWorkspaceData';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/queryClient';
+import {
+ snapshotSharedSettings,
+ applySharedSettings,
+ serializeSnapshot,
+ getAppliedSharedVersion,
+ setAppliedSharedVersion,
+} from '@/features/settings/lib/sharedTableSettings';
 import { ensureCacheOwner } from '@/shared/lib/cacheOwner';
 import { panelClassName, mutedPanelClassName, tableWrapClassName } from '@/shared/styles';
 import OverviewSection from '@/features/overview/components/OverviewSection';
@@ -540,11 +548,13 @@ function AuthenticatedHome() {
   }
  }, [selectedClientForLedger?.id, selectedLedgerAccountId, clientAccounts]);
 
- // Load ALL per-client ledger preferences whenever the open client changes.
- useEffect(() => {
-  setLedgerColumnVisibility(getStoredLedgerColumnVisibility(selectedClientForLedger?.id));
-  setLedgerColumnOrder(getStoredLedgerColumnOrder(selectedClientForLedger?.id));
-  const settings = getStoredLedgerSettings(selectedClientForLedger?.id);
+ // Re-reads the open client's ledger prefs from localStorage into the store. Reused
+ // both on client change and after applying shared workspace settings.
+ const hydrateLedgerPrefsFromStorage = useCallback(() => {
+  const clientId = selectedClientForLedger?.id;
+  setLedgerColumnVisibility(getStoredLedgerColumnVisibility(clientId));
+  setLedgerColumnOrder(getStoredLedgerColumnOrder(clientId));
+  const settings = getStoredLedgerSettings(clientId);
   setLedgerDecimals(settings.decimals);
   setShowLedgerCurrencySymbol(settings.showCurrencySymbol);
   setLedgerDateFormat(settings.dateFormat);
@@ -552,8 +562,80 @@ function AuthenticatedHome() {
   setLedgerNetChangeHighlightColor(settings.netChangeHighlightColor);
   setLedgerRowHighlightColor(settings.rowHighlightColor);
   setLedgerRowClickHighlight(settings.rowClickHighlight);
-  setHighlightedLedgerRows(getStoredLedgerHighlights(selectedClientForLedger?.id));
+  setHighlightedLedgerRows(getStoredLedgerHighlights(clientId));
+  // Store setters are stable; only the open client id should retrigger a reload.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [selectedClientForLedger?.id]);
+
+ // Load ALL per-client ledger preferences whenever the open client changes.
+ useEffect(() => {
+  hydrateLedgerPrefsFromStorage();
+ }, [hydrateLedgerPrefsFromStorage]);
+
+ // --- Workspace-shared table settings (owner-controlled) --------------------
+ // When enabled, the ledger/transaction table layout + display settings live on the
+ // server (per workspace) and the owner pushes them to every member. Members can
+ // still tweak locally between pushes (their "override"). Shareable settings are a
+ // snapshot of the relevant localStorage keys (see sharedTableSettings.ts).
+ const isWorkspaceOwner = userWorkspaces.find((workspace) => workspace.id === activeWorkspaceId)?.role === 'owner';
+
+ const workspaceSettingsQuery = useQuery({
+  queryKey: queryKeys.workspaceSettings(activeWorkspaceId),
+  queryFn: () => accountingApi.getWorkspaceSettings(),
+  enabled: Boolean(activeWorkspaceId && sessionUserId),
+  staleTime: 60_000,
+ });
+ const sharedSettingsEnabled = workspaceSettingsQuery.data?.sharedEnabled ?? false;
+ const sharedSettingsPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const lastPushedSharedSnapshot = useRef<string | null>(null);
+
+ // Apply the owner's shared settings whenever the server version advances past what
+ // this browser last applied (later local edits stand until the next owner push).
+ useEffect(() => {
+  const settings = workspaceSettingsQuery.data;
+  if (!settings || !settings.sharedEnabled) return;
+  if (settings.version <= getAppliedSharedVersion()) return;
+  applySharedSettings(settings.settings);
+  setAppliedSharedVersion(settings.version);
+  lastPushedSharedSnapshot.current = serializeSnapshot(snapshotSharedSettings());
+  hydrateLedgerPrefsFromStorage();
+  setTransactionTableSettings(getStoredTransactionTableSettings());
+ }, [workspaceSettingsQuery.data, hydrateLedgerPrefsFromStorage, setTransactionTableSettings]);
+
+ // Debounced push of the current shared-settings snapshot — no-op unless sharing is
+ // on AND the current user is the owner AND something shareable actually changed.
+ function pushSharedSettingsIfOwner() {
+  if (!sharedSettingsEnabled || !isWorkspaceOwner) return;
+  if (sharedSettingsPushTimer.current) clearTimeout(sharedSettingsPushTimer.current);
+  sharedSettingsPushTimer.current = setTimeout(() => {
+   const snapshot = snapshotSharedSettings();
+   const serialized = serializeSnapshot(snapshot);
+   if (serialized === lastPushedSharedSnapshot.current) return;
+   lastPushedSharedSnapshot.current = serialized;
+   accountingApi
+    .saveWorkspaceSettings({ settings: snapshot })
+    .then((result) => {
+     setAppliedSharedVersion(result.version);
+     queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), result);
+    })
+    .catch(() => {
+     /* best-effort; the next change retries */
+    });
+  }, 500);
+ }
+
+ // Owner toggles workspace-wide sharing. Enabling seeds the shared set from the
+ // owner's current settings; disabling leaves everyone's current settings in place.
+ async function setWorkspaceSharedSettingsEnabled(enabled: boolean) {
+  try {
+   const result = await accountingApi.saveWorkspaceSettings(enabled ? { sharedEnabled: true, settings: snapshotSharedSettings() } : { sharedEnabled: false });
+   setAppliedSharedVersion(result.version);
+   lastPushedSharedSnapshot.current = serializeSnapshot(snapshotSharedSettings());
+   queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), result);
+  } catch (error) {
+   setError(error instanceof Error ? error.message : t('error_failed_save'));
+  }
+ }
 
  const transactionTableRows = useMemo<TransactionTableRow[]>(
   () => buildTransactionTableRows({ adjustments, clientAccounts, transactions, txSortDir }),
@@ -699,6 +781,7 @@ function AuthenticatedHome() {
    }
    return next;
   });
+  pushSharedSettingsIfOwner();
  }
 
  // Persist the current client's ledger display settings. `patch` carries the value
@@ -717,6 +800,7 @@ function AuthenticatedHome() {
    ...patch,
   };
   window.localStorage.setItem(ledgerSettingsStorageKeyPrefix + clientId, JSON.stringify(next));
+  pushSharedSettingsIfOwner();
  }
 
  function updateLedgerDecimals(next: number) {
@@ -785,6 +869,7 @@ function AuthenticatedHome() {
   } catch {
    /* ignore */
   }
+  pushSharedSettingsIfOwner();
  }
 
  // Sum mode: toggling it off clears whatever was accumulated so the next session starts fresh.
@@ -830,6 +915,7 @@ function AuthenticatedHome() {
   } catch {
    /* ignore */
   }
+  pushSharedSettingsIfOwner();
  }
 
  function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
@@ -860,6 +946,7 @@ function AuthenticatedHome() {
   });
 
   setDraggedLedgerColumn(null);
+  pushSharedSettingsIfOwner();
  }
 
 
@@ -3633,6 +3720,7 @@ function AuthenticatedHome() {
    saveTransactionTableSettings(next);
    return next;
   });
+  pushSharedSettingsIfOwner();
  };
 
  const openTransactionTableSettingsModal = () => {
@@ -3649,6 +3737,7 @@ function AuthenticatedHome() {
   setTransactionTableSettings(transactionTableSettingsDraft);
   saveTransactionTableSettings(transactionTableSettingsDraft);
   setShowTransactionTableSettingsModal(false);
+  pushSharedSettingsIfOwner();
  };
 
  const openTransactionExportModal = () => {
@@ -4088,7 +4177,31 @@ function AuthenticatedHome() {
      </div>
     ) : null}
     {settingsTab === 'account' ? <AccountSettings hideSubscription={isEditorRole} /> : null}
-    {settingsTab === 'team' ? <TeamSettings /> : null}
+    {settingsTab === 'team' ? (
+     <div className="flex flex-col gap-6">
+      <TeamSettings />
+      {isWorkspaceOwner ? (
+       <div className={panelClassName}>
+        <div className="flex items-start justify-between gap-4">
+         <div>
+          <h3 className="text-lg font-semibold">{t('shared_settings_title')}</h3>
+          <p className="mt-1 text-sm text-slate-600">{t('shared_settings_description')}</p>
+         </div>
+         <button
+          type="button"
+          role="switch"
+          aria-checked={sharedSettingsEnabled}
+          onClick={() => setWorkspaceSharedSettingsEnabled(!sharedSettingsEnabled)}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${sharedSettingsEnabled ? 'bg-blue-600' : 'bg-slate-300'}`}
+         >
+          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${sharedSettingsEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+         </button>
+        </div>
+        {sharedSettingsEnabled ? <p className="mt-3 text-xs text-slate-500">{t('shared_settings_active_hint')}</p> : null}
+       </div>
+      ) : null}
+     </div>
+    ) : null}
     {settingsTab === 'database' ? (
      <DatabaseSettings
       isBackingUp={isBackingUp}

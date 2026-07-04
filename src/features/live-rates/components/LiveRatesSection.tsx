@@ -52,12 +52,17 @@ export default function LiveRatesSection() {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
 
- // Rates refresh only when the user clicks the refresh button — no polling.
+ // The feed is only ever hit when the user opens this page (mount) or clicks
+ // refresh — never on a timer, window refocus, or network reconnect.
  const { data, isLoading, isError, isFetching, refetch } = useQuery({
   queryKey: queryKeys.liveRates(),
   queryFn: fetchLiveRates,
   refetchInterval: false,
   refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+  refetchOnMount: 'always',
+  staleTime: Infinity,
+  gcTime: 0,
  });
 
  const rates = data?.rates ?? [];

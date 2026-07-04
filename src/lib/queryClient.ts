@@ -48,4 +48,6 @@ export const queryKeys = {
  workspaces: () => [...queryKeys.all, 'workspaces'] as const,
  // Live external FX/gold quotes (proxied via /api/live-rates); polled on an interval.
  liveRates: () => [...queryKeys.all, 'liveRates'] as const,
+ // Workspace-wide shared UI settings (owner-controlled), scoped per workspace.
+ workspaceSettings: (workspaceId: string | null | undefined) => [...queryKeys.all, 'workspaceSettings', workspaceId ?? '__none__'] as const,
 } as const;
