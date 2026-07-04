@@ -110,28 +110,9 @@ import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients
 import { emptyOrganizationForm } from '@/features/organizations/forms';
 import ClientsSection from '@/features/clients/components/ClientsSection';
 import ClientsReadOnly from '@/features/clients/components/ClientsReadOnly';
+import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
+import { emptyTransactionForm } from '@/features/transactions/forms';
 
-
-const emptyTransactionForm = (): TransactionForm => ({
- accountFromId: null,
- accountToId: null,
- currencyId: null,
- amount: '',
- type: 'transfer',
- adjustmentDirection: 'debit',
- exchangeRateFrom: '1.00',
- commissionFrom: '0.00',
- exchangeRateTo: '1.00',
- commissionTo: '0.00',
- charges: '0',
- chargesCurrencyId: null,
- chargesPayer: '',
- chargesExchangeRate: '1.00',
- chargesDescription: '',
- description: '',
- descriptionFrom: '',
- descriptionTo: '',
-});
 
 // Stable empty arrays so the derived server-data views keep a constant identity
 // while the workspace query is still loading (avoids needless downstream re-memos).
@@ -224,41 +205,68 @@ function AuthenticatedHome() {
  const [ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts] = useState<Record<number, string>>({});
  const [editingStartingBalanceIds, setEditingStartingBalanceIds] = useState<Set<number>>(new Set());
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
- const [isTransactionsEditMode, setIsTransactionsEditMode] = useState(false);
- const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<number>>(new Set());
- const [editingRowIds, setEditingRowIds] = useState<Set<number>>(new Set());
- const [isEditAllTransactions, setIsEditAllTransactions] = useState(false);
- const [dragRowId, setDragRowId] = useState<number | null>(null);
- const [dragOverRowId, setDragOverRowId] = useState<number | null>(null);
- const [dragOverHalf, setDragOverHalf] = useState<'top' | 'bottom'>('bottom');
- const [manualRowOrder, setManualRowOrder] = useState<number[] | null>(null);
+ const isTransactionsEditMode = useTransactionsStore((s) => s.isTransactionsEditMode);
+ const setIsTransactionsEditMode = useTransactionsStore((s) => s.setIsTransactionsEditMode);
+ const selectedTransactionIds = useTransactionsStore((s) => s.selectedTransactionIds);
+ const setSelectedTransactionIds = useTransactionsStore((s) => s.setSelectedTransactionIds);
+ const editingRowIds = useTransactionsStore((s) => s.editingRowIds);
+ const setEditingRowIds = useTransactionsStore((s) => s.setEditingRowIds);
+ const isEditAllTransactions = useTransactionsStore((s) => s.isEditAllTransactions);
+ const setIsEditAllTransactions = useTransactionsStore((s) => s.setIsEditAllTransactions);
+ const dragRowId = useTransactionsStore((s) => s.dragRowId);
+ const setDragRowId = useTransactionsStore((s) => s.setDragRowId);
+ const dragOverRowId = useTransactionsStore((s) => s.dragOverRowId);
+ const setDragOverRowId = useTransactionsStore((s) => s.setDragOverRowId);
+ const dragOverHalf = useTransactionsStore((s) => s.dragOverHalf);
+ const setDragOverHalf = useTransactionsStore((s) => s.setDragOverHalf);
+ const manualRowOrder = useTransactionsStore((s) => s.manualRowOrder);
+ const setManualRowOrder = useTransactionsStore((s) => s.setManualRowOrder);
  const dragFromHandle = useRef(false);
- const [transactionsPage, setTransactionsPage] = useState(99999);
- const [transactionsPageSize, setTransactionsPageSize] = useState(100);
+ const transactionsPage = useTransactionsStore((s) => s.transactionsPage);
+ const setTransactionsPage = useTransactionsStore((s) => s.setTransactionsPage);
+ const transactionsPageSize = useTransactionsStore((s) => s.transactionsPageSize);
+ const setTransactionsPageSize = useTransactionsStore((s) => s.setTransactionsPageSize);
  const [ledgerPageState, setLedgerPageState] = useState<Record<number, number>>({});
  const [ledgerPageSize, setLedgerPageSize] = useState<number>(() => {
   if (typeof window === 'undefined') return 50;
   const stored = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
   return [25, 50, 100].includes(stored) ? stored : 50;
  });
- const [showTransactionTableSettingsModal, setShowTransactionTableSettingsModal] = useState(false);
- const [transactionTableSettings, setTransactionTableSettings] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
- const [transactionTableSettingsDraft, setTransactionTableSettingsDraft] = useState<TransactionTableSettings>(() => getStoredTransactionTableSettings());
- const [showTransactionExportModal, setShowTransactionExportModal] = useState(false);
- const [transactionExportFrom, setTransactionExportFrom] = useState('');
- const [transactionExportTo, setTransactionExportTo] = useState('');
- const [isExportingTransactions, setIsExportingTransactions] = useState(false);
- const [txSortDir, setTxSortDir] = useState<'desc' | 'asc'>('desc');
- const [txFilterOpen, setTxFilterOpen] = useState(false);
- const [txFilterSearch, setTxFilterSearch] = useState('');
- const [txFilterClient, setTxFilterClient] = useState('');
- const [txFilterDateFrom, setTxFilterDateFrom] = useState('');
- const [txFilterDateTo, setTxFilterDateTo] = useState('');
- const [commissionExpandedTxns, setCommissionExpandedTxns] = useState<Set<number>>(new Set());
- const [expensesExpandedTxns, setExpensesExpandedTxns] = useState<Set<number>>(new Set());
+ const showTransactionTableSettingsModal = useTransactionsStore((s) => s.showTransactionTableSettingsModal);
+ const setShowTransactionTableSettingsModal = useTransactionsStore((s) => s.setShowTransactionTableSettingsModal);
+ const transactionTableSettings = useTransactionsStore((s) => s.transactionTableSettings);
+ const setTransactionTableSettings = useTransactionsStore((s) => s.setTransactionTableSettings);
+ const transactionTableSettingsDraft = useTransactionsStore((s) => s.transactionTableSettingsDraft);
+ const setTransactionTableSettingsDraft = useTransactionsStore((s) => s.setTransactionTableSettingsDraft);
+ const showTransactionExportModal = useTransactionsStore((s) => s.showTransactionExportModal);
+ const setShowTransactionExportModal = useTransactionsStore((s) => s.setShowTransactionExportModal);
+ const transactionExportFrom = useTransactionsStore((s) => s.transactionExportFrom);
+ const setTransactionExportFrom = useTransactionsStore((s) => s.setTransactionExportFrom);
+ const transactionExportTo = useTransactionsStore((s) => s.transactionExportTo);
+ const setTransactionExportTo = useTransactionsStore((s) => s.setTransactionExportTo);
+ const isExportingTransactions = useTransactionsStore((s) => s.isExportingTransactions);
+ const setIsExportingTransactions = useTransactionsStore((s) => s.setIsExportingTransactions);
+ const txSortDir = useTransactionsStore((s) => s.txSortDir);
+ const setTxSortDir = useTransactionsStore((s) => s.setTxSortDir);
+ const txFilterOpen = useTransactionsStore((s) => s.txFilterOpen);
+ const setTxFilterOpen = useTransactionsStore((s) => s.setTxFilterOpen);
+ const txFilterSearch = useTransactionsStore((s) => s.txFilterSearch);
+ const setTxFilterSearch = useTransactionsStore((s) => s.setTxFilterSearch);
+ const txFilterClient = useTransactionsStore((s) => s.txFilterClient);
+ const setTxFilterClient = useTransactionsStore((s) => s.setTxFilterClient);
+ const txFilterDateFrom = useTransactionsStore((s) => s.txFilterDateFrom);
+ const setTxFilterDateFrom = useTransactionsStore((s) => s.setTxFilterDateFrom);
+ const txFilterDateTo = useTransactionsStore((s) => s.txFilterDateTo);
+ const setTxFilterDateTo = useTransactionsStore((s) => s.setTxFilterDateTo);
+ const commissionExpandedTxns = useTransactionsStore((s) => s.commissionExpandedTxns);
+ const setCommissionExpandedTxns = useTransactionsStore((s) => s.setCommissionExpandedTxns);
+ const expensesExpandedTxns = useTransactionsStore((s) => s.expensesExpandedTxns);
+ const setExpensesExpandedTxns = useTransactionsStore((s) => s.setExpensesExpandedTxns);
  const [ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys] = useState<Set<string>>(new Set());
- const [isNewTransactionSectionOpen, setIsNewTransactionSectionOpen] = useState(false);
- const [isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen] = useState(false);
+ const isNewTransactionSectionOpen = useTransactionsStore((s) => s.isNewTransactionSectionOpen);
+ const setIsNewTransactionSectionOpen = useTransactionsStore((s) => s.setIsNewTransactionSectionOpen);
+ const isNewTransactionExpensesOpen = useTransactionsStore((s) => s.isNewTransactionExpensesOpen);
+ const setIsNewTransactionExpensesOpen = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen);
  const [showLedgerCurrencySymbol, setShowLedgerCurrencySymbol] = useState(true);
  const [draggedLedgerColumn, setDraggedLedgerColumn] = useState<LedgerColumnKey | null>(null);
  const [dragLedgerRowKey, setDragLedgerRowKey] = useState<string | null>(null);
@@ -268,7 +276,8 @@ function AuthenticatedHome() {
  const [ledgerColumnOrder, setLedgerColumnOrder] = useState<LedgerColumnKey[]>(defaultLedgerColumnOrder);
  const [ledgerColumnVisibility, setLedgerColumnVisibility] = useState<Record<LedgerColumnKey, boolean>>({ ...defaultLedgerColumnVisibility });
  const [ledgerTransactionDrafts, setLedgerTransactionDrafts] = useState<Record<string, LedgerTransactionDraft>>({});
- const [transactionTableDrafts, setTransactionTableDrafts] = useState<Record<number, TransactionTableDraft>>({});
+ const transactionTableDrafts = useTransactionsStore((s) => s.transactionTableDrafts);
+ const setTransactionTableDrafts = useTransactionsStore((s) => s.setTransactionTableDrafts);
  const ledgerHistory = useDraftHistory(ledgerTransactionDrafts, setLedgerTransactionDrafts);
  const txTableHistory = useDraftHistory(transactionTableDrafts, setTransactionTableDrafts);
  const resetLedgerHistory = ledgerHistory.reset;
@@ -330,52 +339,67 @@ function AuthenticatedHome() {
  const setOpenAccountOnCreate = useClientsStore((s) => s.setOpenAccountOnCreate);
  const newClientAccountDrafts = useClientsStore((s) => s.newClientAccountDrafts);
  const setNewClientAccountDrafts = useClientsStore((s) => s.setNewClientAccountDrafts);
- const [transactionForm, setTransactionForm] = useState<TransactionForm>(emptyTransactionForm);
+ const transactionForm = useTransactionsStore((s) => s.transactionForm);
+ const setTransactionForm = useTransactionsStore((s) => s.setTransactionForm);
  // Disables the submit button while a new transaction/adjustment is being created, so a
  // double-click can't create a duplicate. The ref is the synchronous guard (state hasn't
  // re-rendered yet on a rapid second click); the state drives the disabled UI.
- const [isSubmittingTransaction, setIsSubmittingTransaction] = useState(false);
+ const isSubmittingTransaction = useTransactionsStore((s) => s.isSubmittingTransaction);
+ const setIsSubmittingTransaction = useTransactionsStore((s) => s.setIsSubmittingTransaction);
  const transactionSubmitLock = useRef(false);
  // When enabled, the sender and receiver ledgers each get their own description override.
- const [txSplitDescription, setTxSplitDescription] = useState(false);
- const [newTransactionDate, setNewTransactionDate] = useState(() => new Date().toISOString().slice(0, 10));
- const [copiedTransaction, setCopiedTransaction] = useState<TransactionTableRow | null>(null);
- const [txFromQuery, setTxFromQuery] = useState('');
- const [txFromOpen, setTxFromOpen] = useState(false);
- const [txFromExpandedClient, setTxFromExpandedClient] = useState<number | null>(null);
- const [txToQuery, setTxToQuery] = useState('');
- const [txToOpen, setTxToOpen] = useState(false);
- const [txToExpandedClient, setTxToExpandedClient] = useState<number | null>(null);
+ const txSplitDescription = useTransactionsStore((s) => s.txSplitDescription);
+ const setTxSplitDescription = useTransactionsStore((s) => s.setTxSplitDescription);
+ const newTransactionDate = useTransactionsStore((s) => s.newTransactionDate);
+ const setNewTransactionDate = useTransactionsStore((s) => s.setNewTransactionDate);
+ const copiedTransaction = useTransactionsStore((s) => s.copiedTransaction);
+ const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
+ const txFromQuery = useTransactionsStore((s) => s.txFromQuery);
+ const setTxFromQuery = useTransactionsStore((s) => s.setTxFromQuery);
+ const txFromOpen = useTransactionsStore((s) => s.txFromOpen);
+ const setTxFromOpen = useTransactionsStore((s) => s.setTxFromOpen);
+ const txFromExpandedClient = useTransactionsStore((s) => s.txFromExpandedClient);
+ const setTxFromExpandedClient = useTransactionsStore((s) => s.setTxFromExpandedClient);
+ const txToQuery = useTransactionsStore((s) => s.txToQuery);
+ const setTxToQuery = useTransactionsStore((s) => s.setTxToQuery);
+ const txToOpen = useTransactionsStore((s) => s.txToOpen);
+ const setTxToOpen = useTransactionsStore((s) => s.setTxToOpen);
+ const txToExpandedClient = useTransactionsStore((s) => s.txToExpandedClient);
+ const setTxToExpandedClient = useTransactionsStore((s) => s.setTxToExpandedClient);
  const [ledgerCounterpartyOpen, setLedgerCounterpartyOpen] = useState<string | null>(null);
  const [ledgerCounterpartyQuery, setLedgerCounterpartyQuery] = useState('');
  const [ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient] = useState<number | null>(null);
- const [descriptionSuggestOpen, setDescriptionSuggestOpen] = useState(false);
- const [txFromRateReversed, setTxFromRateReversed] = useState(false);
- const [txToRateReversed, setTxToRateReversed] = useState(false);
+ const descriptionSuggestOpen = useTransactionsStore((s) => s.descriptionSuggestOpen);
+ const setDescriptionSuggestOpen = useTransactionsStore((s) => s.setDescriptionSuggestOpen);
+ const txFromRateReversed = useTransactionsStore((s) => s.txFromRateReversed);
+ const setTxFromRateReversed = useTransactionsStore((s) => s.setTxFromRateReversed);
+ const txToRateReversed = useTransactionsStore((s) => s.txToRateReversed);
+ const setTxToRateReversed = useTransactionsStore((s) => s.setTxToRateReversed);
  const [ledgerRateReversed, setLedgerRateReversed] = useState<Record<string, boolean>>({});
  const [ledgerDisplayRateReversed, setLedgerDisplayRateReversed] = useState<Record<string, boolean>>({});
- const [tableRateFromReversed, setTableRateFromReversed] = useState<Record<number, boolean>>({});
- const [tableRateToReversed, setTableRateToReversed] = useState<Record<number, boolean>>({});
+ const tableRateFromReversed = useTransactionsStore((s) => s.tableRateFromReversed);
+ const setTableRateFromReversed = useTransactionsStore((s) => s.setTableRateFromReversed);
+ const tableRateToReversed = useTransactionsStore((s) => s.tableRateToReversed);
+ const setTableRateToReversed = useTransactionsStore((s) => s.setTableRateToReversed);
  const error = useAppStatusStore((s) => s.error);
  const setError = useAppStatusStore((s) => s.setError);
  const [importSummary, setImportSummary] = useState('');
  const toast = useAppStatusStore((s) => s.toast);
  const toastPos = useAppStatusStore((s) => s.toastPos);
- const [isImportingTransactions, setIsImportingTransactions] = useState(false);
- const [pendingImportData, setPendingImportData] = useState<PendingImportData | null>(null);
- const [importMapping, setImportMapping] = useState<ImportMappingState>({
-  dateColumn: null,
-  fromColumn: null,
-  toColumn: null,
-  amountColumn: null,
-  descriptionColumn: null,
-  currencyId: null,
- });
- const [importReview, setImportReview] = useState<ImportClientReview[] | null>(null);
+ const isImportingTransactions = useTransactionsStore((s) => s.isImportingTransactions);
+ const setIsImportingTransactions = useTransactionsStore((s) => s.setIsImportingTransactions);
+ const pendingImportData = useTransactionsStore((s) => s.pendingImportData);
+ const setPendingImportData = useTransactionsStore((s) => s.setPendingImportData);
+ const importMapping = useTransactionsStore((s) => s.importMapping);
+ const setImportMapping = useTransactionsStore((s) => s.setImportMapping);
+ const importReview = useTransactionsStore((s) => s.importReview);
+ const setImportReview = useTransactionsStore((s) => s.setImportReview);
  // The parsed sheet rows backing the current review, plus per-row overrides for
  // rows that involve an expense-marked name (expense vs. real transaction).
- const [importParsedRows, setImportParsedRows] = useState<ImportedTransactionRow[]>([]);
- const [importRowOverrides, setImportRowOverrides] = useState<Record<number, ImportRowOverride>>({});
+ const importParsedRows = useTransactionsStore((s) => s.importParsedRows);
+ const setImportParsedRows = useTransactionsStore((s) => s.setImportParsedRows);
+ const importRowOverrides = useTransactionsStore((s) => s.importRowOverrides);
+ const setImportRowOverrides = useTransactionsStore((s) => s.setImportRowOverrides);
  // Currencies the "apply to all clients" control will open for every client.
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
  const [isBackingUp, setIsBackingUp] = useState(false);
