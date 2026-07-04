@@ -27,21 +27,37 @@ import type {
 type CurrencyTotal = { code: string; symbol: string; total: number };
 type SumCurrencyTotal = CurrencyTotal & { count: number };
 
-// Arrow left/right while editing a row: move focus to the neighbouring editable field, in
-// the row's actual DOM (visual) order. For text inputs this only triggers at the start (left)
-// or end (right) of the value so the caret can still be moved within the text normally; date
-// inputs are left alone entirely since the browser uses left/right to move between their own
-// day/month/year segments; selects have no native left/right behavior so they always move.
-function focusAdjacentRowField(event: React.KeyboardEvent<HTMLTableRowElement>) {
+// Numeric fields force dir="ltr" regardless of page language (see the amount/charges/
+// commission/exchangeRate inputs); free-text fields (description) have no explicit dir and
+// follow the page's direction. A field's own effective direction — not the physical key —
+// decides which end of its text counts as "start" for caret-boundary purposes.
+function isFieldRTL(field: HTMLInputElement, pageIsRTL: boolean): boolean {
+ return field.dir === 'rtl' || (field.dir !== 'ltr' && pageIsRTL);
+}
+
+// Whether pressing `key` moves the caret toward the logical start of the field's text: in an
+// ltr field physical Left does; in an rtl field (text runs right-to-left) physical Right does.
+function keyMeansCaretToStart(fieldIsRTL: boolean, key: 'ArrowLeft' | 'ArrowRight'): boolean {
+ return fieldIsRTL ? key === 'ArrowRight' : key === 'ArrowLeft';
+}
+
+// Arrow left/right while editing a row: move focus to the neighbouring editable field, in the
+// row's actual DOM order. For text inputs this only triggers at the start or end of the value
+// (relative to that field's own direction) so the caret can still be moved within the text
+// normally; date inputs are left alone entirely since the browser uses left/right to move
+// between their own day/month/year segments; selects have no native left/right behavior so
+// they always move. Under RTL the row's visual column order is mirrored (same DOM order,
+// flipped rendering), so which physical key means "next column" flips too.
+function focusAdjacentRowField(event: React.KeyboardEvent<HTMLTableRowElement>, pageIsRTL: boolean) {
  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
  const target = event.target;
  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) return;
  if (target instanceof HTMLInputElement) {
   if (target.type === 'checkbox' || target.type === 'date') return;
   try {
-   const atStart = target.selectionStart === 0 && target.selectionEnd === 0;
-   const atEnd = target.selectionStart === target.value.length && target.selectionEnd === target.value.length;
-   if ((event.key === 'ArrowLeft' && !atStart) || (event.key === 'ArrowRight' && !atEnd)) return;
+   const wantStart = keyMeansCaretToStart(isFieldRTL(target, pageIsRTL), event.key);
+   const boundaryPos = wantStart ? 0 : target.value.length;
+   if (target.selectionStart !== boundaryPos || target.selectionEnd !== boundaryPos) return;
   } catch {
    /* input type doesn't support text selection (shouldn't happen for the types used here) */
   }
@@ -51,13 +67,16 @@ function focusAdjacentRowField(event: React.KeyboardEvent<HTMLTableRowElement>) 
  const focusables = Array.from(row.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input:not([type="checkbox"]), select')).filter((node) => !node.disabled);
  const idx = focusables.indexOf(target);
  if (idx === -1) return;
- const next = focusables[idx + (event.key === 'ArrowRight' ? 1 : -1)];
+ const forward = event.key === 'ArrowRight' ? 1 : -1;
+ const step = pageIsRTL ? -forward : forward;
+ const next = focusables[idx + step];
  if (!next) return;
 
  event.preventDefault();
  next.focus();
  if (next instanceof HTMLInputElement && next.type !== 'date') {
-  const pos = event.key === 'ArrowRight' ? 0 : next.value.length;
+  const wantStart = keyMeansCaretToStart(isFieldRTL(next, pageIsRTL), event.key);
+  const pos = wantStart ? 0 : next.value.length;
   try {
    next.setSelectionRange(pos, pos);
   } catch {
@@ -1731,7 +1750,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
                onKeyDown={(e) => {
-                focusAdjacentRowField(e);
+                focusAdjacentRowField(e, isRTL);
                 // Enter saves the row being edited (ignore Enter inside multi-line fields).
                 if (e.key !== 'Enter') return;
                 if (!editingRowIds.has(txn.id)) return;

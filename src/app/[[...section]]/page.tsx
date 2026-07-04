@@ -1386,7 +1386,9 @@ function AuthenticatedHome() {
  // Arrow left/right while editing a row's amount / exchange rate / commission: move to the
  // neighbouring editable cell in the same row, in the currently visible column order. Only
  // triggers at the start (left) or end (right) of the field's text so the caret can still be
- // moved within the value normally.
+ // moved within the value normally. The fields themselves are always dir="ltr" (numeric), so
+ // the caret's start/end doesn't flip in RTL — but the column layout is visually mirrored, so
+ // which physical key ("→") maps to "next column" does flip.
  function onLedgerEditFieldSideKey(event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number): boolean {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return false;
   const input = event.currentTarget;
@@ -1399,7 +1401,9 @@ function AuthenticatedHome() {
    .filter((key): key is 'amount' | 'exchangeRate' | 'commission' => key === 'amount' || key === 'exchangeRate' || key === 'commission');
   const currentIdx = editableFieldOrder.indexOf(field);
   if (currentIdx === -1) return true;
-  const nextField = editableFieldOrder[currentIdx + (event.key === 'ArrowRight' ? 1 : -1)];
+  const forward = event.key === 'ArrowRight' ? 1 : -1;
+  const step = isRTL ? -forward : forward;
+  const nextField = editableFieldOrder[currentIdx + step];
   if (!nextField) return true;
 
   event.preventDefault();
