@@ -22,6 +22,7 @@ type ClientsSectionProps = {
  accountsClient: Client | null;
  clientSortHeader: (key: 'name' | 'organization', label: string) => ReactNode;
  onClientSubmit: (event: FormEvent<HTMLFormElement>) => void;
+ isSubmittingClient: boolean;
  onDeleteClient: (id: number) => void;
  onAddClientAccount: (clientId: number) => void;
  onDeleteClientAccount: (accountId: number) => void;
@@ -35,7 +36,7 @@ type ClientsSectionProps = {
 export default function ClientsSection({
  clients, organizations, clientAccounts, enabledCurrencies, sortedClients, paginatedClients,
  clampedClientsPage, totalClientPages, accountsClient, clientSortHeader,
- onClientSubmit, onDeleteClient, onAddClientAccount, onDeleteClientAccount, onMoveAccountTransactions,
+ onClientSubmit, isSubmittingClient, onDeleteClient, onAddClientAccount, onDeleteClientAccount, onMoveAccountTransactions,
  onSaveEditAccount, openClientLedger, setShowCreateOrgDialog, setOrganizationForm,
 }: ClientsSectionProps) {
  const { language, isRTL } = useLanguage();
@@ -237,9 +238,10 @@ export default function ClientsSection({
 
      <button
       type="submit"
-      className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
+      disabled={isSubmittingClient}
+      className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
      >
-      {clientForm.id ? t('update_client') : t('save_client')}
+      {isSubmittingClient ? t('saving') : clientForm.id ? t('update_client') : t('save_client')}
      </button>
     </form>
     {accountsClient ? (

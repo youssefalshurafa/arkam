@@ -1,15 +1,15 @@
-<<<<<<< HEAD
+3.transactions table marked transaction should be unmarked if copy is clicked
 
-create new client form reset after creation button disabled while creation
+4.create transaction button should be disabled while creating to prevent double click duplicate transaction
 
-transactions table marked transaction gets unmarked if copy is clicked
+5.create new transaction form up and down keyboard arrows to move in list enter to select
 
-create transaction button disabled to prevent double click duplicate transaction
-
-create new transaction form up and down keyboard arrows to move in list enter to select
-
-client ledger marking transactions does not sum add a button to activate sum mode
+6.client ledger marking transactions does not sum add a button to activate sum mode
 
 clicked amount in sum mode gets temporarily highlighted untill deactivating sum mode clicking it again would subtract it
 
 super admin ability to change remaining sub days manually
+
+entry awaiting an exchange rate — excluded from this balance click to show entries
+
+right left arrows moves between cells

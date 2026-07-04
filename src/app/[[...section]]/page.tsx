@@ -332,6 +332,12 @@ function AuthenticatedHome() {
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const clientForm = useClientsStore((s) => s.clientForm);
  const setClientForm = useClientsStore((s) => s.setClientForm);
+ // Disables the save button while a client is being created/updated so a double-click can't
+ // create a duplicate. The ref is the synchronous guard (state hasn't re-rendered yet on a
+ // rapid second click); the state drives the disabled UI.
+ const isSubmittingClient = useClientsStore((s) => s.isSubmittingClient);
+ const setIsSubmittingClient = useClientsStore((s) => s.setIsSubmittingClient);
+ const clientSubmitLock = useRef(false);
  const openAccountOnCreate = useClientsStore((s) => s.openAccountOnCreate);
  const setOpenAccountOnCreate = useClientsStore((s) => s.setOpenAccountOnCreate);
  const newClientAccountDrafts = useClientsStore((s) => s.newClientAccountDrafts);
@@ -1496,6 +1502,9 @@ function AuthenticatedHome() {
 
  async function onClientSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
+  // Guard against a rapid double-submit creating a duplicate (button disabled may not have
+  // re-rendered yet). Cleared in the finally below.
+  if (clientSubmitLock.current) return;
   if (!accountingApi) {
    setError(t('error_bridge'));
    return;
@@ -1527,6 +1536,8 @@ function AuthenticatedHome() {
    }
   }
 
+  clientSubmitLock.current = true;
+  setIsSubmittingClient(true);
   try {
    if (clientForm.id) {
     await accountingApi.updateClient(clientForm);
@@ -1559,6 +1570,9 @@ function AuthenticatedHome() {
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
+  } finally {
+   clientSubmitLock.current = false;
+   setIsSubmittingClient(false);
   }
  }
 
@@ -4010,6 +4024,7 @@ function AuthenticatedHome() {
       accountsClient={accountsClient}
       clientSortHeader={clientSortHeader}
       onClientSubmit={onClientSubmit}
+      isSubmittingClient={isSubmittingClient}
       onDeleteClient={onDeleteClient}
       onAddClientAccount={onAddClientAccount}
       onDeleteClientAccount={onDeleteClientAccount}

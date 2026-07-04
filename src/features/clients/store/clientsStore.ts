@@ -19,6 +19,8 @@ type BalanceType = 'debit' | 'credit';
 type ClientsStore = {
  clientForm: ClientForm;
  setClientForm: Dispatch<SetStateAction<ClientForm>>;
+ isSubmittingClient: boolean;
+ setIsSubmittingClient: Dispatch<SetStateAction<boolean>>;
  clientSearch: string;
  setClientSearch: Dispatch<SetStateAction<string>>;
  clientSort: ClientSort;
@@ -71,6 +73,8 @@ export const useClientsStore = create<ClientsStore>((set) => {
  return {
   clientForm: emptyClientForm(),
   setClientForm: setter('clientForm'),
+  isSubmittingClient: false,
+  setIsSubmittingClient: setter('isSubmittingClient'),
   clientSearch: '',
   setClientSearch: setter('clientSearch'),
   clientSort: { key: 'name', dir: 'asc' },

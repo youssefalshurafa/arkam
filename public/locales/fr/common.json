@@ -4,6 +4,7 @@
  "app_description": "Gérez vos opérations de change et de transfert d'argent avec stockage SQLite local.",
  "database_file": "Fichier de base de données:",
  "loading": "Chargement...",
+ "saving": "Enregistrement…",
  "date": "Date",
  "created": "Date",
  "error_bridge": "Le pont Electron n'est pas disponible. Exécutez ceci en mode Bureau.",
