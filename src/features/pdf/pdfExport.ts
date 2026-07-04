@@ -505,8 +505,8 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
  .card { border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; break-inside: avoid; }
  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; }
- .card-head .org { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
- .card-head .cur { font-weight: 700; }
+ .card-head .org { font-size: ${pdfSettings.headFontSize}px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
+ .card-head .cur { font-size: ${pdfSettings.headFontSize}px; font-weight: 700; }
  .card-body { padding: 4px 12px; }
  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; border-bottom: 1px solid #f1f5f9; }
  .row:last-child { border-bottom: none; }
