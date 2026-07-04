@@ -1,3 +1,1 @@
-<<<<<<< HEAD
-
-export pdf remember last date range
+1. in the overview flipped card should also be able to be printed.

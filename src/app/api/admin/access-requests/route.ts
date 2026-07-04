@@ -36,11 +36,12 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
- const { id, userId, action, note } = (await request.json()) as {
+ const { id, userId, action, note, days } = (await request.json()) as {
   id?: string;
   userId?: string;
-  action?: 'approve' | 'reject' | 'renew';
+  action?: 'approve' | 'reject' | 'renew' | 'setDays';
   note?: string;
+  days?: number;
  };
 
  try {
@@ -62,6 +63,15 @@ export async function POST(request: NextRequest) {
    } catch (mailError) {
     console.error('[admin/access-requests] Renew notification failed:', mailError);
    }
+   return NextResponse.json({ ok: true, status: 'approved', subscriptionEndsAt: result.endsAt });
+  }
+
+  // Manual override: set the subscription to expire in exactly `days` days from now.
+  if (action === 'setDays') {
+   if (!userId || typeof days !== 'number') {
+    return NextResponse.json({ error: 'userId and days are required.' }, { status: 400 });
+   }
+   const result = await authDb.setSubscriptionDays({ userId, days });
    return NextResponse.json({ ok: true, status: 'approved', subscriptionEndsAt: result.endsAt });
   }
 

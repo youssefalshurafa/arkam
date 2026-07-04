@@ -246,6 +246,17 @@ export const accountingApi = {
   request<{ createdTransactions: number; createdAdjustments: number }>({ action: 'bulkImportTransactions', payload }),
  getBackupInfo: () => request<BackupInfo>({ action: 'getBackupInfo' }),
  recordBackup: (device: string) => request<BackupInfo>({ action: 'recordBackup', payload: { device } }),
+ getWorkspaceSettings: () => request<WorkspaceSharedSettings>({ action: 'getWorkspaceSettings' }),
+ saveWorkspaceSettings: (payload: { sharedEnabled?: boolean; settings?: Record<string, string> }) =>
+  request<WorkspaceSharedSettings>({ action: 'saveWorkspaceSettings', payload }),
+};
+
+// Workspace-wide shared UI settings. `settings` mirrors the relevant localStorage
+// keys (ledger/transaction table preferences) so the snapshot is layout-agnostic.
+export type WorkspaceSharedSettings = {
+ sharedEnabled: boolean;
+ settings: Record<string, string>;
+ version: number;
 };
 
 export type BackupInfo = {

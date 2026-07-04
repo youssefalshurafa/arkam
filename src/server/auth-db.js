@@ -897,6 +897,40 @@ async function renewSubscription({ userId, durationDays }) {
     });
 }
 
+// Super-admin override: sets a user's subscription to expire in exactly `days` days from now
+// (not appended to the existing end date, unlike renewSubscription). Also (re)activates the
+// account, so this doubles as a manual reactivate for rejected/expired users.
+async function setSubscriptionDays({ userId, days }) {
+    await ensurePublicSchema();
+
+    if (!Number.isFinite(days) || days < 0) {
+        throw new Error('Days must be a non-negative number.');
+    }
+
+    return withTransaction(async (client) => {
+        const user = await fetchOne(
+            'SELECT email, name, subscription_started_at AS "subscriptionStartedAt" FROM users WHERE id = $1',
+            [userId],
+            client,
+        );
+
+        if (!user) {
+            throw new Error('User not found.');
+        }
+
+        const endsAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        const startedAt = user.subscriptionStartedAt || new Date().toISOString();
+
+        await runQuery(
+            'UPDATE users SET status = $1, subscription_started_at = $2, subscription_ends_at = $3 WHERE id = $4',
+            ['approved', startedAt, endsAt.toISOString(), userId],
+            client,
+        );
+
+        return { email: user.email || '', name: user.name || '', endsAt: endsAt.toISOString() };
+    });
+}
+
 // Changes a logged-in user's email. Requires the current password for
 // credentials accounts. Rejects if the new email is already taken.
 async function changeEmail({ userId, currentPassword, newEmail }) {
@@ -1104,6 +1138,7 @@ module.exports = {
     getAccessRequestProof,
     reviewAccessRequest,
     renewSubscription,
+    setSubscriptionDays,
     changeEmail,
     changePassword,
     getUserAccountInfo,

@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(node -e ' *)",
-      "Bash(grep -nE '>[A-Za-z][A-Za-z ]{3,}<|\"[A-Z][a-z]+ [A-Za-z ]+\"|title=\"[A-Za-z]')"
+      "Bash(grep -nE '>[A-Za-z][A-Za-z ]{3,}<|\"[A-Z][a-z]+ [A-Za-z ]+\"|title=\"[A-Za-z]')",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"ProcessId = 24500\")",
+      "Bash(npm run *)",
+      "Bash(node -e \"['en','ar','fr'].forEach\\(l=>JSON.parse\\(require\\('fs'\\).readFileSync\\('public/locales/'+l+'/common.json','utf8'\\)\\)\\); console.log\\('json ok'\\)\")"
     ]
   }
 }

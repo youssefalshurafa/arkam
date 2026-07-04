@@ -313,6 +313,19 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- ledger shows this text instead of the shared description; empty means fall back to description.
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS description_from TEXT NOT NULL DEFAULT '';
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS description_to TEXT NOT NULL DEFAULT '';
+
+                -- Single-row store for workspace-wide UI settings shared across members.
+                -- "settings" holds a snapshot of the shared ledger/transaction table
+                -- preferences (a map of localStorage keys to values); "version" bumps on
+                -- every owner save so each client re-applies only when it advances.
+                CREATE TABLE IF NOT EXISTS ${schema}.workspace_settings (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    shared_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    version BIGINT NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT workspace_settings_singleton CHECK (id = 1)
+                );
             `);
 
             // Non-ISO currencies (e.g. crypto/stablecoins) aren't in Intl's currency list,
