@@ -302,7 +302,7 @@ type AccessRequestsPanelProps = {
  loading: boolean;
  reviewingId: string | null;
  onRefresh: () => void;
- onReview: (request: AccessRequest, action: 'approve' | 'reject' | 'renew') => void;
+ onReview: (request: AccessRequest, action: 'approve' | 'reject' | 'renew' | 'setDays') => void;
 };
 
 function AccessRequestsPanel({ requests, loading, reviewingId, onRefresh, onReview }: AccessRequestsPanelProps) {
@@ -449,6 +449,14 @@ function AccessRequestsPanel({ requests, loading, reviewingId, onRefresh, onRevi
              {sub.tone === 'expired' ? 'Renew' : 'Extend'}
             </button>
             <button
+             onClick={() => onReview(request, 'setDays')}
+             disabled={reviewingId === request.id}
+             title="Manually set the exact number of days remaining"
+             className="text-xs px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+            >
+             Set days
+            </button>
+            <button
              onClick={() => onReview(request, 'reject')}
              disabled={reviewingId === request.id}
              className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
@@ -457,13 +465,23 @@ function AccessRequestsPanel({ requests, loading, reviewingId, onRefresh, onRevi
             </button>
            </div>
           ) : (
-           <button
-            onClick={() => onReview(request, 'renew')}
-            disabled={reviewingId === request.id}
-            className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50"
-           >
-            Reactivate
-           </button>
+           <div className="inline-flex gap-2">
+            <button
+             onClick={() => onReview(request, 'renew')}
+             disabled={reviewingId === request.id}
+             className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50"
+            >
+             Reactivate
+            </button>
+            <button
+             onClick={() => onReview(request, 'setDays')}
+             disabled={reviewingId === request.id}
+             title="Manually set the exact number of days remaining"
+             className="text-xs px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+            >
+             Set days
+            </button>
+           </div>
           )}
          </td>
         </tr>
@@ -512,8 +530,9 @@ export default function AdminPage() {
   }
  }, []);
 
- const reviewRequest = async (request: AccessRequest, action: 'approve' | 'reject' | 'renew') => {
+ const reviewRequest = async (request: AccessRequest, action: 'approve' | 'reject' | 'renew' | 'setDays') => {
   let note = '';
+  let days: number | undefined;
   if (action === 'reject') {
    const reason = await promptDialog({
     title: 'Reject access request',
@@ -525,6 +544,21 @@ export default function AdminPage() {
    if (!(await confirmDialog({ message: `Approve access for ${request.name} (${request.email})?` }))) return;
   } else if (action === 'renew') {
    if (!(await confirmDialog({ message: `Renew subscription for ${request.name} by one period?` }))) return;
+  } else if (action === 'setDays') {
+   const currentDaysLeft = getSubscriptionState(request.subscriptionEndsAt).daysLeft;
+   const input = await promptDialog({
+    title: 'Set remaining subscription days',
+    message: `Set the exact number of days remaining for ${request.name} (${request.email}). This replaces the current expiry date.`,
+    defaultValue: currentDaysLeft != null && currentDaysLeft > 0 ? String(currentDaysLeft) : '30',
+    placeholder: 'Days remaining',
+   });
+   if (input === null) return;
+   const parsed = Number(input.trim());
+   if (!Number.isFinite(parsed) || parsed < 0) {
+    await alertDialog({ title: 'Error', message: 'Enter a non-negative number of days.' });
+    return;
+   }
+   days = parsed;
   }
 
   setReviewingId(request.id);
@@ -532,7 +566,7 @@ export default function AdminPage() {
    const res = await fetch('/api/admin/access-requests', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: request.id, userId: request.userId, action, note }),
+    body: JSON.stringify({ id: request.id, userId: request.userId, action, note, days }),
    });
    const data = (await res.json()) as { ok?: boolean; status?: string; subscriptionEndsAt?: string; error?: string };
    if (!res.ok || !data.ok) {

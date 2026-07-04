@@ -302,6 +302,7 @@
  "add_expenses": "Ajouter des dépenses",
  "net_change": "Variation nette",
  "ledger_sum_mode_hint": "Mode somme : cliquez sur les montants ou les variations nettes pour les additionner ; cliquez à nouveau pour les retirer. Désactivez pour effacer.",
+ "tx_sum_mode_hint": "Mode somme : cliquez sur les montants pour les additionner ; cliquez à nouveau pour les retirer. Désactivez pour effacer.",
  "running_balance": "Solde cumulé",
  "ledger_rate_pending": "Taux de change requis — exclu du solde jusqu'à sa saisie",
  "ledger_swap_parties": "Inverser l'expéditeur et le destinataire",

@@ -25,6 +25,46 @@ import type {
 } from '@/shared/types';
 
 type CurrencyTotal = { code: string; symbol: string; total: number };
+type SumCurrencyTotal = CurrencyTotal & { count: number };
+
+// Arrow left/right while editing a row: move focus to the neighbouring editable field, in
+// the row's actual DOM (visual) order. For text inputs this only triggers at the start (left)
+// or end (right) of the value so the caret can still be moved within the text normally; date
+// inputs are left alone entirely since the browser uses left/right to move between their own
+// day/month/year segments; selects have no native left/right behavior so they always move.
+function focusAdjacentRowField(event: React.KeyboardEvent<HTMLTableRowElement>) {
+ if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+ const target = event.target;
+ if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) return;
+ if (target instanceof HTMLInputElement) {
+  if (target.type === 'checkbox' || target.type === 'date') return;
+  try {
+   const atStart = target.selectionStart === 0 && target.selectionEnd === 0;
+   const atEnd = target.selectionStart === target.value.length && target.selectionEnd === target.value.length;
+   if ((event.key === 'ArrowLeft' && !atStart) || (event.key === 'ArrowRight' && !atEnd)) return;
+  } catch {
+   /* input type doesn't support text selection (shouldn't happen for the types used here) */
+  }
+ }
+
+ const row = event.currentTarget;
+ const focusables = Array.from(row.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input:not([type="checkbox"]), select')).filter((node) => !node.disabled);
+ const idx = focusables.indexOf(target);
+ if (idx === -1) return;
+ const next = focusables[idx + (event.key === 'ArrowRight' ? 1 : -1)];
+ if (!next) return;
+
+ event.preventDefault();
+ next.focus();
+ if (next instanceof HTMLInputElement && next.type !== 'date') {
+  const pos = event.key === 'ArrowRight' ? 0 : next.value.length;
+  try {
+   next.setSelectionRange(pos, pos);
+  } catch {
+   /* input type doesn't support text selection */
+  }
+ }
+}
 
 type TransactionsSectionProps = {
  isLoading: boolean;
@@ -53,6 +93,9 @@ type TransactionsSectionProps = {
  txTableHistory: DraftHistory;
  highlightedTxRows: Map<number, string>;
  txRowClickHighlight: boolean;
+ txSumMode: boolean;
+ txSumSelection: Map<number, { amount: number; currencyCode: string; currencySymbol: string }>;
+ txSumByCurrency: SumCurrencyTotal[];
  transactionsImportInputRef: RefObject<HTMLInputElement | null>;
  onCancelAllTransactions: () => void;
  onCopySelectedTransaction: (e: React.MouseEvent) => void;
@@ -71,8 +114,10 @@ type TransactionsSectionProps = {
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openTransactionExportModal: () => void;
  openTransactionTableSettingsModal: () => void;
- toggleTxRowClickHighlight: () => void;
+ setTxRowClickMode: (highlight: boolean) => void;
  toggleTxRowHighlight: (txnId: number) => void;
+ toggleTxSumMode: () => void;
+ toggleTxSumEntry: (id: number, amount: number, currencyCode: string, currencySymbol: string) => void;
 };
 
 export default function TransactionsSection(props: TransactionsSectionProps) {
@@ -82,11 +127,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   selectedTransactionSums, archiveCurrencyTotals, showChargesExchangeRate, showExchangeRateFrom, showExchangeRateTo,
   transactionAccountFromCurrencyCode, transactionAccountToCurrencyCode, transactionSelectedCurrencyCode,
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight,
+  txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopySelectedTransaction, onDeleteSelectedTransactions,
   onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, onImportTransactionsFile, onPasteCopiedTransaction,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
-  toggleTxRowClickHighlight, toggleTxRowHighlight,
+  setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry,
  } = props;
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -1105,11 +1151,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </button>
             <button
              type="button"
-             title={t('ledger_row_click_toggle')}
-             onClick={toggleTxRowClickHighlight}
-             aria-pressed={txRowClickHighlight}
+             title={t('ledger_click_highlight_mode')}
+             onClick={() => setTxRowClickMode(true)}
+             aria-pressed={txRowClickHighlight && !txSumMode}
              className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-              txRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+              txRowClickHighlight && !txSumMode ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
              }`}
             >
              <svg
@@ -1127,6 +1173,71 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
              </svg>
             </button>
+            <button
+             type="button"
+             title={t('ledger_click_copy_mode')}
+             onClick={() => setTxRowClickMode(false)}
+             aria-pressed={!txRowClickHighlight && !txSumMode}
+             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
+              !txRowClickHighlight && !txSumMode ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+             }`}
+            >
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <rect
+               x="9"
+               y="9"
+               width="13"
+               height="13"
+               rx="2"
+               ry="2"
+              />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+             </svg>
+            </button>
+            <button
+             type="button"
+             title={t('tx_sum_mode_hint')}
+             onClick={toggleTxSumMode}
+             aria-pressed={txSumMode}
+             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
+              txSumMode ? 'border-purple-400 bg-purple-50 text-purple-600 hover:bg-purple-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+             }`}
+            >
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <path d="M18 6H7l5 6-5 6h11" />
+             </svg>
+            </button>
+            {txSumByCurrency.map((sum) => (
+             <span
+              key={sum.code || 'none'}
+              className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-purple-50 px-3 py-2 text-sm text-slate-600"
+             >
+              <span className="font-medium text-slate-500">
+               {sum.code || t('amount')} ({sum.count})
+              </span>
+              <span className="font-semibold text-slate-800">{sum.total.toLocaleString(numLocale)}</span>
+             </span>
+            ))}
             <button
              type="button"
              onClick={openTransactionTableSettingsModal}
@@ -1620,6 +1731,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
                onKeyDown={(e) => {
+                focusAdjacentRowField(e);
                 // Enter saves the row being edited (ignore Enter inside multi-line fields).
                 if (e.key !== 'Enter') return;
                 if (!editingRowIds.has(txn.id)) return;
@@ -1637,13 +1749,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 const isEditingRow = editingRowIds.has(txn.id);
                 return {
                  ...(color ? { backgroundColor: color } : {}),
-                 ...(isEditingRow ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
+                 ...(isEditingRow || txSumMode ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                 };
                })()}
                onClick={(e) => {
                 const isEditingRow = editingRowIds.has(txn.id);
                 if (isEditingRow) return;
                 if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+                // Sum mode owns clicks exclusively via the amount cell's own button (excluded
+                // above); a click elsewhere in the row is a no-op instead of falling through to
+                // highlight/copy.
+                if (txSumMode) return;
                 if (txRowClickHighlight) {
                  toggleTxRowHighlight(txn.id);
                  return;
@@ -2231,6 +2347,19 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        ))}
                       </select>
                      </div>
+                    ) : txSumMode ? (
+                     (() => {
+                      const inSum = txSumSelection.has(txn.id);
+                      return (
+                       <button
+                        type="button"
+                        onClick={() => toggleTxSumEntry(txn.id, txn.amount, txn.currencyCode, txn.currencySymbol)}
+                        className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                       >
+                        <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
+                       </button>
+                      );
+                     })()
                     ) : (
                      <span className="whitespace-nowrap">
                       <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>

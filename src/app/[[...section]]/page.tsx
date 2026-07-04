@@ -226,6 +226,10 @@ function AuthenticatedHome() {
  const [txRowClickHighlight, setTxRowClickHighlight] = useState<boolean>(() => getStoredTxRowSettings().rowClickHighlight);
  const [highlightedTxRows, setHighlightedTxRows] = useState<Map<number, string>>(() => getStoredTxHighlights());
  const [txRowHighlightColor, setTxRowHighlightColor] = useState<string>(() => getStoredTxRowSettings().rowHighlightColor);
+ // "Sum mode" for the transactions table: a third row-click mode alongside highlight/copy.
+ // Clicking an amount while it's on adds it to txSumSelection; clicking again removes it.
+ const [txSumMode, setTxSumMode] = useState(false);
+ const [txSumSelection, setTxSumSelection] = useState<Map<number, { amount: number; currencyCode: string; currencySymbol: string }>>(new Map());
  const setLedgerStartingBalanceDrafts = useLedgerStore((s) => s.setLedgerStartingBalanceDrafts);
  const setEditingStartingBalanceIds = useLedgerStore((s) => s.setEditingStartingBalanceIds);
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
@@ -771,15 +775,33 @@ function AuthenticatedHome() {
   });
  }
 
- function toggleTxRowClickHighlight() {
-  const next = !txRowClickHighlight;
-  setTxRowClickHighlight(next);
+ // Explicit mode setter for the highlight / copy toggle pair shown above the table.
+ function setTxRowClickMode(highlight: boolean) {
+  setTxRowClickHighlight(highlight);
   try {
    const stored = JSON.parse(window.localStorage.getItem(txRowSettingsStorageKey) ?? '{}') as Record<string, unknown>;
-   window.localStorage.setItem(txRowSettingsStorageKey, JSON.stringify({ ...stored, rowClickHighlight: next }));
+   window.localStorage.setItem(txRowSettingsStorageKey, JSON.stringify({ ...stored, rowClickHighlight: highlight }));
   } catch {
    /* ignore */
   }
+ }
+
+ // Sum mode: toggling it off clears whatever was accumulated so the next session starts fresh.
+ function toggleTxSumMode() {
+  setTxSumMode((on) => {
+   if (on) setTxSumSelection(new Map());
+   return !on;
+  });
+ }
+
+ // Add the clicked amount to the running total, or remove it if it was already added.
+ function toggleTxSumEntry(id: number, amount: number, currencyCode: string, currencySymbol: string) {
+  setTxSumSelection((prev) => {
+   const next = new Map(prev);
+   if (next.has(id)) next.delete(id);
+   else next.set(id, { amount, currencyCode, currencySymbol });
+   return next;
+  });
  }
 
  function toggleTxRowHighlight(txnId: number) {
@@ -1361,6 +1383,36 @@ function AuthenticatedHome() {
   setEditingLedgerRowKeys((prev) => new Set([...prev, rowKey]));
  }
 
+ // Arrow left/right while editing a row's amount / exchange rate / commission: move to the
+ // neighbouring editable cell in the same row, in the currently visible column order. Only
+ // triggers at the start (left) or end (right) of the field's text so the caret can still be
+ // moved within the value normally.
+ function onLedgerEditFieldSideKey(event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number): boolean {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return false;
+  const input = event.currentTarget;
+  const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
+  const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+  if ((event.key === 'ArrowLeft' && !atStart) || (event.key === 'ArrowRight' && !atEnd)) return false;
+
+  const editableFieldOrder = orderedLedgerColumnOptions
+   .map((column) => column.key)
+   .filter((key): key is 'amount' | 'exchangeRate' | 'commission' => key === 'amount' || key === 'exchangeRate' || key === 'commission');
+  const currentIdx = editableFieldOrder.indexOf(field);
+  if (currentIdx === -1) return true;
+  const nextField = editableFieldOrder[currentIdx + (event.key === 'ArrowRight' ? 1 : -1)];
+  if (!nextField) return true;
+
+  event.preventDefault();
+  const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
+  const target = document.querySelector<HTMLInputElement>(`[data-ledger-field="${nextField}"][data-ledger-key="${rowKey}"]`);
+  if (target) {
+   target.focus();
+   const pos = event.key === 'ArrowRight' ? 0 : target.value.length;
+   target.setSelectionRange(pos, pos);
+  }
+  return true;
+ }
+
  // Arrow up/down while editing a row's amount / exchange rate / commission: move to the
  // adjacent row in the same field. If that row isn't being edited yet (single-row edit),
  // save the current row first and open the neighbour for editing; if it's already open
@@ -1373,6 +1425,7 @@ function AuthenticatedHome() {
   pagedEntries: ClientLedgerEntry[],
   entryIdx: number,
  ) {
+  if (onLedgerEditFieldSideKey(event, field, entry, ledgerAccountId)) return;
   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
   event.preventDefault();
   const neighbor = pagedEntries[entryIdx + (event.key === 'ArrowDown' ? 1 : -1)];
@@ -3525,6 +3578,20 @@ function AuthenticatedHome() {
   }
   return [...byCurrency.values()].sort((a, b) => a.code.localeCompare(b.code));
  }, [selectedTransactionIds, transactionTableRowMap]);
+
+ // Sum-mode running total, grouped per currency so clicking amounts across different
+ // currencies shows one box each instead of adding incompatible currencies together.
+ const txSumByCurrency = useMemo(() => {
+  const byCurrency = new Map<string, { code: string; symbol: string; total: number; count: number }>();
+  for (const entry of txSumSelection.values()) {
+   const code = entry.currencyCode || '';
+   const existing = byCurrency.get(code) ?? { code, symbol: entry.currencySymbol || '', total: 0, count: 0 };
+   existing.total += entry.amount;
+   existing.count += 1;
+   byCurrency.set(code, existing);
+  }
+  return [...byCurrency.values()].sort((a, b) => a.code.localeCompare(b.code));
+ }, [txSumSelection]);
  const selectedOrganizationClients = useMemo(
   () => (selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : []),
   [clients, selectedOrganizationForClients],
@@ -4730,6 +4797,9 @@ function AuthenticatedHome() {
          txTableHistory={txTableHistory}
          highlightedTxRows={highlightedTxRows}
          txRowClickHighlight={txRowClickHighlight}
+         txSumMode={txSumMode}
+         txSumSelection={txSumSelection}
+         txSumByCurrency={txSumByCurrency}
          transactionsImportInputRef={transactionsImportInputRef}
          onCancelAllTransactions={onCancelAllTransactions}
          onCopySelectedTransaction={onCopySelectedTransaction}
@@ -4748,8 +4818,10 @@ function AuthenticatedHome() {
          openClientLedger={openClientLedger}
          openTransactionExportModal={openTransactionExportModal}
          openTransactionTableSettingsModal={openTransactionTableSettingsModal}
-         toggleTxRowClickHighlight={toggleTxRowClickHighlight}
+         setTxRowClickMode={setTxRowClickMode}
          toggleTxRowHighlight={toggleTxRowHighlight}
+         toggleTxSumMode={toggleTxSumMode}
+         toggleTxSumEntry={toggleTxSumEntry}
         />
        ) : null}
       </div>

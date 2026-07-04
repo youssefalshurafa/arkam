@@ -303,6 +303,7 @@
  "add_expenses": "Add expenses",
  "net_change": "Net change",
  "ledger_sum_mode_hint": "Sum mode: click amounts or net changes to add them up; click again to remove. Turn off to clear.",
+ "tx_sum_mode_hint": "Sum mode: click amounts to add them up; click again to remove. Turn off to clear.",
  "running_balance": "Running balance",
  "ledger_rate_pending": "Exchange rate needed — excluded from balance until set",
  "ledger_swap_parties": "Switch sender and receiver",

@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useRef } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import type { Dispatch, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, SetStateAction } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -97,6 +97,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const setError = useAppStatusStore((s) => s.setError);
  const dragLedgerFromHandle = useRef(false);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+
+ // Tracks which account's "entries awaiting an exchange rate" note has been expanded to list
+ // the specific pending entries. Ephemeral UI state — no need to persist across sessions.
+ const [pendingEntriesOpenAccountIds, setPendingEntriesOpenAccountIds] = useState<Set<number>>(new Set());
+ const togglePendingEntriesOpen = (accountId: number) => {
+  setPendingEntriesOpenAccountIds((prev) => {
+   const next = new Set(prev);
+   if (next.has(accountId)) next.delete(accountId);
+   else next.add(accountId);
+   return next;
+  });
+ };
 
  // Sum mode: toggling it off clears whatever was accumulated so the next session starts fresh.
  const toggleLedgerSumMode = () => {
@@ -485,26 +497,65 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  {ledger.currentBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                 </p>
                 {(() => {
-                 const pendingCount = ledger.entries.filter((e) => e.pendingRate).length;
+                 const pendingEntries = ledger.entries.filter((e) => e.pendingRate);
+                 const pendingCount = pendingEntries.length;
                  if (pendingCount === 0) return null;
+                 const isOpen = pendingEntriesOpenAccountIds.has(ledger.accountId);
                  return (
-                  <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-amber-600">
-                   <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
+                  <>
+                   <button
+                    type="button"
+                    onClick={() => togglePendingEntriesOpen(ledger.accountId)}
+                    aria-expanded={isOpen}
+                    className="mt-1.5 flex cursor-pointer items-center gap-1 text-xs font-medium text-amber-600 hover:underline"
                    >
-                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                    <path d="M12 9v4M12 17h.01" />
-                   </svg>
-                   {t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
-                  </p>
+                    <svg
+                     width="12"
+                     height="12"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="2"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                     <path d="M12 9v4M12 17h.01" />
+                    </svg>
+                    {t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
+                    <svg
+                     width="10"
+                     height="10"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="2.5"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                     aria-hidden
+                    >
+                     <path d="m6 9 6 6 6-6" />
+                    </svg>
+                   </button>
+                   {isOpen && (
+                    <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto rounded border border-amber-200 bg-amber-50 p-2 text-xs text-slate-700">
+                     {pendingEntries.map((entry) => (
+                      <li
+                       key={`${entry.transactionId}-${entry.direction}`}
+                       className="flex items-center justify-between gap-2 whitespace-nowrap"
+                      >
+                       <span className="text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
+                       <span className="truncate font-medium">{entry.counterpartyName}</span>
+                       <span>
+                        {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
+                       </span>
+                      </li>
+                     ))}
+                    </ul>
+                   )}
+                  </>
                  );
                 })()}
                </div>
