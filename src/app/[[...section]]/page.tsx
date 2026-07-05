@@ -183,7 +183,7 @@ function AuthenticatedHome() {
  const workspaceQuery = useWorkspaceData(sessionUserId);
  const workspaceData = workspaceQuery.data;
  const { invalidate: invalidateWorkspace, setters: workspaceSetters } = useWorkspaceCache(sessionUserId);
- const { setOrganizations, setClients, setCurrencies, setTransactions, setAdjustments, setClientAccounts } = workspaceSetters;
+ const { setOrganizations, setClients, setTransactions, setAdjustments, setClientAccounts } = workspaceSetters;
  const isLoading = workspaceQuery.isPending;
  const organizations = workspaceData?.organizations ?? EMPTY_ORGANIZATIONS;
  const clients = workspaceData?.clients ?? EMPTY_CLIENTS;
@@ -4345,9 +4345,6 @@ function AuthenticatedHome() {
       enabledCurrencies={enabledCurrencies}
       clientAccounts={clientAccounts}
       transactions={transactions}
-      setCurrencies={setCurrencies}
-      onReload={loadData}
-      onError={setError}
      />
     ) : null}
    </div>
