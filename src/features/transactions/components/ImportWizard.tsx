@@ -156,6 +156,28 @@ export default function ImportWizard({
          </select>
         </label>
 
+        {/* Archive imports carry a per-row "More info" note (archiveNote). */}
+        {allowOneSided ? (
+         <label className="text-sm text-slate-700">
+          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_more_info_label')}</span>
+          <select
+           value={importMapping.moreInfoColumn ?? ''}
+           onChange={(event) => setImportMapping((current) => ({ ...current, moreInfoColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          >
+           <option value="">{t('import_setup_more_info_none')}</option>
+           {pendingImportData.columnOptions.map((option) => (
+            <option
+             key={option.index}
+             value={option.index}
+            >
+             {option.label}
+            </option>
+           ))}
+          </select>
+         </label>
+        ) : null}
+
         <label className="text-sm text-slate-700">
          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_currency_label')}</span>
          <select

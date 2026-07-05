@@ -440,6 +440,8 @@
  "import_setup_amount_placeholder": "اختر عمود المبلغ",
  "import_setup_description_label": "أين عمود الوصف؟ (اختياري)",
  "import_setup_description_none": "لا يوجد عمود وصف",
+ "import_setup_more_info_label": "أين عمود مزيد من المعلومات؟ (اختياري)",
+ "import_setup_more_info_none": "لا يوجد عمود مزيد من المعلومات",
  "import_setup_currency_label": "العملة لكل الصفوف المستوردة (اختياري)",
  "import_setup_currency_placeholder": "اختر العملة",
  "import_cancel": "إلغاء الاستيراد",

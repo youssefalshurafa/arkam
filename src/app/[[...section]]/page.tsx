@@ -2253,6 +2253,7 @@ function AuthenticatedHome() {
     amount: ['القيمة', 'المبلغ', 'amount', 'value'],
     date: ['التاريخ', 'date', 'createdat'],
     description: ['الوصف', 'البيان', 'ملاحظة', 'description', 'note', 'details'],
+    moreInfo: ['معلومات', 'مزيدمنالمعلومات', 'تفاصيل', 'moreinfo', 'info', 'extra', 'reference', 'ref'],
    };
 
    const detectColumnByAliases = (aliases: string[]) => {
@@ -2283,6 +2284,8 @@ function AuthenticatedHome() {
     toColumn: detectColumnByAliases(headerAliases.to),
     amountColumn: detectColumnByAliases(headerAliases.amount),
     descriptionColumn: detectColumnByAliases(headerAliases.description),
+    // Archive-only "More info" note column; harmless (unused) for the normal import.
+    moreInfoColumn: section === 'archive' ? detectColumnByAliases(headerAliases.moreInfo) : null,
     currencyId: preferredCurrency?.id ?? null,
    });
 
@@ -2693,6 +2696,7 @@ function AuthenticatedHome() {
       chargesExchangeRate: 1,
       chargesDescription: '',
       description: row.description,
+      archiveNote: row.moreInfo,
       isArchived: true,
       createdAt: row.createdAt ?? null,
      });
@@ -2732,6 +2736,7 @@ function AuthenticatedHome() {
      chargesExchangeRate: 1,
      chargesDescription: '',
      description: row.description,
+     archiveNote: isArchiveImport ? row.moreInfo : '',
      isArchived: isArchiveImport,
      createdAt: row.createdAt ?? null,
     });
@@ -2766,6 +2771,7 @@ function AuthenticatedHome() {
     toColumn: null,
     amountColumn: null,
     descriptionColumn: null,
+    moreInfoColumn: null,
     currencyId: null,
    });
   } catch (e) {
@@ -2786,6 +2792,7 @@ function AuthenticatedHome() {
    toColumn: null,
    amountColumn: null,
    descriptionColumn: null,
+   moreInfoColumn: null,
    currencyId: null,
   });
  }

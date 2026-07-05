@@ -439,6 +439,8 @@
  "import_setup_amount_placeholder": "Sélectionner la colonne du montant",
  "import_setup_description_label": "Où se trouve la colonne de description ? (facultatif)",
  "import_setup_description_none": "Aucune colonne de description",
+ "import_setup_more_info_label": "Où se trouve la colonne Plus d'infos ? (facultatif)",
+ "import_setup_more_info_none": "Aucune colonne Plus d'infos",
  "import_setup_currency_label": "Devise pour toutes les lignes importées (facultatif)",
  "import_setup_currency_placeholder": "Sélectionner la devise",
  "import_cancel": "Annuler l'import",

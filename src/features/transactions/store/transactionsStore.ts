@@ -224,7 +224,7 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTableRateFromReversed: setter('tableRateFromReversed'),
   tableRateToReversed: {},
   setTableRateToReversed: setter('tableRateToReversed'),
-  importMapping: { dateColumn: null, fromColumn: null, toColumn: null, amountColumn: null, descriptionColumn: null, currencyId: null },
+  importMapping: { dateColumn: null, fromColumn: null, toColumn: null, amountColumn: null, descriptionColumn: null, moreInfoColumn: null, currencyId: null },
   setImportMapping: setter('importMapping'),
   pendingImportData: null,
   setPendingImportData: setter('pendingImportData'),

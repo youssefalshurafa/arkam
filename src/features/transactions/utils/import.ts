@@ -207,6 +207,7 @@ export function parseTransactionRowsFromMappedSheet(
   const amountRaw = toImportString(row[mapping.amountColumn]);
   const amount = toImportAmount(amountRaw);
   const description = mapping.descriptionColumn == null ? '' : toImportString(row[mapping.descriptionColumn]);
+  const moreInfo = mapping.moreInfoColumn == null ? '' : toImportString(row[mapping.moreInfoColumn]);
   const createdAt = mapping.dateColumn == null ? null : parseImportedDate(row[mapping.dateColumn]);
 
   const isCompletelyEmpty = !fromRaw && !toRaw && !amountRaw;
@@ -232,6 +233,7 @@ export function parseTransactionRowsFromMappedSheet(
    amount,
    createdAt,
    description,
+   moreInfo,
   });
  }
 

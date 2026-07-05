@@ -440,6 +440,8 @@
  "import_setup_amount_placeholder": "Select amount column",
  "import_setup_description_label": "Where is the description column? (optional)",
  "import_setup_description_none": "No description column",
+ "import_setup_more_info_label": "Where is the More info column? (optional)",
+ "import_setup_more_info_none": "No More info column",
  "import_setup_currency_label": "Currency for all imported rows (optional)",
  "import_setup_currency_placeholder": "Select currency",
  "import_cancel": "Cancel Import",
