@@ -61,7 +61,7 @@ export function buildTransactionTableRows({ adjustments, clientAccounts, transac
 
 // Applies manual ordering, the archive/transactions split, and the active filters.
 // Ported verbatim from the page's displayedTransactionRows memo.
-export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo }: {
+export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }: {
  transactionTableRows: TransactionTableRow[];
  manualRowOrder: number[] | null;
  section: Section;
@@ -69,6 +69,7 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
  txFilterClient: string;
  txFilterDateFrom: string;
  txFilterDateTo: string;
+ txFilterHideExpenses: boolean;
 }): TransactionTableRow[] {
   const ordered = (() => {
    if (!manualRowOrder) return transactionTableRows;
@@ -101,6 +102,9 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
   }
   if (txFilterDateTo) {
    filtered = filtered.filter((row) => row.createdAt.slice(0, 10) <= txFilterDateTo);
+  }
+  if (txFilterHideExpenses) {
+   filtered = filtered.filter((row) => !row.isAdjustment);
   }
   return filtered;
 }

@@ -983,7 +983,8 @@ function txColValue(col, row, now) {
         case 'charges_exchange_rate': return row.chargesExchangeRate ?? 1;
         case 'charges_description': return row.chargesDescription || '';
         case 'description': return row.description?.trim() || '';
-        case 'is_archived': return 0;
+        case 'archive_note': return row.archiveNote?.trim() || '';
+        case 'is_archived': return row.isArchived ? true : false;
         case 'created_at': return row.createdAt ?? now;
         default: return null;
     }
@@ -1019,7 +1020,7 @@ async function bulkImportTransactions(app, { transactions = [], adjustments = []
                 'exchange_rate_from', 'commission_from', 'exchange_rate_to', 'commission_to',
                 'exchange_rate_from_reversed', 'exchange_rate_to_reversed',
                 'charges', 'charges_currency_id', 'charges_payer', 'charges_exchange_rate',
-                'charges_description', 'description', 'is_archived', 'created_at',
+                'charges_description', 'description', 'archive_note', 'is_archived', 'created_at',
             ];
             const quotedCols = cols.map((c) => `"${c}"`).join(', ');
             const maxBatch = Math.max(1, Math.floor(60000 / cols.length));

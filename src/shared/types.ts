@@ -284,6 +284,7 @@ export type ImportedTransactionRow = {
  amount: number;
  createdAt: string | null;
  description: string;
+ moreInfo: string;
 };
 
 export type ImportMappingState = {
@@ -292,6 +293,8 @@ export type ImportMappingState = {
  toColumn: number | null;
  amountColumn: number | null;
  descriptionColumn: number | null;
+ // Archive imports only: maps to each row's "More info" note (archiveNote).
+ moreInfoColumn: number | null;
  currencyId: number | null;
 };
 

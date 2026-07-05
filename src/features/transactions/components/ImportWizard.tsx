@@ -14,6 +14,8 @@ type ImportWizardProps = {
  enabledCurrencies: Currency[];
  currencies: Currency[];
  organizations: Organization[];
+ // Archive imports allow a row to name only a sender or only a receiver.
+ allowOneSided: boolean;
  onPrepareImportReview: () => void;
  onCancelImportTransactions: () => void;
  onConfirmImportTransactions: () => void;
@@ -25,7 +27,7 @@ type ImportWizardProps = {
 };
 
 export default function ImportWizard({
- clients, clientAccounts, enabledCurrencies, currencies, organizations,
+ clients, clientAccounts, enabledCurrencies, currencies, organizations, allowOneSided,
  onPrepareImportReview, onCancelImportTransactions, onConfirmImportTransactions,
  updateImportReviewEntry, updateImportRowOverride, setOrgDialogTargetReviewKey,
  setOrganizationForm, setShowCreateOrgDialog,
@@ -73,7 +75,10 @@ export default function ImportWizard({
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_sender_label')}</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t('import_setup_sender_label')}
+          {allowOneSided ? <span className="ml-1 font-normal normal-case text-slate-400">({t('import_setup_optional')})</span> : null}
+         </span>
          <select
           value={importMapping.fromColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, fromColumn: event.target.value === '' ? null : Number(event.target.value) }))}
@@ -92,7 +97,10 @@ export default function ImportWizard({
         </label>
 
         <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_receiver_label')}</span>
+         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t('import_setup_receiver_label')}
+          {allowOneSided ? <span className="ml-1 font-normal normal-case text-slate-400">({t('import_setup_optional')})</span> : null}
+         </span>
          <select
           value={importMapping.toColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, toColumn: event.target.value === '' ? null : Number(event.target.value) }))}
@@ -147,6 +155,28 @@ export default function ImportWizard({
           ))}
          </select>
         </label>
+
+        {/* Archive imports carry a per-row "More info" note (archiveNote). */}
+        {allowOneSided ? (
+         <label className="text-sm text-slate-700">
+          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_more_info_label')}</span>
+          <select
+           value={importMapping.moreInfoColumn ?? ''}
+           onChange={(event) => setImportMapping((current) => ({ ...current, moreInfoColumn: event.target.value === '' ? null : Number(event.target.value) }))}
+           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          >
+           <option value="">{t('import_setup_more_info_none')}</option>
+           {pendingImportData.columnOptions.map((option) => (
+            <option
+             key={option.index}
+             value={option.index}
+            >
+             {option.label}
+            </option>
+           ))}
+          </select>
+         </label>
+        ) : null}
 
         <label className="text-sm text-slate-700">
          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_currency_label')}</span>
@@ -617,6 +647,13 @@ export default function ImportWizard({
          if (!realEntry || !willHaveAccount(realEntry)) {
           skipCount += 1;
           if (realEntry && !skipNames.includes(realEntry.originalName)) skipNames.push(realEntry.originalName);
+         }
+        } else if (allowOneSided && (!fromEntry || !toEntry)) {
+         // One-sided archive row: it posts only if the single named party has an account.
+         const soleEntry = fromEntry ?? toEntry;
+         if (soleEntry && !willHaveAccount(soleEntry)) {
+          skipCount += 1;
+          if (!skipNames.includes(soleEntry.originalName)) skipNames.push(soleEntry.originalName);
          }
         } else {
          if (!fromEntry || !toEntry) return;

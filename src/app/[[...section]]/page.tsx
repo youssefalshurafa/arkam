@@ -230,9 +230,13 @@ function AuthenticatedHome() {
  const setLedgerRowHighlightColor = useLedgerStore((s) => s.setLedgerRowHighlightColor);
  const ledgerRowClickHighlight = useLedgerStore((s) => s.ledgerRowClickHighlight);
  const setLedgerRowClickHighlight = useLedgerStore((s) => s.setLedgerRowClickHighlight);
+ const setLedgerRowClickActive = useLedgerStore((s) => s.setLedgerRowClickActive);
  const highlightedLedgerRows = useLedgerStore((s) => s.highlightedLedgerRows);
  const setHighlightedLedgerRows = useLedgerStore((s) => s.setHighlightedLedgerRows);
  const [txRowClickHighlight, setTxRowClickHighlight] = useState<boolean>(() => getStoredTxRowSettings().rowClickHighlight);
+ // Whether the tx highlight/copy click mode is engaged at all; when false the pointer is
+ // neutral and row clicks do nothing. Session-only — the highlight-vs-copy preference persists.
+ const [txRowClickActive, setTxRowClickActive] = useState(true);
  const [highlightedTxRows, setHighlightedTxRows] = useState<Map<number, string>>(() => getStoredTxHighlights());
  const [txRowHighlightColor, setTxRowHighlightColor] = useState<string>(() => getStoredTxRowSettings().rowHighlightColor);
  // "Sum mode" for the transactions table: a third row-click mode alongside highlight/copy.
@@ -284,6 +288,7 @@ function AuthenticatedHome() {
  const setTxFilterDateFrom = useTransactionsStore((s) => s.setTxFilterDateFrom);
  const txFilterDateTo = useTransactionsStore((s) => s.txFilterDateTo);
  const setTxFilterDateTo = useTransactionsStore((s) => s.setTxFilterDateTo);
+ const txFilterHideExpenses = useTransactionsStore((s) => s.txFilterHideExpenses);
  const setCommissionExpandedTxns = useTransactionsStore((s) => s.setCommissionExpandedTxns);
  const setExpensesExpandedTxns = useTransactionsStore((s) => s.setExpensesExpandedTxns);
  const setLedgerExpensesExpandedKeys = useLedgerStore((s) => s.setLedgerExpensesExpandedKeys);
@@ -660,8 +665,8 @@ function AuthenticatedHome() {
  // The Archive section shows only transactions missing a party; the main
  // Transactions section shows everything (including those archived rows).
  const displayedTransactionRows = useMemo<TransactionTableRow[]>(
-  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo }),
-  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo],
+  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }),
+  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses],
  );
 
  const txFilterClientOptions = useMemo(() => {
@@ -702,7 +707,7 @@ function AuthenticatedHome() {
 
  useEffect(() => {
   setTransactionsPage(99999);
- }, [txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo]);
+ }, [txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses]);
 
  useEffect(() => {
   setLedgerPageState({});
@@ -835,8 +840,16 @@ function AuthenticatedHome() {
   persistLedgerSettings({ netChangeHighlightColor: next });
  }
 
- // Explicit mode setters for the highlight / copy toggle pair shown above the table.
- function setLedgerRowClickMode(highlight: boolean) {
+ // Explicit mode setter for the highlight / copy / none row-click group shown above the table.
+ // 'none' disengages both modes for a neutral pointer; picking highlight/copy re-engages and
+ // persists which of the two is preferred.
+ function setLedgerRowClickMode(mode: 'highlight' | 'copy' | 'none') {
+  if (mode === 'none') {
+   setLedgerRowClickActive(false);
+   return;
+  }
+  const highlight = mode === 'highlight';
+  setLedgerRowClickActive(true);
   setLedgerRowClickHighlight(highlight);
   persistLedgerSettings({ rowClickHighlight: highlight });
  }
@@ -860,8 +873,16 @@ function AuthenticatedHome() {
   });
  }
 
- // Explicit mode setter for the highlight / copy toggle pair shown above the table.
- function setTxRowClickMode(highlight: boolean) {
+ // Explicit mode setter for the highlight / copy / none row-click group shown above the table.
+ // 'none' disengages both modes for a neutral pointer; picking highlight/copy re-engages and
+ // persists which of the two is preferred.
+ function setTxRowClickMode(mode: 'highlight' | 'copy' | 'none') {
+  if (mode === 'none') {
+   setTxRowClickActive(false);
+   return;
+  }
+  const highlight = mode === 'highlight';
+  setTxRowClickActive(true);
   setTxRowClickHighlight(highlight);
   try {
    const stored = JSON.parse(window.localStorage.getItem(txRowSettingsStorageKey) ?? '{}') as Record<string, unknown>;
@@ -2232,6 +2253,7 @@ function AuthenticatedHome() {
     amount: ['القيمة', 'المبلغ', 'amount', 'value'],
     date: ['التاريخ', 'date', 'createdat'],
     description: ['الوصف', 'البيان', 'ملاحظة', 'description', 'note', 'details'],
+    moreInfo: ['معلومات', 'مزيدمنالمعلومات', 'تفاصيل', 'moreinfo', 'info', 'extra', 'reference', 'ref'],
    };
 
    const detectColumnByAliases = (aliases: string[]) => {
@@ -2262,6 +2284,8 @@ function AuthenticatedHome() {
     toColumn: detectColumnByAliases(headerAliases.to),
     amountColumn: detectColumnByAliases(headerAliases.amount),
     descriptionColumn: detectColumnByAliases(headerAliases.description),
+    // Archive-only "More info" note column; harmless (unused) for the normal import.
+    moreInfoColumn: section === 'archive' ? detectColumnByAliases(headerAliases.moreInfo) : null,
     currencyId: preferredCurrency?.id ?? null,
    });
 
@@ -2284,8 +2308,14 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null) {
-   setError(t('import_err_mapping'));
+  // Archive imports may name only a sender or only a receiver per row, so a single
+  // party column is enough; the normal transactions import still needs both.
+  const isArchiveImport = section === 'archive';
+  const mappingIncomplete = isArchiveImport
+   ? importMapping.amountColumn == null || (importMapping.fromColumn == null && importMapping.toColumn == null)
+   : importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null;
+  if (mappingIncomplete) {
+   setError(t(isArchiveImport ? 'import_err_mapping_archive' : 'import_err_mapping'));
    return;
   }
 
@@ -2295,7 +2325,7 @@ function AuthenticatedHome() {
   const selectedCurrency = importMapping.currencyId ? (currencies.find((currency) => currency.id === importMapping.currencyId) ?? null) : null;
 
   try {
-   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
+   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency, { allowOneSided: isArchiveImport });
    const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
    const reviewMap = new Map<string, ImportClientReview>();
 
@@ -2377,8 +2407,12 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null) {
-   setError(t('import_err_mapping'));
+  const isArchiveImport = section === 'archive';
+  const mappingIncomplete = isArchiveImport
+   ? importMapping.amountColumn == null || (importMapping.fromColumn == null && importMapping.toColumn == null)
+   : importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null;
+  if (mappingIncomplete) {
+   setError(t(isArchiveImport ? 'import_err_mapping_archive' : 'import_err_mapping'));
    return;
   }
 
@@ -2438,7 +2472,7 @@ function AuthenticatedHome() {
   setImportSummary('');
 
   try {
-   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency);
+   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency, { allowOneSided: isArchiveImport });
 
    const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
    const reviewByKey = new Map(reviewList.map((entry) => [entry.key, entry] as const));
@@ -2625,8 +2659,50 @@ function AuthenticatedHome() {
      continue;
     }
 
-    // Transfer between two clients.
-    if (!fromEntry || !toEntry) continue;
+    // Transfer between two parties. An archive import may name only one side, in which
+    // case it posts a single-party archived entry (the missing side stays null); the
+    // normal import still requires both a sender and a receiver.
+    if (!fromEntry && !toEntry) continue;
+    if (!isArchiveImport && (!fromEntry || !toEntry)) continue;
+
+    if (!fromEntry || !toEntry) {
+     // One-sided archive row: post to whichever party is present, on its natural side.
+     const soleEntry = (fromEntry ?? toEntry) as ImportClientReview;
+     const soleAccount = resolveAccount(soleEntry);
+     if (!soleAccount) {
+      stats.skippedRows += 1;
+      continue;
+     }
+     const soleCurrency = importCurrency ?? currencyForAccount(soleAccount);
+     if (!soleCurrency) {
+      stats.skippedRows += 1;
+      continue;
+     }
+     transactionsToCreate.push({
+      accountFromId: fromEntry ? soleAccount.id : null,
+      accountToId: fromEntry ? null : soleAccount.id,
+      currencyId: soleCurrency.id,
+      amount: row.amount,
+      type: 'transfer',
+      exchangeRateFrom: 1,
+      commissionFrom: 0,
+      exchangeRateTo: 1,
+      commissionTo: 0,
+      exchangeRateFromReversed: false,
+      exchangeRateToReversed: false,
+      charges: 0,
+      chargesCurrencyId: null,
+      chargesPayer: '',
+      chargesExchangeRate: 1,
+      chargesDescription: '',
+      description: row.description,
+      archiveNote: row.moreInfo,
+      isArchived: true,
+      createdAt: row.createdAt ?? null,
+     });
+     continue;
+    }
+
     const sendEntry = override.swap ? toEntry : fromEntry;
     const receiveEntry = override.swap ? fromEntry : toEntry;
     const fromAccount = resolveAccount(sendEntry);
@@ -2660,6 +2736,8 @@ function AuthenticatedHome() {
      chargesExchangeRate: 1,
      chargesDescription: '',
      description: row.description,
+     archiveNote: isArchiveImport ? row.moreInfo : '',
+     isArchived: isArchiveImport,
      createdAt: row.createdAt ?? null,
     });
    }
@@ -2693,6 +2771,7 @@ function AuthenticatedHome() {
     toColumn: null,
     amountColumn: null,
     descriptionColumn: null,
+    moreInfoColumn: null,
     currencyId: null,
    });
   } catch (e) {
@@ -2713,6 +2792,7 @@ function AuthenticatedHome() {
    toColumn: null,
    amountColumn: null,
    descriptionColumn: null,
+   moreInfoColumn: null,
    currencyId: null,
   });
  }
@@ -4936,6 +5016,7 @@ function AuthenticatedHome() {
          txTableHistory={txTableHistory}
          highlightedTxRows={highlightedTxRows}
          txRowClickHighlight={txRowClickHighlight}
+         txRowClickActive={txRowClickActive}
          txSumMode={txSumMode}
          txSumSelection={txSumSelection}
          txSumByCurrency={txSumByCurrency}
@@ -4983,6 +5064,7 @@ function AuthenticatedHome() {
      enabledCurrencies={enabledCurrencies}
      currencies={currencies}
      organizations={organizations}
+     allowOneSided={section === 'archive'}
      onPrepareImportReview={onPrepareImportReview}
      onCancelImportTransactions={onCancelImportTransactions}
      onConfirmImportTransactions={onConfirmImportTransactions}
