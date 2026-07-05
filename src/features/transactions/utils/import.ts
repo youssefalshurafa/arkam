@@ -181,17 +181,29 @@ export function importNameKey(value: string) {
  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
-export function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: ImportMappingState, currency: Currency | null) {
- if (mapping.fromColumn == null || mapping.toColumn == null || mapping.amountColumn == null) {
-  throw new Error('Please choose columns for Sender, Receiver, and Amount.');
+// `allowOneSided` (used by the archive import) accepts rows that name only a sender or only a
+// receiver, and requires just one of the two columns to be mapped. The normal import still
+// requires both a sender and a receiver on every row.
+export function parseTransactionRowsFromMappedSheet(
+ rows: unknown[][],
+ mapping: ImportMappingState,
+ currency: Currency | null,
+ options: { allowOneSided?: boolean } = {},
+) {
+ const allowOneSided = options.allowOneSided === true;
+ if (mapping.amountColumn == null) {
+  throw new Error('Please choose a column for Amount.');
+ }
+ if (allowOneSided ? mapping.fromColumn == null && mapping.toColumn == null : mapping.fromColumn == null || mapping.toColumn == null) {
+  throw new Error(allowOneSided ? 'Please choose a column for Sender or Receiver, and Amount.' : 'Please choose columns for Sender, Receiver, and Amount.');
  }
 
  const parsedRows: ImportedTransactionRow[] = [];
 
  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
   const row = rows[rowIndex];
-  const fromRaw = toImportString(row[mapping.fromColumn]);
-  const toRaw = toImportString(row[mapping.toColumn]);
+  const fromRaw = mapping.fromColumn == null ? '' : toImportString(row[mapping.fromColumn]);
+  const toRaw = mapping.toColumn == null ? '' : toImportString(row[mapping.toColumn]);
   const amountRaw = toImportString(row[mapping.amountColumn]);
   const amount = toImportAmount(amountRaw);
   const description = mapping.descriptionColumn == null ? '' : toImportString(row[mapping.descriptionColumn]);
@@ -209,7 +221,8 @@ export function parseTransactionRowsFromMappedSheet(rows: unknown[][], mapping: 
   const fromName = currency ? normalizeClientNameForCurrencySuffix(fromRaw, currency) : fromRaw.trim().replace(/\s+/g, ' ');
   const toName = currency ? normalizeClientNameForCurrencySuffix(toRaw, currency) : toRaw.trim().replace(/\s+/g, ' ');
 
-  if (!fromName || !toName) {
+  // Normal import needs both parties; one-sided import needs at least one.
+  if (allowOneSided ? !fromName && !toName : !fromName || !toName) {
    continue;
   }
 

@@ -983,7 +983,7 @@ function txColValue(col, row, now) {
         case 'charges_exchange_rate': return row.chargesExchangeRate ?? 1;
         case 'charges_description': return row.chargesDescription || '';
         case 'description': return row.description?.trim() || '';
-        case 'is_archived': return 0;
+        case 'is_archived': return row.isArchived ? true : false;
         case 'created_at': return row.createdAt ?? now;
         default: return null;
     }

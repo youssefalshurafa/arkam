@@ -69,6 +69,8 @@ type TransactionsStore = {
  setTxFilterDateFrom: Dispatch<SetStateAction<string>>;
  txFilterDateTo: string;
  setTxFilterDateTo: Dispatch<SetStateAction<string>>;
+ txFilterHideExpenses: boolean;
+ setTxFilterHideExpenses: Dispatch<SetStateAction<boolean>>;
  commissionExpandedTxns: Set<number>;
  setCommissionExpandedTxns: Dispatch<SetStateAction<Set<number>>>;
  expensesExpandedTxns: Set<number>;
@@ -178,6 +180,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTxFilterDateFrom: setter('txFilterDateFrom'),
   txFilterDateTo: '',
   setTxFilterDateTo: setter('txFilterDateTo'),
+  txFilterHideExpenses: false,
+  setTxFilterHideExpenses: setter('txFilterHideExpenses'),
   commissionExpandedTxns: new Set(),
   setCommissionExpandedTxns: setter('commissionExpandedTxns'),
   expensesExpandedTxns: new Set(),

@@ -114,6 +114,7 @@ type TransactionsSectionProps = {
  txTableHistory: DraftHistory;
  highlightedTxRows: Map<number, string>;
  txRowClickHighlight: boolean;
+ txRowClickActive: boolean;
  txSumMode: boolean;
  txSumSelection: Map<number, { amount: number; currencyCode: string; currencySymbol: string }>;
  txSumByCurrency: SumCurrencyTotal[];
@@ -135,7 +136,7 @@ type TransactionsSectionProps = {
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openTransactionExportModal: () => void;
  openTransactionTableSettingsModal: () => void;
- setTxRowClickMode: (highlight: boolean) => void;
+ setTxRowClickMode: (mode: 'highlight' | 'copy' | 'none') => void;
  toggleTxRowHighlight: (txnId: number) => void;
  toggleTxSumMode: () => void;
  toggleTxSumEntry: (id: number, amount: number, currencyCode: string, currencySymbol: string) => void;
@@ -147,7 +148,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   displayedTransactionRows, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
   selectedTransactionSums, archiveCurrencyTotals, showChargesExchangeRate, showExchangeRateFrom, showExchangeRateTo,
   transactionAccountFromCurrencyCode, transactionAccountToCurrencyCode, transactionSelectedCurrencyCode,
-  getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight,
+  getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
   txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopySelectedTransaction, onDeleteSelectedTransactions,
   onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, onImportTransactionsFile, onPasteCopiedTransaction,
@@ -161,7 +162,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const showToast = useAppStatusStore((s) => s.showToast);
  const dragFromHandle = useRef(false);
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
+ const { selectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
  const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
 
  // Keyboard navigation for the From/To account pickers: the highlighted index tracks the row
@@ -1179,10 +1180,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             <button
              type="button"
              title={t('ledger_click_highlight_mode')}
-             onClick={() => setTxRowClickMode(true)}
-             aria-pressed={txRowClickHighlight && !txSumMode}
+             onClick={() => setTxRowClickMode(txRowClickActive && txRowClickHighlight && !txSumMode ? 'none' : 'highlight')}
+             aria-pressed={txRowClickActive && txRowClickHighlight && !txSumMode}
              className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-              txRowClickHighlight && !txSumMode ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+              txRowClickActive && txRowClickHighlight && !txSumMode ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
              }`}
             >
              <svg
@@ -1203,10 +1204,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             <button
              type="button"
              title={t('ledger_click_copy_mode')}
-             onClick={() => setTxRowClickMode(false)}
-             aria-pressed={!txRowClickHighlight && !txSumMode}
+             onClick={() => setTxRowClickMode(txRowClickActive && !txRowClickHighlight && !txSumMode ? 'none' : 'copy')}
+             aria-pressed={txRowClickActive && !txRowClickHighlight && !txSumMode}
              className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-              !txRowClickHighlight && !txSumMode ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+              txRowClickActive && !txRowClickHighlight && !txSumMode ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
              }`}
             >
              <svg
@@ -1452,9 +1453,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
             {t('tx_filter_toggle')}
-            {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo) && (
+            {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo || txFilterHideExpenses) && (
              <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">
-              {[txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo].filter(Boolean).length}
+              {[txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses].filter(Boolean).length}
              </span>
             )}
             <svg
@@ -1556,7 +1557,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
               />
              </div>
-             {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo) && (
+             <label className="flex cursor-pointer select-none items-center gap-2 self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100">
+              <input
+               type="checkbox"
+               checked={txFilterHideExpenses}
+               onChange={(e) => setTxFilterHideExpenses(e.target.checked)}
+               className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+              />
+              {t('tx_filter_hide_expenses')}
+             </label>
+             {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo || txFilterHideExpenses) && (
               <button
                type="button"
                onClick={() => {
@@ -1564,6 +1574,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 setTxFilterClient('');
                 setTxFilterDateFrom('');
                 setTxFilterDateTo('');
+                setTxFilterHideExpenses(false);
                }}
                className="self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
               >
@@ -1783,7 +1794,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 const isEditingRow = editingRowIds.has(txn.id);
                 return {
                  ...(color ? { backgroundColor: color } : {}),
-                 ...(isEditingRow || txSumMode ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
+                 ...(isEditingRow || txSumMode || !txRowClickActive ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                 };
                })()}
                onClick={(e) => {
@@ -1794,6 +1805,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 // above); a click elsewhere in the row is a no-op instead of falling through to
                 // highlight/copy.
                 if (txSumMode) return;
+                // Neutral pointer: no click mode engaged, so a row click does nothing.
+                if (!txRowClickActive) return;
                 if (txRowClickHighlight) {
                  toggleTxRowHighlight(txn.id);
                  return;

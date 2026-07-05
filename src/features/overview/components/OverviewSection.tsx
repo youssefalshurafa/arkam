@@ -195,15 +195,19 @@ export default function OverviewSection({ organizations, clients, clientAccounts
           const isFlipped = (group: OverviewBalanceGroup) => !group.isMain && (overviewFlipAll || overviewFlipped.has(group.key));
 
           // Flatten a card (org + currency group) to the plain shape the PDF builder expects.
-          const cardFromGroup = (group: OverviewBalanceGroup, orgName: string): OverviewPdfCard => {
+          // `flipped` requests the converted (main-currency) face; it only applies when a valid
+          // rate exists, matching the on-screen flip.
+          const cardFromGroup = (group: OverviewBalanceGroup, orgName: string, flipped = false): OverviewPdfCard => {
            const rate = rateOf(group);
+           const rateNum = Number.isNaN(rate) ? null : rate;
            return {
             orgName,
             currencyCode: group.currencyCode,
             currencySymbol: group.currencySymbol || group.currencyCode,
             isMain: group.isMain,
             total: group.total,
-            rate: Number.isNaN(rate) ? null : rate,
+            rate: rateNum,
+            flipped: flipped && rateNum != null,
             clients: group.clients.map((c) => ({ clientName: c.clientName, balance: c.balance })),
            };
           };
@@ -229,7 +233,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
            for (const [, orgGroups] of overviewOrgBalances.byOrg) {
             const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
             for (const group of orgGroups) {
-             if (group.total !== 0 && selectedCardKeys.has(group.key)) cards.push(cardFromGroup(group, orgName));
+             if (group.total !== 0 && selectedCardKeys.has(group.key)) cards.push(cardFromGroup(group, orgName, isFlipped(group) && !Number.isNaN(rateOf(group))));
             }
            }
            printCards(cards);
@@ -462,7 +466,27 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                        {!group.isMain ? (
                         <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
                          <div className="flex flex-col gap-1 border-b border-blue-100 bg-blue-50 px-3 py-2">
-                          <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-blue-400">{orgName}</span>
+                          <div className="flex items-center justify-between gap-2">
+                           <label className="flex min-w-0 items-center gap-1.5">
+                            <input
+                             type="checkbox"
+                             checked={selectedCardKeys.has(group.key)}
+                             onChange={() => toggleCardSelected(group.key)}
+                             aria-label={t('overview_select_card')}
+                             className="shrink-0"
+                            />
+                            <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-blue-400">{orgName}</span>
+                           </label>
+                           <button
+                            type="button"
+                            title={t('overview_print_card')}
+                            aria-label={t('overview_print_card')}
+                            onClick={() => printCards([cardFromGroup(group, orgName, true)])}
+                            className="shrink-0 rounded p-1 text-blue-400 transition hover:bg-blue-100 hover:text-emerald-600"
+                           >
+                            {printIcon}
+                           </button>
+                          </div>
                           <div className="flex items-center justify-between gap-2">
                            <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
                            <div className="flex items-center gap-2">

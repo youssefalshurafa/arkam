@@ -76,6 +76,10 @@ type LedgerStore = {
  setLedgerRowHighlightColor: Dispatch<SetStateAction<string>>;
  ledgerRowClickHighlight: boolean;
  setLedgerRowClickHighlight: Dispatch<SetStateAction<boolean>>;
+ // Whether the highlight/copy click mode is engaged at all. When false the pointer is neutral
+ // and row clicks do nothing (session-only; the highlight-vs-copy preference still persists).
+ ledgerRowClickActive: boolean;
+ setLedgerRowClickActive: Dispatch<SetStateAction<boolean>>;
  highlightedLedgerRows: Map<string, string>;
  setHighlightedLedgerRows: Dispatch<SetStateAction<Map<string, string>>>;
  ledgerStartingBalanceDrafts: Record<number, string>;
@@ -163,6 +167,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setLedgerRowHighlightColor: setter('ledgerRowHighlightColor'),
   ledgerRowClickHighlight: true,
   setLedgerRowClickHighlight: setter('ledgerRowClickHighlight'),
+  ledgerRowClickActive: true,
+  setLedgerRowClickActive: setter('ledgerRowClickActive'),
   highlightedLedgerRows: new Map(),
   setHighlightedLedgerRows: setter('highlightedLedgerRows'),
   ledgerStartingBalanceDrafts: {},

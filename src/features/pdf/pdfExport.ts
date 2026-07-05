@@ -445,6 +445,9 @@ export type OverviewPdfCard = {
  total: number;
  // The card's own FX rate to the main currency, or null when unset / not applicable.
  rate: number | null;
+ // When true (and a rate is set), render the card's "flipped" face: client balances and total
+ // converted to the main currency, matching the converted view shown on screen.
+ flipped?: boolean;
  clients: { clientName: string; balance: number }[];
 };
 
@@ -464,23 +467,38 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  const cardHtml = cards
   .map((card) => {
    const symbol = card.currencySymbol || card.currencyCode;
+   // A flipped card shows everything already converted to the main currency; the footer then
+   // notes the rate and the original-currency total for provenance. A non-flipped card shows
+   // original values with the converted total appended as a footer (when a rate is set).
+   const flip = !card.isMain && card.flipped === true && card.rate != null;
+   const rate = card.rate;
+   const headSymbol = flip ? mainSymbol : symbol;
    const clientRows = card.clients
-    .map((c) => `<div class="row"><span class="name">${esc(c.clientName)}</span><span class="bal ${sign(c.balance)}">${fmt(c.balance)}</span></div>`)
+    .map((c) => {
+     const bal = flip ? c.balance * (rate as number) : c.balance;
+     return `<div class="row"><span class="name">${esc(c.clientName)}</span><span class="bal ${sign(bal)}">${fmt(bal)}</span></div>`;
+    })
     .join('');
-   const converted = !card.isMain && card.rate != null ? card.total * card.rate : null;
-   const convertedHtml =
-    converted != null
-     ? `<div class="converted"><span class="rate">1 ${esc(card.currencyCode)} = ${card.rate} ${esc(mainCode)}</span><span class="conv-total ${sign(converted)}">${fmt(converted)} ${esc(mainSymbol)}</span></div>`
-     : '';
+   const totalValue = flip ? card.total * (rate as number) : card.total;
+   const totalSymbol = flip ? mainSymbol : symbol;
+   let convertedHtml = '';
+   if (flip) {
+    convertedHtml = `<div class="converted"><span class="rate">1 ${esc(card.currencyCode)} = ${rate} ${esc(mainCode)}</span><span class="conv-total ${sign(card.total)}">${fmt(card.total)} ${esc(symbol)}</span></div>`;
+   } else {
+    const converted = !card.isMain && rate != null ? card.total * rate : null;
+    if (converted != null) {
+     convertedHtml = `<div class="converted"><span class="rate">1 ${esc(card.currencyCode)} = ${rate} ${esc(mainCode)}</span><span class="conv-total ${sign(converted)}">${fmt(converted)} ${esc(mainSymbol)}</span></div>`;
+    }
+   }
    return `<div class="card">
  <div class="card-head">
   <span class="org">${esc(card.orgName)}</span>
-  <span class="cur">${esc(symbol)}</span>
+  <span class="cur">${esc(headSymbol)}</span>
  </div>
  <div class="card-body">${clientRows || `<div class="row muted">${esc(t('overview_no_balances'))}</div>`}</div>
  <div class="card-total">
   <span class="ct-label">${esc(t('overview_card_total'))}</span>
-  <span class="ct-value ${sign(card.total)}">${fmt(card.total)} ${esc(symbol)}</span>
+  <span class="ct-value ${sign(totalValue)}">${fmt(totalValue)} ${esc(totalSymbol)}</span>
  </div>
  ${convertedHtml}
 </div>`;

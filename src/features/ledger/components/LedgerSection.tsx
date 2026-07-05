@@ -59,7 +59,7 @@ type LedgerSectionProps = {
  renderLedgerCurrencySuffix: (currencySymbol: string, currencyCode: string) => ReactNode;
  setSection: Dispatch<SetStateAction<Section>>;
  setClientAccounts: Dispatch<SetStateAction<ClientAccount[]>>;
- setLedgerRowClickMode: (highlight: boolean) => void;
+ setLedgerRowClickMode: (mode: 'highlight' | 'copy' | 'none') => void;
  toggleLedgerRowHighlight: (rowKey: string) => void;
  onCancelAllLedger: (ledger: ClientAccountLedger) => void;
  onDeleteLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
@@ -97,7 +97,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const showToast = useAppStatusStore((s) => s.showToast);
  const setError = useAppStatusStore((s) => s.setError);
  const dragLedgerFromHandle = useRef(false);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Tracks which account's "entries awaiting an exchange rate" note has been expanded to list
  // the specific pending entries. Ephemeral UI state — no need to persist across sessions.
@@ -730,10 +730,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 <button
                  type="button"
                  title={t('ledger_click_highlight_mode')}
-                 onClick={() => setLedgerRowClickMode(true)}
-                 aria-pressed={ledgerRowClickHighlight}
+                 onClick={() => setLedgerRowClickMode(ledgerRowClickActive && ledgerRowClickHighlight ? 'none' : 'highlight')}
+                 aria-pressed={ledgerRowClickActive && ledgerRowClickHighlight}
                  className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                  ledgerRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                  ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
                  }`}
                 >
                  <svg
@@ -754,10 +754,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 <button
                  type="button"
                  title={t('ledger_click_copy_mode')}
-                 onClick={() => setLedgerRowClickMode(false)}
-                 aria-pressed={!ledgerRowClickHighlight}
+                 onClick={() => setLedgerRowClickMode(ledgerRowClickActive && !ledgerRowClickHighlight ? 'none' : 'copy')}
+                 aria-pressed={ledgerRowClickActive && !ledgerRowClickHighlight}
                  className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                  !ledgerRowClickHighlight ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                  ledgerRowClickActive && !ledgerRowClickHighlight ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
                  }`}
                 >
                  <svg
@@ -1230,6 +1230,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                        if (editingLedgerRowKeys.has(rowKey)) return;
                        if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+                       // Neutral pointer: no click mode engaged, so a row click does nothing.
+                       if (!ledgerRowClickActive) return;
                        if (ledgerRowClickHighlight) {
                         toggleLedgerRowHighlight(rowKey);
                         return;
@@ -1283,7 +1285,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        const isEditing = editingLedgerRowKeys.has(rowKey);
                        return {
                         ...(color ? { backgroundColor: color } : {}),
-                        ...(isEditing ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
+                        ...(isEditing || !ledgerRowClickActive ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                        };
                       })()}
                       className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
