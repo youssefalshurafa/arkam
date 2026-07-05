@@ -2076,32 +2076,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      />
                     ) : (
                      <span className="inline-flex items-center gap-1.5">
-                      {txn.isArchived ? (
-                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                        <svg
-                         width="10"
-                         height="10"
-                         viewBox="0 0 24 24"
-                         fill="none"
-                         stroke="currentColor"
-                         strokeWidth="2.5"
-                         strokeLinecap="round"
-                         strokeLinejoin="round"
-                         aria-hidden
-                        >
-                         <rect
-                          x="3"
-                          y="4"
-                          width="18"
-                          height="4"
-                          rx="1"
-                         />
-                         <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
-                         <path d="M10 12h4" />
-                        </svg>
-                        {t('transaction_archived_badge')}
-                       </span>
-                      ) : null}
                       {formatDateValue(txn.createdAt, transactionTableSettings.dateFormat)}
                      </span>
                     )}
@@ -2607,10 +2581,24 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   ) : null}
                   {section === 'archive' ? (
                    <td className="px-4 py-3 text-slate-600">
+                    <div className="flex items-center gap-2">
+                    {isEditingRow && draft ? (
+                     <input
+                      type="text"
+                      value={draft.archiveNote}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { archiveNote: event.target.value })}
+                      placeholder={t('archive_more_info_placeholder')}
+                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                     />
+                    ) : txn.archiveNote ? (
+                     <span className="min-w-0 truncate" title={txn.archiveNote}>{txn.archiveNote}</span>
+                    ) : (
+                     <span className="text-slate-400">-</span>
+                    )}
                     {txn.isArchived ? (
                      <span
                       title={t('archive_only_badge_hint')}
-                      className="mb-1.5 inline-flex items-center gap-1 rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
                      >
                       <svg
                        width="10"
@@ -2636,19 +2624,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       {t('archive_only_badge')}
                      </span>
                     ) : null}
-                    {isEditingRow && draft ? (
-                     <input
-                      type="text"
-                      value={draft.archiveNote}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { archiveNote: event.target.value })}
-                      placeholder={t('archive_more_info_placeholder')}
-                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                     />
-                    ) : txn.archiveNote ? (
-                     txn.archiveNote
-                    ) : (
-                     <span className="text-slate-400">-</span>
-                    )}
+                    </div>
                    </td>
                   ) : null}
                  </>
