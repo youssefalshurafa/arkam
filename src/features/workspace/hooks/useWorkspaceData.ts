@@ -38,9 +38,9 @@ export type WorkspaceData = {
  * `isLoading = _initialCache === null` behavior); it is treated as stale so a
  * fresh fetch still runs on mount.
  */
-export function useWorkspaceData(userId: string | null | undefined) {
+export function useWorkspaceData(userId: string | null | undefined, workspaceId: string | null | undefined) {
  return useQuery<WorkspaceData>({
-  queryKey: queryKeys.workspaceData(userId),
+  queryKey: queryKeys.workspaceData(userId, workspaceId),
   queryFn: async () => {
    const [organizations, clients, currencyRows, transactions, clientAccounts, adjustments, backup] = (await Promise.all([
     accountingApi.listOrganizations(),
@@ -58,11 +58,11 @@ export function useWorkspaceData(userId: string | null | undefined) {
     currencies = (await accountingApi.listCurrencies()) as Currency[];
    }
 
-   saveDataCache({ organizations, clients, currencies, transactions, adjustments, clientAccounts }, userId);
+   saveDataCache({ organizations, clients, currencies, transactions, adjustments, clientAccounts }, userId, workspaceId);
    return { organizations, clients, currencies, transactions, clientAccounts, adjustments, backup };
   },
   initialData: () => {
-   const cache = readDataCache(userId);
+   const cache = readDataCache(userId, workspaceId);
    return cache ? { ...cache, backup: null } : undefined;
   },
  });
@@ -74,9 +74,9 @@ export function useWorkspaceData(userId: string | null | undefined) {
  * previously called setTransactions/setClientAccounts/... directly); `invalidate`
  * triggers a full refetch (the replacement for the old loadData() reload calls).
  */
-export function useWorkspaceCache(userId: string | null | undefined) {
+export function useWorkspaceCache(userId: string | null | undefined, workspaceId: string | null | undefined) {
  const queryClient = useQueryClient();
- const queryKey = queryKeys.workspaceData(userId);
+ const queryKey = queryKeys.workspaceData(userId, workspaceId);
 
  const update = useCallback(
   <K extends keyof WorkspaceData>(key: K, updater: SetStateAction<WorkspaceData[K]>) => {
@@ -87,15 +87,15 @@ export function useWorkspaceCache(userId: string | null | undefined) {
     return { ...prev, [key]: next };
    });
   },
-  // queryKey is derived from userId; depend on the id so a user switch retargets.
+  // queryKey is derived from userId/workspaceId; depend on both so a switch retargets.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [queryClient, userId],
+  [queryClient, userId, workspaceId],
  );
 
  const invalidate = useCallback(
   () => queryClient.invalidateQueries({ queryKey }),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [queryClient, userId],
+  [queryClient, userId, workspaceId],
  );
 
  /**

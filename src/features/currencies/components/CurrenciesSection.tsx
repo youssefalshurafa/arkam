@@ -1,11 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { confirmDialog } from '@/components/ui/AppDialog';
+import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import type { ClientAccount, Currency, Transaction } from '@/shared/types';
 
@@ -14,14 +14,15 @@ type CurrenciesSectionProps = {
  enabledCurrencies: Currency[];
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
- setCurrencies: Dispatch<SetStateAction<Currency[]>>;
- onReload: () => Promise<void> | void;
- onError: (message: string) => void;
 };
 
-export default function CurrenciesSection({ localizedCurrencies, enabledCurrencies, clientAccounts, transactions, setCurrencies, onReload, onError }: CurrenciesSectionProps) {
+export default function CurrenciesSection({ localizedCurrencies, enabledCurrencies, clientAccounts, transactions }: CurrenciesSectionProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
+ const { invalidate, setters, setError } = useWorkspaceActions();
+ const setCurrencies = setters.setCurrencies;
+ const onReload = invalidate;
+ const onError = setError;
 
  const [catalogCurrencyQuery, setCatalogCurrencyQuery] = useState('');
  const [selectedCatalogCurrencyId, setSelectedCatalogCurrencyId] = useState<number | null>(null);

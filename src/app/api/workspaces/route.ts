@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
+import { isSuperAdmin } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 
@@ -32,6 +33,12 @@ export async function POST(request: NextRequest) {
 
  if (!userId) {
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+ }
+
+ // TODO: eventually gate this on the user's/workspace's subscription plan instead.
+ // For now, creating additional workspaces is restricted to the super admin.
+ if (!isSuperAdmin(session?.user?.email)) {
+  return NextResponse.json({ error: 'Creating additional workspaces is not available on your plan yet.' }, { status: 403 });
  }
 
  try {

@@ -24,6 +24,14 @@ async function getSchemaInfo(app) {
     };
 }
 
+// Used by the workspace delete-confirmation flow, so the user can see how much
+// data (transactions) a workspace holds before deleting it.
+async function countWorkspaceTransactions(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`SELECT COUNT(*)::int AS count FROM ${schema}.transactions`);
+    return result.rows[0]?.count || 0;
+}
+
 function getSupportedCurrencyCodes() {
     if (typeof Intl.supportedValuesOf === 'function') {
         return Intl.supportedValuesOf('currency');
@@ -1124,6 +1132,7 @@ async function saveWorkspaceSettings(app, payload) {
 module.exports = {
     getDbInfo,
     setDbDirectory,
+    countWorkspaceTransactions,
     listOrganizations,
     createOrganization,
     updateOrganization,

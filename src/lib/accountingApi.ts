@@ -192,6 +192,48 @@ export const accountingApi = {
    }
    return data as { workspaces: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' | 'member' | 'viewer' }>; defaultWorkspaceId: string | null };
   }),
+ createWorkspace: (name: string) =>
+  fetch('/api/workspaces', {
+   method: 'POST',
+   credentials: 'include',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ name }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to create workspace.');
+   }
+   return data as { ok: true; workspace: { id: string; name: string; slug: string } };
+  }),
+ getWorkspaceTransactionCount: (workspaceId: string) =>
+  fetch(`/api/workspaces/${workspaceId}`, { method: 'GET', credentials: 'include' }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to load workspace info.');
+   }
+   return data as { transactionCount: number };
+  }),
+ renameWorkspace: (workspaceId: string, name: string) =>
+  fetch(`/api/workspaces/${workspaceId}`, {
+   method: 'PATCH',
+   credentials: 'include',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ name }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to rename workspace.');
+   }
+   return data as { ok: true; workspace: { id: string; name: string } };
+  }),
+ deleteWorkspace: (workspaceId: string) =>
+  fetch(`/api/workspaces/${workspaceId}`, { method: 'DELETE', credentials: 'include' }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to delete workspace.');
+   }
+   return data as { ok: true };
+  }),
  listWorkspaceMembers: (workspaceId: string) =>
   fetch(`/api/workspaces/${workspaceId}/members`, { method: 'GET', credentials: 'include' }).then(async (response) => {
    const data = await response.json();
