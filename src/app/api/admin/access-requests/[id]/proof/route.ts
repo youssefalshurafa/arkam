@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
+import { isSuperAdmin } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function isSuperAdmin(email: string | null | undefined): boolean {
- const superAdminEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
- if (!superAdminEmail || !email) {
-  return false;
- }
- return email.trim().toLowerCase() === superAdminEmail;
-}
 
 // Serves the raw payment screenshot bytes for one request. Super-admin only —
 // these images can contain sensitive financial data.

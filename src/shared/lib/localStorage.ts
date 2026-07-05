@@ -118,29 +118,33 @@ export function saveOverviewRates(rates: Record<string, string>) {
 }
 export const dataCacheStorageKey = 'arkam:data-cache';
 
-// The snapshot is tagged with the id of the user who wrote it. readDataCache only
-// returns it to that same user, so another account signing in on the same browser
-// can never read the previous user's financial data from the cache — regardless of
-// any purge timing. This is the structural guard behind the leak fix.
-type StoredDataCache = DataCache & { ownerId: string | null };
+// The snapshot is tagged with the id of the user who wrote it AND the workspace it
+// was fetched for. readDataCache only returns it when both match, so another
+// account signing in on the same browser can never read the previous user's
+// financial data from the cache (regardless of any purge timing), and switching
+// between two workspaces owned by the same user can never read the other
+// workspace's data either.
+type StoredDataCache = DataCache & { ownerId: string | null; workspaceId: string | null };
 
-export function readDataCache(ownerId: string | null | undefined): DataCache | null {
+export function readDataCache(ownerId: string | null | undefined, workspaceId: string | null | undefined): DataCache | null {
  try {
   const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem(dataCacheStorageKey) : null;
   if (!raw) return null;
   const parsed = JSON.parse(raw) as StoredDataCache;
-  // Only hand back a cache that belongs to the current user.
+  // Only hand back a cache that belongs to the current user AND workspace.
   if (!ownerId || parsed.ownerId !== ownerId) return null;
+  if (!workspaceId || parsed.workspaceId !== workspaceId) return null;
   delete (parsed as { ownerId?: unknown }).ownerId;
+  delete (parsed as { workspaceId?: unknown }).workspaceId;
   return parsed;
  } catch {
   return null;
  }
 }
 
-export function saveDataCache(data: DataCache, ownerId: string | null | undefined) {
+export function saveDataCache(data: DataCache, ownerId: string | null | undefined, workspaceId: string | null | undefined) {
  try {
-  const payload: StoredDataCache = { ...data, ownerId: ownerId ?? null };
+  const payload: StoredDataCache = { ...data, ownerId: ownerId ?? null, workspaceId: workspaceId ?? null };
   window.sessionStorage.setItem(dataCacheStorageKey, JSON.stringify(payload));
  } catch {
   /* ignore — cache is best-effort */

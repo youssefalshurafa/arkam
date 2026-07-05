@@ -1,6 +1,7 @@
 import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
+import { isSuperAdmin } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 
@@ -82,6 +83,7 @@ export const authOptions: NextAuthOptions = {
    if (session.user && token.sub) {
     session.user.id = token.sub;
     session.user.defaultWorkspaceId = (token.defaultWorkspaceId as string | null) || null;
+    session.user.isSuperAdmin = isSuperAdmin(session.user.email);
    }
 
    return session;

@@ -162,7 +162,11 @@ function AuthenticatedHome() {
   }
  });
  const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
- const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
+ // Seeded synchronously from storage (same value accountingApi sends as the
+ // x-workspace-id header) so the very first render already keys the workspace
+ // query correctly; the effect below still re-validates/corrects it against the
+ // user's actual memberships once they load.
+ const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(() => accountingApi.getActiveWorkspaceId());
  // SECURITY: browser caches are per-browser, not per-account. Before the workspace
  // query reads any cached data, purge everything left by a different user on this
  // browser (and clear the in-memory query cache) so one user's data can never bleed
@@ -181,9 +185,9 @@ function AuthenticatedHome() {
  // Server data is owned by a single TanStack Query cache (useWorkspaceData). The
  // arrays below are derived views; the setX shims write to that cache so the
  // existing optimistic-update sites keep working, and loadData() maps to a refetch.
- const workspaceQuery = useWorkspaceData(sessionUserId);
+ const workspaceQuery = useWorkspaceData(sessionUserId, activeWorkspaceId);
  const workspaceData = workspaceQuery.data;
- const { invalidate: invalidateWorkspace, setters: workspaceSetters } = useWorkspaceCache(sessionUserId);
+ const { invalidate: invalidateWorkspace, setters: workspaceSetters } = useWorkspaceCache(sessionUserId, activeWorkspaceId);
  const { setOrganizations, setClients, setTransactions, setAdjustments, setClientAccounts } = workspaceSetters;
  const isLoading = workspaceQuery.isPending;
  const organizations = workspaceData?.organizations ?? EMPTY_ORGANIZATIONS;

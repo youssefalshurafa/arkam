@@ -262,6 +262,40 @@ async function createWorkspace(ownerUserId, name) {
     return createWorkspaceForUser(ownerUserId, workspaceName);
 }
 
+async function renameWorkspace({ workspaceId, name, actorUserId }) {
+    await ensurePublicSchema();
+
+    const workspaceName = String(name || '').trim();
+    if (!workspaceName) {
+        throw new Error('Workspace name is required.');
+    }
+
+    const role = await assertWorkspaceAccess(actorUserId, workspaceId);
+    if (role !== 'owner') {
+        throw new Error('Only the workspace owner can rename it.');
+    }
+
+    await runQuery('UPDATE workspaces SET name = $1 WHERE id = $2', [workspaceName, workspaceId]);
+    return { id: workspaceId, name: workspaceName };
+}
+
+async function deleteWorkspace({ workspaceId, actorUserId }) {
+    await ensurePublicSchema();
+
+    const role = await assertWorkspaceAccess(actorUserId, workspaceId);
+    if (role !== 'owner') {
+        throw new Error('Only the workspace owner can delete it.');
+    }
+
+    const membershipCount = await fetchOne('SELECT COUNT(*)::int AS count FROM workspace_members WHERE user_id = $1', [actorUserId]);
+    if ((membershipCount?.count || 0) <= 1) {
+        throw new Error('You cannot delete your only workspace.');
+    }
+
+    await runQuery('DELETE FROM workspaces WHERE id = $1', [workspaceId]);
+    return { id: workspaceId };
+}
+
 async function addWorkspaceMemberByEmail({ workspaceId, email, role, addedByUserId }) {
     await ensurePublicSchema();
 
@@ -1120,6 +1154,8 @@ module.exports = {
     getWorkspaceBackupInfo,
     recordWorkspaceBackup,
     createWorkspace,
+    renameWorkspace,
+    deleteWorkspace,
     addWorkspaceMemberByEmail,
     inviteWorkspaceMember,
     updateWorkspaceMemberRole,
