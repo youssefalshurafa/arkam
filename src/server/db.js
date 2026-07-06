@@ -840,6 +840,43 @@ async function deleteClientAdjustment(app, id) {
     await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
 }
 
+async function listReconciliations(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`
+        SELECT
+            id,
+            account_id AS "accountId",
+            anchor_kind AS "anchorKind",
+            anchor_ref_id AS "anchorRefId",
+            anchor_created_at AS "anchorCreatedAt",
+            balance,
+            note,
+            created_at AS "createdAt"
+        FROM ${schema}.reconciliations
+        ORDER BY anchor_created_at ASC, anchor_ref_id ASC
+    `);
+    return result.rows;
+}
+
+async function createReconciliation(app, { accountId, anchorKind, anchorRefId, anchorCreatedAt, balance, note }) {
+    const { schema } = await getSchemaInfo(app);
+    if (!accountId) throw new Error('Account is required.');
+    if (!anchorRefId) throw new Error('A ledger row to reconcile is required.');
+    if (!anchorCreatedAt) throw new Error('The reconciled row date is required.');
+    const kind = anchorKind === 'adjustment' ? 'adjustment' : 'transaction';
+    const result = await query(
+        `INSERT INTO ${schema}.reconciliations (account_id, anchor_kind, anchor_ref_id, anchor_created_at, balance, note)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [accountId, kind, anchorRefId, anchorCreatedAt, balance ?? 0, note?.trim() || ''],
+    );
+    return result.rows[0];
+}
+
+async function deleteReconciliation(app, id) {
+    const { schema } = await getSchemaInfo(app);
+    await query(`DELETE FROM ${schema}.reconciliations WHERE id = $1`, [id]);
+}
+
 // Deletes many transactions and/or adjustments in a single round-trip so the UI
 // doesn't have to fire one request per selected row. Both deletes run inside one
 // transaction so the operation is atomic.
@@ -866,7 +903,7 @@ async function deleteTransactionsBulk(app, payload) {
 
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
-const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments'];
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments', 'reconciliations'];
 
 const BACKUP_FORMAT = 'arkam-backup';
 const BACKUP_VERSION = 1;
@@ -1168,6 +1205,9 @@ module.exports = {
     createClientAdjustment,
     updateClientAdjustment,
     deleteClientAdjustment,
+    listReconciliations,
+    createReconciliation,
+    deleteReconciliation,
     exportWorkspaceData,
     importWorkspaceData,
     bulkImportTransactions,

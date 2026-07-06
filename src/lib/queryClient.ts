@@ -15,7 +15,11 @@ export function createQueryClient(): QueryClient {
    queries: {
     staleTime: 30_000,
     gcTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
+    // Refetch when a tab regains focus so switching between tabs (or back to the
+    // app) surfaces changes made elsewhere — critical for a financial app where a
+    // stale ledger is dangerous. staleTime bounds this: rapid tab flips within the
+    // window don't refetch, so the local bridge isn't hammered.
+    refetchOnWindowFocus: true,
     retry: 1,
    },
    mutations: {

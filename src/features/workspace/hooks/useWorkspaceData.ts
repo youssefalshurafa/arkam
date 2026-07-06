@@ -12,6 +12,7 @@ import type {
  ClientAdjustment,
  Currency,
  Organization,
+ Reconciliation,
  Transaction,
 } from '@/shared/types';
 
@@ -27,6 +28,7 @@ export type WorkspaceData = {
  transactions: Transaction[];
  clientAccounts: ClientAccount[];
  adjustments: ClientAdjustment[];
+ reconciliations: Reconciliation[];
  backup: BackupInfo | null;
 };
 
@@ -42,15 +44,16 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
  return useQuery<WorkspaceData>({
   queryKey: queryKeys.workspaceData(userId, workspaceId),
   queryFn: async () => {
-   const [organizations, clients, currencyRows, transactions, clientAccounts, adjustments, backup] = (await Promise.all([
+   const [organizations, clients, currencyRows, transactions, clientAccounts, adjustments, reconciliations, backup] = (await Promise.all([
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
     accountingApi.listTransactions(),
     accountingApi.listAllClientAccounts(),
     accountingApi.listClientAdjustments(),
+    accountingApi.listReconciliations(),
     accountingApi.getBackupInfo(),
-   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[], BackupInfo];
+   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[], Reconciliation[], BackupInfo];
 
    let currencies = currencyRows;
    if (!currencies.length) {
@@ -58,13 +61,21 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
     currencies = (await accountingApi.listCurrencies()) as Currency[];
    }
 
-   saveDataCache({ organizations, clients, currencies, transactions, adjustments, clientAccounts }, userId, workspaceId);
-   return { organizations, clients, currencies, transactions, clientAccounts, adjustments, backup };
+   saveDataCache({ organizations, clients, currencies, transactions, adjustments, clientAccounts, reconciliations }, userId, workspaceId);
+   return { organizations, clients, currencies, transactions, clientAccounts, adjustments, reconciliations, backup };
   },
   initialData: () => {
    const cache = readDataCache(userId, workspaceId);
-   return cache ? { ...cache, backup: null } : undefined;
+   // Older cached snapshots predate `reconciliations`; default it so consumers never see undefined.
+   return cache ? { ...cache, reconciliations: cache.reconciliations ?? [], backup: null } : undefined;
   },
+  // The sessionStorage snapshot is per-tab and can be arbitrarily stale (another
+  // tab may have written new transactions to the server since it was saved).
+  // Stamp it as fetched at epoch so React Query always treats the seed as stale
+  // and runs a fresh mount refetch — the cache only speeds the first paint, it
+  // never suppresses a server read. Without this the seed counts as "fresh" for
+  // staleTime and a refreshed tab would show old data until the next mutation.
+  initialDataUpdatedAt: 0,
  });
 }
 
@@ -111,6 +122,7 @@ export function useWorkspaceCache(userId: string | null | undefined, workspaceId
    setTransactions: bind('transactions'),
    setClientAccounts: bind('clientAccounts'),
    setAdjustments: bind('adjustments'),
+   setReconciliations: bind('reconciliations'),
   };
  }, [update]);
 
