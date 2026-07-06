@@ -14,19 +14,14 @@ import { getStoredOverviewRates, saveOverviewRates } from '@/shared/lib/localSto
  */
 type OverviewStore = {
  overviewRates: Record<string, string>;
- overviewFlipAll: boolean;
  overviewFlipped: Set<string>;
- setOverviewFlipAll: Dispatch<SetStateAction<boolean>>;
  setOverviewFlipped: Dispatch<SetStateAction<Set<string>>>;
  updateOverviewRate: (cardKey: string, value: string) => void;
 };
 
 export const useOverviewStore = create<OverviewStore>((set) => ({
  overviewRates: getStoredOverviewRates(),
- overviewFlipAll: false,
  overviewFlipped: new Set(),
- setOverviewFlipAll: (updater) =>
-  set((s) => ({ overviewFlipAll: typeof updater === 'function' ? updater(s.overviewFlipAll) : updater })),
  setOverviewFlipped: (updater) =>
   set((s) => ({ overviewFlipped: typeof updater === 'function' ? updater(s.overviewFlipped) : updater })),
  updateOverviewRate: (cardKey, value) =>

@@ -931,6 +931,58 @@ async function renewSubscription({ userId, durationDays }) {
     });
 }
 
+// Super-admin action: creates a fully active account directly (no self-signup/payment
+// approval needed) with an admin-set subscription window and its own workspace, mirroring
+// what a normal signup gets. The account has no password yet — reuses the same
+// password-reset-token mechanism as inviteWorkspaceMember() so the user sets one via a
+// mailed link on first login.
+async function createUserBySuperAdmin({ name, email, durationDays }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const displayName = String(name || '').trim() || normalizedEmail;
+    const days = Number(durationDays) > 0 ? Number(durationDays) : 30;
+
+    if (!normalizedEmail) {
+        throw new Error('Email is required.');
+    }
+
+    const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (existing) {
+        throw new Error('Email is already registered.');
+    }
+
+    const userId = generateId();
+    const now = new Date();
+    const endsAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashResetToken(rawToken);
+    const tokenExpiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7-day set-password window
+
+    await withTransaction(async (client) => {
+        await runQuery(
+            `INSERT INTO users (id, email, name, status, subscription_started_at, subscription_ends_at)
+             VALUES ($1, $2, $3, 'approved', $4, $5)`,
+            [userId, normalizedEmail, displayName, now.toISOString(), endsAt.toISOString()],
+            client,
+        );
+        await createWorkspaceForUserWithExecutor(client, userId, `${displayName} Workspace`);
+        await runQuery(
+            'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
+            [generateId(), userId, tokenHash, tokenExpiresAt],
+            client,
+        );
+    });
+
+    return {
+        id: userId,
+        email: normalizedEmail,
+        name: displayName,
+        subscriptionEndsAt: endsAt.toISOString(),
+        rawToken,
+    };
+}
+
 // Super-admin override: sets a user's subscription to expire in exactly `days` days from now
 // (not appended to the existing end date, unlike renewSubscription). Also (re)activates the
 // account, so this doubles as a manual reactivate for rejected/expired users.
@@ -1166,6 +1218,7 @@ module.exports = {
     resetPasswordWithToken,
     listAllUsers,
     deleteUser,
+    createUserBySuperAdmin,
     createEmailVerificationToken,
     getEmailVerificationToken,
     consumeEmailVerificationAndCreateUser,

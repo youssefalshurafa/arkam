@@ -287,6 +287,132 @@ function DeleteDialog({ user, onCancel, onConfirm, isDeleting }: DeleteDialogPro
  );
 }
 
+type AddUserModalProps = {
+ onCancel: () => void;
+ onCreated: () => void;
+};
+
+function AddUserModal({ onCancel, onCreated }: AddUserModalProps) {
+ const [name, setName] = useState('');
+ const [email, setEmail] = useState('');
+ const [durationDays, setDurationDays] = useState('30');
+ const [isSubmitting, setIsSubmitting] = useState(false);
+ const [error, setError] = useState<string | null>(null);
+
+ const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setError(null);
+
+  const trimmedEmail = email.trim();
+  if (!trimmedEmail) {
+   setError('Email is required.');
+   return;
+  }
+  const days = Number(durationDays);
+  if (!Number.isFinite(days) || days <= 0) {
+   setError('Enter a positive number of days.');
+   return;
+  }
+
+  setIsSubmitting(true);
+  try {
+   const res = await fetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name.trim(), email: trimmedEmail, durationDays: days }),
+   });
+   const data = (await res.json()) as { error?: string };
+   if (!res.ok) {
+    setError(data.error || 'Failed to create user.');
+    return;
+   }
+   await alertDialog({ title: 'User created', message: `${trimmedEmail} has been emailed a link to set their password.` });
+   onCreated();
+  } catch {
+   setError('Network error. Please try again.');
+  } finally {
+   setIsSubmitting(false);
+  }
+ };
+
+ return (
+  <div className="fixed inset-0 z-50 flex items-center justify-center">
+   <div
+    className="absolute inset-0 bg-black/40"
+    onClick={onCancel}
+   />
+   <form
+    onSubmit={handleSubmit}
+    className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4"
+   >
+    <h2 className="text-lg font-semibold text-gray-900 mb-1">Add user</h2>
+    <p className="text-sm text-gray-500 mb-4">They&apos;ll get an email to set their password and sign in. No payment approval needed.</p>
+
+    <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
+    <input
+     type="text"
+     value={name}
+     onChange={(e) => setName(e.target.value)}
+     placeholder="Full name (optional)"
+     className="w-full mb-3 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+    />
+
+    <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+    <input
+     type="email"
+     required
+     autoFocus
+     value={email}
+     onChange={(e) => setEmail(e.target.value)}
+     placeholder="user@example.com"
+     className="w-full mb-3 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+    />
+
+    <label className="block text-xs font-medium text-gray-600 mb-1">Subscription duration (days)</label>
+    <input
+     type="number"
+     min={1}
+     value={durationDays}
+     onChange={(e) => setDurationDays(e.target.value)}
+     className="w-full mb-2 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+    />
+    <div className="flex gap-2 mb-4">
+     {[30, 90, 365].map((d) => (
+      <button
+       key={d}
+       type="button"
+       onClick={() => setDurationDays(String(d))}
+       className="text-xs px-2 py-1 rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50"
+      >
+       {d}d
+      </button>
+     ))}
+    </div>
+
+    {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+
+    <div className="flex justify-end gap-3">
+     <button
+      type="button"
+      onClick={onCancel}
+      disabled={isSubmitting}
+      className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+     >
+      Cancel
+     </button>
+     <button
+      type="submit"
+      disabled={isSubmitting}
+      className="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-60"
+     >
+      {isSubmitting ? 'Creating…' : 'Create user'}
+     </button>
+    </div>
+   </form>
+  </div>
+ );
+}
+
 function StatusBadge({ status }: { status: AccessRequest['status'] }) {
  const styles =
   status === 'approved'
@@ -507,6 +633,7 @@ export default function AdminPage() {
  const [pendingDelete, setPendingDelete] = useState<AdminUser | null>(null);
  const [isDeleting, setIsDeleting] = useState(false);
  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+ const [showAddUser, setShowAddUser] = useState(false);
 
  const [requests, setRequests] = useState<AccessRequest[]>([]);
  const [requestsLoading, setRequestsLoading] = useState(true);
@@ -674,6 +801,12 @@ export default function AdminPage() {
    }
   }
  }
+ // Within each owner's group, list teammates by role hierarchy (admin above
+ // member above viewer) rather than in arbitrary join order.
+ const ROLE_RANK: Record<string, number> = { owner: 0, admin: 1, member: 2, viewer: 3 };
+ for (const children of childrenByParentId.values()) {
+  children.sort((a, b) => (ROLE_RANK[a.role] ?? 99) - (ROLE_RANK[b.role] ?? 99));
+ }
 
  const searchLower = search.toLowerCase();
  const matchesSearch = (u: AdminUser) => u.name.toLowerCase().includes(searchLower) || u.email.toLowerCase().includes(searchLower);
@@ -821,6 +954,12 @@ export default function AdminPage() {
      >
       Refresh
      </button>
+     <button
+      onClick={() => setShowAddUser(true)}
+      className="px-3 py-2 text-sm rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+     >
+      + Add user
+     </button>
      <span className="text-xs text-gray-400 ml-auto">
       {visibleUserCount} of {users.length} users
      </span>
@@ -882,6 +1021,16 @@ export default function AdminPage() {
      onCancel={() => setPendingDelete(null)}
      onConfirm={() => void handleDelete()}
      isDeleting={isDeleting}
+    />
+   )}
+
+   {showAddUser && (
+    <AddUserModal
+     onCancel={() => setShowAddUser(false)}
+     onCreated={() => {
+      setShowAddUser(false);
+      void fetchUsers();
+     }}
     />
    )}
   </div>

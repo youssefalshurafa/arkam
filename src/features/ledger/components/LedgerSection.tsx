@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useRef, useState } from 'react';
-import type { Dispatch, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, SetStateAction } from 'react';
+import type { Dispatch, DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -1253,7 +1253,24 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
                    const pagedEntries = visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
-                   return pagedEntries.map((entry, entryIdx) => (
+                   return pagedEntries.map((entry, entryIdx) => {
+                    // Shared by the row's onContextMenu (desktop right-click) and its visible
+                    // "⋮" button (touch devices have no right-click event to hook into).
+                    const openRowMenu = (event: ReactMouseEvent) => {
+                     const rowKeyForMenu = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     if (editingLedgerRowKeys.has(rowKeyForMenu)) return;
+                     rowContextMenu.open(event, [
+                      { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId) },
+                      entry.reconciledMark
+                       ? { key: 'unreconcile', label: t('reconcile_remove_action'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
+                       : { key: 'reconcile', label: t('reconcile_action'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
+                      ...(entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= SMALL_BALANCE_THRESHOLD
+                       ? [{ key: 'writeoff', label: t('write_off_row_action'), onSelect: () => onWriteOffLedgerRow(entry, ledger.accountId) }]
+                       : []),
+                      { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const },
+                     ]);
+                    };
+                    return (
                     <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                      <tr
                       draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
@@ -1301,20 +1318,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
                       }}
                       onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
-                      onContextMenu={(e) => {
-                       const rowKeyForMenu = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                       if (editingLedgerRowKeys.has(rowKeyForMenu)) return;
-                       rowContextMenu.open(e, [
-                        { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId) },
-                        entry.reconciledMark
-                         ? { key: 'unreconcile', label: t('reconcile_remove_action'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
-                         : { key: 'reconcile', label: t('reconcile_action'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
-                        ...(entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= SMALL_BALANCE_THRESHOLD
-                         ? [{ key: 'writeoff', label: t('write_off_row_action'), onSelect: () => onWriteOffLedgerRow(entry, ledger.accountId) }]
-                         : []),
-                        { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const },
-                       ]);
-                      }}
+                      onContextMenu={openRowMenu}
                       onKeyDown={(e) => {
                        // Enter saves the row being edited (ignore Enter inside multi-line fields).
                        if (e.key !== 'Enter') return;
@@ -1444,54 +1448,76 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            </div>
                           ) : (
                            // Row actions (edit/reconcile/write off/delete) live in the right-click
-                           // context menu (see onContextMenu on the <tr> above) instead of a row of
-                           // icon buttons, so only the drag handle sits here.
-                           <span
-                            className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                            title="Drag to reorder"
-                            onMouseDown={() => {
-                             dragLedgerFromHandle.current = true;
-                            }}
-                           >
-                            <svg
-                             width="12"
-                             height="12"
-                             viewBox="0 0 24 24"
-                             fill="currentColor"
-                             aria-hidden
+                           // context menu (desktop, see onContextMenu on the <tr> above) plus the
+                           // visible "⋮" button beside the drag handle — the only way to reach them
+                           // on touch devices, which have no right-click event to hook into.
+                           <div className="flex items-center justify-center gap-1">
+                            <span
+                             className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                             title="Drag to reorder"
+                             onMouseDown={() => {
+                              dragLedgerFromHandle.current = true;
+                             }}
                             >
-                             <circle
-                              cx="9"
-                              cy="5"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="15"
-                              cy="5"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="9"
-                              cy="12"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="15"
-                              cy="12"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="9"
-                              cy="19"
-                              r="1.5"
-                             />
-                             <circle
-                              cx="15"
-                              cy="19"
-                              r="1.5"
-                             />
-                            </svg>
-                           </span>
+                             <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              aria-hidden
+                             >
+                              <circle
+                               cx="9"
+                               cy="5"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="15"
+                               cy="5"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="9"
+                               cy="12"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="15"
+                               cy="12"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="9"
+                               cy="19"
+                               r="1.5"
+                              />
+                              <circle
+                               cx="15"
+                               cy="19"
+                               r="1.5"
+                              />
+                             </svg>
+                            </span>
+                            <button
+                             type="button"
+                             title={t('row_actions_menu')}
+                             aria-label={t('row_actions_menu')}
+                             onClick={openRowMenu}
+                             className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                            >
+                             <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              aria-hidden
+                             >
+                              <circle cx="12" cy="5" r="1.8" />
+                              <circle cx="12" cy="12" r="1.8" />
+                              <circle cx="12" cy="19" r="1.8" />
+                             </svg>
+                            </button>
+                           </div>
                           )}
                          </td>
                          {orderedLedgerColumnOptions.map((column) => {
@@ -2431,7 +2457,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return null;
                      })()}
                     </Fragment>
-                   ));
+                    );
+                   });
                   })()}
                   {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) &&
                    ledger.entries.length > 0 &&

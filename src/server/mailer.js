@@ -131,6 +131,26 @@ async function sendWorkspaceInviteEmail({ to, name, inviterName, workspaceName, 
     await sendEmail({ to, subject, html, text, logLabel: 'WORKSPACE INVITE' });
 }
 
+// Sent when the super admin creates a user account directly (no signup/payment
+// approval flow) with a pre-activated subscription.
+async function sendAccountCreatedEmail({ to, name, setPasswordUrl, subscriptionEndsAt }) {
+    const subject = 'Your Arkam account is ready';
+    const endsLabel = subscriptionEndsAt
+        ? new Date(subscriptionEndsAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        : '';
+    const text = `Hi ${name},\n\nAn Arkam account has been created for you${endsLabel ? ` with access until ${endsLabel}` : ''}. Click the link below to set your password and sign in:\n\n${setPasswordUrl}\n\nThis link expires in 7 days.`;
+    const html = buildBrandedHtml({
+        heading: 'Your account is ready',
+        bodyHtml: `
+            <p style="margin:0 0 8px;font-size:14px;color:#374151;">Hi ${name}, an Arkam account has been created for you.</p>
+            ${endsLabel ? `<p style="margin:0 0 24px;font-size:14px;color:#6b7280;">Your subscription is active until <strong style="color:#111827;">${endsLabel}</strong>.</p>` : ''}
+            <a href="${setPasswordUrl}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;">Set my password</a>
+            <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;">This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
+        `,
+    });
+    await sendEmail({ to, subject, html, text, logLabel: 'ACCOUNT CREATED' });
+}
+
 // Sent to the user when the super admin rejects their request.
 async function sendAccessRejectedEmail({ to, name, note }) {
     const subject = 'Update on your Arkam access request';
@@ -236,6 +256,7 @@ module.exports = {
     sendAccessApprovedEmail,
     sendAccessRejectedEmail,
     sendWorkspaceInviteEmail,
+    sendAccountCreatedEmail,
 };
 
 async function sendPasswordResetEmail({ to, name, resetUrl }) {

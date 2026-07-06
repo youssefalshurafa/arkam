@@ -42,33 +42,23 @@ const toneClassName: Record<NonNullable<ContextMenuItem['tone']>, string> = {
  */
 export function ContextMenu({ menu, onClose }: { menu: ReturnType<typeof useContextMenu>['menu']; onClose: () => void }) {
  const ref = useRef<HTMLDivElement>(null);
- const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
 
+ // Places the menu at the raw click point (via the inline style below), then — before the
+ // browser paints — clamps it to the viewport by mutating the DOM directly rather than
+ // going through setState. The clamp amount depends on the mounted menu's actual rendered
+ // size, which is only known once it exists; a setState-based version needs a second effect
+ // to react to that mount, and two effects feeding each other's state is exactly the
+ // cascading-render pattern React's rules flag. Direct style mutation sidesteps that
+ // entirely and still never flashes the unclamped position, since layout effects run
+ // synchronously before paint.
  useLayoutEffect(() => {
-  if (!menu) {
-   setPosition(null);
-   return;
-  }
-  setPosition({ top: menu.y, left: menu.x });
- }, [menu]);
-
- useLayoutEffect(() => {
-  if (!menu || !position || !ref.current) return;
-  const rect = ref.current.getBoundingClientRect();
-  const overflowX = rect.right - window.innerWidth;
-  const overflowY = rect.bottom - window.innerHeight;
-  if (overflowX > 0 || overflowY > 0) {
-   setPosition((prev) =>
-    prev
-     ? {
-        left: overflowX > 0 ? Math.max(4, prev.left - overflowX) : prev.left,
-        top: overflowY > 0 ? Math.max(4, prev.top - overflowY) : prev.top,
-       }
-     : prev,
-   );
-  }
-  // Only re-run when the menu itself changes; the position-adjust above must not retrigger this.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const node = ref.current;
+  if (!menu || !node) return;
+  const rect = node.getBoundingClientRect();
+  const left = Math.max(4, Math.min(menu.x, window.innerWidth - rect.width - 4));
+  const top = Math.max(4, Math.min(menu.y, window.innerHeight - rect.height - 4));
+  node.style.left = `${left}px`;
+  node.style.top = `${top}px`;
  }, [menu]);
 
  useEffect(() => {
@@ -92,12 +82,12 @@ export function ContextMenu({ menu, onClose }: { menu: ReturnType<typeof useCont
   };
  }, [menu, onClose]);
 
- if (!menu || !position) return null;
+ if (!menu) return null;
 
  return (
   <div
    ref={ref}
-   style={{ position: 'fixed', top: position.top, left: position.left, zIndex: 200 }}
+   style={{ position: 'fixed', top: menu.y, left: menu.x, zIndex: 200 }}
    role="menu"
    className="min-w-[11rem] overflow-hidden rounded border border-slate-200 bg-white py-1 shadow-xl"
   >
