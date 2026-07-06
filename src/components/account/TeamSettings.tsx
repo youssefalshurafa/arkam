@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { confirmDialog } from '@/components/ui/AppDialog';
+import { confirmDialog, promptDialog } from '@/components/ui/AppDialog';
 import { accountingApi, type WorkspaceMember, type WorkspaceRole } from '@/lib/accountingApi';
 
 const ROLE_OPTIONS: WorkspaceRole[] = ['admin', 'member', 'viewer'];
@@ -44,6 +44,7 @@ export default function TeamSettings() {
  const { t } = useTranslation(language);
  const { data: session } = useSession();
  const currentUserId = session?.user?.id;
+ const isSuperAdmin = Boolean(session?.user?.isSuperAdmin);
 
  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
  const [workspaceName, setWorkspaceName] = useState('');
@@ -52,6 +53,16 @@ export default function TeamSettings() {
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState('');
  const [notice, setNotice] = useState('');
+
+ // Every workspace the user belongs to, for the "Your workspaces" list (rename/delete).
+ const [allWorkspaces, setAllWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
+ const [workspaceActionBusyId, setWorkspaceActionBusyId] = useState<string | null>(null);
+ const [workspaceActionError, setWorkspaceActionError] = useState('');
+
+ // Super-admin-only, for now (eventually gated by subscription plan instead).
+ const [newWorkspaceName, setNewWorkspaceName] = useState('');
+ const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+ const [createWorkspaceError, setCreateWorkspaceError] = useState('');
 
  // Invite form
  const [inviteName, setInviteName] = useState('');
@@ -76,6 +87,7 @@ export default function TeamSettings() {
    setLoading(true);
    try {
     const { workspaces, defaultWorkspaceId } = await accountingApi.listWorkspaces();
+    setAllWorkspaces(workspaces);
     const activeId = accountingApi.getActiveWorkspaceId() || defaultWorkspaceId || workspaces[0]?.id || null;
     const active = workspaces.find((w) => w.id === activeId) || workspaces[0] || null;
     if (active) {
@@ -128,6 +140,67 @@ export default function TeamSettings() {
   }
  };
 
+ const onCreateWorkspace = async (event: FormEvent) => {
+  event.preventDefault();
+  if (!newWorkspaceName.trim() || creatingWorkspace) return;
+  setCreateWorkspaceError('');
+  setCreatingWorkspace(true);
+  try {
+   const { workspace } = await accountingApi.createWorkspace(newWorkspaceName.trim());
+   accountingApi.setActiveWorkspaceId(workspace.id);
+   // Full reload to cleanly re-scope all workspace-bound state to the new workspace.
+   window.location.reload();
+  } catch (e) {
+   setCreateWorkspaceError(e instanceof Error ? e.message : t('team_new_workspace_failed'));
+   setCreatingWorkspace(false);
+  }
+ };
+
+ const onRenameWorkspace = async (ws: { id: string; name: string }) => {
+  setWorkspaceActionError('');
+  const name = await promptDialog({
+   title: t('team_workspace_rename_title'),
+   defaultValue: ws.name,
+   placeholder: t('team_workspace_rename_placeholder'),
+  });
+  if (!name || !name.trim() || name.trim() === ws.name) return;
+  setWorkspaceActionBusyId(ws.id);
+  try {
+   await accountingApi.renameWorkspace(ws.id, name.trim());
+   // Full reload: the sidebar workspace switcher + header both hold their own
+   // copy of the workspace list from the page, not reactive to this component.
+   window.location.reload();
+  } catch (e) {
+   setWorkspaceActionError(e instanceof Error ? e.message : t('team_workspace_rename_failed'));
+   setWorkspaceActionBusyId(null);
+  }
+ };
+
+ const onDeleteWorkspace = async (ws: { id: string; name: string }) => {
+  setWorkspaceActionError('');
+  setWorkspaceActionBusyId(ws.id);
+  try {
+   const { transactionCount } = await accountingApi.getWorkspaceTransactionCount(ws.id);
+   const confirmed = await confirmDialog({
+    title: t('team_workspace_delete_title'),
+    message: t('team_workspace_delete_message').replace('{name}', ws.name).replace('{count}', String(transactionCount)),
+    confirmText: t('team_workspace_delete'),
+    tone: 'danger',
+   });
+   if (!confirmed) {
+    setWorkspaceActionBusyId(null);
+    return;
+   }
+   await accountingApi.deleteWorkspace(ws.id);
+   // Full reload: lets page.tsx's existing stale-workspace fallback pick a
+   // valid active workspace if the deleted one was the active one.
+   window.location.reload();
+  } catch (e) {
+   setWorkspaceActionError(e instanceof Error ? e.message : t('team_workspace_delete_failed'));
+   setWorkspaceActionBusyId(null);
+  }
+ };
+
  const onRemove = async (member: WorkspaceMember) => {
   if (!workspaceId) return;
   if (!(await confirmDialog({ message: t('team_remove_confirm').replace('{name}', member.name || member.email), confirmText: t('delete'), tone: 'danger' }))) return;
@@ -146,6 +219,77 @@ export default function TeamSettings() {
 
  return (
   <section className="flex flex-col gap-6">
+   {/* Create workspace (super admin only, for now) */}
+   {isSuperAdmin && (
+    <div className={panelClass}>
+     <h2 className="text-2xl font-semibold">{t('team_new_workspace_title')}</h2>
+     <p className="mt-2 text-sm text-slate-600">{t('team_new_workspace_desc')}</p>
+
+     <form onSubmit={(e) => void onCreateWorkspace(e)} className="mt-5 flex flex-col gap-3 sm:flex-row">
+      <input
+       type="text"
+       value={newWorkspaceName}
+       onChange={(e) => setNewWorkspaceName(e.target.value)}
+       placeholder={t('team_new_workspace_placeholder')}
+       required
+       className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+      />
+      <button
+       type="submit"
+       disabled={creatingWorkspace || !newWorkspaceName.trim()}
+       className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+       {creatingWorkspace ? t('team_new_workspace_creating') : t('team_new_workspace_button')}
+      </button>
+     </form>
+     {createWorkspaceError && <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{createWorkspaceError}</p>}
+    </div>
+   )}
+
+   {/* Your workspaces (list + rename/delete for ones you own) */}
+   {allWorkspaces.length > 0 && (
+    <div className={panelClass}>
+     <h2 className="text-2xl font-semibold">{t('team_workspaces_title')}</h2>
+     <p className="mt-2 text-sm text-slate-600">{t('team_workspaces_desc')}</p>
+
+     <div className="mt-5 divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200">
+      {allWorkspaces.map((ws) => {
+       const isOwner = ws.role === 'owner';
+       const busy = workspaceActionBusyId === ws.id;
+       return (
+        <div key={ws.id} className="flex items-center justify-between gap-3 px-4 py-3">
+         <div>
+          <div className="font-medium text-gray-900">{ws.name}</div>
+          <span className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${roleBadgeClass(ws.role)}`}>{roleLabel(ws.role, t)}</span>
+         </div>
+         {isOwner && (
+          <div className="flex shrink-0 gap-2">
+           <button
+            type="button"
+            onClick={() => void onRenameWorkspace(ws)}
+            disabled={busy}
+            className="rounded border border-gray-300 px-3 py-1.5 text-xs text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+           >
+            {t('team_workspace_rename')}
+           </button>
+           <button
+            type="button"
+            onClick={() => void onDeleteWorkspace(ws)}
+            disabled={busy}
+            className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+           >
+            {t('team_workspace_delete')}
+           </button>
+          </div>
+         )}
+        </div>
+       );
+      })}
+     </div>
+     {workspaceActionError && <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{workspaceActionError}</p>}
+    </div>
+   )}
+
    {/* Invite */}
    {canManage && (
     <div className={panelClass}>

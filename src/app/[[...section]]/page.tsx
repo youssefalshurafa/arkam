@@ -9,7 +9,8 @@ import HomePage from '@/components/marketing/HomePage';
 import AccountSettings from '@/components/account/AccountSettings';
 import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
-import { confirmDialog } from '@/components/ui/AppDialog';
+import { confirmDialog, promptDialog } from '@/components/ui/AppDialog';
+import { buildLockBoundaries, violatedLock, isAtOrBeforeBoundary, NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
 import { Spinner } from '@/components/ui/Spinner';
 import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
 
@@ -28,6 +29,7 @@ import type {
  ClientLedgerEntry,
  ClientAdjustment,
  ClientAccountLedger,
+ Reconciliation,
  ImportedTransactionRow,
  ImportMappingState,
  PendingImportData,
@@ -127,7 +129,12 @@ import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import LedgerSection from '@/features/ledger/components/LedgerSection';
 import ImportWizard from '@/features/transactions/components/ImportWizard';
 import CreateOrgDialog from '@/features/organizations/components/CreateOrgDialog';
+import ToastHost from '@/shared/components/ToastHost';
+import Sidebar from '@/shared/components/Sidebar';
+import AppHeader from '@/shared/components/AppHeader';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
+import AdjustmentModal from '@/features/ledger/components/AdjustmentModal';
+import PdfExportModal from '@/features/ledger/components/PdfExportModal';
 import TransactionExportModal from '@/features/transactions/components/TransactionExportModal';
 import TransactionTableSettingsModal from '@/features/transactions/components/TransactionTableSettingsModal';
 
@@ -139,6 +146,7 @@ const EMPTY_CLIENTS: Client[] = [];
 const EMPTY_CURRENCIES: Currency[] = [];
 const EMPTY_TRANSACTIONS: Transaction[] = [];
 const EMPTY_ADJUSTMENTS: ClientAdjustment[] = [];
+const EMPTY_RECONCILIATIONS: Reconciliation[] = [];
 const EMPTY_CLIENT_ACCOUNTS: ClientAccount[] = [];
 
 function AuthenticatedHome() {
@@ -157,7 +165,11 @@ function AuthenticatedHome() {
   }
  });
  const [userWorkspaces, setUserWorkspaces] = useState<Array<{ id: string; name: string; role: string }>>([]);
- const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(null);
+ // Seeded synchronously from storage (same value accountingApi sends as the
+ // x-workspace-id header) so the very first render already keys the workspace
+ // query correctly; the effect below still re-validates/corrects it against the
+ // user's actual memberships once they load.
+ const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(() => accountingApi.getActiveWorkspaceId());
  // SECURITY: browser caches are per-browser, not per-account. Before the workspace
  // query reads any cached data, purge everything left by a different user on this
  // browser (and clear the in-memory query cache) so one user's data can never bleed
@@ -176,10 +188,10 @@ function AuthenticatedHome() {
  // Server data is owned by a single TanStack Query cache (useWorkspaceData). The
  // arrays below are derived views; the setX shims write to that cache so the
  // existing optimistic-update sites keep working, and loadData() maps to a refetch.
- const workspaceQuery = useWorkspaceData(sessionUserId);
+ const workspaceQuery = useWorkspaceData(sessionUserId, activeWorkspaceId);
  const workspaceData = workspaceQuery.data;
- const { invalidate: invalidateWorkspace, setters: workspaceSetters } = useWorkspaceCache(sessionUserId);
- const { setOrganizations, setClients, setCurrencies, setTransactions, setAdjustments, setClientAccounts } = workspaceSetters;
+ const { invalidate: invalidateWorkspace, setters: workspaceSetters } = useWorkspaceCache(sessionUserId, activeWorkspaceId);
+ const { setOrganizations, setClients, setTransactions, setAdjustments, setClientAccounts, setReconciliations } = workspaceSetters;
  const isLoading = workspaceQuery.isPending;
  const organizations = workspaceData?.organizations ?? EMPTY_ORGANIZATIONS;
  const clients = workspaceData?.clients ?? EMPTY_CLIENTS;
@@ -197,6 +209,7 @@ function AuthenticatedHome() {
  const currencies = workspaceData?.currencies ?? EMPTY_CURRENCIES;
  const transactions = workspaceData?.transactions ?? EMPTY_TRANSACTIONS;
  const adjustments = workspaceData?.adjustments ?? EMPTY_ADJUSTMENTS;
+ const reconciliations = workspaceData?.reconciliations ?? EMPTY_RECONCILIATIONS;
  const clientAccounts = workspaceData?.clientAccounts ?? EMPTY_CLIENT_ACCOUNTS;
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
@@ -400,8 +413,6 @@ function AuthenticatedHome() {
  const error = useAppStatusStore((s) => s.error);
  const setError = useAppStatusStore((s) => s.setError);
  const [importSummary, setImportSummary] = useState('');
- const toast = useAppStatusStore((s) => s.toast);
- const toastPos = useAppStatusStore((s) => s.toastPos);
  const setIsImportingTransactions = useTransactionsStore((s) => s.setIsImportingTransactions);
  const pendingImportData = useTransactionsStore((s) => s.pendingImportData);
  const setPendingImportData = useTransactionsStore((s) => s.setPendingImportData);
@@ -759,6 +770,15 @@ function AuthenticatedHome() {
   setSelectedOrganizationForClients(organization);
   setSection('organization-clients');
   router.push(`/organizations/${organization.id}`);
+ }
+
+ // Jumps to the Clients tab with the new-client form pre-scoped to this organization,
+ // reusing the existing create-client form/submit path unchanged.
+ function openAddClientForOrganization(organization: Organization) {
+  setClientForm({ ...emptyClientForm(), organizationId: organization.id });
+  setOpenAccountOnCreate(true);
+  setNewClientAccountDrafts([createNewClientAccountDraft()]);
+  navigateToSection('clients');
  }
 
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients', accountId?: number | null) {
@@ -1209,6 +1229,7 @@ function AuthenticatedHome() {
         chargesExchangeRate: input.chargesExchangeRate,
         chargesDescription: input.chargesDescription,
         description: input.description,
+        archiveNote: input.archiveNote ?? tx.archiveNote,
         createdAt: input.createdAt,
        }
      : tx,
@@ -1261,6 +1282,11 @@ function AuthenticatedHome() {
     description: draft.description,
     createdAt: resolveCreatedAt(draft.createdDate, adj.createdAt),
    };
+   // Single-row saves check the lock here; batch saves are checked once up-front in
+   // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
+   if (!skipReload && !(await confirmIfEditLocked([adj.accountId], adj.createdAt, [updatedAdj.accountId], updatedAdj.createdAt, adj.id))) {
+    return false;
+   }
    try {
     await accountingApi.updateClientAdjustment(updatedAdj);
     setError('');
@@ -1325,6 +1351,12 @@ function AuthenticatedHome() {
    description: draft.description,
    createdAt,
   };
+
+  // Single-row saves check the lock here; batch saves are checked once up-front in
+  // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
+  if (!skipReload && !(await confirmIfEditLocked([transaction.accountFromId, transaction.accountToId], transaction.createdAt, [payload.accountFromId, payload.accountToId], payload.createdAt, transaction.id))) {
+   return false;
+  }
 
   try {
    await accountingApi.updateTransaction(payload);
@@ -1406,6 +1438,30 @@ function AuthenticatedHome() {
 
  async function onSaveAllLedger(ledger: ClientAccountLedger) {
   const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)).filter((k) => editingLedgerRowKeys.has(k));
+
+  // One up-front lock check for the whole batch (the per-row saves below skipReload, so
+  // they don't each prompt). Warns once if any edited row touches reconciled history.
+  let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+  for (const key of keys) {
+   const [txIdStr, accIdStr] = key.split(':');
+   const accId = parseInt(accIdStr, 10);
+   const draft = ledgerTransactionDrafts[key];
+   if (!draft) continue;
+   if (draft.isAdjustment && draft.adjustmentId) {
+    const adj = adjustments.find((a) => a.id === draft.adjustmentId);
+    if (!adj) continue;
+    batchLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries) ?? violatedLock([accId], resolveCreatedAt(draft.createdDate, adj.createdAt), adj.id, lockBoundaries);
+   } else {
+    const tx = transactions.find((t) => t.id === parseInt(txIdStr, 10));
+    if (!tx) continue;
+    batchLockHit = violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries) ?? violatedLock([accId, draft.counterpartyAccountId], resolveCreatedAt(draft.createdDate, tx.createdAt), tx.id, lockBoundaries);
+   }
+   if (batchLockHit) break;
+  }
+  if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
+   return;
+  }
+
   // Fire all saves in parallel so 100+ rows finish in one round-trip batch rather than sequentially.
   // Each save applies its optimistic patch, so the table is already up to date here.
   const results = await Promise.all(
@@ -1580,6 +1636,53 @@ function AuthenticatedHome() {
    n.delete(key);
    return n;
   });
+ }
+
+ // Marks one ledger row as reconciled with the client at its running balance. The
+ // captured balance + row (createdAt, id) become a lock line protecting earlier rows.
+ async function onReconcileLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
+  if (entry.reconciledMark) return; // already reconciled on this exact row
+  const note = await promptDialog({
+   title: t('reconcile_prompt_title'),
+   message: t('reconcile_prompt_message', { balance: formatLockBalance(ledgerAccountId, entry.runningBalance) }),
+   placeholder: t('reconcile_note_placeholder'),
+   confirmText: t('reconcile_confirm'),
+  });
+  if (note === null) return; // cancelled
+  const anchorKind: 'transaction' | 'adjustment' = entry.isAdjustment ? 'adjustment' : 'transaction';
+  const anchorRefId = entry.isAdjustment ? entry.adjustmentId ?? 0 : entry.transactionId;
+  try {
+   const created = await accountingApi.createReconciliation({
+    accountId: ledgerAccountId,
+    anchorKind,
+    anchorRefId,
+    anchorCreatedAt: entry.createdAt,
+    balance: entry.runningBalance,
+    note: note.trim(),
+   });
+   setReconciliations((prev) => [
+    ...prev,
+    { id: created.id, accountId: ledgerAccountId, anchorKind, anchorRefId, anchorCreatedAt: entry.createdAt, balance: entry.runningBalance, note: note.trim(), createdAt: new Date().toISOString() },
+   ]);
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onRemoveReconciliation(entry: ClientLedgerEntry, ledgerAccountId: number) {
+  const markId = entry.reconciledMark?.id;
+  if (!markId) return;
+  if (!(await confirmDialog({ message: t('reconcile_remove_confirm'), confirmText: t('reconcile_remove'), tone: 'danger' }))) return;
+  try {
+   await accountingApi.deleteReconciliation(markId);
+   setReconciliations((prev) => prev.filter((r) => r.id !== markId));
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
  }
 
  function onToggleLedgerEntrySelection(key: string) {
@@ -2051,6 +2154,11 @@ function AuthenticatedHome() {
     createdAt: newTransactionCreatedAt,
    };
 
+   // Reconciliation guard: a new expense dated at or before the lock line rewrites history.
+   if (!(await confirmIfLocked([adjPayload.accountId], adjPayload.createdAt, NEW_ROW_REF_ID))) {
+    return;
+   }
+
    transactionSubmitLock.current = true;
    setIsSubmittingTransaction(true);
    try {
@@ -2137,6 +2245,12 @@ function AuthenticatedHome() {
    descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
    createdAt: newTransactionCreatedAt,
   };
+
+  // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled
+  // history. Archive-only records never touch any ledger, so they are exempt.
+  if (!isArchiveCreate && !(await confirmIfLocked([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID))) {
+   return;
+  }
 
   transactionSubmitLock.current = true;
   setIsSubmittingTransaction(true);
@@ -2803,6 +2917,26 @@ function AuthenticatedHome() {
    return;
   }
 
+  // One up-front lock check for the whole batch: warn once if any edited row is dated
+  // on/before, or moves onto, reconciled history.
+  let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+  for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
+   const draft = transactionTableDrafts[transactionId];
+   const transaction = transactionTableRowMap.get(transactionId);
+   if (!draft || !transaction) continue;
+   if (draft.isAdjustment && draft.adjustmentId) {
+    const adj = adjustments.find((a) => a.id === draft.adjustmentId);
+    if (!adj) continue;
+    batchLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries) ?? violatedLock([adj.accountId], resolveCreatedAt(draft.createdDate, adj.createdAt), adj.id, lockBoundaries);
+   } else {
+    batchLockHit = violatedLock([transaction.accountFromId, transaction.accountToId], transaction.createdAt, transaction.id, lockBoundaries) ?? violatedLock([draft.accountFromId, draft.accountToId], resolveCreatedAt(draft.createdDate, transaction.createdAt), transaction.id, lockBoundaries);
+   }
+   if (batchLockHit) break;
+  }
+  if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
+   return;
+  }
+
   try {
    for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
     const draft = transactionTableDrafts[transactionId];
@@ -2885,7 +3019,8 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!(await confirmDialog({ message: t('transaction_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
+  const tx = transactions.find((t) => t.id === id);
+  if (!(await confirmDeleteWithLock(tx ? [tx.accountFromId, tx.accountToId] : [], tx?.createdAt ?? '', id, 'transaction_delete_confirm'))) {
    return;
   }
 
@@ -2970,6 +3105,13 @@ function AuthenticatedHome() {
    createdAt,
   };
 
+  // Reconciliation guard: creating/re-dating an expense on or before the lock line — or
+  // editing one that currently sits there — rewrites reconciled history.
+  const adjRefId = adjustmentModal.editingId ?? NEW_ROW_REF_ID;
+  if (!(await confirmIfEditLocked(existingAdj ? [existingAdj.accountId] : [], existingAdj?.createdAt ?? createdAt, [adjustmentModal.accountId], createdAt, adjRefId))) {
+   return;
+  }
+
   try {
    if (adjustmentModal.editingId) {
     await accountingApi.updateClientAdjustment({
@@ -2996,7 +3138,8 @@ function AuthenticatedHome() {
    return;
   }
 
-  if (!(await confirmDialog({ message: t('adjustment_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
+  const adj = adjustments.find((a) => a.id === id);
+  if (!(await confirmDeleteWithLock(adj ? [adj.accountId] : [], adj?.createdAt ?? '', id, 'adjustment_delete_confirm'))) {
    return;
   }
 
@@ -3006,6 +3149,54 @@ function AuthenticatedHome() {
    await loadData();
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
+ }
+
+ // One-click zero-out for a small (negligible) account balance: creates a single
+ // adjustment for the exact remaining amount, in the account's own currency, so no
+ // exchange rate is needed. Direction is the inverse of the balance's sign since a
+ // positive balance means the client owes us (needs a debit adjustment to net to 0).
+ async function onWriteOffBalance(accountId: number, balance: number) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const amount = Math.abs(balance);
+  if (amount <= 0) return;
+
+  const account = clientAccounts.find((a) => a.id === accountId);
+  const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
+  if (!account || !client) return;
+
+  const confirmed = await confirmDialog({
+   title: t('write_off_confirm_title'),
+   message: t('write_off_confirm_message')
+    .replace('{amount}', amount.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
+    .replace('{currency}', account.currencySymbol || account.currencyCode)
+    .replace('{name}', client.name),
+   confirmText: t('write_off_confirm_button'),
+   tone: 'danger',
+  });
+  if (!confirmed) return;
+
+  try {
+   await accountingApi.createClientAdjustment({
+    accountId,
+    amount,
+    direction: balance > 0 ? 'debit' : 'credit',
+    currencyId: account.currencyId,
+    currencyCode: account.currencyCode,
+    currencySymbol: account.currencySymbol,
+    exchangeRate: 1,
+    exchangeRateReversed: false,
+    description: t('write_off_description'),
+    createdAt: nextCreatedAtForDate(new Date().toISOString().slice(0, 10)),
+   });
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
   }
  }
 
@@ -3106,11 +3297,22 @@ function AuthenticatedHome() {
    return;
   }
 
-  const confirmed = await confirmDialog({
-   message: t('transactions_delete_selected_confirm', { count: idsToDelete.length }),
-   confirmText: t('delete'),
-   tone: 'danger',
-  });
+  // Reconciliation guard: if any selected row sits at or before a lock line, show the
+  // lock warning instead of the plain count confirm (one dialog either way).
+  let bulkLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+  for (const id of idsToDelete) {
+   if (id < 0) {
+    const adj = adjustments.find((a) => a.id === -id);
+    if (adj) bulkLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries);
+   } else {
+    const tx = transactions.find((t) => t.id === id);
+    if (tx) bulkLockHit = violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries);
+   }
+   if (bulkLockHit) break;
+  }
+  const confirmed = bulkLockHit
+   ? await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(bulkLockHit.accountId, bulkLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' })
+   : await confirmDialog({ message: t('transactions_delete_selected_confirm', { count: idsToDelete.length }), confirmText: t('delete'), tone: 'danger' });
   if (!confirmed) {
    return;
   }
@@ -3145,10 +3347,32 @@ function AuthenticatedHome() {
   const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
   const next = [...without.slice(0, insertAt), ...draggedIds, ...without.slice(insertAt)];
 
-  setManualRowOrder(next);
-
   // Determine date-zone changes for each dragged row
   const rowMap = new Map(displayedTransactionRows.map((r) => [r.id, r]));
+
+  // Reconciliation guard: a drag that re-dates a row onto (or currently sitting on)
+  // reconciled history must warn before we reorder. Replays the zone logic below.
+  let dropLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+  for (const draggedId of draggedIds) {
+   const draggedRow = rowMap.get(draggedId);
+   if (!draggedRow) continue;
+   const pos = next.indexOf(draggedId);
+   const neighborAbove = (() => { for (let i = pos - 1; i >= 0; i--) { if (!dragSet.has(next[i])) return rowMap.get(next[i]); } })();
+   const neighborBelow = (() => { for (let i = pos + 1; i < next.length; i++) { if (!dragSet.has(next[i])) return rowMap.get(next[i]); } })();
+   const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
+   const draggedDate = draggedRow.createdAt.slice(0, 10);
+   const newCreatedAt = !zoneDate || zoneDate === draggedDate ? draggedRow.createdAt : zoneDate + draggedRow.createdAt.slice(10);
+   const accIds = draggedRow.isAdjustment ? [draggedRow.accountFromId] : [draggedRow.accountFromId, draggedRow.accountToId];
+   const refId = draggedRow.isAdjustment ? draggedRow.adjustmentId ?? 0 : draggedRow.id;
+   dropLockHit = violatedLock(accIds, draggedRow.createdAt, refId, lockBoundaries) ?? violatedLock(accIds, newCreatedAt, refId, lockBoundaries);
+   if (dropLockHit) break;
+  }
+  if (dropLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(dropLockHit.accountId, dropLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
+   return;
+  }
+
+  setManualRowOrder(next);
+
   if (!accountingApi) return;
 
   try {
@@ -3258,6 +3482,14 @@ function AuthenticatedHome() {
    const ts = dayStart + ((dayEnd - dayStart) * (i + 1)) / (next.length + 1);
    newTimes.set(k, new Date(ts).toISOString());
   });
+
+  // Reconciliation guard: reordering rows at or before the lock line rewrites reconciled history.
+  const reorderRows = next.flatMap((k) => {
+   const e = entryMap.get(k);
+   if (!e) return [];
+   return [{ createdAt: e.createdAt, refId: e.isAdjustment ? e.adjustmentId ?? 0 : e.transactionId, newCreatedAt: newTimes.get(k) ?? e.createdAt }];
+  });
+  if (!(await confirmIfReorderLocked(accountId, reorderRows))) return;
 
   // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
   setTransactions((prev) =>
@@ -3416,6 +3648,11 @@ function AuthenticatedHome() {
     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    };
 
+   // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
+   if (!skipReload && !(await confirmIfEditLocked([transaction.accountFromId], transaction.createdAt, [adjustmentPayload.accountId], adjustmentPayload.createdAt, adjustmentPayload.id))) {
+    return;
+   }
+
    try {
     await accountingApi.updateClientAdjustment(adjustmentPayload);
     setError('');
@@ -3462,8 +3699,14 @@ function AuthenticatedHome() {
    chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
    chargesDescription: draft.chargesDescription,
    description: draft.description,
+   archiveNote: draft.archiveNote,
    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
   };
+
+  // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
+  if (!skipReload && !(await confirmIfEditLocked([transaction.accountFromId, transaction.accountToId], transaction.createdAt, [transactionPayload.accountFromId, transactionPayload.accountToId], transactionPayload.createdAt, transaction.id))) {
+   return;
+  }
 
   try {
    await accountingApi.updateTransaction(transactionPayload);
@@ -3629,7 +3872,7 @@ function AuthenticatedHome() {
  async function onExportArchivePdf() {
   if (!accountingApi) return;
   try {
-   const html = generateArchiveHtml({ t, numLocale, isRTL, language, pdfSettings }, transactions);
+   const html = generateArchiveHtml({ t, numLocale, isRTL, language, pdfSettings }, displayedTransactionRows, transactionTableSettings.columns);
    const exportDate = new Date().toISOString().slice(0, 10);
    const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `archive_${exportDate}.pdf` });
    if (!result.ok) setError(t('error_failed_save'));
@@ -3738,11 +3981,89 @@ function AuthenticatedHome() {
  const showToast = useAppStatusStore((s) => s.showToast);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
 
+ // Newest reconciliation per client account = the lock line used by the guards below.
+ const lockBoundaries = useMemo(() => buildLockBoundaries(reconciliations), [reconciliations]);
+
+ // Formats a reconciled balance for dialogs, e.g. "$100,553.00".
+ function formatLockBalance(accountId: number, balance: number): string {
+  const symbol = clientAccountMap.get(accountId)?.currencySymbol ?? '';
+  return `${symbol}${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+ }
+
+ /**
+  * Guard shared by all four dangerous operations. `accountIds` are the accounts a
+  * change touches (a transaction hits both from & to); `createdAt`/`refId` locate
+  * the affected row (pass NEW_ROW_REF_ID for a not-yet-created transaction). Returns
+  * true to proceed — either nothing is locked, or the user confirmed the warning.
+  */
+ async function confirmIfLocked(accountIds: Array<number | null | undefined>, createdAt: string, refId: number): Promise<boolean> {
+  const hit = violatedLock(accountIds, createdAt, refId, lockBoundaries);
+  if (!hit) return true;
+  return confirmDialog({
+   title: t('reconcile_warn_title'),
+   message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
+   confirmText: t('reconcile_warn_confirm'),
+   tone: 'danger',
+  });
+ }
+
+ /**
+  * Reorder variant of the guard: warns if any reflowed row sits at or before an
+  * account's lock line, either at its current timestamp or the one the drag assigns.
+  * Returns true to proceed.
+  */
+ async function confirmIfReorderLocked(accountId: number, rows: Array<{ createdAt: string; refId: number; newCreatedAt: string }>): Promise<boolean> {
+  const boundary = lockBoundaries.get(accountId);
+  if (!boundary) return true;
+  const touches = rows.some((r) => isAtOrBeforeBoundary(r.createdAt, r.refId, boundary) || isAtOrBeforeBoundary(r.newCreatedAt, r.refId, boundary));
+  if (!touches) return true;
+  return confirmDialog({
+   title: t('reconcile_warn_title'),
+   message: t('reconcile_warn_message', { balance: formatLockBalance(accountId, boundary.balance) }),
+   confirmText: t('reconcile_warn_confirm'),
+   tone: 'danger',
+  });
+ }
+
+ /**
+  * Delete confirmation that folds in the reconciliation guard: if the row is at or
+  * before a lock line it shows the lock warning, otherwise the normal delete prompt —
+  * one dialog either way. Returns true to proceed.
+  */
+ async function confirmDeleteWithLock(accountIds: Array<number | null | undefined>, createdAt: string, refId: number, fallbackMessageKey: string): Promise<boolean> {
+  const hit = violatedLock(accountIds, createdAt, refId, lockBoundaries);
+  if (hit) {
+   return confirmDialog({
+    title: t('reconcile_warn_title'),
+    message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
+    confirmText: t('reconcile_warn_confirm'),
+    tone: 'danger',
+   });
+  }
+  return confirmDialog({ message: t(fallbackMessageKey), confirmText: t('delete'), tone: 'danger' });
+ }
+
+ /**
+  * Edit guard: warns if a row is locked either where it is now (old position) or where
+  * the edit would move it (new position) — covers re-dating and amount changes on or
+  * near reconciled history. Returns true to proceed.
+  */
+ async function confirmIfEditLocked(oldAccountIds: Array<number | null | undefined>, oldCreatedAt: string, newAccountIds: Array<number | null | undefined>, newCreatedAt: string, refId: number): Promise<boolean> {
+  const hit = violatedLock(oldAccountIds, oldCreatedAt, refId, lockBoundaries) ?? violatedLock(newAccountIds, newCreatedAt, refId, lockBoundaries);
+  if (!hit) return true;
+  return confirmDialog({
+   title: t('reconcile_warn_title'),
+   message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
+   confirmText: t('reconcile_warn_confirm'),
+   tone: 'danger',
+  });
+ }
+
  // Per-client balances for the clients list/group view. Keyed by clientId, each value is
- // an array of { currencyCode, currencySymbol, balance } — one entry per account.
+ // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
  const clientPageBalances = useMemo(
-  () => computeClientPageBalances({ clientAccounts, transactions, adjustments, clientAccountMap }),
-  [clientAccounts, transactions, adjustments, clientAccountMap],
+  () => computeClientPageBalances({ clientAccounts, transactions, adjustments }),
+  [clientAccounts, transactions, adjustments],
  );
 
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
@@ -3950,8 +4271,8 @@ function AuthenticatedHome() {
  const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 2; // +1 actions col, +1 checkbox col
 
  const selectedClientLedgers: ClientAccountLedger[] = useMemo(
-  () => computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, adjustments, clientAccountMap, currencyMap }),
-  [adjustments, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
+  () => computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, adjustments, reconciliations, clientAccountMap, currencyMap }),
+  [adjustments, reconciliations, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
  );
 
  // Totals for the rows the user has checkbox-selected in the ledger, shown next to the
@@ -4343,9 +4664,6 @@ function AuthenticatedHome() {
       enabledCurrencies={enabledCurrencies}
       clientAccounts={clientAccounts}
       transactions={transactions}
-      setCurrencies={setCurrencies}
-      onReload={loadData}
-      onError={setError}
      />
     ) : null}
    </div>
@@ -4356,294 +4674,22 @@ function AuthenticatedHome() {
   <div className={`min-h-screen flex bg-gray-100 text-gray-900 ${isRTL ? 'rtl' : 'ltr'}`}>
    <main className="flex w-full">
     {/* Classic sidebar - desktop only */}
-    <aside
-     className={`hidden lg:flex flex-col text-white border-r shrink-0 transition-[width,background-color] duration-200 ${
-      section === 'settings' ? 'bg-[#3b2f63] border-[#2a2049]' : 'bg-[#1e3a5f] border-[#15304f]'
-     } ${isSidebarCollapsed ? 'w-16' : 'w-56'}`}
-     style={{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}
-    >
-     {/* Brand */}
-     <div className={`flex items-center border-b border-white/10 px-3 py-3 ${isSidebarCollapsed ? 'justify-center' : 'justify-between gap-2'}`}>
-      {!isSidebarCollapsed && (
-       <div className="flex min-w-0 items-center rounded-lg bg-white px-2.5 py-1.5 shadow-sm">
-        <Image
-         src="/logo/arkam-logo.png"
-         alt="Arkam"
-         width={720}
-         height={876}
-         priority
-         className="h-9 w-auto"
-        />
-       </div>
-      )}
-      <button
-       type="button"
-       onClick={() =>
-        setIsSidebarCollapsed((current) => {
-         const next = !current;
-         try {
-          localStorage.setItem('arkam:sidebar-collapsed', String(next));
-         } catch {}
-         return next;
-        })
-       }
-       aria-label={isSidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
-       title={isSidebarCollapsed ? t('sidebar_expand') : t('sidebar_collapse')}
-       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/20 text-blue-200 transition hover:bg-white/10 hover:text-white"
-      >
-       {isSidebarCollapsed ? (isRTL ? '<' : '>') : isRTL ? '>' : '<'}
-      </button>
-     </div>
-     {/* Navigation */}
-     <nav className="flex-1 py-1">
-      {sidebarItems.map((item) => {
-       const isActive = item.isActive;
-       return (
-        <button
-         key={item.id}
-         type="button"
-         onClick={item.onClick}
-         aria-pressed={isActive}
-         aria-label={item.label}
-         title={item.label}
-         className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium transition ${
-          isActive ? (section === 'settings' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white') : 'text-blue-100 hover:bg-white/10 hover:text-white'
-         } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-        >
-         <span className="shrink-0">{renderIcon(item.icon, 'h-4 w-4')}</span>
-         {isSidebarCollapsed ? null : <span className="truncate">{item.label}</span>}
-        </button>
-       );
-      })}
-
-      {/* Settings entry — expands its sub-tabs in place instead of swapping the sidebar. */}
-      <button
-       type="button"
-       onClick={() => navigateToSection('settings')}
-       aria-pressed={section === 'settings'}
-       aria-label={t('settings_title')}
-       title={t('settings_title')}
-       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium transition ${
-        section === 'settings' ? 'bg-purple-600 text-white' : 'text-blue-100 hover:bg-white/10 hover:text-white'
-       } ${isSidebarCollapsed ? 'justify-center' : ''}`}
-      >
-       <span className="shrink-0">{renderIcon('settings', 'h-4 w-4')}</span>
-       {isSidebarCollapsed ? null : <span className="truncate">{t('settings_title')}</span>}
-      </button>
-      {section === 'settings' && !isSidebarCollapsed
-       ? settingsTabs.map((tab) => (
-          <button
-           key={tab.key}
-           type="button"
-           onClick={() => setSettingsTab(tab.key)}
-           aria-pressed={settingsTab === tab.key}
-           title={tab.label}
-           className={`flex w-full items-center gap-2.5 py-2 pl-9 pr-3 text-sm transition ${
-            settingsTab === tab.key ? 'bg-purple-600/70 text-white' : 'text-blue-200 hover:bg-white/10 hover:text-white'
-           }`}
-          >
-           <span className="shrink-0">{renderIcon(tab.icon, 'h-3.5 w-3.5')}</span>
-           <span className="truncate">{tab.label}</span>
-          </button>
-         ))
-       : null}
-     </nav>
-     {/* Footer */}
-     <div className="border-t border-white/10 py-1">
-      <button
-       type="button"
-       onClick={() => {
-        accountingApi.setActiveWorkspaceId(null);
-        void signOut({ callbackUrl: '/login' });
-       }}
-       aria-label={t('sign_out')}
-       title={t('sign_out')}
-       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-blue-100 transition hover:bg-white/10 hover:text-white ${
-        isSidebarCollapsed ? 'justify-center' : ''
-       }`}
-      >
-       <span className="shrink-0">{renderIcon('auth', 'h-4 w-4')}</span>
-       {isSidebarCollapsed ? null : <span>{t('sign_out')}</span>}
-      </button>
-      {!isSidebarCollapsed && userWorkspaces.length > 1 ? (
-       <div className="px-3 pb-1 pt-1">
-        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-blue-300">{t('workspace_label')}</label>
-        <select
-         value={activeWorkspaceId ?? ''}
-         onChange={(event) => onSwitchWorkspace(event.target.value)}
-         className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
-        >
-         {userWorkspaces.map((workspace) => (
-          <option
-           key={workspace.id}
-           value={workspace.id}
-          >
-           {workspace.name}
-          </option>
-         ))}
-        </select>
-       </div>
-      ) : null}
-      {isSidebarCollapsed ? (
-       <div className="flex justify-center px-2 pb-2 pt-1">
-        <select
-         value={language}
-         onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
-         title={t('select_language')}
-         className="w-full rounded border border-white/20 bg-white/10 px-1 py-1 text-center text-xs text-blue-100 outline-none transition focus:border-blue-300"
-        >
-         <option
-          value="en"
-          className="bg-white text-slate-900"
-         >
-          EN
-         </option>
-         <option
-          value="ar"
-          className="bg-white text-slate-900"
-         >
-          عر
-         </option>
-         <option
-          value="fr"
-          className="bg-white text-slate-900"
-         >
-          FR
-         </option>
-        </select>
-       </div>
-      ) : (
-       <div className="px-3 pb-2 pt-1">
-        <select
-         value={language}
-         onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
-         className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
-        >
-         <option
-          value="en"
-          className="bg-white text-slate-900"
-         >
-          {t('english')}
-         </option>
-         <option
-          value="ar"
-          className="bg-white text-slate-900"
-         >
-          {t('arabic')}
-         </option>
-         <option
-          value="fr"
-          className="bg-white text-slate-900"
-         >
-          {t('french')}
-         </option>
-        </select>
-       </div>
-      )}
-     </div>
-    </aside>
+    <Sidebar
+     sidebarItems={sidebarItems}
+     isSidebarCollapsed={isSidebarCollapsed}
+     setIsSidebarCollapsed={setIsSidebarCollapsed}
+     userWorkspaces={userWorkspaces}
+     activeWorkspaceId={activeWorkspaceId}
+     onSwitchWorkspace={onSwitchWorkspace}
+     navigateToSection={navigateToSection}
+     settingsTab={settingsTab}
+     setSettingsTab={setSettingsTab}
+     settingsTabs={settingsTabs}
+     section={section}
+    />
 
     <div className="flex min-w-0 flex-1 flex-col overflow-auto">
-     {/* Top bar - mobile navigation */}
-     <div className="border-b border-[#15304f] bg-[#1e3a5f] px-4 py-2 lg:hidden">
-      <div className="flex items-center justify-between gap-2 overflow-x-auto">
-       <span className="inline-flex shrink-0 items-center rounded-md bg-white px-1.5 py-1 shadow-sm">
-        <Image
-         src="/logo/arkam-logo.png"
-         alt="Arkam"
-         width={720}
-         height={876}
-         className="h-7 w-auto"
-        />
-       </span>
-       <div className="flex shrink-0 items-center gap-1">
-        {sidebarItems.map((item) => {
-         const isActive = item.isActive;
-         return (
-          <button
-           key={item.id}
-           type="button"
-           onClick={item.onClick}
-           aria-pressed={isActive}
-           title={item.label}
-           className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs font-medium transition ${
-            isActive ? 'border-blue-400 bg-blue-600 text-white' : 'border-white/20 text-blue-100 hover:bg-white/10 hover:text-white'
-           }`}
-          >
-           {renderIcon(item.icon, 'h-4 w-4')}
-           <span className="hidden sm:inline">{item.label}</span>
-          </button>
-         );
-        })}
-        <button
-         type="button"
-         onClick={() => navigateToSection('settings')}
-         title={t('settings_title')}
-         className="inline-flex items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs text-blue-100 transition hover:bg-white/10 hover:text-white"
-        >
-         {renderIcon('settings', 'h-4 w-4')}
-        </button>
-        <button
-         type="button"
-         onClick={() => {
-          accountingApi.setActiveWorkspaceId(null);
-          void signOut({ callbackUrl: '/login' });
-         }}
-         title={t('sign_out')}
-         className="inline-flex items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs text-blue-100 transition hover:bg-white/10 hover:text-white"
-        >
-         {renderIcon('auth', 'h-4 w-4')}
-        </button>
-        <select
-         value={language}
-         onChange={(event) => setLanguage(event.target.value as 'en' | 'ar' | 'fr')}
-         className="rounded border border-white/20 bg-white/10 px-1.5 py-1 text-xs text-blue-100 outline-none"
-        >
-         <option
-          value="en"
-          className="bg-white text-slate-900"
-         >
-          EN
-         </option>
-         <option
-          value="ar"
-          className="bg-white text-slate-900"
-         >
-          عر
-         </option>
-         <option
-          value="fr"
-          className="bg-white text-slate-900"
-         >
-          FR
-         </option>
-        </select>
-       </div>
-      </div>
-     </div>
-
-     {/* Page title bar · hidden when in settings (settings has its own header) */}
-     {section !== 'client-ledger' && section !== 'settings' ? (
-      <div className="border-b border-gray-200 bg-white px-5 py-3">
-       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-         <h1 className="text-sm font-semibold text-gray-800">{activeSectionMeta.title}</h1>
-         <p className="mt-0.5 text-xs text-gray-500">{activeSectionMeta.description}</p>
-        </div>
-        <div className="flex items-center gap-6">
-         {shellMetrics.map((metric) => (
-          <div
-           key={metric.label}
-           className="text-right"
-          >
-           <p className="text-xs text-gray-500">{metric.label}</p>
-           <p className="text-sm font-semibold text-gray-800">{metric.value}</p>
-          </div>
-         ))}
-        </div>
-       </div>
-      </div>
-     ) : null}
+     <AppHeader sidebarItems={sidebarItems} section={section} navigateToSection={navigateToSection} activeSectionMeta={activeSectionMeta} shellMetrics={shellMetrics} />
 
      {/* Settings: full-width, no outer padding */}
      {section === 'settings' ? settingsSection : null}
@@ -4788,6 +4834,10 @@ function AuthenticatedHome() {
         <OrganizationsReadOnly
          organizations={organizations}
          clients={clients}
+         clientAccounts={clientAccounts}
+         transactions={transactions}
+         adjustments={adjustments}
+         currencies={currencies}
          openOrganizationClientsPage={openOrganizationClientsPage}
          onOpenSettings={() => {
           setSettingsTab('organizations');
@@ -4826,13 +4876,24 @@ function AuthenticatedHome() {
             <p className="mt-2 text-sm text-slate-600">{selectedOrganizationForClients ? t('organization_page_description') : t('organization_page_no_organization')}</p>
            </div>
 
-           <button
-            type="button"
-            onClick={() => navigateToSection('organizations')}
-            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-           >
-            {t('organization_page_back')}
-           </button>
+           <div className="flex shrink-0 gap-2">
+            {selectedOrganizationForClients ? (
+             <button
+              type="button"
+              onClick={() => openAddClientForOrganization(selectedOrganizationForClients)}
+              className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+             >
+              {t('organization_add_client')}
+             </button>
+            ) : null}
+            <button
+             type="button"
+             onClick={() => navigateToSection('organizations')}
+             className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+             {t('organization_page_back')}
+            </button>
+           </div>
           </div>
 
           {selectedOrganizationForClients ? (
@@ -4921,6 +4982,7 @@ function AuthenticatedHome() {
          setSettingsTab={setSettingsTab}
          selectedClientForAccounts={selectedClientForAccounts}
          setSelectedClientForAccounts={setSelectedClientForAccounts}
+         onWriteOffBalance={onWriteOffBalance}
         />
        ) : null}
 
@@ -4945,6 +5007,8 @@ function AuthenticatedHome() {
          renderLedgerCurrencySuffix={renderLedgerCurrencySuffix}
          onCancelAllLedger={onCancelAllLedger}
          onDeleteLedgerEntry={onDeleteLedgerEntry}
+         onReconcileLedgerEntry={onReconcileLedgerEntry}
+         onRemoveReconciliation={onRemoveReconciliation}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditAllLedger={onEditAllLedger}
          onLedgerColumnDragStart={onLedgerColumnDragStart}
@@ -5076,425 +5140,9 @@ function AuthenticatedHome() {
     />
    ) : null}
 
-   {adjustmentModal
-    ? (() => {
-       const ledger = selectedClientLedgers.find((l) => l.accountId === adjustmentModal.accountId);
-       const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
-       const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
-       const accountCurrencyCode = account?.currencyCode ?? ledger?.currencyCode ?? '';
-       const needsRate = !!(selectedCurrency && accountCurrencyCode && selectedCurrency.code !== accountCurrencyCode);
-       const rawRate = parseFloat(adjustmentModal.exchangeRate) || 0;
-       const effectiveRate = adjustmentModal.exchangeRateReversed ? (rawRate ? 1 / rawRate : 0) : rawRate;
-       const amountValue = parseFloat(adjustmentModal.amount) || 0;
-       const convertedAmount = needsRate ? amountValue * (effectiveRate || 0) : amountValue;
-       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-         <div
-          className="w-full max-w-md rounded bg-white p-6 shadow-2xl"
-          onKeyDown={(e) => {
-           // Enter submits the adjustment (ignore Enter inside multi-line fields).
-           if (e.key !== 'Enter') return;
-           if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
-           e.preventDefault();
-           void onSubmitAdjustment();
-          }}
-         >
-          <h3 className="text-lg font-semibold text-slate-900">{adjustmentModal.editingId ? t('adjustment_edit_title') : t('adjustment_add_title')}</h3>
-          {ledger ? (
-           <p className="mt-1 text-sm text-slate-500">
-            {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
-           </p>
-          ) : null}
+   <AdjustmentModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} localizedCurrencies={localizedCurrencies} clientAccounts={clientAccounts} currencyMap={currencyMap} enabledCurrencies={enabledCurrencies} onSubmitAdjustment={onSubmitAdjustment} onDeleteAdjustment={onDeleteAdjustment} />
 
-          <div className="mt-5 flex flex-col gap-4">
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_direction')}</label>
-            <div className="grid grid-cols-2 gap-2">
-             <button
-              type="button"
-              onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'debit' } : prev))}
-              className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-               adjustmentModal.direction === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-             >
-              {t('adjustment_direction_debit')}
-             </button>
-             <button
-              type="button"
-              onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'credit' } : prev))}
-              className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-               adjustmentModal.direction === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-             >
-              {t('adjustment_direction_credit')}
-             </button>
-            </div>
-            <p className="mt-1 text-xs text-slate-400">{adjustmentModal.direction === 'debit' ? t('adjustment_debit_hint') : t('adjustment_credit_hint')}</p>
-           </div>
-
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('amount')}</label>
-            <input
-             type="text"
-             inputMode="decimal"
-             dir="ltr"
-             value={adjustmentModal.amount}
-             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, amount: normalizeDecimalInput(e.target.value) } : prev))}
-             placeholder="0"
-             autoFocus
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            />
-           </div>
-
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('currency')}</label>
-            <select
-             value={adjustmentModal.currencyId ?? ''}
-             onChange={(e) =>
-              setAdjustmentModal((prev) => (prev ? { ...prev, currencyId: e.target.value ? Number(e.target.value) : null, exchangeRate: '', exchangeRateReversed: false } : prev))
-             }
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            >
-             {(adjustmentModal.currencyId && !enabledCurrencies.some((c) => c.id === adjustmentModal.currencyId)
-              ? [...enabledCurrencies, ...localizedCurrencies.filter((c) => c.id === adjustmentModal.currencyId)]
-              : enabledCurrencies
-             ).map((currency) => (
-              <option
-               key={currency.id}
-               value={currency.id}
-              >
-               {currency.code} {currency.symbol ? `(${currency.symbol})` : ''} · {currency.name}
-              </option>
-             ))}
-            </select>
-           </div>
-
-           {needsRate ? (
-            <div className="flex flex-col gap-1">
-             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('exchange_rate')}</label>
-              <button
-               type="button"
-               title={t('reverse_rate')}
-               onClick={() =>
-                setAdjustmentModal((prev) => {
-                 if (!prev) return prev;
-                 const val = parseFloat(prev.exchangeRate) || 0;
-                 return {
-                  ...prev,
-                  exchangeRate: val ? String(Number((1 / val).toFixed(6))) : prev.exchangeRate,
-                  exchangeRateReversed: !prev.exchangeRateReversed,
-                 };
-                })
-               }
-               className="inline-flex items-center gap-1 rounded p-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-              >
-               <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-               >
-                <path d="M7 4 3 8l4 4M3 8h13.5" />
-                <path d="M17 20l4-4-4-4m4 4H7.5" />
-               </svg>
-               {adjustmentModal.exchangeRateReversed ? t('rate_division') : t('rate_multiplication')}
-              </button>
-             </div>
-             <span className="text-xs text-slate-400">
-              {adjustmentModal.exchangeRateReversed
-               ? `1 ${accountCurrencyCode} = ? ${selectedCurrency?.code ?? ''}`
-               : `1 ${selectedCurrency?.code ?? ''} = ? ${accountCurrencyCode}`}
-             </span>
-             <input
-              type="text"
-              inputMode="decimal"
-              dir="ltr"
-              value={adjustmentModal.exchangeRate}
-              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, exchangeRate: normalizeDecimalInput(e.target.value) } : prev))}
-              placeholder="0"
-              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-             />
-             {amountValue > 0 && effectiveRate > 0 ? (
-              <span className="text-xs text-slate-500">
-               = {convertedAmount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {accountCurrencyCode}
-              </span>
-             ) : null}
-            </div>
-           ) : null}
-
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_description')}</label>
-            <input
-             type="text"
-             value={adjustmentModal.description}
-             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
-             placeholder={t('adjustment_description_placeholder')}
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            />
-           </div>
-
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('date')}</label>
-            <input
-             type="date"
-             value={adjustmentModal.date}
-             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, date: e.target.value } : prev))}
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            />
-           </div>
-          </div>
-
-          <div className="mt-5 flex justify-end gap-2">
-           <button
-            type="button"
-            onClick={() => setAdjustmentModal(null)}
-            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-           >
-            {t('cancel')}
-           </button>
-           <button
-            type="button"
-            onClick={() => void onSubmitAdjustment()}
-            disabled={!adjustmentModal.amount || parseFloat(adjustmentModal.amount) <= 0}
-            className="rounded bg-purple-700 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800 disabled:cursor-not-allowed disabled:opacity-40"
-           >
-            {adjustmentModal.editingId ? t('save_changes') : t('adjustment_add')}
-           </button>
-          </div>
-         </div>
-        </div>
-       );
-      })()
-    : null}
-
-   {pdfExportModal
-    ? (() => {
-       const ledger = selectedClientLedgers.find((l) => l.accountId === pdfExportModal.accountId);
-       if (!ledger) return null;
-       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-         <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
-          <h3 className="text-lg font-semibold text-slate-900">{t('export_pdf_title')}</h3>
-          <p className="mt-1 text-sm text-slate-500">
-           {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
-          </p>
-
-          <div className="mt-5 flex flex-col gap-4">
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_date_from')}</label>
-            <input
-             type="date"
-             value={pdfExportModal.fromDate}
-             onChange={(e) => {
-              savePdfDateRange(pdfExportModal.accountId, e.target.value, pdfExportModal.toDate);
-              setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev));
-             }}
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            />
-           </div>
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_date_to')}</label>
-            <input
-             type="date"
-             value={pdfExportModal.toDate}
-             onChange={(e) => {
-              savePdfDateRange(pdfExportModal.accountId, pdfExportModal.fromDate, e.target.value);
-              setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev));
-             }}
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            />
-           </div>
-
-           {/* Shortcut: derive the range from the highlighted rows. The first highlighted row is
-               the pre-balance boundary (excluded; its accumulated balance becomes the pre-balance),
-               the last highlighted row is the final row shown. */}
-           {(() => {
-            const highlightedEntries = ledger.entries.filter((e) => highlightedLedgerRows.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)));
-            if (highlightedEntries.length < 2) return null;
-            return (
-             <div className="flex flex-col gap-1">
-              <button
-               type="button"
-               onClick={() => {
-                const first = highlightedEntries[highlightedEntries.length - 2];
-                const last = highlightedEntries[highlightedEntries.length - 1];
-                const firstIdx = ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(first));
-                // Start one row after the first highlight so that row is excluded but its
-                // accumulated balance is rolled into the pre-balance.
-                const afterFirst = ledger.entries[firstIdx + 1] ?? last;
-                const newFrom = afterFirst.createdAt.slice(0, 10);
-                const newTo = last.createdAt.slice(0, 10);
-                savePdfDateRange(pdfExportModal.accountId, newFrom, newTo);
-                setPdfExportModal((prev) =>
-                 prev ? { ...prev, fromDate: newFrom, toDate: newTo, fromEntryKey: ledgerEntryKey(afterFirst), toEntryKey: ledgerEntryKey(last) } : prev,
-                );
-               }}
-               className="cursor-pointer rounded border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
-              >
-               {t('export_use_highlights')}
-              </button>
-              <p className="text-xs text-slate-400">{t('export_use_highlights_hint')}</p>
-             </div>
-            );
-           })()}
-
-           {/* Start picker lists only the From-date's transactions; End picker only the To-date's. */}
-           {(() => {
-            const startCandidates = ledger.entries.filter((e) => e.createdAt.slice(0, 10) === pdfExportModal.fromDate);
-            const endCandidates = ledger.entries.filter((e) => e.createdAt.slice(0, 10) === pdfExportModal.toDate);
-            if (startCandidates.length === 0 && endCandidates.length === 0) return null;
-            const startKey =
-             pdfExportModal.fromEntryKey && startCandidates.some((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)
-              ? pdfExportModal.fromEntryKey
-              : startCandidates[0]
-                ? ledgerEntryKey(startCandidates[0])
-                : '';
-            const endKey =
-             pdfExportModal.toEntryKey && endCandidates.some((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey)
-              ? pdfExportModal.toEntryKey
-              : endCandidates[endCandidates.length - 1]
-                ? ledgerEntryKey(endCandidates[endCandidates.length - 1])
-                : '';
-            const entryLabel = (e: ClientLedgerEntry) =>
-             `${formatDateValue(e.createdAt, pdfSettings.dateFormat)} · ${e.counterpartyName} · ${e.direction === 'outgoing' ? '−' : '+'}${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })} ${e.currencySymbol || e.currencyCode}`;
-            return (
-             <>
-              {startCandidates.length > 0 ? (
-               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_start_transaction')}</label>
-                <select
-                 value={startKey}
-                 onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromEntryKey: e.target.value } : prev))}
-                 className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                >
-                 {startCandidates.map((entry) => (
-                  <option
-                   key={ledgerEntryKey(entry)}
-                   value={ledgerEntryKey(entry)}
-                  >
-                   {entryLabel(entry)}
-                  </option>
-                 ))}
-                </select>
-               </div>
-              ) : null}
-              {endCandidates.length > 0 ? (
-               <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_end_transaction')}</label>
-                <select
-                 value={endKey}
-                 onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toEntryKey: e.target.value } : prev))}
-                 className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                >
-                 {endCandidates.map((entry) => (
-                  <option
-                   key={ledgerEntryKey(entry)}
-                   value={ledgerEntryKey(entry)}
-                  >
-                   {entryLabel(entry)}
-                  </option>
-                 ))}
-                </select>
-               </div>
-              ) : null}
-             </>
-            );
-           })()}
-
-           {/* Column toggles */}
-           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_columns_label')}</label>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-             {pdfAllColumns.map((col) => {
-              const isRunningBal = col.key === 'runningBalance';
-              const isOn = isRunningBal || pdfExportModal.cols[col.key];
-              return (
-               <button
-                key={col.key}
-                type="button"
-                disabled={isRunningBal}
-                onClick={() => {
-                 if (isRunningBal) return;
-                 const newCols = { ...pdfExportModal.cols, [col.key]: !pdfExportModal.cols[col.key] };
-                 savePdfCols(pdfExportModal.accountId, newCols);
-                 setPdfExportModal((prev) => (prev ? { ...prev, cols: newCols } : prev));
-                }}
-                className={`rounded border px-2.5 py-1 text-xs font-medium transition ${
-                 isOn ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400'
-                } ${isRunningBal ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
-               >
-                {col.label}
-               </button>
-              );
-             })}
-            </div>
-           </div>
-
-           {(() => {
-            const candidates = ledger.entries.filter((e) => {
-             const d = e.createdAt.slice(0, 10);
-             return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
-            });
-            const startIdx = pdfExportModal.fromEntryKey
-             ? Math.max(
-                0,
-                candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey),
-               )
-             : 0;
-            const endIdxRaw = pdfExportModal.toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey) : -1;
-            const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
-            const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
-            const firstSelected = selected[0];
-            const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
-            const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
-            const count = selected.length;
-            return (
-             <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-              <div className="flex justify-between">
-               <span className="text-slate-500">{t('export_pre_balance')}</span>
-               <span className={`font-semibold ${preBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {preBalance.toLocaleString(numLocale, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
-               </span>
-              </div>
-              <div className="mt-1 flex justify-between">
-               <span className="text-slate-500">{t('client_page_transaction_count')}</span>
-               <span className="font-semibold text-slate-900">{count}</span>
-              </div>
-             </div>
-            );
-           })()}
-          </div>
-
-          <div className="mt-5 flex justify-end gap-2">
-           <button
-            type="button"
-            onClick={() => setPdfExportModal(null)}
-            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-           >
-            {t('cancel')}
-           </button>
-           <button
-            type="button"
-            onClick={() =>
-             void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)
-            }
-            disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
-            className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
-           >
-            {t('export_pdf')}
-           </button>
-          </div>
-         </div>
-        </div>
-       );
-      })()
-    : null}
+   <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} />
 
    {showLedgerSettingsModal ? (
     <LedgerSettingsModal
@@ -5510,51 +5158,7 @@ function AuthenticatedHome() {
     />
    ) : null}
 
-   {/* Transient confirmation toast (auto-dismisses after ~1s) */}
-   {toast ? (
-    toastPos ? (
-     <div
-      className="pointer-events-none fixed z-[80]"
-      style={{ left: toastPos.x, top: toastPos.y, transform: 'translate(-50%, calc(-100% - 10px))' }}
-     >
-      <div className="flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg whitespace-nowrap">
-       <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-       >
-        <polyline points="20 6 9 17 4 12" />
-       </svg>
-       {toast}
-      </div>
-     </div>
-    ) : (
-     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-[80] flex justify-center px-4">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-lg">
-       <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-       >
-        <polyline points="20 6 9 17 4 12" />
-       </svg>
-       {toast}
-      </div>
-     </div>
-    )
-   ) : null}
+   <ToastHost />
 
    {/* Create Organization dialog */}
    {showCreateOrgDialog ? (

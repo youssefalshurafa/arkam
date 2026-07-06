@@ -5,6 +5,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
+import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import type { Client, ClientAccount, Section, SettingsTab } from '@/shared/types';
 import type { ClientOrgGroup } from '@/features/clients/utils/clientsView';
 import type { ClientBalanceEntry } from '@/features/clients/utils/clientBalances';
@@ -22,12 +23,13 @@ type ClientsReadOnlyProps = {
  setSettingsTab: Dispatch<SetStateAction<SettingsTab>>;
  selectedClientForAccounts: Client | null;
  setSelectedClientForAccounts: Dispatch<SetStateAction<Client | null>>;
+ onWriteOffBalance: (accountId: number, balance: number) => void;
 };
 
 export default function ClientsReadOnly({
  clients, clientAccounts, sortedClients, clientsByOrganization, clientPageBalances,
  clientSortHeader, openClientLedger, onClientsOrgDrop, navigateToSection, setSettingsTab,
- selectedClientForAccounts, setSelectedClientForAccounts,
+ selectedClientForAccounts, setSelectedClientForAccounts, onWriteOffBalance,
 }: ClientsReadOnlyProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -191,12 +193,28 @@ export default function ClientsReadOnly({
              {client.name}
             </a>
             <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-             {(clientPageBalances.get(client.id) ?? []).map(({ currencyCode, currencySymbol, balance }) => (
+             {(clientPageBalances.get(client.id) ?? []).map(({ accountId, currencyCode, currencySymbol, balance }) => (
               <span
-               key={currencyCode}
-               className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+               key={accountId}
+               className="inline-flex items-center gap-1"
               >
-               {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+               <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+               </span>
+               {balance !== 0 && Math.abs(balance) <= SMALL_BALANCE_THRESHOLD ? (
+                <button
+                 type="button"
+                 title={t('write_off_button')}
+                 onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onWriteOffBalance(accountId, balance);
+                 }}
+                 className="rounded border border-amber-300 bg-amber-50 px-1 py-0.5 text-[10px] font-semibold text-amber-800 transition hover:bg-amber-100"
+                >
+                 {t('write_off_button')}
+                </button>
+               ) : null}
               </span>
              ))}
             </span>
@@ -241,12 +259,28 @@ export default function ClientsReadOnly({
           <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
           <td className="px-4 py-3">
            <div className="flex flex-wrap gap-1">
-            {(clientPageBalances.get(client.id) ?? []).map(({ currencyCode, currencySymbol, balance }) => (
+            {(clientPageBalances.get(client.id) ?? []).map(({ accountId, currencyCode, currencySymbol, balance }) => (
              <span
-              key={currencyCode}
-              className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+              key={accountId}
+              className="inline-flex items-center gap-1"
              >
-              {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+              <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+               {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+              </span>
+              {balance !== 0 && Math.abs(balance) <= SMALL_BALANCE_THRESHOLD ? (
+               <button
+                type="button"
+                title={t('write_off_button')}
+                onClick={(event) => {
+                 event.preventDefault();
+                 event.stopPropagation();
+                 onWriteOffBalance(accountId, balance);
+                }}
+                className="rounded border border-amber-300 bg-amber-50 px-1 py-0.5 text-[10px] font-semibold text-amber-800 transition hover:bg-amber-100"
+               >
+                {t('write_off_button')}
+               </button>
+              ) : null}
              </span>
             ))}
            </div>

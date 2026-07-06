@@ -1595,8 +1595,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             style={{ zoom: String(tableZoom) }}
            >
             <colgroup>
-             <col className="w-8" />
-             <col className="w-10" />
+             <col className="w-px" />
+             <col className="w-px" />
              {transactionTableSettings.columns.created ? <col className="w-[10%]" /> : null}
              {transactionTableSettings.columns.description ? <col className="w-[15%]" /> : null}
              {transactionTableSettings.columns.accountFrom ? <col className="w-[17%]" /> : null}
@@ -1608,7 +1608,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </colgroup>
             <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
              <tr>
-              <th className="px-2 py-3 w-8">
+              <th className="w-px whitespace-nowrap px-2 py-3">
                <input
                 type="checkbox"
                 checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
@@ -1617,7 +1617,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 className="h-4 w-4 cursor-pointer rounded border-slate-300"
                />
               </th>
-              <th className="px-2 py-3 w-10">
+              <th className="w-px whitespace-nowrap px-1 py-3">
                {isEditAllTransactions ? (
                 <div className="flex flex-col items-center gap-1">
                  <button
@@ -1824,7 +1824,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
                 return (
                  <>
-                  <td className="px-2 py-3 align-middle w-8">
+                  <td className="w-px whitespace-nowrap px-2 py-3 align-middle">
                    <input
                     type="checkbox"
                     checked={selectedTransactionIds.has(txn.id)}
@@ -1833,7 +1833,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     className="h-4 w-4 cursor-pointer rounded border-slate-300"
                    />
                   </td>
-                  <td className="px-2 py-3 align-top">
+                  <td className="w-px whitespace-nowrap px-1 py-3 align-top">
                    {isEditingRow ? (
                     <div className="flex flex-col items-center gap-1">
                      <span

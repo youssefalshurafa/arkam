@@ -15,7 +15,11 @@ export function createQueryClient(): QueryClient {
    queries: {
     staleTime: 30_000,
     gcTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
+    // Refetch when a tab regains focus so switching between tabs (or back to the
+    // app) surfaces changes made elsewhere — critical for a financial app where a
+    // stale ledger is dangerous. staleTime bounds this: rapid tab flips within the
+    // window don't refetch, so the local bridge isn't hammered.
+    refetchOnWindowFocus: true,
     retry: 1,
    },
    mutations: {
@@ -35,9 +39,12 @@ export const queryKeys = {
  // Bundled workspace snapshot (all collections fetched together in one round-trip,
  // mirroring the app's original single loadData(); a mutation on any entity can
  // affect balances across the others, so they invalidate/refetch as a unit).
- // Scoped by user id so a different account signing in on the same browser gets a
- // distinct cache entry and can never read the previous user's in-memory data.
- workspaceData: (userId: string | null | undefined) => [...queryKeys.all, 'workspaceData', userId ?? '__anon__'] as const,
+ // Scoped by user id AND workspace id, so a different account signing in on the
+ // same browser gets a distinct cache entry (can never read the previous user's
+ // in-memory data), and switching between two workspaces owned by the same user
+ // gets a distinct entry too (can never read the other workspace's data).
+ workspaceData: (userId: string | null | undefined, workspaceId: string | null | undefined) =>
+  [...queryKeys.all, 'workspaceData', userId ?? '__anon__', workspaceId ?? '__none__'] as const,
  organizations: () => [...queryKeys.all, 'organizations'] as const,
  clients: () => [...queryKeys.all, 'clients'] as const,
  currencies: () => [...queryKeys.all, 'currencies'] as const,

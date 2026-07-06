@@ -17,6 +17,7 @@ const readOnlyActions = new Set([
  'listCurrencies',
  'listTransactions',
  'listClientAdjustments',
+ 'listReconciliations',
  'exportWorkspaceData',
  // Backup marker: reads + the post-download stamp. Allowed for anyone who can
  // export (viewers included), so it stays out of the viewer-blocked writeActions.
@@ -56,6 +57,8 @@ const writeActions = new Set([
  'createClientAdjustment',
  'updateClientAdjustment',
  'deleteClientAdjustment',
+ 'createReconciliation',
+ 'deleteReconciliation',
  'importWorkspaceData',
  'bulkImportTransactions',
  // Shared workspace UI settings: owner-only (gated further below).
@@ -287,6 +290,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
    case 'deleteClientAdjustment':
     await db.deleteClientAdjustment(appLike, payload);
+    return NextResponse.json({ ok: true });
+   case 'listReconciliations':
+    return NextResponse.json(await db.listReconciliations(appLike));
+   case 'createReconciliation':
+    return NextResponse.json(await db.createReconciliation(appLike, payload));
+   case 'deleteReconciliation':
+    await db.deleteReconciliation(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'exportWorkspaceData':
     return NextResponse.json(await db.exportWorkspaceData(appLike));

@@ -64,6 +64,8 @@ type LedgerSectionProps = {
  onCancelAllLedger: (ledger: ClientAccountLedger) => void;
  onDeleteLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onDeleteSelectedLedgerEntries: () => void;
+ onReconcileLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
+ onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
  onLedgerColumnDragStart: (event: DragEvent<HTMLElement>, column: LedgerColumnKey) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
@@ -85,7 +87,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   isLoading, clients, clientAccounts, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, selectedLedgerSummary,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
-  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditAllLedger, onLedgerColumnDragStart,
+  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onEditAllLedger, onLedgerColumnDragStart,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onToggleLedgerEntrySelection,
   openAdjustmentModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight,
@@ -1288,7 +1290,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         ...(isEditing || !ledgerRowClickActive ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                        };
                       })()}
-                      className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                      className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
                      >
                       {(() => {
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -1465,6 +1467,23 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               <path d="M12 20h9" />
                               <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
                              </svg>
+                            </button>
+                            <button
+                             type="button"
+                             title={entry.reconciledMark ? t('reconcile_remove_action') : t('reconcile_action')}
+                             onClick={() => (entry.reconciledMark ? onRemoveReconciliation(entry, ledger.accountId) : onReconcileLedgerEntry(entry, ledger.accountId))}
+                             className={`rounded p-1 hover:bg-slate-100 ${entry.reconciledMark ? 'text-emerald-600' : 'text-slate-400 hover:text-emerald-600'}`}
+                            >
+                             {entry.reconciledMark ? (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                               <path d="M9 12l2 2 4-4" />
+                               <circle cx="12" cy="12" r="10" />
+                              </svg>
+                             ) : (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                               <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                             )}
                             </button>
                            </div>
                           )}
@@ -2194,6 +2213,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              >
                               {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                               {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                              {entry.reconciledMark ? (
+                               <span
+                                title={entry.reconciledMark.note || undefined}
+                                className="ms-2 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 align-middle"
+                               >
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                 <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                                {t('reconcile_badge')}
+                               </span>
+                              ) : null}
                              </td>
                             );
                            case 'currency':

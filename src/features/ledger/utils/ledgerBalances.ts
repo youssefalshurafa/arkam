@@ -1,5 +1,6 @@
 import { getCommissionAmount, chargeLedgerEffect } from '@/shared/utils/commission';
 import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
+import { buildLockBoundaries, isAtOrBeforeBoundary, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
 import type {
  Client,
  ClientAccount,
@@ -7,6 +8,7 @@ import type {
  ClientAdjustment,
  ClientLedgerEntry,
  Currency,
+ Reconciliation,
  Section,
  Transaction,
 } from '@/shared/types';
@@ -18,16 +20,29 @@ type ComputeArgs = {
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
  adjustments: ClientAdjustment[];
+ reconciliations: Reconciliation[];
  clientAccountMap: Map<number, ClientAccount>;
  currencyMap: Map<number, Currency>;
 };
 
 // Per-account ledgers (entries + running balances) for the open client. Ported
 // verbatim from the page's selectedClientLedgers memo; pure over its inputs.
-export function computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, adjustments, clientAccountMap, currencyMap }: ComputeArgs): ClientAccountLedger[] {
+export function computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, adjustments, reconciliations, clientAccountMap, currencyMap }: ComputeArgs): ClientAccountLedger[] {
   // Skip expensive ledger computations unless the ledger view/modal is active.
   if (!selectedClientForLedger || (section !== 'client-ledger' && !pdfExportModal)) {
    return [];
+  }
+
+  const lockBoundaries = buildLockBoundaries(reconciliations);
+  // Marks keyed per account by the exact row they sit on, for the ✓ badge.
+  const marksByAccount = new Map<number, Map<string, Reconciliation>>();
+  for (const rec of reconciliations) {
+   let byRow = marksByAccount.get(rec.accountId);
+   if (!byRow) {
+    byRow = new Map();
+    marksByAccount.set(rec.accountId, byRow);
+   }
+   byRow.set(`${rec.anchorKind}:${rec.anchorRefId}`, rec);
   }
 
   return clientAccounts
@@ -167,12 +182,18 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
 
     // Entries are ordered purely by createdAt (drag-to-reorder persists the order by
     // rewriting timestamps), so a running balance accumulated in this order is durable.
+    const boundary = lockBoundaries.get(account.id) ?? null;
+    const rowMarks = marksByAccount.get(account.id);
     let runningBalance = account.startingBalance ?? 0;
     const entriesWithBalance = entries.map((entry) => {
      runningBalance += entry.netChange;
+     const refId = reconciliationRefId(entry);
+     const mark = rowMarks?.get(`${entry.isAdjustment ? 'adjustment' : 'transaction'}:${refId}`);
      return {
       ...entry,
       runningBalance,
+      isLocked: isAtOrBeforeBoundary(entry.createdAt, refId, boundary),
+      ...(mark ? { reconciledMark: { id: mark.id, balance: mark.balance, note: mark.note } } : {}),
      };
     });
 
@@ -185,6 +206,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
      currentBalance: runningBalance,
      transactionCount: entriesWithBalance.length,
      entries: entriesWithBalance,
+     lockBoundary: boundary ? { anchorCreatedAt: boundary.anchorCreatedAt, anchorRefId: boundary.anchorRefId, balance: boundary.balance } : null,
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));

@@ -237,6 +237,11 @@ export type ClientLedgerEntry = {
  // Whether the charge touches this account's ledger at all (shown + counted). False for the
  // "off side" of an org-settled charge, which only affects the one named client.
  chargeAffectsThisAccount: boolean;
+ // Set when a reconciliation mark sits exactly on this row (the agreed-balance point).
+ reconciledMark?: { id: number; balance: number; note: string };
+ // True when this row is at or before the account's newest reconciliation (the lock
+ // line), so editing/reordering/deleting it triggers a warning.
+ isLocked?: boolean;
 };
 
 export type ClientAdjustment = {
@@ -253,6 +258,21 @@ export type ClientAdjustment = {
  createdAt: string;
 };
 
+// A reconciliation mark: the client agreed their balance was correct as of one
+// ledger row in one client account. `anchorCreatedAt` + `anchorRefId` reproduce the
+// ledger sort order (createdAt, then id) and form the lock boundary — entries at or
+// before it are protected against reorder/re-date/edit/delete without a warning.
+export type Reconciliation = {
+ id: number;
+ accountId: number;
+ anchorKind: 'transaction' | 'adjustment';
+ anchorRefId: number;
+ anchorCreatedAt: string;
+ balance: number;
+ note: string;
+ createdAt: string;
+};
+
 export type ClientAccountLedger = {
  accountId: number;
  currencyName: string;
@@ -262,6 +282,9 @@ export type ClientAccountLedger = {
  currentBalance: number;
  transactionCount: number;
  entries: ClientLedgerEntry[];
+ // The newest reconciliation on this account (the effective lock line), or null. Its
+ // (createdAt, refId) is the boundary; entries at or before it are locked.
+ lockBoundary: { anchorCreatedAt: string; anchorRefId: number; balance: number } | null;
 };
 
 // One overview balance card: all clients of an organization that hold accounts in
@@ -338,6 +361,7 @@ export type DataCache = {
  transactions: Transaction[];
  adjustments: ClientAdjustment[];
  clientAccounts: ClientAccount[];
+ reconciliations: Reconciliation[];
 };
 export type PdfColVisibility = Record<LedgerColumnKey, boolean>;
 export type StoredLedgerSettings = {

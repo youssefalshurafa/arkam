@@ -184,6 +184,9 @@ export const accountingApi = {
  createClientAdjustment: (payload: unknown) => request<{ id: number }>({ action: 'createClientAdjustment', payload }),
  updateClientAdjustment: (payload: unknown) => request<{ ok: true }>({ action: 'updateClientAdjustment', payload }),
  deleteClientAdjustment: (id: number) => request<{ ok: true }>({ action: 'deleteClientAdjustment', payload: id }),
+ listReconciliations: () => request<unknown[]>({ action: 'listReconciliations' }),
+ createReconciliation: (payload: unknown) => request<{ id: number }>({ action: 'createReconciliation', payload }),
+ deleteReconciliation: (id: number) => request<{ ok: true }>({ action: 'deleteReconciliation', payload: id }),
  listWorkspaces: () =>
   fetch('/api/workspaces', { method: 'GET', credentials: 'include' }).then(async (response) => {
    const data = await response.json();
@@ -191,6 +194,48 @@ export const accountingApi = {
     throw new Error(data?.error || 'Failed to list workspaces.');
    }
    return data as { workspaces: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' | 'member' | 'viewer' }>; defaultWorkspaceId: string | null };
+  }),
+ createWorkspace: (name: string) =>
+  fetch('/api/workspaces', {
+   method: 'POST',
+   credentials: 'include',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ name }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to create workspace.');
+   }
+   return data as { ok: true; workspace: { id: string; name: string; slug: string } };
+  }),
+ getWorkspaceTransactionCount: (workspaceId: string) =>
+  fetch(`/api/workspaces/${workspaceId}`, { method: 'GET', credentials: 'include' }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to load workspace info.');
+   }
+   return data as { transactionCount: number };
+  }),
+ renameWorkspace: (workspaceId: string, name: string) =>
+  fetch(`/api/workspaces/${workspaceId}`, {
+   method: 'PATCH',
+   credentials: 'include',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ name }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to rename workspace.');
+   }
+   return data as { ok: true; workspace: { id: string; name: string } };
+  }),
+ deleteWorkspace: (workspaceId: string) =>
+  fetch(`/api/workspaces/${workspaceId}`, { method: 'DELETE', credentials: 'include' }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to delete workspace.');
+   }
+   return data as { ok: true };
   }),
  listWorkspaceMembers: (workspaceId: string) =>
   fetch(`/api/workspaces/${workspaceId}/members`, { method: 'GET', credentials: 'include' }).then(async (response) => {

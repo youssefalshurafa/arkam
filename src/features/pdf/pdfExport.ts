@@ -1,7 +1,7 @@
 import { formatDateValue } from '@/shared/utils/date';
 import { formatRateValue } from '@/shared/utils/format';
 import { ledgerEntryKey } from '@/features/ledger/utils/ledgerEntries';
-import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction } from '@/shared/types';
+import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction, TransactionColumnVisibility } from '@/shared/types';
 
 /** Shared rendering context for the PDF/print HTML builders. */
 export type PdfContext = {
@@ -13,31 +13,79 @@ export type PdfContext = {
 };
 
 /** Standalone HTML document for the Archive PDF export. Ported verbatim. */
-export function generateArchiveHtml(ctx: PdfContext, transactions: Transaction[]): string {
+export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[], columns: TransactionColumnVisibility): string {
  const { t, numLocale, isRTL, language, pdfSettings } = ctx;
   const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
 
-  const archived = transactions
-   .filter((tx) => tx.isArchived || !tx.accountFromId || !tx.accountToId)
-   .slice()
-   .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // `archivedRows` is expected to already be filtered/sorted exactly like the on-screen archive
+  // table (displayedTransactionRows: honours manual drag order, the sort-direction toggle, and
+  // any active filters), so the export order/contents match what the user sees pixel-for-pixel.
+  const archived = archivedRows;
 
-  const headers = [t('date'), t('transaction_account_from'), t('transaction_account_to'), t('amount'), t('archive_more_info'), t('transaction_description')];
-  const headerCells = headers.map((header, index) => `<th${index === 3 ? ' class="num"' : ''}>${esc(header)}</th>`).join('');
+  // Column set/order mirrors the on-screen archive table (TransactionsSection): visibility is
+  // driven by the shared transaction table settings, in the same left-to-right order, with the
+  // archive-only "more info" column always appended at the end.
+  type ArchiveCol = { key: keyof TransactionColumnVisibility | 'archiveNote'; header: string; isNum?: boolean; cell: (tx: Transaction) => string };
+  const allCols: ArchiveCol[] = [
+   { key: 'created', header: t('date'), cell: (tx) => formatDateValue(tx.createdAt, pdfSettings.dateFormat) },
+   { key: 'description', header: t('transaction_description'), cell: (tx) => esc(tx.description) },
+   {
+    key: 'accountFrom',
+    header: t('transaction_account_from'),
+    cell: (tx) =>
+     tx.accountFromId
+      ? `${esc(tx.clientFromName)} <span style="color:#64748b">${esc(tx.accountFromCurrencyCode)}</span>`
+      : `<span class="muted">${esc(t('archive_no_sender'))}</span>`,
+   },
+   {
+    key: 'accountTo',
+    header: t('transaction_account_to'),
+    cell: (tx) =>
+     tx.accountToId
+      ? `${esc(tx.clientToName)} <span style="color:#64748b">${esc(tx.accountToCurrencyCode)}</span>`
+      : `<span class="muted">${esc(t('archive_no_receiver'))}</span>`,
+   },
+   {
+    key: 'amount',
+    header: t('transaction_amount'),
+    isNum: true,
+    cell: (tx) =>
+     tx.amount
+      ? `${tx.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(tx.currencySymbol || tx.currencyCode)}` : ''}`
+      : '-',
+   },
+   {
+    key: 'charges',
+    header: t('charges'),
+    isNum: true,
+    cell: (tx) => {
+     if (!tx.charges) return '-';
+     const parts = [`${tx.charges.toLocaleString(numLocale)}${tx.chargesCurrencyCode ? ` ${tx.chargesCurrencyCode}` : ''}`];
+     if (tx.chargesPayer) parts.push(tx.chargesPayer === 'from' ? tx.clientFromName : tx.chargesPayer === 'to' ? tx.clientToName : '');
+     if (tx.chargesDescription) parts.push(tx.chargesDescription);
+     return esc(parts.filter(Boolean).join(' — '));
+    },
+   },
+   {
+    key: 'commission',
+    header: t('commission'),
+    isNum: true,
+    cell: (tx) => {
+     const parts: string[] = [];
+     if (tx.commissionFrom) parts.push(`${tx.clientFromName}: ${tx.commissionFrom.toFixed(2)}%`);
+     if (tx.commissionTo) parts.push(`${tx.clientToName}: ${tx.commissionTo.toFixed(2)}%`);
+     return esc(parts.length ? parts.join(' — ') : '-');
+    },
+   },
+   { key: 'archiveNote', header: t('archive_more_info'), cell: (tx) => esc(tx.archiveNote) },
+  ];
+  // archiveNote is the archive-only column and is always shown; the rest follow table visibility.
+  const visibleCols = allCols.filter((col) => col.key === 'archiveNote' || columns[col.key]);
+
+  const headerCells = visibleCols.map((col) => `<th${col.isNum ? ' class="num"' : ''}>${esc(col.header)}</th>`).join('');
 
   const rows = archived
-   .map((tx) => {
-    const from = tx.accountFromId
-     ? `${esc(tx.clientFromName)} <span style="color:#64748b">${esc(tx.accountFromCurrencyCode)}</span>`
-     : `<span class="muted">${esc(t('archive_no_sender'))}</span>`;
-    const to = tx.accountToId
-     ? `${esc(tx.clientToName)} <span style="color:#64748b">${esc(tx.accountToCurrencyCode)}</span>`
-     : `<span class="muted">${esc(t('archive_no_receiver'))}</span>`;
-    const amount = tx.amount
-     ? `${tx.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(tx.currencySymbol || tx.currencyCode)}` : ''}`
-     : '-';
-    return `<tr><td>${formatDateValue(tx.createdAt, pdfSettings.dateFormat)}</td><td>${from}</td><td>${to}</td><td class="num">${amount}</td><td>${esc(tx.archiveNote)}</td><td>${esc(tx.description)}</td></tr>`;
-   })
+   .map((tx) => `<tr>${visibleCols.map((col) => `<td${col.isNum ? ' class="num"' : ''}>${col.cell(tx)}</td>`).join('')}</tr>`)
    .join('');
 
   const totals = new Map<string, { code: string; symbol: string; total: number }>();
