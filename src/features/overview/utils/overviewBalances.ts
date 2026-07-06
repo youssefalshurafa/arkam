@@ -1,4 +1,4 @@
-import { getCommissionAmount } from '@/shared/utils/commission';
+import { computeAccountBalances, SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import type {
  Client,
  ClientAccount,
@@ -27,46 +27,8 @@ export type OverviewBalances = {
 // for the overview. Ported verbatim from the page's overviewOrgBalances memo;
 // clientAccountMap/currencyMap are built here from the passed collections.
 export function computeOverviewBalances({ transactions, adjustments, clientAccounts, clients, currencies, language }: ComputeArgs): OverviewBalances {
- const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
  const currencyMap = new Map(currencies.map((currency) => [currency.id, currency]));
-
-  const balanceByAccount = new Map<number, number>();
-  for (const account of clientAccounts) {
-   balanceByAccount.set(account.id, account.startingBalance ?? 0);
-  }
-
-  for (const transaction of transactions) {
-   if (transaction.isArchived) continue;
-   if (transaction.accountFromId != null && balanceByAccount.has(transaction.accountFromId)) {
-    const account = clientAccountMap.get(transaction.accountFromId);
-    if (account) {
-     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
-     const netChange = pending
-      ? 0
-      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
-     balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
-    }
-   }
-   if (transaction.accountToId != null && balanceByAccount.has(transaction.accountToId)) {
-    const account = clientAccountMap.get(transaction.accountToId);
-    if (account) {
-     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
-     const netChange = pending
-      ? 0
-      : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
-     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
-    }
-   }
-  }
-
-  for (const adj of adjustments) {
-   if (!balanceByAccount.has(adj.accountId)) continue;
-   const account = clientAccountMap.get(adj.accountId);
-   if (!account) continue;
-   const pending = adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0;
-   const netChange = pending ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
-   balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
-  }
+  const balanceByAccount = computeAccountBalances({ clientAccounts, transactions, adjustments });
 
   const clientById = new Map(clients.map((client) => [client.id, client]));
   const groupMap = new Map<string, OverviewBalanceGroup & { clientMap: Map<number, { clientId: number; clientName: string; balance: number }> }>();
@@ -114,8 +76,8 @@ export function computeOverviewBalances({ transactions, adjustments, clientAccou
    currencySymbol: group.currencySymbol,
    isMain: group.isMain,
    clients: Array.from(group.clientMap.values())
-    // Balances within ±100 are treated as negligible/settled and hidden from the overview list.
-    .filter((c) => Math.abs(c.balance) > 100)
+    // Negligible/settled balances are hidden from the overview list.
+    .filter((c) => Math.abs(c.balance) > SMALL_BALANCE_THRESHOLD)
     .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' })),
    total: group.total,
   }));

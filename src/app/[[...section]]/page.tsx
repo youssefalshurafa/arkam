@@ -768,6 +768,15 @@ function AuthenticatedHome() {
   router.push(`/organizations/${organization.id}`);
  }
 
+ // Jumps to the Clients tab with the new-client form pre-scoped to this organization,
+ // reusing the existing create-client form/submit path unchanged.
+ function openAddClientForOrganization(organization: Organization) {
+  setClientForm({ ...emptyClientForm(), organizationId: organization.id });
+  setOpenAccountOnCreate(true);
+  setNewClientAccountDrafts([createNewClientAccountDraft()]);
+  navigateToSection('clients');
+ }
+
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients', accountId?: number | null) {
   setClientLedgerBackSection(origin);
   setLedgerTransactionDrafts({});
@@ -3016,6 +3025,54 @@ function AuthenticatedHome() {
   }
  }
 
+ // One-click zero-out for a small (negligible) account balance: creates a single
+ // adjustment for the exact remaining amount, in the account's own currency, so no
+ // exchange rate is needed. Direction is the inverse of the balance's sign since a
+ // positive balance means the client owes us (needs a debit adjustment to net to 0).
+ async function onWriteOffBalance(accountId: number, balance: number) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const amount = Math.abs(balance);
+  if (amount <= 0) return;
+
+  const account = clientAccounts.find((a) => a.id === accountId);
+  const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
+  if (!account || !client) return;
+
+  const confirmed = await confirmDialog({
+   title: t('write_off_confirm_title'),
+   message: t('write_off_confirm_message')
+    .replace('{amount}', amount.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
+    .replace('{currency}', account.currencySymbol || account.currencyCode)
+    .replace('{name}', client.name),
+   confirmText: t('write_off_confirm_button'),
+   tone: 'danger',
+  });
+  if (!confirmed) return;
+
+  try {
+   await accountingApi.createClientAdjustment({
+    accountId,
+    amount,
+    direction: balance > 0 ? 'debit' : 'credit',
+    currencyId: account.currencyId,
+    currencyCode: account.currencyCode,
+    currencySymbol: account.currencySymbol,
+    exchangeRate: 1,
+    exchangeRateReversed: false,
+    description: t('write_off_description'),
+    createdAt: nextCreatedAtForDate(new Date().toISOString().slice(0, 10)),
+   });
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
  async function onDeleteTransactionTableRow(row: TransactionTableRow) {
   if (row.isAdjustment && row.adjustmentId) {
    await onDeleteAdjustment(row.adjustmentId);
@@ -3746,10 +3803,10 @@ function AuthenticatedHome() {
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
 
  // Per-client balances for the clients list/group view. Keyed by clientId, each value is
- // an array of { currencyCode, currencySymbol, balance } — one entry per account.
+ // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
  const clientPageBalances = useMemo(
-  () => computeClientPageBalances({ clientAccounts, transactions, adjustments, clientAccountMap }),
-  [clientAccounts, transactions, adjustments, clientAccountMap],
+  () => computeClientPageBalances({ clientAccounts, transactions, adjustments }),
+  [clientAccounts, transactions, adjustments],
  );
 
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
@@ -4520,6 +4577,10 @@ function AuthenticatedHome() {
         <OrganizationsReadOnly
          organizations={organizations}
          clients={clients}
+         clientAccounts={clientAccounts}
+         transactions={transactions}
+         adjustments={adjustments}
+         currencies={currencies}
          openOrganizationClientsPage={openOrganizationClientsPage}
          onOpenSettings={() => {
           setSettingsTab('organizations');
@@ -4558,13 +4619,24 @@ function AuthenticatedHome() {
             <p className="mt-2 text-sm text-slate-600">{selectedOrganizationForClients ? t('organization_page_description') : t('organization_page_no_organization')}</p>
            </div>
 
-           <button
-            type="button"
-            onClick={() => navigateToSection('organizations')}
-            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-           >
-            {t('organization_page_back')}
-           </button>
+           <div className="flex shrink-0 gap-2">
+            {selectedOrganizationForClients ? (
+             <button
+              type="button"
+              onClick={() => openAddClientForOrganization(selectedOrganizationForClients)}
+              className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+             >
+              {t('organization_add_client')}
+             </button>
+            ) : null}
+            <button
+             type="button"
+             onClick={() => navigateToSection('organizations')}
+             className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+             {t('organization_page_back')}
+            </button>
+           </div>
           </div>
 
           {selectedOrganizationForClients ? (
@@ -4653,6 +4725,7 @@ function AuthenticatedHome() {
          setSettingsTab={setSettingsTab}
          selectedClientForAccounts={selectedClientForAccounts}
          setSelectedClientForAccounts={setSelectedClientForAccounts}
+         onWriteOffBalance={onWriteOffBalance}
         />
        ) : null}
 
