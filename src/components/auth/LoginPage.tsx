@@ -185,7 +185,7 @@ export default function LoginPage() {
        <div>
         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('login_email')}</label>
         <input
-         type="email"
+         type="text"
          value={email}
          onChange={(event) => setEmail(event.target.value)}
          placeholder={t('login_email')}
@@ -279,16 +279,26 @@ export default function LoginPage() {
           onChange={(event) => setRememberMe(event.target.checked)}
           className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
          />
-         Remember me
+         {t('login_remember_me')}
         </label>
         <button
          type="button"
          onClick={() => router.push('/forgot-password')}
          className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
         >
-         Forgot password?
+         {t('login_forgot_password')}
         </button>
        </div>
+
+       {/* For accounts the super admin created directly (no signup) — they have no
+           password yet, so "forgot password" doesn't apply to them. */}
+       <button
+        type="button"
+        onClick={() => router.push('/set-password')}
+        className="block text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+       >
+        {t('login_set_password_prompt')}
+       </button>
 
        {error ? <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 

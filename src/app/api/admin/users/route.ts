@@ -6,8 +6,6 @@ import { isSuperAdmin } from '@/server/permissions';
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { dropWorkspaceSchema } = require('@/server/postgres');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendAccountCreatedEmail } = require('@/server/mailer');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,9 +27,10 @@ type CreateUserBody = {
  durationDays?: number;
 };
 
-// Super admin creates a user directly: account is active immediately with the
-// given subscription window, and the user is emailed a link to set their
-// password on first login.
+// Super admin creates a user directly: account is active immediately with the given
+// subscription window, no password set, and no email sent — `email` may be a plain
+// username instead of a real address. The user sets their own password later via the
+// sign-in page's "set your password" link (see /set-password and setInitialPassword()).
 export async function POST(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
@@ -42,23 +41,11 @@ export async function POST(request: NextRequest) {
  const { name, email, durationDays } = (await request.json()) as CreateUserBody;
 
  if (!email || typeof email !== 'string') {
-  return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
+  return NextResponse.json({ error: 'Email or username is required.' }, { status: 400 });
  }
 
  try {
   const result = await authDb.createUserBySuperAdmin({ name, email, durationDays });
-
-  try {
-   await sendAccountCreatedEmail({
-    to: result.email,
-    name: result.name,
-    setPasswordUrl: `${request.nextUrl.origin}/reset-password/${result.rawToken}`,
-    subscriptionEndsAt: result.subscriptionEndsAt,
-   });
-  } catch (mailError) {
-   console.error('[admin/users] Account created email failed:', mailError);
-  }
-
   return NextResponse.json({
    ok: true,
    user: { id: result.id, email: result.email, name: result.name, subscriptionEndsAt: result.subscriptionEndsAt },

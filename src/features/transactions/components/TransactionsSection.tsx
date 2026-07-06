@@ -179,6 +179,26 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   ]);
  };
 
+ // The data columns' relative widths (as percentages of the table, summing to 100 when every
+ // column is visible). Hardcoded percentages that don't renormalize when optional columns
+ // (charges/commission/archive) are hidden leave a gap that table-auto layout hands to the
+ // two icon columns instead — widening them well past their content on wide screens/fewer
+ // visible columns. Recomputing the percentages against only the currently visible columns'
+ // weights keeps them always summing to 100, so the icon columns (fixed px width below)
+ // never absorb leftover space.
+ const columnWeights: Array<[boolean, number]> = [
+  [transactionTableSettings.columns.created, 10],
+  [transactionTableSettings.columns.description, 15],
+  [transactionTableSettings.columns.accountFrom, 17],
+  [transactionTableSettings.columns.accountTo, 17],
+  [transactionTableSettings.columns.amount, 13],
+  [transactionTableSettings.columns.charges, 13],
+  [transactionTableSettings.columns.commission, 15],
+  [section === 'archive', 16],
+ ];
+ const totalColumnWeight = columnWeights.reduce((sum, [visible, weight]) => (visible ? sum + weight : sum), 0) || 1;
+ const colWidthPercent = (weight: number) => `${((weight / totalColumnWeight) * 100).toFixed(2)}%`;
+
  // Keyboard navigation for the From/To account pickers: the highlighted index tracks the row
  // that ↑/↓ move through and Enter activates. The option lists are flattened from the same
  // grouping the dropdowns render, so index N always points at the Nth rendered row.
@@ -1616,16 +1636,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             style={{ zoom: String(tableZoom) }}
            >
             <colgroup>
-             <col className="w-px" />
-             <col className="w-px" />
-             {transactionTableSettings.columns.created ? <col className="w-[10%]" /> : null}
-             {transactionTableSettings.columns.description ? <col className="w-[15%]" /> : null}
-             {transactionTableSettings.columns.accountFrom ? <col className="w-[17%]" /> : null}
-             {transactionTableSettings.columns.accountTo ? <col className="w-[17%]" /> : null}
-             {transactionTableSettings.columns.amount ? <col className="w-[13%]" /> : null}
-             {transactionTableSettings.columns.charges ? <col className="w-[13%]" /> : null}
-             {transactionTableSettings.columns.commission ? <col className="w-[15%]" /> : null}
-             {section === 'archive' ? <col className="w-[16%]" /> : null}
+             <col className="w-10" />
+             <col className="w-12" />
+             {transactionTableSettings.columns.created ? <col style={{ width: colWidthPercent(10) }} /> : null}
+             {transactionTableSettings.columns.description ? <col style={{ width: colWidthPercent(15) }} /> : null}
+             {transactionTableSettings.columns.accountFrom ? <col style={{ width: colWidthPercent(17) }} /> : null}
+             {transactionTableSettings.columns.accountTo ? <col style={{ width: colWidthPercent(17) }} /> : null}
+             {transactionTableSettings.columns.amount ? <col style={{ width: colWidthPercent(13) }} /> : null}
+             {transactionTableSettings.columns.charges ? <col style={{ width: colWidthPercent(13) }} /> : null}
+             {transactionTableSettings.columns.commission ? <col style={{ width: colWidthPercent(15) }} /> : null}
+             {section === 'archive' ? <col style={{ width: colWidthPercent(16) }} /> : null}
             </colgroup>
             <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
              <tr>

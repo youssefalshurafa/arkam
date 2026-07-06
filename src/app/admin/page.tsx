@@ -305,7 +305,7 @@ function AddUserModal({ onCancel, onCreated }: AddUserModalProps) {
 
   const trimmedEmail = email.trim();
   if (!trimmedEmail) {
-   setError('Email is required.');
+   setError('Email or username is required.');
    return;
   }
   const days = Number(durationDays);
@@ -326,7 +326,10 @@ function AddUserModal({ onCancel, onCreated }: AddUserModalProps) {
     setError(data.error || 'Failed to create user.');
     return;
    }
-   await alertDialog({ title: 'User created', message: `${trimmedEmail} has been emailed a link to set their password.` });
+   await alertDialog({
+    title: 'User created',
+    message: `Share "${trimmedEmail}" with them — no email was sent. They can set their own password from the sign-in page's "Set your password" link.`,
+   });
    onCreated();
   } catch {
    setError('Network error. Please try again.');
@@ -346,7 +349,10 @@ function AddUserModal({ onCancel, onCreated }: AddUserModalProps) {
     className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4"
    >
     <h2 className="text-lg font-semibold text-gray-900 mb-1">Add user</h2>
-    <p className="text-sm text-gray-500 mb-4">They&apos;ll get an email to set their password and sign in. No payment approval needed.</p>
+    <p className="text-sm text-gray-500 mb-4">
+     No email is sent. Give them the email/username you enter here — they set their own password from the sign-in page&apos;s &quot;Set your password&quot; link. No
+     payment approval needed.
+    </p>
 
     <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
     <input
@@ -357,14 +363,14 @@ function AddUserModal({ onCancel, onCreated }: AddUserModalProps) {
      className="w-full mb-3 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
     />
 
-    <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+    <label className="block text-xs font-medium text-gray-600 mb-1">Email or username</label>
     <input
-     type="email"
+     type="text"
      required
      autoFocus
      value={email}
      onChange={(e) => setEmail(e.target.value)}
-     placeholder="user@example.com"
+     placeholder="user@example.com or a username"
      className="w-full mb-3 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
     />
 
@@ -832,7 +838,7 @@ export default function AdminPage() {
 
  if (status === 'loading') {
   return (
-   <div className="min-h-screen flex items-center justify-center bg-gray-50">
+   <div dir="ltr" className="min-h-screen flex items-center justify-center bg-gray-50">
     <div className="text-gray-400 text-sm">Loading…</div>
    </div>
   );
@@ -840,7 +846,7 @@ export default function AdminPage() {
 
  if (error === 'forbidden') {
   return (
-   <div className="min-h-screen flex items-center justify-center bg-gray-50">
+   <div dir="ltr" className="min-h-screen flex items-center justify-center bg-gray-50">
     <div className="text-center">
      <p className="text-4xl mb-2">🚫</p>
      <h1 className="text-xl font-semibold text-gray-800 mb-1">Access Denied</h1>
@@ -851,7 +857,11 @@ export default function AdminPage() {
  }
 
  return (
-  <div className="min-h-screen bg-gray-50">
+  // This is an internal admin tool, not localized — force LTR regardless of the signed-in
+  // admin's app language preference (document.documentElement.dir is set globally by
+  // LanguageContext, and would otherwise mirror this page's hardcoded-LTR table/layout
+  // classes, misaligning headers against body columns when the active language is Arabic).
+  <div dir="ltr" className="min-h-screen bg-gray-50">
    {/* Header */}
    <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
     <div className="flex items-center gap-3">
