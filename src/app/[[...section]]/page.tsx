@@ -440,6 +440,8 @@ function AuthenticatedHome() {
  const [lastBackupDevice, setLastBackupDevice] = useState<string | null>(null);
  const backupRestoreInputRef = useRef<HTMLInputElement | null>(null);
  const lastInitializedSubIdRef = useRef<string>('');
+ const [subscriptionEndsAt, setSubscriptionEndsAt] = useState<string | null>(null);
+ const [subscriptionBannerDismissed, setSubscriptionBannerDismissed] = useState(false);
 
  // The workspace query (useWorkspaceData) owns fetching + the currency reseed +
  // the sessionStorage cache write and auto-fetches on mount. loadData() now just
@@ -506,6 +508,51 @@ function AuthenticatedHome() {
    mounted = false;
   };
  }, []);
+
+ // Fetch the signed-in user's own subscription window (null for invited teammates,
+ // who don't carry a subscription of their own) to drive the expiry banner below.
+ useEffect(() => {
+  if (!sessionUserId) return;
+  let mounted = true;
+  fetch('/api/account/subscription')
+   .then((res) => (res.ok ? (res.json() as Promise<{ subscriptionEndsAt: string | null }>) : null))
+   .then((data) => {
+    if (mounted && data) setSubscriptionEndsAt(data.subscriptionEndsAt ?? null);
+   })
+   .catch(() => {
+    /* non-fatal */
+   });
+  return () => {
+   mounted = false;
+  };
+ }, [sessionUserId]);
+
+ const subscriptionDaysLeft = subscriptionEndsAt ? Math.ceil((new Date(subscriptionEndsAt).getTime() - Date.now()) / 86_400_000) : null;
+ const subscriptionBannerDismissKey = subscriptionEndsAt ? `arkam:subscription-banner-dismissed:${subscriptionEndsAt}` : '';
+ const showSubscriptionBanner = subscriptionDaysLeft !== null && subscriptionDaysLeft <= 5 && !subscriptionBannerDismissed;
+
+ // Re-check dismissal (keyed by the current end date, so renewing resets it) whenever
+ // the subscription window changes.
+ useEffect(() => {
+  if (!subscriptionBannerDismissKey) {
+   setSubscriptionBannerDismissed(false);
+   return;
+  }
+  try {
+   setSubscriptionBannerDismissed(localStorage.getItem(subscriptionBannerDismissKey) === 'true');
+  } catch {
+   setSubscriptionBannerDismissed(false);
+  }
+ }, [subscriptionBannerDismissKey]);
+
+ const dismissSubscriptionBanner = () => {
+  setSubscriptionBannerDismissed(true);
+  try {
+   if (subscriptionBannerDismissKey) localStorage.setItem(subscriptionBannerDismissKey, 'true');
+  } catch {
+   /* non-fatal */
+  }
+ };
 
  const onSwitchWorkspace = (id: string) => {
   if (!id || id === activeWorkspaceId) return;
@@ -4913,6 +4960,39 @@ function AuthenticatedHome() {
 
     <div className="flex min-w-0 flex-1 flex-col overflow-auto">
      <AppHeader sidebarItems={sidebarItems} section={section} navigateToSection={navigateToSection} activeSectionMeta={activeSectionMeta} shellMetrics={shellMetrics} />
+
+     {showSubscriptionBanner ? (
+      <div className="flex items-center justify-between gap-3 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
+       <span>
+        {subscriptionDaysLeft !== null && subscriptionDaysLeft <= 0
+         ? t('subscription_banner_expired')
+         : t('subscription_banner_expiring', { days: subscriptionDaysLeft ?? 0 })}
+       </span>
+       <div className="flex shrink-0 items-center gap-3">
+        <button
+         type="button"
+         onClick={() => {
+          setSettingsTab('account');
+          navigateToSection('settings');
+         }}
+         className="rounded border border-amber-400 bg-white px-3 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+        >
+         {t('subscription_banner_renew')}
+        </button>
+        <button
+         type="button"
+         onClick={dismissSubscriptionBanner}
+         aria-label={t('close')}
+         title={t('close')}
+         className="rounded p-0.5 text-amber-700 transition hover:bg-amber-100 hover:text-amber-900"
+        >
+         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M18 6 6 18M6 6l12 12" />
+         </svg>
+        </button>
+       </div>
+      </div>
+     ) : null}
 
      {/* Settings: full-width, no outer padding */}
      {section === 'settings' ? settingsSection : null}

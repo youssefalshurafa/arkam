@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, RefObject } from 'react';
+import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
@@ -168,6 +168,36 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const { selectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
  const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
+
+ // Shared by the row's onContextMenu (desktop right-click) and its visible "⋮" button
+ // (touch devices have no right-click event to hook into).
+ const openRowMenu = (event: ReactMouseEvent, txn: Transaction) => {
+  if (editingRowIds.has(txn.id)) return;
+  rowContextMenu.open(event, [
+   { key: 'edit', label: t('edit'), onSelect: () => setEditingRowIds((prev) => new Set([...prev, txn.id])) },
+   { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const },
+  ]);
+ };
+
+ // The data columns' relative widths (as percentages of the table, summing to 100 when every
+ // column is visible). Hardcoded percentages that don't renormalize when optional columns
+ // (charges/commission/archive) are hidden leave a gap that table-auto layout hands to the
+ // two icon columns instead — widening them well past their content on wide screens/fewer
+ // visible columns. Recomputing the percentages against only the currently visible columns'
+ // weights keeps them always summing to 100, so the icon columns (fixed px width below)
+ // never absorb leftover space.
+ const columnWeights: Array<[boolean, number]> = [
+  [transactionTableSettings.columns.created, 10],
+  [transactionTableSettings.columns.description, 15],
+  [transactionTableSettings.columns.accountFrom, 17],
+  [transactionTableSettings.columns.accountTo, 17],
+  [transactionTableSettings.columns.amount, 13],
+  [transactionTableSettings.columns.charges, 13],
+  [transactionTableSettings.columns.commission, 15],
+  [section === 'archive', 16],
+ ];
+ const totalColumnWeight = columnWeights.reduce((sum, [visible, weight]) => (visible ? sum + weight : sum), 0) || 1;
+ const colWidthPercent = (weight: number) => `${((weight / totalColumnWeight) * 100).toFixed(2)}%`;
 
  // Keyboard navigation for the From/To account pickers: the highlighted index tracks the row
  // that ↑/↓ move through and Enter activates. The option lists are flattened from the same
@@ -1606,16 +1636,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             style={{ zoom: String(tableZoom) }}
            >
             <colgroup>
-             <col className="w-px" />
-             <col className="w-px" />
-             {transactionTableSettings.columns.created ? <col className="w-[10%]" /> : null}
-             {transactionTableSettings.columns.description ? <col className="w-[15%]" /> : null}
-             {transactionTableSettings.columns.accountFrom ? <col className="w-[17%]" /> : null}
-             {transactionTableSettings.columns.accountTo ? <col className="w-[17%]" /> : null}
-             {transactionTableSettings.columns.amount ? <col className="w-[13%]" /> : null}
-             {transactionTableSettings.columns.charges ? <col className="w-[13%]" /> : null}
-             {transactionTableSettings.columns.commission ? <col className="w-[15%]" /> : null}
-             {section === 'archive' ? <col className="w-[16%]" /> : null}
+             <col className="w-10" />
+             <col className="w-12" />
+             {transactionTableSettings.columns.created ? <col style={{ width: colWidthPercent(10) }} /> : null}
+             {transactionTableSettings.columns.description ? <col style={{ width: colWidthPercent(15) }} /> : null}
+             {transactionTableSettings.columns.accountFrom ? <col style={{ width: colWidthPercent(17) }} /> : null}
+             {transactionTableSettings.columns.accountTo ? <col style={{ width: colWidthPercent(17) }} /> : null}
+             {transactionTableSettings.columns.amount ? <col style={{ width: colWidthPercent(13) }} /> : null}
+             {transactionTableSettings.columns.charges ? <col style={{ width: colWidthPercent(13) }} /> : null}
+             {transactionTableSettings.columns.commission ? <col style={{ width: colWidthPercent(15) }} /> : null}
+             {section === 'archive' ? <col style={{ width: colWidthPercent(16) }} /> : null}
             </colgroup>
             <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
              <tr>
@@ -1786,13 +1816,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 setDragOverRowId(txn.id);
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
-               onContextMenu={(e) => {
-                if (editingRowIds.has(txn.id)) return;
-                rowContextMenu.open(e, [
-                 { key: 'edit', label: t('edit'), onSelect: () => setEditingRowIds((prev) => new Set([...prev, txn.id])) },
-                 { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const },
-                ]);
-               }}
+               onContextMenu={(e) => openRowMenu(e, txn)}
                onKeyDown={(e) => {
                 focusAdjacentRowField(e, isRTL);
                 // Enter saves the row being edited (ignore Enter inside multi-line fields).
@@ -2012,54 +2036,76 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      )}
                     </div>
                    ) : (
-                    // Row actions (edit/delete) live in the right-click context menu (see
-                    // onContextMenu on the <tr> above) instead of a row of icon buttons.
-                    <span
-                     className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                     title="Drag to reorder"
-                     onMouseDown={() => {
-                      dragFromHandle.current = true;
-                     }}
-                    >
-                     <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      aria-hidden
+                    // Row actions (edit/delete) live in the right-click context menu (desktop,
+                    // see onContextMenu on the <tr> above) plus the visible "⋮" button beside it,
+                    // which is the only way to reach them on touch devices (no right-click there).
+                    <div className="flex items-center justify-center gap-1">
+                     <span
+                      className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                      title="Drag to reorder"
+                      onMouseDown={() => {
+                       dragFromHandle.current = true;
+                      }}
                      >
-                      <circle
-                       cx="9"
-                       cy="5"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="15"
-                       cy="5"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="9"
-                       cy="12"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="15"
-                       cy="12"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="9"
-                       cy="19"
-                       r="1.5"
-                      />
-                      <circle
-                       cx="15"
-                       cy="19"
-                       r="1.5"
-                      />
-                     </svg>
-                    </span>
+                      <svg
+                       width="12"
+                       height="12"
+                       viewBox="0 0 24 24"
+                       fill="currentColor"
+                       aria-hidden
+                      >
+                       <circle
+                        cx="9"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="5"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="12"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="9"
+                        cy="19"
+                        r="1.5"
+                       />
+                       <circle
+                        cx="15"
+                        cy="19"
+                        r="1.5"
+                       />
+                      </svg>
+                     </span>
+                     <button
+                      type="button"
+                      title={t('row_actions_menu')}
+                      aria-label={t('row_actions_menu')}
+                      onClick={(e) => openRowMenu(e, txn)}
+                      className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                     >
+                      <svg
+                       width="12"
+                       height="12"
+                       viewBox="0 0 24 24"
+                       fill="currentColor"
+                       aria-hidden
+                      >
+                       <circle cx="12" cy="5" r="1.8" />
+                       <circle cx="12" cy="12" r="1.8" />
+                       <circle cx="12" cy="19" r="1.8" />
+                      </svg>
+                     </button>
+                    </div>
                    )}
                   </td>
                   {transactionTableSettings.columns.created ? (

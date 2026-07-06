@@ -39,7 +39,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
  const { t } = useTranslation(language);
  const numLocale = language === 'fr' ? 'fr-FR' : language;
 
- const { overviewRates, overviewFlipAll, overviewFlipped, setOverviewFlipAll, setOverviewFlipped, updateOverviewRate } = useOverviewStore();
+ const { overviewRates, overviewFlipped, setOverviewFlipped, updateOverviewRate } = useOverviewStore();
 
  // Organisation search box: typing filters a dropdown of matching org names; picking one
  // (or pressing Enter with a single match) smooth-scrolls that org's section into view.
@@ -215,7 +215,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
            const value = raw != null ? Number(raw) : NaN;
            return value > 0 ? value : NaN;
           };
-          const isFlipped = (group: OverviewBalanceGroup) => !group.isMain && (overviewFlipAll || overviewFlipped.has(group.key));
+          const isFlipped = (group: OverviewBalanceGroup) => !group.isMain && overviewFlipped.has(group.key);
 
           // Flatten a card (org + currency group) to the plain shape the PDF builder expects.
           // `flipped` requests the converted (main-currency) face; it only applies when a valid
@@ -342,27 +342,26 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                </p>
               </div>
               {selectedShownCount > 0 ? (
-               // Sticky so the action stays reachable while scrolling through a long list of
-               // organization cards to pick more of them, instead of scrolling away with the header.
-               <button
-                type="button"
-                onClick={printSelected}
-                className="sticky top-4 z-20 shrink-0 inline-flex items-center gap-1.5 rounded border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-800"
-               >
-                {printIcon}
-                {t('overview_print_selected', { count: selectedShownCount })}
-               </button>
+               <>
+                {/* Sticky so the action stays reachable while scrolling through a long list of
+                    organization cards to pick more of them, instead of scrolling away with the header. */}
+                <button
+                 type="button"
+                 onClick={printSelected}
+                 className="sticky top-4 z-20 shrink-0 inline-flex items-center gap-1.5 rounded border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-800"
+                >
+                 {printIcon}
+                 {t('overview_print_selected', { count: selectedShownCount })}
+                </button>
+                <button
+                 type="button"
+                 onClick={() => setSelectedCardKeys(new Set())}
+                 className="sticky top-4 z-20 shrink-0 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-lg transition hover:bg-slate-50"
+                >
+                 {t('overview_deselect_all')}
+                </button>
+               </>
               ) : null}
-              <button
-               type="button"
-               onClick={() => {
-                setOverviewFlipAll((value) => !value);
-                setOverviewFlipped(new Set());
-               }}
-               className="shrink-0 rounded border border-blue-700 bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
-              >
-               {overviewFlipAll ? t('overview_show_original') : t('overview_show_in_main', { currency: mainCode })}
-              </button>
              </div>
             </div>
 

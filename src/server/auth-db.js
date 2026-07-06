@@ -931,6 +931,79 @@ async function renewSubscription({ userId, durationDays }) {
     });
 }
 
+// Super-admin action: creates a fully active account directly (no self-signup/payment
+// approval needed) with an admin-set subscription window and its own workspace, mirroring
+// what a normal signup gets. `email` doubles as a login username — it's stored and matched
+// as-is (lowercased/trimmed), not validated as an actual email address, since the admin may
+// hand the user a plain username instead of a real address. The account has no password yet;
+// no email is sent — the user sets their own password later via setInitialPassword() (the
+// sign-in page links to a "set your password" screen for first-time logins like this).
+async function createUserBySuperAdmin({ name, email, durationDays }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const displayName = String(name || '').trim() || normalizedEmail;
+    const days = Number(durationDays) > 0 ? Number(durationDays) : 30;
+
+    if (!normalizedEmail) {
+        throw new Error('Email or username is required.');
+    }
+
+    const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (existing) {
+        throw new Error('This email or username is already registered.');
+    }
+
+    const userId = generateId();
+    const now = new Date();
+    const endsAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+    await withTransaction(async (client) => {
+        await runQuery(
+            `INSERT INTO users (id, email, name, status, subscription_started_at, subscription_ends_at)
+             VALUES ($1, $2, $3, 'approved', $4, $5)`,
+            [userId, normalizedEmail, displayName, now.toISOString(), endsAt.toISOString()],
+            client,
+        );
+        await createWorkspaceForUserWithExecutor(client, userId, `${displayName} Workspace`);
+    });
+
+    return {
+        id: userId,
+        email: normalizedEmail,
+        name: displayName,
+        subscriptionEndsAt: endsAt.toISOString(),
+    };
+}
+
+// Lets a user created via createUserBySuperAdmin (no password_hash yet) set their own password
+// for the first time, given just their email/username — no token/email involved. Matched on
+// "password_hash IS NULL" so it can never be used to hijack an account that already has a
+// password (that's what forgot-password/reset-password is for).
+async function setInitialPassword({ email, password }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const rawPassword = String(password || '');
+
+    if (!normalizedEmail) {
+        throw new Error('Email or username is required.');
+    }
+    if (rawPassword.length < 8) {
+        throw new Error('Password must be at least 8 characters.');
+    }
+
+    const user = await fetchOne('SELECT id FROM users WHERE email = $1 AND password_hash IS NULL', [normalizedEmail]);
+    if (!user) {
+        throw new Error('No pending account found for this email/username, or a password has already been set.');
+    }
+
+    const passwordHash = bcrypt.hashSync(rawPassword, 10);
+    await runQuery('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, user.id]);
+
+    return { ok: true };
+}
+
 // Super-admin override: sets a user's subscription to expire in exactly `days` days from now
 // (not appended to the existing end date, unlike renewSubscription). Also (re)activates the
 // account, so this doubles as a manual reactivate for rejected/expired users.
@@ -1166,6 +1239,8 @@ module.exports = {
     resetPasswordWithToken,
     listAllUsers,
     deleteUser,
+    createUserBySuperAdmin,
+    setInitialPassword,
     createEmailVerificationToken,
     getEmailVerificationToken,
     consumeEmailVerificationAndCreateUser,

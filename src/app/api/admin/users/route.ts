@@ -21,6 +21,41 @@ export async function GET() {
  return NextResponse.json({ users });
 }
 
+type CreateUserBody = {
+ name?: string;
+ email?: string;
+ durationDays?: number;
+};
+
+// Super admin creates a user directly: account is active immediately with the given
+// subscription window, no password set, and no email sent — `email` may be a plain
+// username instead of a real address. The user sets their own password later via the
+// sign-in page's "set your password" link (see /set-password and setInitialPassword()).
+export async function POST(request: NextRequest) {
+ const session = await getServerSession(authOptions);
+
+ if (!isSuperAdmin(session?.user?.email)) {
+  return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+ }
+
+ const { name, email, durationDays } = (await request.json()) as CreateUserBody;
+
+ if (!email || typeof email !== 'string') {
+  return NextResponse.json({ error: 'Email or username is required.' }, { status: 400 });
+ }
+
+ try {
+  const result = await authDb.createUserBySuperAdmin({ name, email, durationDays });
+  return NextResponse.json({
+   ok: true,
+   user: { id: result.id, email: result.email, name: result.name, subscriptionEndsAt: result.subscriptionEndsAt },
+  });
+ } catch (error) {
+  const message = error instanceof Error ? error.message : 'Failed to create user.';
+  return NextResponse.json({ error: message }, { status: 400 });
+ }
+}
+
 export async function DELETE(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
