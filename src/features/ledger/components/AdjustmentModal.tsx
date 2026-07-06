@@ -1,10 +1,11 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { normalizeDecimalInput } from '@/shared/utils/decimal';
+import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
-import type { Client, ClientAccount, ClientAccountLedger, Currency } from '@/shared/types';
+import type { Client, ClientAccount, ClientAccountLedger, ClientAdjustment, Currency } from '@/shared/types';
 
 type AdjustmentModalProps = {
  selectedClientLedgers: ClientAccountLedger[];
@@ -13,17 +14,33 @@ type AdjustmentModalProps = {
  clientAccounts: ClientAccount[];
  currencyMap: Map<number, Currency>;
  enabledCurrencies: Currency[];
+ adjustments: ClientAdjustment[];
  onSubmitAdjustment: () => void;
  onDeleteAdjustment: (id: number) => void;
 };
 
-export default function AdjustmentModal({ selectedClientLedgers, selectedClientForLedger, localizedCurrencies, clientAccounts, currencyMap, enabledCurrencies, onSubmitAdjustment, onDeleteAdjustment }: AdjustmentModalProps) {
+export default function AdjustmentModal({ selectedClientLedgers, selectedClientForLedger, localizedCurrencies, clientAccounts, currencyMap, enabledCurrencies, adjustments, onSubmitAdjustment, onDeleteAdjustment }: AdjustmentModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const numLocale = language === 'fr' ? 'fr-FR' : language;
  const adjustmentModal = useLedgerStore((s) => s.adjustmentModal);
  const ledgerDecimals = useLedgerStore((s) => s.ledgerDecimals);
  const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);
+
+ // Distinct past expense descriptions (most recent first), offered as <datalist> suggestions
+ // so recurring expenses (e.g. "Gas money") don't need retyping every time.
+ const descriptionSuggestions = useMemo(() => {
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (let i = adjustments.length - 1; i >= 0; i--) {
+   const desc = adjustments[i].description.trim();
+   if (desc && !seen.has(desc)) {
+    seen.add(desc);
+    list.push(desc);
+   }
+  }
+  return list;
+ }, [adjustments]);
 
  return (
   <>
@@ -89,7 +106,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
              type="text"
              inputMode="decimal"
              dir="ltr"
-             value={adjustmentModal.amount}
+             value={formatAmountInput(adjustmentModal.amount)}
              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, amount: normalizeDecimalInput(e.target.value) } : prev))}
              placeholder="0"
              autoFocus
@@ -183,11 +200,20 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_description')}</label>
             <input
              type="text"
+             list="adjustment-description-suggestions"
              value={adjustmentModal.description}
              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
              placeholder={t('adjustment_description_placeholder')}
              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
+            <datalist id="adjustment-description-suggestions">
+             {descriptionSuggestions.map((desc) => (
+              <option
+               key={desc}
+               value={desc}
+              />
+             ))}
+            </datalist>
            </div>
 
            <div className="flex flex-col gap-1">

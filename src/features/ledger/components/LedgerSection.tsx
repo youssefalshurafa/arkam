@@ -15,6 +15,7 @@ import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CUR
 import { formatDateValue } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
+import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
@@ -102,6 +103,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const setError = useAppStatusStore((s) => s.setError);
  const dragLedgerFromHandle = useRef(false);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+
+ // Right-click row actions (Edit/Reconcile/Write off/Delete) — replaces a cluster of
+ // per-row icon buttons with a single context menu, decluttering the actions column.
+ const rowContextMenu = useContextMenu();
 
  // Tracks which account's "entries awaiting an exchange rate" note has been expanded to list
  // the specific pending entries. Ephemeral UI state — no need to persist across sessions.
@@ -202,6 +207,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  }
 
  return (
+  <>
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -311,9 +317,30 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 cols: getStoredPdfCols(targetLedger.accountId),
                });
               }}
-              className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              title={t('export_ledger_action')}
+              aria-label={t('export_ledger_action')}
+              className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
              >
-              {t('export_pdf')}
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+               <polyline points="7 10 12 15 17 10" />
+               <line
+                x1="12"
+                y1="15"
+                x2="12"
+                y2="3"
+               />
+              </svg>
              </button>
              <button
               type="button"
@@ -1274,6 +1301,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
                       }}
                       onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
+                      onContextMenu={(e) => {
+                       const rowKeyForMenu = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                       if (editingLedgerRowKeys.has(rowKeyForMenu)) return;
+                       rowContextMenu.open(e, [
+                        { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId) },
+                        entry.reconciledMark
+                         ? { key: 'unreconcile', label: t('reconcile_remove_action'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
+                         : { key: 'reconcile', label: t('reconcile_action'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
+                        ...(entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= SMALL_BALANCE_THRESHOLD
+                         ? [{ key: 'writeoff', label: t('write_off_row_action'), onSelect: () => onWriteOffLedgerRow(entry, ledger.accountId) }]
+                         : []),
+                        { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const },
+                       ]);
+                      }}
                       onKeyDown={(e) => {
                        // Enter saves the row being edited (ignore Enter inside multi-line fields).
                        if (e.key !== 'Enter') return;
@@ -1402,105 +1443,55 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             </button>
                            </div>
                           ) : (
-                           <div className="flex items-center gap-0.5">
-                            <span
-                             className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                             title="Drag to reorder"
-                             onMouseDown={() => {
-                              dragLedgerFromHandle.current = true;
-                             }}
+                           // Row actions (edit/reconcile/write off/delete) live in the right-click
+                           // context menu (see onContextMenu on the <tr> above) instead of a row of
+                           // icon buttons, so only the drag handle sits here.
+                           <span
+                            className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                            title="Drag to reorder"
+                            onMouseDown={() => {
+                             dragLedgerFromHandle.current = true;
+                            }}
+                           >
+                            <svg
+                             width="12"
+                             height="12"
+                             viewBox="0 0 24 24"
+                             fill="currentColor"
+                             aria-hidden
                             >
-                             <svg
-                              width="12"
-                              height="12"
-                              viewBox="0 0 24 24"
-                              fill="currentColor"
-                              aria-hidden
-                             >
-                              <circle
-                               cx="9"
-                               cy="5"
-                               r="1.5"
-                              />
-                              <circle
-                               cx="15"
-                               cy="5"
-                               r="1.5"
-                              />
-                              <circle
-                               cx="9"
-                               cy="12"
-                               r="1.5"
-                              />
-                              <circle
-                               cx="15"
-                               cy="12"
-                               r="1.5"
-                              />
-                              <circle
-                               cx="9"
-                               cy="19"
-                               r="1.5"
-                              />
-                              <circle
-                               cx="15"
-                               cy="19"
-                               r="1.5"
-                              />
-                             </svg>
-                            </span>
-                            <button
-                             type="button"
-                             title={t('edit')}
-                             onClick={() => openLedgerRowForEdit(entry, ledger.accountId)}
-                             className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
-                            >
-                             <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden
-                             >
-                              <path d="M12 20h9" />
-                              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                             </svg>
-                            </button>
-                            <button
-                             type="button"
-                             title={entry.reconciledMark ? t('reconcile_remove_action') : t('reconcile_action')}
-                             onClick={() => (entry.reconciledMark ? onRemoveReconciliation(entry, ledger.accountId) : onReconcileLedgerEntry(entry, ledger.accountId))}
-                             className={`rounded p-1 hover:bg-slate-100 ${entry.reconciledMark ? 'text-emerald-600' : 'text-slate-400 hover:text-emerald-600'}`}
-                            >
-                             {entry.reconciledMark ? (
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                               <path d="M9 12l2 2 4-4" />
-                               <circle cx="12" cy="12" r="10" />
-                              </svg>
-                             ) : (
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                               <path d="M20 6L9 17l-5-5" />
-                              </svg>
-                             )}
-                            </button>
-                            {entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= SMALL_BALANCE_THRESHOLD ? (
-                             <button
-                              type="button"
-                              title={t('write_off_row_action')}
-                              onClick={() => onWriteOffLedgerRow(entry, ledger.accountId)}
-                              className="rounded p-1 text-amber-500 hover:bg-amber-50 hover:text-amber-700"
-                             >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                               <circle cx="12" cy="12" r="9" />
-                               <path d="M8 12h8" />
-                              </svg>
-                             </button>
-                            ) : null}
-                           </div>
+                             <circle
+                              cx="9"
+                              cy="5"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="15"
+                              cy="5"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="9"
+                              cy="12"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="15"
+                              cy="12"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="9"
+                              cy="19"
+                              r="1.5"
+                             />
+                             <circle
+                              cx="15"
+                              cy="19"
+                              r="1.5"
+                             />
+                            </svg>
+                           </span>
                           )}
                          </td>
                          {orderedLedgerColumnOptions.map((column) => {
@@ -1746,7 +1737,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  type="button"
                                  onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
                                  className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                  draft.adjustmentDirection === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                                  }`}
                                 >
                                  {t('adjustment_direction_debit_short')}
@@ -1756,7 +1747,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
                                  className={`rounded border px-2 py-1 text-xs font-semibold transition ${
                                   draft.adjustmentDirection === 'credit'
-                                   ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                                   ? 'border-red-500 bg-red-50 text-red-700'
                                    : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                                  }`}
                                 >
@@ -1765,7 +1756,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                </div>
                               ) : entry.isAdjustment ? (
                                <span
-                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
                                >
                                 {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
                                </span>
@@ -1814,6 +1805,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              </td>
                             );
                            case 'amount':
+                            // A charge in the same currency as the amount is shown here, subtracted directly
+                            // from the amount (they're comparable) — otherwise it stays under net change,
+                            // where the account's own currency makes a cross-currency charge meaningful.
+                            const showChargesUnderAmount = !draft && !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount && entry.chargesCurrencyCode === entry.currencyCode;
                             return (
                              <td
                               key={column.key}
@@ -1852,6 +1847,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                 {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                                </>
+                              )}
+                              {showChargesUnderAmount && (
+                               <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-red-500">
+                                <span>
+                                 −{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                 {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
+                                </span>
+                                {entry.chargesDescription && <span className="font-normal italic text-slate-400">{entry.chargesDescription}</span>}
+                               </div>
                               )}
                              </td>
                             );
@@ -2165,7 +2169,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  })()
                                : entry.netChange;
                              const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
-                             const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount;
+                             // Same-currency charges are shown under the amount column instead (see the
+                             // 'amount' case above), since they're directly comparable there — unless that
+                             // column is hidden, in which case they fall back to showing here so the charge
+                             // is never silently dropped from view.
+                             const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount && (entry.chargesCurrencyCode !== entry.currencyCode || !ledgerColumnVisibility.amount);
                              return (
                               <td
                                key={column.key}
@@ -2532,5 +2540,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
            ))
          )}
         </section>
+   <ContextMenu menu={rowContextMenu.menu} onClose={rowContextMenu.close} />
+  </>
  );
 }

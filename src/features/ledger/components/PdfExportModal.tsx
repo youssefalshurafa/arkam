@@ -14,9 +14,10 @@ type PdfExportModalProps = {
  selectedClientForLedger: Client | null;
  pdfAllColumns: Array<{ key: LedgerColumnKey; label: string }>;
  onExportLedgerPdf: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null) => void;
+ onExportLedgerExcel: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null) => void;
 };
 
-export default function PdfExportModal({ selectedClientLedgers, selectedClientForLedger, pdfAllColumns, onExportLedgerPdf }: PdfExportModalProps) {
+export default function PdfExportModal({ selectedClientLedgers, selectedClientForLedger, pdfAllColumns, onExportLedgerPdf, onExportLedgerExcel }: PdfExportModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const numLocale = language === 'fr' ? 'fr-FR' : language;
@@ -34,7 +35,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
          <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
-          <h3 className="text-lg font-semibold text-slate-900">{t('export_pdf_title')}</h3>
+          <h3 className="text-lg font-semibold text-slate-900">{t('export_ledger_title')}</h3>
           <p className="mt-1 text-sm text-slate-500">
            {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
           </p>
@@ -236,12 +237,31 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            <button
             type="button"
             onClick={() =>
+             void onExportLedgerExcel(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)
+            }
+            disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
+            className="flex items-center gap-1.5 rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+           >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+             <polyline points="14 2 14 8 20 8" />
+             <path d="M9 13l6 5M15 13l-6 5" />
+            </svg>
+            {t('transactions_export_excel')}
+           </button>
+           <button
+            type="button"
+            onClick={() =>
              void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)
             }
             disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
-            className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
-            {t('export_pdf')}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+             <polyline points="14 2 14 8 20 8" />
+            </svg>
+            {t('transactions_export_pdf')}
            </button>
           </div>
          </div>

@@ -12,6 +12,7 @@ import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
+import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
@@ -161,6 +162,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const numLocale = language === 'fr' ? 'fr-FR' : language;
  const showToast = useAppStatusStore((s) => s.showToast);
  const dragFromHandle = useRef(false);
+ // Right-click row actions (Edit/Delete) — replaces the row's icon-button cluster with a
+ // single context menu when not editing.
+ const rowContextMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const { selectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
  const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
@@ -243,6 +247,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  }
 
  return (
+  <>
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
          {(section === 'transactions' || section === 'archive') && isNewTransactionSectionOpen ? (
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
@@ -1179,95 +1184,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </button>
             <button
              type="button"
-             title={t('ledger_click_highlight_mode')}
-             onClick={() => setTxRowClickMode(txRowClickActive && txRowClickHighlight && !txSumMode ? 'none' : 'highlight')}
-             aria-pressed={txRowClickActive && txRowClickHighlight && !txSumMode}
-             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-              txRowClickActive && txRowClickHighlight && !txSumMode ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-             }`}
-            >
-             <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-             >
-              <path d="m9 11-6 6v3h9l3-3" />
-              <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
-             </svg>
-            </button>
-            <button
-             type="button"
-             title={t('ledger_click_copy_mode')}
-             onClick={() => setTxRowClickMode(txRowClickActive && !txRowClickHighlight && !txSumMode ? 'none' : 'copy')}
-             aria-pressed={txRowClickActive && !txRowClickHighlight && !txSumMode}
-             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-              txRowClickActive && !txRowClickHighlight && !txSumMode ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-             }`}
-            >
-             <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-             >
-              <rect
-               x="9"
-               y="9"
-               width="13"
-               height="13"
-               rx="2"
-               ry="2"
-              />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-             </svg>
-            </button>
-            <button
-             type="button"
-             title={t('tx_sum_mode_hint')}
-             onClick={toggleTxSumMode}
-             aria-pressed={txSumMode}
-             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-              txSumMode ? 'border-purple-400 bg-purple-50 text-purple-600 hover:bg-purple-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-             }`}
-            >
-             <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-             >
-              <path d="M18 6H7l5 6-5 6h11" />
-             </svg>
-            </button>
-            {txSumByCurrency.map((sum) => (
-             <span
-              key={sum.code || 'none'}
-              className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-purple-50 px-3 py-2 text-sm text-slate-600"
-             >
-              <span className="font-medium text-slate-500">
-               {sum.code || t('amount')} ({sum.count})
-              </span>
-              <span className="font-semibold text-slate-800">{sum.total.toLocaleString(numLocale)}</span>
-             </span>
-            ))}
-            <button
-             type="button"
              onClick={openTransactionTableSettingsModal}
              title={t('transactions_more_settings')}
              className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
@@ -1432,6 +1348,101 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             ) : null}
            </div>
           </div>
+
+          {/* Row-click modes (highlight/copy/sum) live on their own row below the main
+              toolbar, separate from the settings/download/upload icons above. */}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+           <button
+            type="button"
+            title={t('ledger_click_highlight_mode')}
+            onClick={() => setTxRowClickMode(txRowClickActive && txRowClickHighlight && !txSumMode ? 'none' : 'highlight')}
+            aria-pressed={txRowClickActive && txRowClickHighlight && !txSumMode}
+            className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
+             txRowClickActive && txRowClickHighlight && !txSumMode ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+            }`}
+           >
+            <svg
+             width="16"
+             height="16"
+             viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             strokeWidth="1.8"
+             strokeLinecap="round"
+             strokeLinejoin="round"
+             aria-hidden
+            >
+             <path d="m9 11-6 6v3h9l3-3" />
+             <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+            </svg>
+           </button>
+           <button
+            type="button"
+            title={t('ledger_click_copy_mode')}
+            onClick={() => setTxRowClickMode(txRowClickActive && !txRowClickHighlight && !txSumMode ? 'none' : 'copy')}
+            aria-pressed={txRowClickActive && !txRowClickHighlight && !txSumMode}
+            className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
+             txRowClickActive && !txRowClickHighlight && !txSumMode ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+            }`}
+           >
+            <svg
+             width="16"
+             height="16"
+             viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             strokeWidth="1.8"
+             strokeLinecap="round"
+             strokeLinejoin="round"
+             aria-hidden
+            >
+             <rect
+              x="9"
+              y="9"
+              width="13"
+              height="13"
+              rx="2"
+              ry="2"
+             />
+             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+           </button>
+           <button
+            type="button"
+            title={t('tx_sum_mode_hint')}
+            onClick={toggleTxSumMode}
+            aria-pressed={txSumMode}
+            className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
+             txSumMode ? 'border-purple-400 bg-purple-50 text-purple-600 hover:bg-purple-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+            }`}
+           >
+            <svg
+             width="16"
+             height="16"
+             viewBox="0 0 24 24"
+             fill="none"
+             stroke="currentColor"
+             strokeWidth="1.8"
+             strokeLinecap="round"
+             strokeLinejoin="round"
+             aria-hidden
+            >
+             <path d="M18 6H7l5 6-5 6h11" />
+            </svg>
+           </button>
+           {txSumByCurrency.map((sum) => (
+            <span
+             key={sum.code || 'none'}
+             className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-purple-50 px-3 py-2 text-sm text-slate-600"
+            >
+             <span className="font-medium text-slate-500">
+              {sum.code || t('amount')} ({sum.count})
+             </span>
+             <span className="font-semibold text-slate-800">{sum.total.toLocaleString(numLocale)}</span>
+            </span>
+           ))}
+          </div>
+
           <div className="mt-3 rounded border border-slate-200 bg-slate-50">
            <button
             type="button"
@@ -1775,6 +1786,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 setDragOverRowId(txn.id);
                }}
                onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
+               onContextMenu={(e) => {
+                if (editingRowIds.has(txn.id)) return;
+                rowContextMenu.open(e, [
+                 { key: 'edit', label: t('edit'), onSelect: () => setEditingRowIds((prev) => new Set([...prev, txn.id])) },
+                 { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const },
+                ]);
+               }}
                onKeyDown={(e) => {
                 focusAdjacentRowField(e, isRTL);
                 // Enter saves the row being edited (ignore Enter inside multi-line fields).
@@ -1994,75 +2012,54 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      )}
                     </div>
                    ) : (
-                    <div className="flex items-center gap-0.5">
-                     <span
-                      className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                      title="Drag to reorder"
-                      onMouseDown={() => {
-                       dragFromHandle.current = true;
-                      }}
+                    // Row actions (edit/delete) live in the right-click context menu (see
+                    // onContextMenu on the <tr> above) instead of a row of icon buttons.
+                    <span
+                     className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                     title="Drag to reorder"
+                     onMouseDown={() => {
+                      dragFromHandle.current = true;
+                     }}
+                    >
+                     <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden
                      >
-                      <svg
-                       width="12"
-                       height="12"
-                       viewBox="0 0 24 24"
-                       fill="currentColor"
-                       aria-hidden
-                      >
-                       <circle
-                        cx="9"
-                        cy="5"
-                        r="1.5"
-                       />
-                       <circle
-                        cx="15"
-                        cy="5"
-                        r="1.5"
-                       />
-                       <circle
-                        cx="9"
-                        cy="12"
-                        r="1.5"
-                       />
-                       <circle
-                        cx="15"
-                        cy="12"
-                        r="1.5"
-                       />
-                       <circle
-                        cx="9"
-                        cy="19"
-                        r="1.5"
-                       />
-                       <circle
-                        cx="15"
-                        cy="19"
-                        r="1.5"
-                       />
-                      </svg>
-                     </span>
-                     <button
-                      type="button"
-                      title={t('edit')}
-                      onClick={() => setEditingRowIds((prev) => new Set([...prev, txn.id]))}
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
-                     >
-                      <svg
-                       width="14"
-                       height="14"
-                       viewBox="0 0 24 24"
-                       fill="none"
-                       stroke="currentColor"
-                       strokeWidth="1.8"
-                       strokeLinecap="round"
-                       strokeLinejoin="round"
-                       aria-hidden
-                      >
-                       <path d="M12 20h9" />
-                       <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                      </svg>
-                     </button>
-                    </div>
+                      <circle
+                       cx="9"
+                       cy="5"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="15"
+                       cy="5"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="9"
+                       cy="12"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="15"
+                       cy="12"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="9"
+                       cy="19"
+                       r="1.5"
+                      />
+                      <circle
+                       cx="15"
+                       cy="19"
+                       r="1.5"
+                      />
+                     </svg>
+                    </span>
                    )}
                   </td>
                   {transactionTableSettings.columns.created ? (
@@ -2670,5 +2667,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
           {transactionsPager}
          </div>
         </section>
+   <ContextMenu menu={rowContextMenu.menu} onClose={rowContextMenu.close} />
+  </>
  );
 }

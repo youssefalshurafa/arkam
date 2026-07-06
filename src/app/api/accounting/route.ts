@@ -25,6 +25,11 @@ const readOnlyActions = new Set([
  'recordBackup',
  // Shared workspace UI settings: readable by anyone in the workspace.
  'getWorkspaceSettings',
+ // Personal table-layout settings: each user reads/writes only their own row (scoped
+ // by their own user id server-side), so both directions are safe for any role,
+ // including viewers — it's a UI preference, not workspace financial data.
+ 'getUserTableSettings',
+ 'saveUserTableSettings',
 ]);
 
 const writeActions = new Set([
@@ -308,6 +313,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.getWorkspaceSettings(appLike));
    case 'saveWorkspaceSettings':
     return NextResponse.json(await db.saveWorkspaceSettings(appLike, payload));
+   case 'getUserTableSettings':
+    return NextResponse.json(await db.getUserTableSettings(appLike, userId));
+   case 'saveUserTableSettings':
+    return NextResponse.json(await db.saveUserTableSettings(appLike, userId, payload));
    case 'getBackupInfo':
     return NextResponse.json(await authDb.getWorkspaceBackupInfo(workspaceId));
    case 'recordBackup':

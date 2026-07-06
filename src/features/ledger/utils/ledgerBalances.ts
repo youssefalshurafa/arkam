@@ -13,6 +13,38 @@ import type {
  Transaction,
 } from '@/shared/types';
 
+// Minimal shape needed to compute one side's ledger effect — a subset shared by both
+// `Transaction` and `TransactionUpdateInput`, so callers can pass either an existing
+// transaction or a not-yet-saved edit payload.
+export type NetChangeSideInput = {
+ currencyId: number;
+ amount: number;
+ exchangeRateFrom: number;
+ commissionFrom: number;
+ exchangeRateTo: number;
+ commissionTo: number;
+ charges: number;
+ chargesPayer: string;
+ chargesExchangeRate: number;
+};
+
+// The net ledger effect of a transaction on ONE side's account balance — must mirror the
+// from/to netChange formulas inside computeClientLedgers below exactly. Used by the
+// reconciliation guard to tell whether an edit actually changes a given account's balance
+// (e.g. changing only the "from" side's exchange rate never affects the "to" account, so
+// that account's lock should not be checked).
+export function computeTransactionSideNetChange(tx: NetChangeSideInput, accountCurrencyId: number, side: 'from' | 'to'): number {
+ const rate = side === 'from' ? tx.exchangeRateFrom : tx.exchangeRateTo;
+ const commission = side === 'from' ? tx.commissionFrom : tx.commissionTo;
+ const pendingRate = tx.currencyId !== accountCurrencyId && rate === 0;
+ if (pendingRate) return 0;
+ const chargeEffect = tx.charges > 0 ? chargeLedgerEffect(tx.chargesPayer, side) * (tx.charges * tx.chargesExchangeRate) : 0;
+ if (side === 'from') {
+  return tx.amount * rate + getCommissionAmount(tx.amount * rate, commission) + chargeEffect;
+ }
+ return -(tx.amount * rate - getCommissionAmount(tx.amount * rate, commission)) + chargeEffect;
+}
+
 type ComputeArgs = {
  selectedClientForLedger: Client | null;
  section: Section;
