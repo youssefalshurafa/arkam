@@ -903,7 +903,7 @@ async function deleteTransactionsBulk(app, payload) {
 
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
-const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments', 'reconciliations'];
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments', 'reconciliations', 'user_table_settings'];
 
 const BACKUP_FORMAT = 'arkam-backup';
 const BACKUP_VERSION = 1;
@@ -1166,6 +1166,30 @@ async function saveWorkspaceSettings(app, payload) {
     };
 }
 
+// This user's own persisted table-layout settings for this workspace (empty map if never saved).
+async function getUserTableSettings(app, userId) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(
+        `SELECT settings FROM ${schema}.user_table_settings WHERE user_id = $1`,
+        [userId],
+    );
+    const row = result.rows[0];
+    return row && row.settings && typeof row.settings === 'object' ? row.settings : {};
+}
+
+// Upserts this user's own table-layout settings snapshot.
+async function saveUserTableSettings(app, userId, settings) {
+    const { schema } = await getSchemaInfo(app);
+    const safeSettings = settings && typeof settings === 'object' ? settings : {};
+    await query(
+        `INSERT INTO ${schema}.user_table_settings (user_id, settings, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET settings = EXCLUDED.settings, updated_at = NOW()`,
+        [userId, JSON.stringify(safeSettings)],
+    );
+    return { ok: true };
+}
+
 module.exports = {
     getDbInfo,
     setDbDirectory,
@@ -1213,4 +1237,6 @@ module.exports = {
     bulkImportTransactions,
     getWorkspaceSettings,
     saveWorkspaceSettings,
+    getUserTableSettings,
+    saveUserTableSettings,
 };

@@ -294,6 +294,8 @@ export const accountingApi = {
  getWorkspaceSettings: () => request<WorkspaceSharedSettings>({ action: 'getWorkspaceSettings' }),
  saveWorkspaceSettings: (payload: { sharedEnabled?: boolean; settings?: Record<string, string> }) =>
   request<WorkspaceSharedSettings>({ action: 'saveWorkspaceSettings', payload }),
+ getUserTableSettings: () => request<Record<string, string>>({ action: 'getUserTableSettings' }),
+ saveUserTableSettings: (settings: Record<string, string>) => request<{ ok: true }>({ action: 'saveUserTableSettings', payload: settings }),
 };
 
 // Workspace-wide shared UI settings. `settings` mirrors the relevant localStorage

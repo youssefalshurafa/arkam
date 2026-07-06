@@ -161,7 +161,7 @@ ${
 ${totalsHtml ? `<div class="totals"><span class="totals-label">${esc(t('archive_totals'))}</span>${totalsHtml}</div>` : ''}`
   : `<div class="empty">${esc(t('archive_empty'))}</div>`
 }
-${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
 }
@@ -229,7 +229,7 @@ ${
 </table>`
   : `<div class="empty">${esc(t('transactions_export_empty'))}</div>`
 }
-${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
 }
@@ -479,7 +479,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(numLocale, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
  <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
-${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
 }
@@ -600,7 +600,7 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${cards.length > 0 ? `<div class="grid">${cardHtml}</div>` : `<div class="empty">${esc(t('overview_no_balances'))}</div>`}
-${pdfSettings.showFooter ? `<div class="footer">${t('export_generated_on')} ${exportDate}</div>` : ''}
+${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
 }

@@ -112,7 +112,7 @@ import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml, generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
-import { computeClientLedgers, computeLedgerSelectionSummary } from '@/features/ledger/utils/ledgerBalances';
+import { computeClientLedgers, computeLedgerSelectionSummary, computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
@@ -335,6 +335,13 @@ function AuthenticatedHome() {
   if (Object.keys(transactionTableDrafts).length === 0) resetTxTableHistory();
  }, [transactionTableDrafts, resetTxTableHistory]);
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
+
+ // Shows the open client/organisation next to the favicon in the browser tab, so a user
+ // with several tabs open can tell them apart at a glance instead of every tab reading "Arkam".
+ useEffect(() => {
+  const name = section === 'client-ledger' ? selectedClientForLedger?.name : section === 'organization-clients' ? selectedOrganizationForClients?.name : null;
+  document.title = name ? `${name} — Arkam` : 'Arkam';
+ }, [section, selectedClientForLedger, selectedOrganizationForClients]);
  const newAccountCurrencyId = useClientsStore((s) => s.newAccountCurrencyId);
  const setNewAccountCurrencyId = useClientsStore((s) => s.setNewAccountCurrencyId);
  const newAccountStartingBalance = useClientsStore((s) => s.newAccountStartingBalance);
@@ -653,6 +660,57 @@ function AuthenticatedHome() {
   }
  }
 
+ // --- Personal table settings (persisted per user, independent of sharing) --
+ // Every user's own layout/display settings (the same snapshot shape as the shared
+ // settings above) are saved to the server on every change and re-applied on first
+ // load, so they survive a cleared browser or a new device instead of resetting to
+ // default — and round-trip through the manual backup like any other workspace data.
+ const userTableSettingsQuery = useQuery({
+  queryKey: queryKeys.userTableSettings(sessionUserId, activeWorkspaceId),
+  queryFn: () => accountingApi.getUserTableSettings(),
+  enabled: Boolean(activeWorkspaceId && sessionUserId),
+  staleTime: 60_000,
+ });
+ const userTableSettingsPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const lastPushedUserSnapshot = useRef<string | null>(null);
+ const appliedUserSettingsOnce = useRef(false);
+
+ // Apply this user's saved settings once per session, on first load — later local
+ // edits are the user's active session and must not be overwritten mid-session.
+ useEffect(() => {
+  if (appliedUserSettingsOnce.current) return;
+  const settings = userTableSettingsQuery.data;
+  if (!settings) return;
+  appliedUserSettingsOnce.current = true;
+  if (Object.keys(settings).length > 0) {
+   applySharedSettings(settings);
+   hydrateLedgerPrefsFromStorage();
+   setTransactionTableSettings(getStoredTransactionTableSettings());
+  }
+  lastPushedUserSnapshot.current = serializeSnapshot(snapshotSharedSettings());
+ }, [userTableSettingsQuery.data, hydrateLedgerPrefsFromStorage, setTransactionTableSettings]);
+
+ // Debounced push of this user's current settings snapshot — always on (unlike the
+ // owner-only shared push above), skipped when nothing actually changed.
+ function pushUserTableSettings() {
+  if (!activeWorkspaceId || !sessionUserId) return;
+  if (userTableSettingsPushTimer.current) clearTimeout(userTableSettingsPushTimer.current);
+  userTableSettingsPushTimer.current = setTimeout(() => {
+   const snapshot = snapshotSharedSettings();
+   const serialized = serializeSnapshot(snapshot);
+   if (serialized === lastPushedUserSnapshot.current) return;
+   lastPushedUserSnapshot.current = serialized;
+   accountingApi
+    .saveUserTableSettings(snapshot)
+    .then(() => {
+     queryClient.setQueryData(queryKeys.userTableSettings(sessionUserId, activeWorkspaceId), snapshot);
+    })
+    .catch(() => {
+     /* best-effort; the next change retries */
+    });
+  }, 500);
+ }
+
  const transactionTableRows = useMemo<TransactionTableRow[]>(
   () => buildTransactionTableRows({ adjustments, clientAccounts, transactions, txSortDir }),
   [adjustments, clientAccounts, transactions, txSortDir],
@@ -807,6 +865,7 @@ function AuthenticatedHome() {
    return next;
   });
   pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  }
 
  // Persist the current client's ledger display settings. `patch` carries the value
@@ -826,6 +885,7 @@ function AuthenticatedHome() {
   };
   window.localStorage.setItem(ledgerSettingsStorageKeyPrefix + clientId, JSON.stringify(next));
   pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  }
 
  function updateLedgerDecimals(next: number) {
@@ -911,6 +971,7 @@ function AuthenticatedHome() {
    /* ignore */
   }
   pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  }
 
  // Sum mode: toggling it off clears whatever was accumulated so the next session starts fresh.
@@ -957,6 +1018,7 @@ function AuthenticatedHome() {
    /* ignore */
   }
   pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  }
 
  function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
@@ -988,6 +1050,7 @@ function AuthenticatedHome() {
 
   setDraggedLedgerColumn(null);
   pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  }
 
 
@@ -1354,7 +1417,7 @@ function AuthenticatedHome() {
 
   // Single-row saves check the lock here; batch saves are checked once up-front in
   // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
-  if (!skipReload && !(await confirmIfEditLocked([transaction.accountFromId, transaction.accountToId], transaction.createdAt, [payload.accountFromId, payload.accountToId], payload.createdAt, transaction.id))) {
+  if (!skipReload && !(await confirmIfTransactionEditLocked(transaction, payload))) {
    return false;
   }
 
@@ -3200,6 +3263,69 @@ function AuthenticatedHome() {
   }
  }
 
+ // Mid-table write-off: zeroes the running balance AT a specific ledger row by inserting a
+ // write-off adjustment immediately after it (later rows then continue from zero). Same
+ // mechanism as onWriteOffBalance, but the amount is this row's running balance and the
+ // adjustment is time-placed to land right after the row instead of at the account's end.
+ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: number) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+  const balance = entry.runningBalance;
+  const amount = Math.abs(balance);
+  if (amount <= 0) return;
+
+  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
+  if (!account) return;
+
+  // Time-place the write-off strictly after the target row (and before the next one when
+  // they differ), so it sorts right after this row in the ledger.
+  const ledger = selectedClientLedgers.find((l) => l.accountId === ledgerAccountId);
+  const entries = ledger?.entries ?? [];
+  const idx = entries.findIndex((e) => e.transactionId === entry.transactionId);
+  const nextEntry = idx >= 0 ? entries[idx + 1] : undefined;
+  const targetMs = Date.parse(entry.createdAt);
+  let createdAt = entry.createdAt;
+  if (nextEntry) {
+   const nextMs = Date.parse(nextEntry.createdAt);
+   if (nextMs > targetMs) createdAt = new Date(targetMs + Math.min(1000, Math.floor((nextMs - targetMs) / 2))).toISOString();
+  }
+
+  const confirmed = await confirmDialog({
+   title: t('write_off_confirm_title'),
+   message: t('write_off_row_confirm_message')
+    .replace('{amount}', amount.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
+    .replace('{currency}', account.currencySymbol || account.currencyCode)
+    .replace('{balance}', balance.toLocaleString(numLocale, { maximumFractionDigits: 2 })),
+   confirmText: t('write_off_confirm_button'),
+   tone: 'danger',
+  });
+  if (!confirmed) return;
+
+  // Reconciliation guard: inserting a row at/before a lock line rewrites reconciled history.
+  if (!(await confirmIfLocked([ledgerAccountId], createdAt, NEW_ROW_REF_ID))) return;
+
+  try {
+   await accountingApi.createClientAdjustment({
+    accountId: ledgerAccountId,
+    amount,
+    direction: balance > 0 ? 'debit' : 'credit',
+    currencyId: account.currencyId,
+    currencyCode: account.currencyCode,
+    currencySymbol: account.currencySymbol,
+    exchangeRate: 1,
+    exchangeRateReversed: false,
+    description: t('write_off_description'),
+    createdAt,
+   });
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
  async function onDeleteTransactionTableRow(row: TransactionTableRow) {
   if (row.isAdjustment && row.adjustmentId) {
    await onDeleteAdjustment(row.adjustmentId);
@@ -3704,7 +3830,7 @@ function AuthenticatedHome() {
   };
 
   // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
-  if (!skipReload && !(await confirmIfEditLocked([transaction.accountFromId, transaction.accountToId], transaction.createdAt, [transactionPayload.accountFromId, transactionPayload.accountToId], transactionPayload.createdAt, transaction.id))) {
+  if (!skipReload && !(await confirmIfTransactionEditLocked(transaction, transactionPayload))) {
    return;
   }
 
@@ -3868,6 +3994,66 @@ function AuthenticatedHome() {
   }
  }
 
+
+ // Excel counterpart to onExportLedgerPdf: same selected-range/column logic, but each
+ // entry's already-computed `runningBalance` is the correct absolute balance at that row
+ // (computeClientLedgers accumulates it across the whole ledger), so no pre-balance
+ // recomputation is needed here — unlike the PDF, which recomputes it to show as a
+ // separate pre-balance line above the table.
+ async function onExportLedgerExcel(
+  ledger: ClientAccountLedger,
+  fromDate: string,
+  toDate: string,
+  colVisibility: PdfColVisibility,
+  fromEntryKey?: string | null,
+  toEntryKey?: string | null,
+ ) {
+  try {
+   const candidates = ledger.entries.filter((e) => {
+    const d = e.createdAt.slice(0, 10);
+    return d >= fromDate && d <= toDate;
+   });
+   const startIdx = fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey)) : 0;
+   const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
+   const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
+   const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
+
+   type ExcelColDef = { key: LedgerColumnKey; header: string; cell: (e: ClientLedgerEntry) => string | number };
+   const allCols: ExcelColDef[] = [
+    { key: 'created', header: t('date'), cell: (e) => formatDateValue(e.createdAt, pdfSettings.dateFormat) },
+    { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
+    { key: 'direction', header: t('direction'), cell: (e) => (e.isAdjustment ? t(e.direction === 'outgoing' ? 'adjustment_direction_credit' : 'adjustment_direction_debit') : t(e.direction === 'outgoing' ? 'outgoing' : 'incoming')) },
+    { key: 'type', header: t('transaction_type'), cell: (e) => (e.isAdjustment ? t('adjustment_label') : t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')) },
+    { key: 'amount', header: t('amount'), cell: (e) => e.amount },
+    { key: 'exchangeRate', header: t('exchange_rate'), cell: (e) => (e.pendingRate ? '' : e.isAdjustment ? (e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : e.exchangeRate) },
+    { key: 'commission', header: t('commission'), cell: (e) => (e.isAdjustment ? '' : e.commission) },
+    { key: 'netChange', header: t('net_change'), cell: (e) => (e.pendingRate ? '' : e.netChange) },
+    { key: 'runningBalance', header: t('running_balance'), cell: (e) => e.runningBalance },
+    { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
+    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
+   ];
+   const visibleCols = ledgerColumnOrder
+    .map((key) => allCols.find((col) => col.key === key))
+    .filter((col): col is ExcelColDef => Boolean(col))
+    .filter((col) => col.key === 'runningBalance' || colVisibility[col.key]);
+   if (!visibleCols.some((col) => col.key === 'runningBalance')) {
+    const rbCol = allCols.find((col) => col.key === 'runningBalance');
+    if (rbCol) visibleCols.push(rbCol);
+   }
+
+   const headers = visibleCols.map((col) => col.header);
+   const rows = selected.map((entry) => visibleCols.map((col) => col.cell(entry)));
+   const xlsxModule = await import('xlsx');
+   const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
+   const workbook = xlsxModule.utils.book_new();
+   xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Ledger');
+   const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
+   xlsxModule.writeFile(workbook, `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.xlsx`);
+   setPdfExportModal(null);
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
 
  async function onExportArchivePdf() {
   if (!accountingApi) return;
@@ -4059,6 +4245,41 @@ function AuthenticatedHome() {
   });
  }
 
+ /**
+  * Two-sided edit guard for a transaction (the ledger-row/table-row edit save paths).
+  * Unlike confirmIfEditLocked, this only checks the lock on a SIDE (from/to account) whose
+  * own balance the edit could actually change — e.g. editing only the "from" side's
+  * exchange rate never affects the "to" account's ledger, so the "to" account's lock (even
+  * if reconciled) is not checked and no warning appears. A side counts as affected if its
+  * account changed, the shared date changed (reorders both ledgers), or its computed net
+  * change actually differs. Returns true to proceed.
+  */
+ async function confirmIfTransactionEditLocked(oldTx: Transaction, newPayload: TransactionUpdateInput): Promise<boolean> {
+  const dateChanged = new Date(oldTx.createdAt).getTime() !== new Date(newPayload.createdAt).getTime();
+  const accountIdsToCheck: number[] = [];
+  for (const side of ['from', 'to'] as const) {
+   const oldAccountId = side === 'from' ? oldTx.accountFromId : oldTx.accountToId;
+   const newAccountId = side === 'from' ? newPayload.accountFromId : newPayload.accountToId;
+   const oldAccount = oldAccountId != null ? clientAccountMap.get(oldAccountId) : undefined;
+   const newAccount = newAccountId != null ? clientAccountMap.get(newAccountId) : undefined;
+   const oldNetChange = oldAccountId != null && oldAccount ? computeTransactionSideNetChange(oldTx, oldAccount.currencyId, side) : 0;
+   const newNetChange = newAccountId != null && newAccount ? computeTransactionSideNetChange(newPayload, newAccount.currencyId, side) : 0;
+   const affected = oldAccountId !== newAccountId || dateChanged || Math.abs(oldNetChange - newNetChange) > 1e-9;
+   if (!affected) continue;
+   if (oldAccountId != null) accountIdsToCheck.push(oldAccountId);
+   if (newAccountId != null) accountIdsToCheck.push(newAccountId);
+  }
+  if (accountIdsToCheck.length === 0) return true;
+  const hit = violatedLock(accountIdsToCheck, oldTx.createdAt, oldTx.id, lockBoundaries) ?? violatedLock(accountIdsToCheck, newPayload.createdAt, oldTx.id, lockBoundaries);
+  if (!hit) return true;
+  return confirmDialog({
+   title: t('reconcile_warn_title'),
+   message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
+   confirmText: t('reconcile_warn_confirm'),
+   tone: 'danger',
+  });
+ }
+
  // Per-client balances for the clients list/group view. Keyed by clientId, each value is
  // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
  const clientPageBalances = useMemo(
@@ -4122,6 +4343,7 @@ function AuthenticatedHome() {
    return next;
   });
   pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  };
 
  const openTransactionTableSettingsModal = () => {
@@ -4139,6 +4361,7 @@ function AuthenticatedHome() {
   saveTransactionTableSettings(transactionTableSettingsDraft);
   setShowTransactionTableSettingsModal(false);
   pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  };
 
  const openTransactionExportModal = () => {
@@ -4927,6 +5150,7 @@ function AuthenticatedHome() {
               <tr>
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('balance')}</th>
               </tr>
              </thead>
              <tbody>
@@ -4949,6 +5173,18 @@ function AuthenticatedHome() {
                  </a>
                 </td>
                 <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
+                <td className="px-4 py-3">
+                 <div className="flex flex-wrap gap-1">
+                  {(clientPageBalances.get(client.id) ?? []).map((entry) => (
+                   <span
+                    key={entry.accountId}
+                    className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${entry.balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+                   >
+                    {entry.currencySymbol || entry.currencyCode} {entry.balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+                   </span>
+                  ))}
+                 </div>
+                </td>
                </tr>
               ))}
              </tbody>
@@ -5009,6 +5245,7 @@ function AuthenticatedHome() {
          onDeleteLedgerEntry={onDeleteLedgerEntry}
          onReconcileLedgerEntry={onReconcileLedgerEntry}
          onRemoveReconciliation={onRemoveReconciliation}
+         onWriteOffLedgerRow={onWriteOffLedgerRow}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditAllLedger={onEditAllLedger}
          onLedgerColumnDragStart={onLedgerColumnDragStart}
@@ -5140,9 +5377,9 @@ function AuthenticatedHome() {
     />
    ) : null}
 
-   <AdjustmentModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} localizedCurrencies={localizedCurrencies} clientAccounts={clientAccounts} currencyMap={currencyMap} enabledCurrencies={enabledCurrencies} onSubmitAdjustment={onSubmitAdjustment} onDeleteAdjustment={onDeleteAdjustment} />
+   <AdjustmentModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} localizedCurrencies={localizedCurrencies} clientAccounts={clientAccounts} currencyMap={currencyMap} enabledCurrencies={enabledCurrencies} adjustments={adjustments} onSubmitAdjustment={onSubmitAdjustment} onDeleteAdjustment={onDeleteAdjustment} />
 
-   <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} />
+   <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />
 
    {showLedgerSettingsModal ? (
     <LedgerSettingsModal

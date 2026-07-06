@@ -41,6 +41,11 @@ export default function OverviewSection({ organizations, clients, clientAccounts
 
  const { overviewRates, overviewFlipAll, overviewFlipped, setOverviewFlipAll, setOverviewFlipped, updateOverviewRate } = useOverviewStore();
 
+ // Organisation search box: typing filters a dropdown of matching org names; picking one
+ // (or pressing Enter with a single match) smooth-scrolls that org's section into view.
+ const [orgSearchQuery, setOrgSearchQuery] = useState('');
+ const [orgSearchOpen, setOrgSearchOpen] = useState(false);
+
  // Cards the user has ticked for printing, keyed by group.key. Ephemeral (not persisted).
  const [selectedCardKeys, setSelectedCardKeys] = useState<Set<string>>(new Set());
  const toggleCardSelected = (key: string) =>
@@ -57,6 +62,24 @@ export default function OverviewSection({ organizations, clients, clientAccounts
   () => computeOverviewBalances({ transactions, adjustments, clientAccounts, clients, currencies, language }),
   [transactions, adjustments, clientAccounts, clients, currencies, language],
  );
+
+ // Flat {key, name} list for the organisation search box, derived from the same grouping
+ // used for the balance sections below (so a match always corresponds to a real section).
+ const orgSearchList = useMemo(
+  () =>
+   Array.from(overviewOrgBalances.byOrg.entries()).map(([key, groups]) => ({
+    key,
+    name: groups[0].organizationName ?? t('overview_no_organization'),
+   })),
+  [overviewOrgBalances, t],
+ );
+ const orgSearchMatches = orgSearchQuery.trim() ? orgSearchList.filter((org) => org.name.toLowerCase().includes(orgSearchQuery.trim().toLowerCase())) : [];
+
+ // Smooth-scrolls the given org's balance section into view and closes the dropdown.
+ const jumpToOrgSection = (orgKey: string) => {
+  document.getElementById(`overview-org-${orgKey}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setOrgSearchOpen(false);
+ };
 
  // Localized currency display name (depends only on language).
  const getLocalizedCurrencyName = (currencyCode: string, fallbackName: string) => {
@@ -269,7 +292,46 @@ export default function OverviewSection({ organizations, clients, clientAccounts
            <div className={panelClassName}>
             <div className="flex flex-wrap items-center justify-between gap-3">
              <h2 className="text-xl font-semibold">{t('overview_balances_title')}</h2>
-             <div className="flex items-center gap-4">
+             <div className="flex flex-wrap items-center gap-4">
+              <div className="relative">
+               <input
+                type="text"
+                value={orgSearchQuery}
+                onChange={(event) => {
+                 setOrgSearchQuery(event.target.value);
+                 setOrgSearchOpen(true);
+                }}
+                onFocus={() => setOrgSearchOpen(true)}
+                onBlur={() => setTimeout(() => setOrgSearchOpen(false), 150)}
+                onKeyDown={(event) => {
+                 if (event.key === 'Enter' && orgSearchMatches.length > 0) {
+                  event.preventDefault();
+                  jumpToOrgSection(orgSearchMatches[0].key);
+                 }
+                }}
+                placeholder={t('overview_search_org_placeholder')}
+                className="w-52 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               />
+               {orgSearchOpen && orgSearchQuery.trim() ? (
+                <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+                 {orgSearchMatches.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-slate-500">{t('overview_search_no_results')}</p>
+                 ) : (
+                  orgSearchMatches.map((org) => (
+                   <button
+                    key={org.key}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => jumpToOrgSection(org.key)}
+                    className="block w-full truncate px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                   >
+                    {org.name}
+                   </button>
+                  ))
+                 )}
+                </div>
+               ) : null}
+              </div>
               <div className={`text-right ${balanceColor(grandTotal)}`}>
                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('overview_grand_total')}</p>
                <p
@@ -280,10 +342,12 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                </p>
               </div>
               {selectedShownCount > 0 ? (
+               // Sticky so the action stays reachable while scrolling through a long list of
+               // organization cards to pick more of them, instead of scrolling away with the header.
                <button
                 type="button"
                 onClick={printSelected}
-                className="shrink-0 inline-flex items-center gap-1.5 rounded border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                className="sticky top-4 z-20 shrink-0 inline-flex items-center gap-1.5 rounded border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-800"
                >
                 {printIcon}
                 {t('overview_print_selected', { count: selectedShownCount })}
@@ -339,6 +403,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                return (
                 <div
                  key={orgKey}
+                 id={`overview-org-${orgKey}`}
                  className={`-mx-5 px-5 pb-6 pt-6 last:pb-0 first:pt-0 ${orgIndex % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
                 >
                  <h3 className="mb-3 text-lg font-bold uppercase tracking-wide text-slate-700">{orgName}</h3>

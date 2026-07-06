@@ -8,15 +8,18 @@ import type {
  TransactionTableSettings,
 } from '@/shared/types';
 
+// Base reading order is date, amount, commission, exchange rate, counterparty (left to
+// right in English/French); Arabic's RTL layout mirrors this order automatically via the
+// browser's native right-to-left table rendering, so no separate order is needed per language.
 export const defaultLedgerColumnOrder: LedgerColumnKey[] = [
  'created',
+ 'amount',
+ 'commission',
+ 'exchangeRate',
  'counterparty',
  'direction',
  'type',
- 'amount',
  'currency',
- 'exchangeRate',
- 'commission',
  'netChange',
  'runningBalance',
  'description',
