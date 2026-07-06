@@ -3200,6 +3200,69 @@ function AuthenticatedHome() {
   }
  }
 
+ // Mid-table write-off: zeroes the running balance AT a specific ledger row by inserting a
+ // write-off adjustment immediately after it (later rows then continue from zero). Same
+ // mechanism as onWriteOffBalance, but the amount is this row's running balance and the
+ // adjustment is time-placed to land right after the row instead of at the account's end.
+ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: number) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+  const balance = entry.runningBalance;
+  const amount = Math.abs(balance);
+  if (amount <= 0) return;
+
+  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
+  if (!account) return;
+
+  // Time-place the write-off strictly after the target row (and before the next one when
+  // they differ), so it sorts right after this row in the ledger.
+  const ledger = selectedClientLedgers.find((l) => l.accountId === ledgerAccountId);
+  const entries = ledger?.entries ?? [];
+  const idx = entries.findIndex((e) => e.transactionId === entry.transactionId);
+  const nextEntry = idx >= 0 ? entries[idx + 1] : undefined;
+  const targetMs = Date.parse(entry.createdAt);
+  let createdAt = entry.createdAt;
+  if (nextEntry) {
+   const nextMs = Date.parse(nextEntry.createdAt);
+   if (nextMs > targetMs) createdAt = new Date(targetMs + Math.min(1000, Math.floor((nextMs - targetMs) / 2))).toISOString();
+  }
+
+  const confirmed = await confirmDialog({
+   title: t('write_off_confirm_title'),
+   message: t('write_off_row_confirm_message')
+    .replace('{amount}', amount.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
+    .replace('{currency}', account.currencySymbol || account.currencyCode)
+    .replace('{balance}', balance.toLocaleString(numLocale, { maximumFractionDigits: 2 })),
+   confirmText: t('write_off_confirm_button'),
+   tone: 'danger',
+  });
+  if (!confirmed) return;
+
+  // Reconciliation guard: inserting a row at/before a lock line rewrites reconciled history.
+  if (!(await confirmIfLocked([ledgerAccountId], createdAt, NEW_ROW_REF_ID))) return;
+
+  try {
+   await accountingApi.createClientAdjustment({
+    accountId: ledgerAccountId,
+    amount,
+    direction: balance > 0 ? 'debit' : 'credit',
+    currencyId: account.currencyId,
+    currencyCode: account.currencyCode,
+    currencySymbol: account.currencySymbol,
+    exchangeRate: 1,
+    exchangeRateReversed: false,
+    description: t('write_off_description'),
+    createdAt,
+   });
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
  async function onDeleteTransactionTableRow(row: TransactionTableRow) {
   if (row.isAdjustment && row.adjustmentId) {
    await onDeleteAdjustment(row.adjustmentId);
@@ -5009,6 +5072,7 @@ function AuthenticatedHome() {
          onDeleteLedgerEntry={onDeleteLedgerEntry}
          onReconcileLedgerEntry={onReconcileLedgerEntry}
          onRemoveReconciliation={onRemoveReconciliation}
+         onWriteOffLedgerRow={onWriteOffLedgerRow}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditAllLedger={onEditAllLedger}
          onLedgerColumnDragStart={onLedgerColumnDragStart}

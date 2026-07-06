@@ -437,6 +437,8 @@
  "write_off_confirm_message": "سيؤدي هذا إلى إنشاء تسوية بقيمة {amount} {currency} لتصفير رصيد {name}. لا يمكن التراجع عن هذا الإجراء.",
  "write_off_confirm_button": "شطب",
  "write_off_description": "شطب رصيد صغير",
+ "write_off_row_action": "شطب الرصيد هنا",
+ "write_off_row_confirm_message": "سيؤدي هذا إلى إدراج تسوية بقيمة {amount} {currency} مباشرة بعد هذا السطر لتصفير الرصيد التراكمي ({balance}) عند هذه النقطة. تستمر الصفوف اللاحقة من الصفر. لا يمكن التراجع عن هذا الإجراء.",
  "reverse_rate": "عكس اتجاه السعر",
  "rate_multiplication": "ضرب",
  "rate_division": "قسمة",

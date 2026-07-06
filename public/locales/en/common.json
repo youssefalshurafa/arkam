@@ -437,6 +437,8 @@
  "write_off_confirm_message": "This creates a {amount} {currency} adjustment to zero out {name}'s balance. This cannot be undone.",
  "write_off_confirm_button": "Write off",
  "write_off_description": "Small balance write-off",
+ "write_off_row_action": "Write off balance here",
+ "write_off_row_confirm_message": "This inserts a {amount} {currency} adjustment right after this row to zero out the running balance ({balance}) at this point. Later rows continue from zero. This cannot be undone.",
  "reverse_rate": "Reverse rate direction",
  "rate_multiplication": "Multiply",
  "rate_division": "Divide",

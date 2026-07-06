@@ -436,6 +436,8 @@
  "write_off_confirm_message": "Ceci crée un ajustement de {amount} {currency} pour ramener le solde de {name} à zéro. Cette action est irréversible.",
  "write_off_confirm_button": "Passer en perte",
  "write_off_description": "Solde résiduel passé en perte",
+ "write_off_row_action": "Passer le solde en perte ici",
+ "write_off_row_confirm_message": "Ceci insère un ajustement de {amount} {currency} juste après cette ligne pour ramener le solde cumulé ({balance}) à zéro à ce point. Les lignes suivantes repartent de zéro. Cette action est irréversible.",
  "reverse_rate": "Inverser le sens du taux",
  "rate_multiplication": "Multiplier",
  "rate_division": "Diviser",

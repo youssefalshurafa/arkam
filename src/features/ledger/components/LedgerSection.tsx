@@ -14,6 +14,7 @@ import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
+import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
@@ -66,6 +67,7 @@ type LedgerSectionProps = {
  onDeleteSelectedLedgerEntries: () => void;
  onReconcileLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
+ onWriteOffLedgerRow: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
  onLedgerColumnDragStart: (event: DragEvent<HTMLElement>, column: LedgerColumnKey) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
@@ -87,7 +89,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   isLoading, clients, clientAccounts, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, selectedLedgerSummary,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
-  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onEditAllLedger, onLedgerColumnDragStart,
+  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger, onLedgerColumnDragStart,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onToggleLedgerEntrySelection,
   openAdjustmentModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight,
@@ -1485,6 +1487,19 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               </svg>
                              )}
                             </button>
+                            {entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= SMALL_BALANCE_THRESHOLD ? (
+                             <button
+                              type="button"
+                              title={t('write_off_row_action')}
+                              onClick={() => onWriteOffLedgerRow(entry, ledger.accountId)}
+                              className="rounded p-1 text-amber-500 hover:bg-amber-50 hover:text-amber-700"
+                             >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                               <circle cx="12" cy="12" r="9" />
+                               <path d="M8 12h8" />
+                              </svg>
+                             </button>
+                            ) : null}
                            </div>
                           )}
                          </td>
