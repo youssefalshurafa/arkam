@@ -2723,7 +2723,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
           {transactionsPager}
          </div>
         </section>
-   <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} />
+   <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
   </>
  );
 }

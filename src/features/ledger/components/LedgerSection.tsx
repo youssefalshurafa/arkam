@@ -2588,7 +2588,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
            ))
          )}
         </section>
-   <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} />
+   <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
   </>
  );
 }

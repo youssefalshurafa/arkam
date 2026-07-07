@@ -20,15 +20,63 @@ function shouldUseSsl() {
     return sslMode === "true" || sslMode === "1" || sslMode === "require";
 }
 
+// Neon (this project's Postgres host) auto-suspends its compute after a period of
+// inactivity and "wakes up" on the next connection attempt — that cold start can take
+// longer than a few seconds. Left unhandled this surfaced to users as "Connection
+// terminated due to connection timeout" on the first request after any idle period (login
+// being the most common one), forcing a manual refresh-and-retry. It's transient, not a
+// real outage, so one retry after a short pause resolves the vast majority of cases
+// automatically instead of surfacing an error the user has to retry themselves.
+function isTransientConnectionError(error) {
+    const message = String(error?.message || "");
+    return (
+        message.includes("Connection terminated") ||
+        message.includes("timeout") ||
+        error?.code === "ECONNRESET" ||
+        error?.code === "ETIMEDOUT"
+    );
+}
+
+async function withConnectionRetry(run) {
+    try {
+        return await run();
+    } catch (error) {
+        if (!isTransientConnectionError(error)) {
+            throw error;
+        }
+        console.warn("[postgres] Transient connection error, retrying once:", error?.message || error);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        return run();
+    }
+}
+
 function getPool() {
     if (!pool) {
         pool = new Pool({
             connectionString: getDatabaseUrl(),
             max: 20,
             idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 5000,
+            connectionTimeoutMillis: 15000,
+            keepAlive: true,
             ...(shouldUseSsl() ? { ssl: { rejectUnauthorized: false } } : {}),
         });
+
+        // Without this listener, an error on an already-idle pooled connection (e.g. the
+        // server/proxy closing a socket server-side) is an *unhandled* 'error' event on the
+        // Pool, which crashes the entire Node process. Logging and swallowing it here just
+        // lets the pool discard that client and open a fresh one on the next query, same as
+        // pg's own docs recommend.
+        pool.on("error", (error) => {
+            console.error("[postgres] Idle client error (pool recovers automatically):", error);
+        });
+
+        // Wrapped here (not just in the query()/withTransaction() exports below) so every
+        // caller gets retry protection automatically, including auth-db.js's own
+        // runQuery()/fetchOne(), which call `getPool().query(...)` directly.
+        const rawQuery = pool.query.bind(pool);
+        pool.query = (text, params) => withConnectionRetry(() => rawQuery(text, params));
+        const rawConnect = pool.connect.bind(pool);
+        pool.connect = () => withConnectionRetry(() => rawConnect());
     }
 
     return pool;
