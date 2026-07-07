@@ -486,7 +486,7 @@ function AccessRequestsPanel({ requests, loading, reviewingId, onRefresh, onRevi
     <span className="text-xs text-gray-400 ml-auto">{pending.length} pending</span>
    </div>
 
-   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+   <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
     {loading ? (
      <div className="py-16 text-center text-sm text-gray-400">Loading requests…</div>
     ) : requests.length === 0 ? (
@@ -986,7 +986,7 @@ export default function AdminPage() {
     </div>
 
     {/* Table */}
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
      {loading ? (
       <div className="py-16 text-center text-sm text-gray-400">Loading users…</div>
      ) : error ? (

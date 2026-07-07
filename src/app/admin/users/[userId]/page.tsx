@@ -35,10 +35,21 @@ type UserDetail = {
  subscriptionEndsAt: string | null;
 };
 
+type PendingAccessRequest = {
+ id: string;
+ plan: string;
+ amount: string;
+ network: string;
+ txReference: string;
+ hasProof: boolean;
+ createdAt: string;
+};
+
 type DetailResponse = {
  user: UserDetail;
  workspaces: Workspace[];
  totals: WorkspaceStats;
+ pendingAccessRequest: PendingAccessRequest | null;
 };
 
 function formatDate(iso: string | null) {
@@ -246,7 +257,7 @@ export default function AdminUserDetailPage() {
   );
  }
 
- const { user, workspaces, totals } = data;
+ const { user, workspaces, totals, pendingAccessRequest } = data;
  const sub = getSubscriptionState(user.subscriptionEndsAt);
  const subTone =
   sub.tone === 'expired' ? 'bg-red-50 text-red-700' : sub.tone === 'soon' ? 'bg-amber-50 text-amber-800' : sub.tone === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500';
@@ -312,6 +323,45 @@ export default function AdminUserDetailPage() {
       </p>
      </div>
     </div>
+
+    {/* Pending access request — surfaced here so the admin doesn't have to
+        cross-reference the separate Access Requests tab to know one exists. */}
+    {pendingAccessRequest && (
+     <div className="bg-amber-50 rounded-xl border border-amber-200 p-6 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+       <div>
+        <h3 className="text-sm font-semibold text-amber-900">Pending access request</h3>
+        <p className="mt-1 text-sm text-amber-800">
+         {pendingAccessRequest.plan ? <span className="font-medium">{pendingAccessRequest.plan}</span> : null}
+         {pendingAccessRequest.amount ? ` · ${pendingAccessRequest.amount}` : ''}
+         {pendingAccessRequest.network ? ` · ${pendingAccessRequest.network}` : ''}
+        </p>
+        <p className="mt-1 text-xs text-amber-700">
+         Submitted {formatDateTime(pendingAccessRequest.createdAt)}
+         {pendingAccessRequest.txReference ? ` · tx: ${pendingAccessRequest.txReference}` : ''}
+        </p>
+       </div>
+       <div className="flex items-center gap-2">
+        {pendingAccessRequest.hasProof && (
+         <a
+          href={`/api/admin/access-requests/${pendingAccessRequest.id}/proof`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-800 font-medium hover:bg-amber-100"
+         >
+          View screenshot
+         </a>
+        )}
+        <button
+         onClick={() => router.push('/admin')}
+         className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700"
+        >
+         Review in Access Requests
+        </button>
+       </div>
+      </div>
+     </div>
+    )}
 
     {/* Subscription management */}
     <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
@@ -392,7 +442,7 @@ export default function AdminUserDetailPage() {
 
     {/* Per-workspace breakdown */}
     <h3 className="text-sm font-semibold text-gray-700 mb-3">Workspaces</h3>
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
      {workspaces.length === 0 ? (
       <div className="py-16 text-center text-sm text-gray-400">No workspaces.</div>
      ) : (

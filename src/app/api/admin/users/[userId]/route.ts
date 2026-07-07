@@ -53,9 +53,15 @@ export async function GET(_request: Request, context: Context) {
   { organizationCount: 0, clientCount: 0, accountCount: 0, transactionCount: 0, adjustmentCount: 0, lastTransactionAt: null as string | null },
  );
 
+ // Surface a pending renewal/signup request right on this page, so the admin doesn't
+ // have to cross-reference the separate Access Requests tab to know one exists.
+ const accessRequests = await authDb.listAccessRequests({ userId, status: 'pending' });
+ const pendingAccessRequest = accessRequests[0] || null;
+
  return NextResponse.json({
   user: { ...user, workspaces: undefined },
   workspaces: workspacesWithStats,
   totals,
+  pendingAccessRequest,
  });
 }
