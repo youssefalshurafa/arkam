@@ -70,13 +70,21 @@ function getPool() {
             console.error("[postgres] Idle client error (pool recovers automatically):", error);
         });
 
-        // Wrapped here (not just in the query()/withTransaction() exports below) so every
-        // caller gets retry protection automatically, including auth-db.js's own
-        // runQuery()/fetchOne(), which call `getPool().query(...)` directly.
+        // Wrapped here (not just in the query() export below) so every caller gets retry
+        // protection automatically, including auth-db.js's own runQuery()/fetchOne(), which
+        // call `getPool().query(...)` directly.
+        //
+        // IMPORTANT: only .query() is safe to wrap this way. pg-pool's own Pool.query()
+        // implementation calls `this.connect(callback)` *internally*, in callback style, to
+        // check out a client before running the query — wrapping .connect() with a function
+        // that ignores its arguments (as query() below does) swallows that callback, so pg's
+        // internal query machinery waits forever for a callback that will never fire. That
+        // was a real regression: it turned every query — including login — into an infinite
+        // hang instead of a timeout. withTransaction() below applies the same retry directly
+        // around its own `getPool().connect()` call instead, without touching the shared
+        // .connect method.
         const rawQuery = pool.query.bind(pool);
         pool.query = (text, params) => withConnectionRetry(() => rawQuery(text, params));
-        const rawConnect = pool.connect.bind(pool);
-        pool.connect = () => withConnectionRetry(() => rawConnect());
     }
 
     return pool;
@@ -87,7 +95,7 @@ async function query(text, params = [], executor = getPool()) {
 }
 
 async function withTransaction(run) {
-    const client = await getPool().connect();
+    const client = await withConnectionRetry(() => getPool().connect());
 
     try {
         await client.query("BEGIN");
