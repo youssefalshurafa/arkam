@@ -134,6 +134,19 @@ export default function ClientsSection({
       placeholder={t('client_address_placeholder')}
      />
 
+     <div className="mt-4 rounded border border-slate-200/70 bg-slate-50/85 p-4">
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+       <input
+        type="checkbox"
+        checked={clientForm.excludeFromBalance}
+        onChange={(event) => setClientForm((current) => ({ ...current, excludeFromBalance: event.target.checked }))}
+        className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-400"
+       />
+       {t('client_exclude_from_balance')}
+      </label>
+      <p className="mt-1 text-xs text-slate-500">{t('client_exclude_from_balance_hint')}</p>
+     </div>
+
      {!clientForm.id ? (
       <div className="mt-4 rounded border border-slate-200/70 bg-slate-50/85 p-4">
        <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
@@ -629,6 +642,7 @@ export default function ClientsSection({
                email: client.email,
                phone: client.phone,
                address: client.address,
+               excludeFromBalance: client.excludeFromBalance,
               });
               setOpenAccountOnCreate(false);
               setNewClientAccountDrafts([createNewClientAccountDraft()]);

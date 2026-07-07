@@ -2799,6 +2799,7 @@ function AuthenticatedHome() {
       email: '',
       phone: '',
       address: '',
+      excludeFromBalance: false,
       accountCount: 0,
       createdAt: '',
       updatedAt: '',

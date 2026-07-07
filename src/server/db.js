@@ -240,6 +240,7 @@ async function listClients(app) {
             clients.email,
             clients.phone,
             clients.address,
+            clients.exclude_from_balance AS "excludeFromBalance",
             clients.created_at AS "createdAt",
             clients.updated_at AS "updatedAt",
             (
@@ -262,8 +263,8 @@ async function createClient(app, client) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(
         `
-            INSERT INTO ${schema}.clients (organization_id, name, email, phone, address)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO ${schema}.clients (organization_id, name, email, phone, address, exclude_from_balance)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
         `,
         [
@@ -272,6 +273,7 @@ async function createClient(app, client) {
             client.email?.trim() || '',
             client.phone?.trim() || '',
             client.address?.trim() || '',
+            Boolean(client.excludeFromBalance),
         ],
     );
 
@@ -291,8 +293,8 @@ async function updateClient(app, client) {
     await query(
         `
             UPDATE ${schema}.clients
-            SET organization_id = $1, name = $2, email = $3, phone = $4, address = $5, updated_at = NOW()
-            WHERE id = $6
+            SET organization_id = $1, name = $2, email = $3, phone = $4, address = $5, exclude_from_balance = $6, updated_at = NOW()
+            WHERE id = $7
         `,
         [
             client.organizationId || null,
@@ -300,6 +302,7 @@ async function updateClient(app, client) {
             client.email?.trim() || '',
             client.phone?.trim() || '',
             client.address?.trim() || '',
+            Boolean(client.excludeFromBalance),
             client.id,
         ],
     );

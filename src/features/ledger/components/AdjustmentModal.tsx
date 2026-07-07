@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
+import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import type { Client, ClientAccount, ClientAccountLedger, ClientAdjustment, Currency } from '@/shared/types';
 
@@ -189,7 +189,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
               inputMode="decimal"
               dir="ltr"
               value={adjustmentModal.exchangeRate}
-              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, exchangeRate: normalizeDecimalInput(e.target.value) } : prev))}
+              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, exchangeRate: normalizePlainDecimalInput(e.target.value) } : prev))}
               placeholder="0"
               className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
              />

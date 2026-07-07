@@ -35,6 +35,9 @@ export function computeOverviewBalances({ transactions, adjustments, clientAccou
 
   for (const account of clientAccounts) {
    const client = clientById.get(account.clientId);
+   // Clients marked "exclude from balance" (e.g. a "me" client used to track personal
+   // transfers) still get their own accounts/ledger; they just never feed these pooled totals.
+   if (client?.excludeFromBalance) continue;
    const organizationId = client?.organizationId ?? null;
    const organizationName = client?.organizationName ?? null;
    const currency = currencyMap.get(account.currencyId);

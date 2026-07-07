@@ -7,6 +7,43 @@ export function getCommissionAmount(baseAmount: number, commissionPercent: numbe
 // the one named client's ledger — the org silently absorbs the other leg.
 export const ORG_SETTLED_CHARGE_PAYERS = new Set(['me_to_from', 'me_to_to', 'from_to_me', 'to_to_me']);
 
+// One end of a charges-payer pair: the FROM client, the TO client, or the org ("me").
+// '' means not chosen yet.
+export type ChargesPayerParty = 'from' | 'to' | 'me' | '';
+
+const CHARGES_PAYER_PARTS: Record<string, { payer: ChargesPayerParty; payee: ChargesPayerParty }> = {
+ from: { payer: 'from', payee: 'to' },
+ to: { payer: 'to', payee: 'from' },
+ from_to_me: { payer: 'from', payee: 'me' },
+ me_to_from: { payer: 'me', payee: 'from' },
+ to_to_me: { payer: 'to', payee: 'me' },
+ me_to_to: { payer: 'me', payee: 'to' },
+};
+
+const CHARGES_PAYER_VALUES: Record<string, string> = {
+ 'from:to': 'from',
+ 'to:from': 'to',
+ 'from:me': 'from_to_me',
+ 'me:from': 'me_to_from',
+ 'to:me': 'to_to_me',
+ 'me:to': 'me_to_to',
+};
+
+// Splits a stored chargesPayer value (e.g. 'from_to_me') into who paid and who was
+// paid, so the UI can offer them as two independent 3-option pickers (FROM client /
+// TO client / me) instead of one flat 6-option list mixing both ends together.
+export function parseChargesPayer(value: string): { payer: ChargesPayerParty; payee: ChargesPayerParty } {
+ return CHARGES_PAYER_PARTS[value] ?? { payer: '', payee: '' };
+}
+
+// Inverse of parseChargesPayer — recombines the two picker values back into the
+// stored enum value. '' (unset) if either side is still empty, or if they match
+// (paying yourself isn't a valid combination).
+export function combineChargesPayer(payer: ChargesPayerParty, payee: ChargesPayerParty): string {
+ if (!payer || !payee || payer === payee) return '';
+ return CHARGES_PAYER_VALUES[`${payer}:${payee}`] ?? '';
+}
+
 // How a transaction's charge affects the running balance of the account sitting on the
 // given side of that transaction ('from' = this account is the sender/accountFrom side,
 // 'to' = the receiver/accountTo side). The returned value multiplies (charges * rate):

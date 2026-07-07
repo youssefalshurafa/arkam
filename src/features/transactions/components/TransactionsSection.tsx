@@ -8,12 +8,13 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
-import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
+import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions } from '@/shared/lib/localStorage';
+import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
+import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
@@ -176,6 +177,19 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // border on whichever row the open menu belongs to, so it's clear which row the menu's
  // actions apply to; closeRowMenu clears it alongside the menu itself.
  const [contextMenuRowId, setContextMenuRowId] = useState<number | null>(null);
+
+ // Descriptions dismissed from the autocomplete dropdown via its per-suggestion "x".
+ // Persisted so a removed suggestion stays gone across reloads, even though the
+ // suggestion list itself is derived live from past transactions each render.
+ const [excludedDescriptionSuggestions, setExcludedDescriptionSuggestions] = useState<Set<string>>(() => getStoredDescriptionSuggestionExclusions());
+ const excludeDescriptionSuggestion = (desc: string) => {
+  setExcludedDescriptionSuggestions((current) => {
+   const next = new Set(current);
+   next.add(desc.trim().toLowerCase());
+   saveDescriptionSuggestionExclusions(next);
+   return next;
+  });
+ };
  const openRowMenu = (event: ReactMouseEvent, txn: Transaction) => {
   if (editingRowIds.has(txn.id)) return;
   setContextMenuRowId(txn.id);
@@ -833,7 +847,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  inputMode="decimal"
                  dir="ltr"
                  value={transactionForm.exchangeRateFrom}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizePlainDecimalInput(event.target.value) }))}
                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="1"
                 />
@@ -847,7 +861,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  inputMode="decimal"
                  dir="ltr"
                  value={transactionForm.commissionFrom}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizePlainDecimalInput(event.target.value) }))}
                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="0"
                 />
@@ -906,7 +920,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   inputMode="decimal"
                   dir="ltr"
                   value={transactionForm.exchangeRateTo}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizePlainDecimalInput(event.target.value) }))}
                   className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder="1"
                  />
@@ -919,7 +933,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  inputMode="decimal"
                  dir="ltr"
                  value={transactionForm.commissionTo}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizePlainDecimalInput(event.target.value) }))}
                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="0"
                 />
@@ -940,7 +954,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </button>
               {isNewTransactionExpensesOpen && (
                <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
-                <div className="grid gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                  <input
                   type="text"
                   inputMode="decimal"
@@ -965,49 +979,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    </option>
                   ))}
                  </select>
-                 <select
+                 <ChargesPayerSelects
                   value={transactionForm.chargesPayer}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesPayer: event.target.value }))}
+                  onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer }))}
+                  fromLabel={transactionForm.accountFromId ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from')) : t('transaction_account_from')}
+                  toLabel={transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
+                  meLabel={t('charges_payer_me')}
+                  paidByPlaceholder={t('charges_payer_placeholder')}
+                  paidToPlaceholder={t('charges_payer_to_placeholder')}
                   className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 >
-                  <option value="">{t('charges_payer_placeholder')}</option>
-                  <option value="from">
-                   {transactionForm.accountFromId
-                    ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
-                    : t('transaction_account_from')}
-                  </option>
-                  <option value="to">
-                   {transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
-                  </option>
-                  <option value="me_to_from">
-                   {t('charges_payer_me_to_name', {
-                    name: transactionForm.accountFromId
-                     ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
-                     : t('transaction_account_from'),
-                   })}
-                  </option>
-                  <option value="me_to_to">
-                   {t('charges_payer_me_to_name', {
-                    name: transactionForm.accountToId
-                     ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to'))
-                     : t('transaction_account_to'),
-                   })}
-                  </option>
-                  <option value="from_to_me">
-                   {t('charges_payer_name_to_me', {
-                    name: transactionForm.accountFromId
-                     ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
-                     : t('transaction_account_from'),
-                   })}
-                  </option>
-                  <option value="to_to_me">
-                   {t('charges_payer_name_to_me', {
-                    name: transactionForm.accountToId
-                     ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to'))
-                     : t('transaction_account_to'),
-                   })}
-                  </option>
-                 </select>
+                 />
                 </div>
                 {showChargesExchangeRate && (
                  <div className="mt-2">
@@ -1019,7 +1000,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    inputMode="decimal"
                    dir="ltr"
                    value={transactionForm.chargesExchangeRate}
-                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizeDecimalInput(event.target.value) }))}
+                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizePlainDecimalInput(event.target.value) }))}
                    className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
                    placeholder="1"
                   />
@@ -1071,7 +1052,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  if (q && desc.toLowerCase() === q) continue;
                  if (q && !desc.toLowerCase().includes(q)) continue;
                  const key = desc.toLowerCase();
-                 if (seen.has(key)) continue;
+                 if (seen.has(key) || excludedDescriptionSuggestions.has(key)) continue;
                  seen.add(key);
                  suggestions.push(desc);
                  if (suggestions.length >= 8) break;
@@ -1088,10 +1069,35 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     setTransactionForm((current) => ({ ...current, description: desc }));
                     setDescriptionSuggestOpen(false);
                    }}
-                   className="cursor-pointer truncate px-3 py-2 text-sm text-slate-700 hover:bg-blue-50"
+                   className="group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50"
                    title={desc}
                   >
-                   {desc}
+                   <span className="flex-1 truncate">{desc}</span>
+                   <button
+                    type="button"
+                    onMouseDown={(event) => {
+                     event.preventDefault();
+                     event.stopPropagation();
+                     excludeDescriptionSuggestion(desc);
+                    }}
+                    title={t('transaction_description_suggestion_remove')}
+                    aria-label={t('transaction_description_suggestion_remove')}
+                    className="shrink-0 rounded p-0.5 text-slate-300 opacity-0 transition hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
+                   >
+                    <svg
+                     width="12"
+                     height="12"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="2.5"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                   </button>
                   </li>
                  ))}
                 </ul>
@@ -2198,7 +2204,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         inputMode="decimal"
                         dir="ltr"
                         value={draft.exchangeRateFrom}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizePlainDecimalInput(event.target.value) })}
                         className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         placeholder={t('transaction_exchange_rate')}
                        />
@@ -2349,7 +2355,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         inputMode="decimal"
                         dir="ltr"
                         value={draft.exchangeRateTo}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizePlainDecimalInput(event.target.value) })}
                         className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         placeholder={t('transaction_exchange_rate')}
                        />
@@ -2488,19 +2494,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           </option>
                          ))}
                         </select>
-                        <select
+                        <ChargesPayerSelects
                          value={draft.chargesPayer}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesPayer: event.target.value })}
+                         onChange={(chargesPayer) => updateTransactionTableDraft(txn.id, { chargesPayer })}
+                         fromLabel={txn.clientFromName}
+                         toLabel={txn.clientToName}
+                         meLabel={t('charges_payer_me')}
+                         paidByPlaceholder={t('charges_payer_placeholder')}
+                         paidToPlaceholder={t('charges_payer_to_placeholder')}
                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                        >
-                         <option value="">{t('charges_payer_placeholder')}</option>
-                         <option value="from">{txn.clientFromName}</option>
-                         <option value="to">{txn.clientToName}</option>
-                         <option value="me_to_from">{t('charges_payer_me_to_name', { name: txn.clientFromName })}</option>
-                         <option value="me_to_to">{t('charges_payer_me_to_name', { name: txn.clientToName })}</option>
-                         <option value="from_to_me">{t('charges_payer_name_to_me', { name: txn.clientFromName })}</option>
-                         <option value="to_to_me">{t('charges_payer_name_to_me', { name: txn.clientToName })}</option>
-                        </select>
+                        />
                         {(() => {
                          const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
                          const draftPayerAccountCurrencyCode =
@@ -2516,7 +2519,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                             inputMode="decimal"
                             dir="ltr"
                             value={draft.chargesExchangeRate}
-                            onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
+                            onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })}
                             className="mt-1 field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                             placeholder="1"
                            />
@@ -2594,7 +2597,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           inputMode="decimal"
                           dir="ltr"
                           value={draft.commissionFrom}
-                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizePlainDecimalInput(event.target.value) })}
                           className="field-sizing-content min-w-12 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder="0"
                          />
@@ -2607,7 +2610,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           inputMode="decimal"
                           dir="ltr"
                           value={draft.commissionTo}
-                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizePlainDecimalInput(event.target.value) })}
                           className="field-sizing-content min-w-12 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder="0"
                          />
