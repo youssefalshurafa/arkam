@@ -39,8 +39,13 @@ const toneClassName: Record<NonNullable<ContextMenuItem['tone']>, string> = {
  * Renders the active context menu (if any) as a fixed-position dropdown at the click point,
  * clamped so it never overflows the viewport. Closes on outside click, Escape, or scroll —
  * mount once per table/page, shared by every row via the same useContextMenu() state.
+ *
+ * `zoom` matches the table's own CSS zoom level (TableZoomControl) — the menu lives outside
+ * the zoomed table's DOM subtree (it's mounted once at the section root, not per-row), so it
+ * doesn't inherit that zoom automatically and would otherwise stay full-size while the table
+ * around it shrinks. Defaults to 1 for callers that don't zoom their table.
  */
-export function ContextMenu({ menu, onClose }: { menu: ReturnType<typeof useContextMenu>['menu']; onClose: () => void }) {
+export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<typeof useContextMenu>['menu']; onClose: () => void; zoom?: number }) {
  const ref = useRef<HTMLDivElement>(null);
 
  // Places the menu at the raw click point (via the inline style below), then — before the
@@ -87,7 +92,7 @@ export function ContextMenu({ menu, onClose }: { menu: ReturnType<typeof useCont
  return (
   <div
    ref={ref}
-   style={{ position: 'fixed', top: menu.y, left: menu.x, zIndex: 200 }}
+   style={{ position: 'fixed', top: menu.y, left: menu.x, zIndex: 200, zoom }}
    role="menu"
    className="min-w-[11rem] overflow-hidden rounded border border-slate-200 bg-white py-1 shadow-xl"
   >

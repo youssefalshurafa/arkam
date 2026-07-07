@@ -182,9 +182,9 @@ export function getStoredLedgerColumnVisibility(clientId: number | null | undefi
 // alongside column visibility so each client's ledger keeps its own preferences.
 export const ledgerSettingsStorageKeyPrefix = 'arkam:ledger-settings:';
 export const defaultLedgerSettings: StoredLedgerSettings = {
- decimals: 2,
+ decimals: 0,
  showCurrencySymbol: true,
- dateFormat: 'full',
+ dateFormat: 'day-month',
  highlightNetChange: true,
  netChangeHighlightColor: '#eff6ff',
  rowHighlightColor: '#fde68a',
