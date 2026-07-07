@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ChangeEvent, DragEvent, Fragment, FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { ChangeEvent, Fragment, FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
@@ -9,7 +9,7 @@ import HomePage from '@/components/marketing/HomePage';
 import AccountSettings from '@/components/account/AccountSettings';
 import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
-import { confirmDialog, promptDialog } from '@/components/ui/AppDialog';
+import { confirmDialog } from '@/components/ui/AppDialog';
 import { buildLockBoundaries, violatedLock, isAtOrBeforeBoundary, NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
 import { Spinner } from '@/components/ui/Spinner';
 import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
@@ -1068,12 +1068,6 @@ function AuthenticatedHome() {
   pushUserTableSettings();
  }
 
- function onLedgerColumnDragStart(event: DragEvent<HTMLElement>, column: LedgerColumnKey) {
-  event.dataTransfer.effectAllowed = 'move';
-  event.dataTransfer.setData('text/plain', column);
-  setDraggedLedgerColumn(column);
- }
-
  function onLedgerColumnDrop(targetColumn: LedgerColumnKey) {
   if (!draggedLedgerColumn || draggedLedgerColumn === targetColumn) {
    setDraggedLedgerColumn(null);
@@ -1197,12 +1191,23 @@ function AuthenticatedHome() {
     return current;
    }
 
+   const merged = { ...existingDraft, ...nextValues };
+   // Same stale-rate guard as updateTransactionTableDraft: if the charge's currency/payer
+   // now matches the payer's own account currency, the stored chargesExchangeRate no
+   // longer means anything — reset it to 1 rather than let it keep silently applying.
+   if (merged.chargesCurrencyId != null && (merged.chargesPayer === 'from' || merged.chargesPayer === 'to')) {
+    const isThisAccountFrom = merged.direction === 'outgoing';
+    const payerAccountId =
+     merged.chargesPayer === 'from' ? (isThisAccountFrom ? merged.ledgerAccountId : merged.counterpartyAccountId) : isThisAccountFrom ? merged.counterpartyAccountId : merged.ledgerAccountId;
+    const payerAccount = payerAccountId != null ? clientAccountMap.get(payerAccountId) : undefined;
+    if (payerAccount && payerAccount.currencyId === merged.chargesCurrencyId) {
+     merged.chargesExchangeRate = '1.00';
+    }
+   }
+
    return {
     ...current,
-    [draftKey]: {
-     ...existingDraft,
-     ...nextValues,
-    },
+    [draftKey]: merged,
    };
   });
  }
@@ -1252,12 +1257,24 @@ function AuthenticatedHome() {
     return current;
    }
 
+   const merged = { ...existingDraft, ...nextValues };
+   // If the charge's currency or payer changed such that the charge now matches the
+   // payer's own account currency, the stored chargesExchangeRate is stale (it was
+   // converting into a currency this charge no longer needs converting into) — reset it
+   // to 1, mirroring the equivalent effect on the "new transaction" form. Otherwise this
+   // rate silently keeps multiplying the charge even though it no longer applies (see
+   // effectiveChargeRate in accountBalances.ts/ledgerBalances.ts for the calculation-side guard).
+   if (merged.chargesCurrencyId != null && (merged.chargesPayer === 'from' || merged.chargesPayer === 'to')) {
+    const payerAccountId = merged.chargesPayer === 'from' ? merged.accountFromId : merged.accountToId;
+    const payerAccount = payerAccountId != null ? clientAccountMap.get(payerAccountId) : undefined;
+    if (payerAccount && payerAccount.currencyId === merged.chargesCurrencyId) {
+     merged.chargesExchangeRate = '1.00';
+    }
+   }
+
    return {
     ...current,
-    [transactionId]: {
-     ...existingDraft,
-     ...nextValues,
-    },
+    [transactionId]: merged,
    };
   });
  }
@@ -1752,13 +1769,6 @@ function AuthenticatedHome() {
  // captured balance + row (createdAt, id) become a lock line protecting earlier rows.
  async function onReconcileLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
   if (entry.reconciledMark) return; // already reconciled on this exact row
-  const note = await promptDialog({
-   title: t('reconcile_prompt_title'),
-   message: t('reconcile_prompt_message', { balance: formatLockBalance(ledgerAccountId, entry.runningBalance) }),
-   placeholder: t('reconcile_note_placeholder'),
-   confirmText: t('reconcile_confirm'),
-  });
-  if (note === null) return; // cancelled
   const anchorKind: 'transaction' | 'adjustment' = entry.isAdjustment ? 'adjustment' : 'transaction';
   const anchorRefId = entry.isAdjustment ? entry.adjustmentId ?? 0 : entry.transactionId;
   try {
@@ -1768,11 +1778,11 @@ function AuthenticatedHome() {
     anchorRefId,
     anchorCreatedAt: entry.createdAt,
     balance: entry.runningBalance,
-    note: note.trim(),
+    note: '',
    });
    setReconciliations((prev) => [
     ...prev,
-    { id: created.id, accountId: ledgerAccountId, anchorKind, anchorRefId, anchorCreatedAt: entry.createdAt, balance: entry.runningBalance, note: note.trim(), createdAt: new Date().toISOString() },
+    { id: created.id, accountId: ledgerAccountId, anchorKind, anchorRefId, anchorCreatedAt: entry.createdAt, balance: entry.runningBalance, note: '', createdAt: new Date().toISOString() },
    ]);
    setError('');
    await loadData();
@@ -5328,7 +5338,6 @@ function AuthenticatedHome() {
          onWriteOffLedgerRow={onWriteOffLedgerRow}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditAllLedger={onEditAllLedger}
-         onLedgerColumnDragStart={onLedgerColumnDragStart}
          onLedgerColumnDrop={onLedgerColumnDrop}
          onLedgerEditFieldArrowKey={onLedgerEditFieldArrowKey}
          onLedgerRowDrop={onLedgerRowDrop}

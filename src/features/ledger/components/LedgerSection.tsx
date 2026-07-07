@@ -1,7 +1,8 @@
 'use client';
 
-import { Fragment, useRef, useState } from 'react';
-import type { Dispatch, DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
+import { Fragment, useState } from 'react';
+import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
+import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -70,7 +71,6 @@ type LedgerSectionProps = {
  onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onWriteOffLedgerRow: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
- onLedgerColumnDragStart: (event: DragEvent<HTMLElement>, column: LedgerColumnKey) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
  onLedgerEditFieldArrowKey: (event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number, pagedEntries: ClientLedgerEntry[], entryIdx: number) => void;
  onLedgerRowDrop: (draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) => void;
@@ -90,7 +90,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   isLoading, clients, clientAccounts, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, selectedLedgerSummary,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
-  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger, onLedgerColumnDragStart,
+  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onToggleLedgerEntrySelection,
   openAdjustmentModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight,
@@ -101,12 +101,58 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const numLocale = language === 'fr' ? 'fr-FR' : language;
  const showToast = useAppStatusStore((s) => s.showToast);
  const setError = useAppStatusStore((s) => s.setError);
- const dragLedgerFromHandle = useRef(false);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Right-click row actions (Edit/Reconcile/Write off/Delete) — replaces a cluster of
  // per-row icon buttons with a single context menu, decluttering the actions column.
+ // contextMenuRowKey drives a border on whichever row the open menu belongs to; closeRowMenu
+ // clears it alongside the menu itself.
  const rowContextMenu = useContextMenu();
+ const [contextMenuRowKey, setContextMenuRowKey] = useState<string | null>(null);
+ const closeRowMenu = () => {
+  rowContextMenu.close();
+  setContextMenuRowKey(null);
+ };
+
+ // Row drag-to-reorder via pointer events (not native HTML5 drag-and-drop, which never fires
+ // from a touch gesture — the reason this was unusable on mobile). See usePointerDrag for why.
+ // One instance handles every account's ledger table on the page — the row key already encodes
+ // its account id (`${transactionId}:${accountId}`), so drops are scoped per-account from that.
+ const ledgerRowDrag = usePointerDrag<string>({
+  parseKey: (raw) => raw,
+  onDragStart: (key) => setDragLedgerRowKey(key),
+  onHoverChange: (overKey, half) => {
+   setDragOverLedgerRowKey(overKey);
+   if (half) setDragOverLedgerHalf(half);
+  },
+  onDrop: (draggedKey, overKey, half) => {
+   if (overKey !== null && draggedKey !== overKey && half) {
+    const accountId = Number(draggedKey.slice(draggedKey.lastIndexOf(':') + 1));
+    const keysToMove =
+     selectedLedgerEntryKeys.has(draggedKey) && selectedLedgerEntryKeys.size > 1
+      ? [...selectedLedgerEntryKeys].filter((k) => k.endsWith(`:${accountId}`))
+      : [draggedKey];
+    void onLedgerRowDrop(keysToMove, overKey, half, accountId);
+   }
+   setDragLedgerRowKey(null);
+   setDragOverLedgerRowKey(null);
+  },
+ });
+
+ // Column drag-to-reorder (header cells) — same pointer-events approach, no half needed since
+ // dropping just inserts the dragged column at the target's index.
+ const ledgerColumnDrag = usePointerDrag<LedgerColumnKey>({
+  parseKey: (raw) => raw as LedgerColumnKey,
+  axis: 'none',
+  onDragStart: (key) => setDraggedLedgerColumn(key),
+  onHoverChange: () => {
+   /* no hover styling for column drag, matching the previous native-drag behavior */
+  },
+  onDrop: (_draggedKey, overKey) => {
+   if (overKey !== null) onLedgerColumnDrop(overKey);
+   setDraggedLedgerColumn(null);
+  },
+ });
 
  // Tracks which account's "entries awaiting an exchange rate" note has been expanded to list
  // the specific pending entries. Ephemeral UI state — no need to persist across sessions.
@@ -319,7 +365,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
               }}
               title={t('export_ledger_action')}
               aria-label={t('export_ledger_action')}
-              className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-slate-300 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
              >
               <svg
                width="16"
@@ -341,6 +387,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 y2="3"
                />
               </svg>
+              {t('download')}
              </button>
              <button
               type="button"
@@ -1077,11 +1124,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1091,11 +1135,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1105,11 +1146,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1119,11 +1157,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1133,11 +1168,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1147,11 +1179,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1161,11 +1190,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1175,11 +1201,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1189,11 +1212,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1203,11 +1223,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1217,11 +1234,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return (
                        <th
                         key={column.key}
-                        draggable
-                        onDragStart={(event) => onLedgerColumnDragStart(event, column.key)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => onLedgerColumnDrop(column.key)}
-                        onDragEnd={() => setDraggedLedgerColumn(null)}
+                        data-drag-key={column.key}
+                        {...ledgerColumnDrag.dragHandleProps(column.key)}
                         className={headerClassName}
                        >
                         {headerContent}
@@ -1259,6 +1273,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     const openRowMenu = (event: ReactMouseEvent) => {
                      const rowKeyForMenu = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                      if (editingLedgerRowKeys.has(rowKeyForMenu)) return;
+                     setContextMenuRowKey(rowKeyForMenu);
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId) },
                       entry.reconciledMark
@@ -1273,7 +1288,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     return (
                     <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                      <tr
-                      draggable={!editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                      data-drag-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                       onClick={(e) => {
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                        if (editingLedgerRowKeys.has(rowKey)) return;
@@ -1291,33 +1306,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
                        if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                       }}
-                      onDragStart={(e) => {
-                       if (!dragLedgerFromHandle.current) {
-                        e.preventDefault();
-                        return;
-                       }
-                       setDragLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
-                      }}
-                      onDragEnd={() => {
-                       dragLedgerFromHandle.current = false;
-                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                       if (dragLedgerRowKey !== null && dragOverLedgerRowKey !== null && dragLedgerRowKey !== dragOverLedgerRowKey) {
-                        const keysToMove =
-                         selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.size > 1
-                          ? [...selectedLedgerEntryKeys].filter((k) => k.endsWith(`:${ledger.accountId}`))
-                          : [dragLedgerRowKey];
-                        void onLedgerRowDrop(keysToMove, dragOverLedgerRowKey, dragOverLedgerHalf, ledger.accountId);
-                       }
-                       setDragLedgerRowKey(null);
-                       setDragOverLedgerRowKey(null);
-                      }}
-                      onDragOver={(e) => {
-                       e.preventDefault();
-                       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                       setDragOverLedgerHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
-                       setDragOverLedgerRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId));
-                      }}
-                      onDragLeave={() => setDragOverLedgerRowKey((prev) => (prev === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? null : prev))}
                       onContextMenu={openRowMenu}
                       onKeyDown={(e) => {
                        // Enter saves the row being edited (ignore Enter inside multi-line fields).
@@ -1337,7 +1325,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         ...(isEditing || !ledgerRowClickActive ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                        };
                       })()}
-                      className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''}`}
+                      className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''} ${contextMenuRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? 'ring-2 ring-inset ring-indigo-400' : ''}`}
                      >
                       {(() => {
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -1453,11 +1441,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            // on touch devices, which have no right-click event to hook into.
                            <div className="flex items-center justify-center gap-1">
                             <span
+                             {...ledgerRowDrag.dragHandleProps(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
                              className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
                              title="Drag to reorder"
-                             onMouseDown={() => {
-                              dragLedgerFromHandle.current = true;
-                             }}
                             >
                              <svg
                               width="12"
@@ -1841,18 +1827,43 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               className={`whitespace-nowrap px-4 py-3 font-semibold ${(draft?.direction ?? entry.direction) === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
                              >
                               {draft ? (
-                               <input
-                                type="text"
-                                inputMode="decimal"
-                                dir="ltr"
-                                value={formatAmountInput(draft.amount)}
-                                data-ledger-field="amount"
-                                data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
-                                onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
-                                onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'amount', entry, ledger.accountId, pagedEntries, entryIdx)}
-                                style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
-                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                               />
+                               <div className="flex items-center gap-1">
+                                <input
+                                 type="text"
+                                 inputMode="decimal"
+                                 dir="ltr"
+                                 value={formatAmountInput(draft.amount)}
+                                 data-ledger-field="amount"
+                                 data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
+                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
+                                 onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'amount', entry, ledger.accountId, pagedEntries, entryIdx)}
+                                 style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
+                                 className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                />
+                                {/* Expenses (adjustments) can be in any currency, but the dedicated
+                                    "currency" column defaults to hidden — show a fallback selector
+                                    here so an expense's currency is always editable, not just when
+                                    that column happens to be toggled on. */}
+                                {entry.isAdjustment && !ledgerColumnVisibility.currency && (
+                                 <select
+                                  value={draft.currencyId ?? ''}
+                                  onChange={(event) =>
+                                   updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })
+                                  }
+                                  style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
+                                  className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                 >
+                                  {enabledCurrencies.map((cur) => (
+                                   <option
+                                    key={cur.id}
+                                    value={cur.id}
+                                   >
+                                    {cur.code}
+                                   </option>
+                                  ))}
+                                 </select>
+                                )}
+                               </div>
                               ) : ledgerSumMode ? (
                                (() => {
                                 const sumKey = `${rowKey}:amount`;
@@ -1895,7 +1906,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                ? (() => {
                                   const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
                                   const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
-                                  const txCurr = entry.currencyCode;
+                                  // For adjustments, the draft's own (just-picked) currency decides whether a
+                                  // rate is needed — not the entry's last-saved currency — so changing an
+                                  // expense's currency mid-edit immediately reveals/hides the rate field
+                                  // instead of lagging a save behind.
+                                  const txCurr = entry.isAdjustment ? (enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? entry.currencyCode) : entry.currencyCode;
                                   const accCurr = ledger.currencyCode;
                                   // Adjustment with same currency as account: no rate needed
                                   if (entry.isAdjustment && txCurr === accCurr) {
@@ -1986,7 +2001,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                        updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
                                        setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
                                       }}
-                                      className="shrink-0 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                      className="inline-flex shrink-0 items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
                                      >
                                       <svg
                                        width="14"
@@ -2002,6 +2017,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                        <path d="M7 4 3 8l4 4M3 8h13.5" />
                                        <path d="M17 20l4-4-4-4m4 4H7.5" />
                                       </svg>
+                                      <span className="text-xs font-semibold" aria-hidden>
+                                       {isLedgerRateReversed ? '÷' : '×'}
+                                      </span>
                                      </button>
                                     )}
                                    </div>
@@ -2037,7 +2055,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      type="button"
                                      title="Reverse rate direction"
                                      onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
-                                     className="rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                     className="inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
                                     >
                                      <svg
                                       width="14"
@@ -2053,6 +2071,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       <path d="M7 4 3 8l4 4M3 8h13.5" />
                                       <path d="M17 20l4-4-4-4m4 4H7.5" />
                                      </svg>
+                                     <span className="text-xs font-semibold" aria-hidden>
+                                      {isReversed ? '÷' : '×'}
+                                     </span>
                                     </button>
                                    </div>
                                   );
@@ -2567,7 +2588,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
            ))
          )}
         </section>
-   <ContextMenu menu={rowContextMenu.menu} onClose={rowContextMenu.close} />
+   <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} />
   </>
  );
 }
