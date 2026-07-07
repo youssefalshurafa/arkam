@@ -116,16 +116,30 @@ async function seedCurrenciesForSchema(schema, executor) {
         symbol: getCurrencySymbol(code),
     }));
 
-    for (const { code, name, symbol } of [...isoCurrencies, ...EXTRA_CURRENCIES]) {
+    const all = [...isoCurrencies, ...EXTRA_CURRENCIES];
+    if (all.length) {
+        // Single multi-row INSERT rather than one statement per currency: ~160 sequential
+        // round-trips to a remote (Neon) Postgres was slow and, on a cold/flaky connection,
+        // liable to fail partway — which left the catalog under-seeded. One round-trip is
+        // both far faster and atomic. (~160 rows × 3 params is well under Postgres's 65535
+        // bound-parameter limit.) ON CONFLICT preserves each currency's is_enabled/is_main.
+        const valueTuples = [];
+        const params = [];
+        all.forEach(({ code, name, symbol }, index) => {
+            const base = index * 3;
+            valueTuples.push(`($${base + 1}, $${base + 2}, $${base + 3})`);
+            params.push(code, name, symbol);
+        });
+
         await query(
             `
                 INSERT INTO ${schema}.currencies (code, name, symbol)
-                VALUES ($1, $2, $3)
+                VALUES ${valueTuples.join(', ')}
                 ON CONFLICT (code) DO UPDATE SET
                     name = EXCLUDED.name,
                     symbol = EXCLUDED.symbol
             `,
-            [code, name, symbol],
+            params,
             executor,
         );
     }

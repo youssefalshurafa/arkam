@@ -19,6 +19,8 @@
  "sidebar_collapse": "طي الشريط الجانبي",
  "auth_button": "تسجيل الدخول / إنشاء حساب",
  "sign_out": "تسجيل الخروج",
+ "sign_out_confirm_title": "تسجيل الخروج؟",
+ "sign_out_confirm_message": "هل أنت متأكد أنك تريد تسجيل الخروج؟",
  "login_title": "تسجيل الدخول",
  "login_description": "استخدم البريد الإلكتروني وكلمة المرور أو تابع عبر Google.",
  "login_google": "المتابعة عبر Google",

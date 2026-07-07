@@ -5,6 +5,7 @@ import { signOut } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
+import { confirmDialog } from '@/components/ui/AppDialog';
 import { renderIcon } from '@/shared/utils/icons';
 import type { IconName, Section } from '@/shared/types';
 
@@ -21,6 +22,14 @@ type AppHeaderProps = {
 export default function AppHeader({ sidebarItems, section, navigateToSection, activeSectionMeta, shellMetrics }: AppHeaderProps) {
  const { language, setLanguage } = useLanguage();
  const { t } = useTranslation(language);
+
+ const handleSignOut = async () => {
+  if (!(await confirmDialog({ title: t('sign_out_confirm_title'), message: t('sign_out_confirm_message'), confirmText: t('sign_out') }))) {
+   return;
+  }
+  accountingApi.setActiveWorkspaceId(null);
+  void signOut({ callbackUrl: '/login' });
+ };
 
  return (
   <>
@@ -65,10 +74,7 @@ export default function AppHeader({ sidebarItems, section, navigateToSection, ac
       </button>
       <button
        type="button"
-       onClick={() => {
-        accountingApi.setActiveWorkspaceId(null);
-        void signOut({ callbackUrl: '/login' });
-       }}
+       onClick={() => void handleSignOut()}
        title={t('sign_out')}
        className="inline-flex items-center gap-1.5 rounded border border-white/20 px-2 py-1 text-xs text-blue-100 transition hover:bg-white/10 hover:text-white"
       >

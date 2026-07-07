@@ -416,14 +416,14 @@ async function ensureWorkspaceSchema(workspaceId) {
                 );
             `);
 
-            // Non-ISO currencies (e.g. crypto/stablecoins) aren't in Intl's currency list,
-            // so seed them into the catalog here. DO NOTHING keeps any user edits/enabled state intact.
-            await client.query(
-                `INSERT INTO ${schema}.currencies (code, name, symbol)
-                 VALUES ($1, $2, $3)
-                 ON CONFLICT (code) DO NOTHING`,
-                ['USDT', 'Tether (USDT)', '₮'],
-            );
+            // NOTE: the currency catalog (ISO currencies + non-ISO extras like USDT) is
+            // intentionally NOT seeded here. It's seeded by the app's reseed path
+            // (db.seedCurrenciesForSchema, triggered from useWorkspaceData when the catalog
+            // is empty/under-seeded) which needs Intl helpers that live in db.js — and db.js
+            // requires this file, so seeding here would be a layering inversion. A previous
+            // version seeded USDT alone at this point, which left the catalog non-empty and
+            // silently defeated the client's "reseed when empty" trigger, so a fresh
+            // workspace ended up with ONLY USDT and none of the 160+ ISO currencies.
 
             return schemaName;
         });

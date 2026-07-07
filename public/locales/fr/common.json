@@ -19,6 +19,8 @@
  "sidebar_collapse": "Réduire la barre latérale",
  "auth_button": "Se connecter / s'inscrire",
  "sign_out": "Se déconnecter",
+ "sign_out_confirm_title": "Se déconnecter ?",
+ "sign_out_confirm_message": "Voulez-vous vraiment vous déconnecter ?",
  "login_title": "Se connecter",
  "login_description": "Utilisez votre e-mail/mot de passe ou continuez avec Google.",
  "login_google": "Continuer avec Google",

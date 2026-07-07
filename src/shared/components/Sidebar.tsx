@@ -6,6 +6,7 @@ import { signOut } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
+import { confirmDialog } from '@/components/ui/AppDialog';
 import { renderIcon } from '@/shared/utils/icons';
 import type { IconName, Section, SettingsTab } from '@/shared/types';
 
@@ -32,6 +33,14 @@ export default function Sidebar({
 }: SidebarProps) {
  const { language, setLanguage, isRTL } = useLanguage();
  const { t } = useTranslation(language);
+
+ const handleSignOut = async () => {
+  if (!(await confirmDialog({ title: t('sign_out_confirm_title'), message: t('sign_out_confirm_message'), confirmText: t('sign_out') }))) {
+   return;
+  }
+  accountingApi.setActiveWorkspaceId(null);
+  void signOut({ callbackUrl: '/login' });
+ };
 
  return (
     <aside
@@ -130,10 +139,7 @@ export default function Sidebar({
      <div className="border-t border-white/10 py-1">
       <button
        type="button"
-       onClick={() => {
-        accountingApi.setActiveWorkspaceId(null);
-        void signOut({ callbackUrl: '/login' });
-       }}
+       onClick={() => void handleSignOut()}
        aria-label={t('sign_out')}
        title={t('sign_out')}
        className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-blue-100 transition hover:bg-white/10 hover:text-white ${
