@@ -9,7 +9,7 @@ import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions } from '@/shared/lib/localStorage';
-import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
+import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
@@ -847,7 +847,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  inputMode="decimal"
                  dir="ltr"
                  value={transactionForm.exchangeRateFrom}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizeDecimalInput(event.target.value) }))}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizePlainDecimalInput(event.target.value) }))}
                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="1"
                 />
@@ -861,7 +861,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  inputMode="decimal"
                  dir="ltr"
                  value={transactionForm.commissionFrom}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizeDecimalInput(event.target.value) }))}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizePlainDecimalInput(event.target.value) }))}
                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="0"
                 />
@@ -920,7 +920,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   inputMode="decimal"
                   dir="ltr"
                   value={transactionForm.exchangeRateTo}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizeDecimalInput(event.target.value) }))}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizePlainDecimalInput(event.target.value) }))}
                   className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder="1"
                  />
@@ -933,7 +933,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  inputMode="decimal"
                  dir="ltr"
                  value={transactionForm.commissionTo}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizeDecimalInput(event.target.value) }))}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizePlainDecimalInput(event.target.value) }))}
                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="0"
                 />
@@ -1000,7 +1000,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    inputMode="decimal"
                    dir="ltr"
                    value={transactionForm.chargesExchangeRate}
-                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizeDecimalInput(event.target.value) }))}
+                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizePlainDecimalInput(event.target.value) }))}
                    className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
                    placeholder="1"
                   />
@@ -2204,7 +2204,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         inputMode="decimal"
                         dir="ltr"
                         value={draft.exchangeRateFrom}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizeDecimalInput(event.target.value) })}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizePlainDecimalInput(event.target.value) })}
                         className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         placeholder={t('transaction_exchange_rate')}
                        />
@@ -2355,7 +2355,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         inputMode="decimal"
                         dir="ltr"
                         value={draft.exchangeRateTo}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizeDecimalInput(event.target.value) })}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizePlainDecimalInput(event.target.value) })}
                         className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         placeholder={t('transaction_exchange_rate')}
                        />
@@ -2519,7 +2519,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                             inputMode="decimal"
                             dir="ltr"
                             value={draft.chargesExchangeRate}
-                            onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })}
+                            onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })}
                             className="mt-1 field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                             placeholder="1"
                            />
@@ -2597,7 +2597,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           inputMode="decimal"
                           dir="ltr"
                           value={draft.commissionFrom}
-                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizeDecimalInput(event.target.value) })}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizePlainDecimalInput(event.target.value) })}
                           className="field-sizing-content min-w-12 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder="0"
                          />
@@ -2610,7 +2610,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           inputMode="decimal"
                           dir="ltr"
                           value={draft.commissionTo}
-                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizeDecimalInput(event.target.value) })}
+                          onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizePlainDecimalInput(event.target.value) })}
                           className="field-sizing-content min-w-12 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder="0"
                          />

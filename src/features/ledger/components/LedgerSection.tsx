@@ -11,7 +11,7 @@ import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { SkBar, SkTablePanel, SK_LEDGER } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
-import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
+import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
@@ -1939,7 +1939,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      data-ledger-field="exchangeRate"
                                      data-ledger-key={ledgerRateKey}
                                      onChange={(event) =>
-                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizeDecimalInput(event.target.value) })
+                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: normalizePlainDecimalInput(event.target.value) })
                                      }
                                      onPaste={(event) => {
                                       const text = event.clipboardData.getData('text');
@@ -2114,7 +2114,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    data-ledger-field="commission"
                                    data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                                    onChange={(event) =>
-                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizeDecimalInput(event.target.value) })
+                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: normalizePlainDecimalInput(event.target.value) })
                                    }
                                    onPaste={(event) => {
                                     const text = event.clipboardData.getData('text');
@@ -2463,7 +2463,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               dir="ltr"
                               value={chargesDraft.chargesExchangeRate}
                               onChange={(event) =>
-                               updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: normalizeDecimalInput(event.target.value) })
+                               updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })
                               }
                               className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                               placeholder="1"
