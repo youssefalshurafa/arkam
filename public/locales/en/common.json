@@ -214,6 +214,7 @@
  "transaction_commission_to": "Commission (to)",
  "transaction_description": "Description",
  "transaction_description_placeholder": "Optional notes about this transaction",
+ "transaction_description_suggestion_remove": "Remove suggestion",
  "transaction_description_split": "Use a different description for each client",
  "save_transaction": "Save Transaction",
  "no_transactions": "No transactions yet. Create your first transaction from the form.",

@@ -213,6 +213,7 @@
  "transaction_commission_to": "Commission (cible)",
  "transaction_description": "Description",
  "transaction_description_placeholder": "Notes optionnelles sur cette transaction",
+ "transaction_description_suggestion_remove": "Supprimer la suggestion",
  "transaction_description_split": "Utiliser une description différente pour chaque client",
  "save_transaction": "Enregistrer la transaction",
  "no_transactions": "Aucune transaction pour le moment. Créez votre première transaction depuis le formulaire.",

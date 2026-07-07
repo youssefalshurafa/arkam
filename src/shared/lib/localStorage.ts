@@ -369,6 +369,31 @@ export function getStoredPdfSettings(): PdfSettings {
   return defaultPdfSettings;
  }
 }
+// Description strings the user has dismissed from the transaction description
+// autocomplete dropdown (via its per-suggestion "x"). Suggestions are derived live
+// from past transactions, so exclusions are tracked separately rather than deleting
+// anything; stored lowercased/trimmed since that's how suggestions are matched/deduped.
+export const descriptionSuggestionExclusionsStorageKey = 'arkam:tx-description-suggestion-exclusions';
+
+export function getStoredDescriptionSuggestionExclusions(): Set<string> {
+ if (typeof window === 'undefined') return new Set();
+ try {
+  const raw = window.localStorage.getItem(descriptionSuggestionExclusionsStorageKey);
+  const parsed = raw ? JSON.parse(raw) : [];
+  return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+ } catch {
+  return new Set();
+ }
+}
+
+export function saveDescriptionSuggestionExclusions(excluded: Set<string>) {
+ try {
+  window.localStorage.setItem(descriptionSuggestionExclusionsStorageKey, JSON.stringify(Array.from(excluded)));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+
 export function getStoredLedgerColumnOrder(clientId: number | null | undefined): LedgerColumnKey[] {
  if (typeof window === 'undefined') return defaultLedgerColumnOrder;
  try {

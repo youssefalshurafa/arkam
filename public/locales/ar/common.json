@@ -213,6 +213,7 @@
  "transaction_commission_to": "العمولة (إلى)",
  "transaction_description": "الوصف",
  "transaction_description_placeholder": "ملاحظات اختيارية حول هذه المعاملة",
+ "transaction_description_suggestion_remove": "إزالة الاقتراح",
  "transaction_description_split": "استخدام وصف مختلف لكل عميل",
  "save_transaction": "حفظ المعاملة",
  "no_transactions": "لا توجد معاملات حتى الآن. أنشئ معاملتك الأولى من النموذج.",

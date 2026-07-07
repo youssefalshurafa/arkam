@@ -8,7 +8,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
+import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
@@ -176,6 +176,19 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // border on whichever row the open menu belongs to, so it's clear which row the menu's
  // actions apply to; closeRowMenu clears it alongside the menu itself.
  const [contextMenuRowId, setContextMenuRowId] = useState<number | null>(null);
+
+ // Descriptions dismissed from the autocomplete dropdown via its per-suggestion "x".
+ // Persisted so a removed suggestion stays gone across reloads, even though the
+ // suggestion list itself is derived live from past transactions each render.
+ const [excludedDescriptionSuggestions, setExcludedDescriptionSuggestions] = useState<Set<string>>(() => getStoredDescriptionSuggestionExclusions());
+ const excludeDescriptionSuggestion = (desc: string) => {
+  setExcludedDescriptionSuggestions((current) => {
+   const next = new Set(current);
+   next.add(desc.trim().toLowerCase());
+   saveDescriptionSuggestionExclusions(next);
+   return next;
+  });
+ };
  const openRowMenu = (event: ReactMouseEvent, txn: Transaction) => {
   if (editingRowIds.has(txn.id)) return;
   setContextMenuRowId(txn.id);
@@ -1071,7 +1084,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  if (q && desc.toLowerCase() === q) continue;
                  if (q && !desc.toLowerCase().includes(q)) continue;
                  const key = desc.toLowerCase();
-                 if (seen.has(key)) continue;
+                 if (seen.has(key) || excludedDescriptionSuggestions.has(key)) continue;
                  seen.add(key);
                  suggestions.push(desc);
                  if (suggestions.length >= 8) break;
@@ -1088,10 +1101,35 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     setTransactionForm((current) => ({ ...current, description: desc }));
                     setDescriptionSuggestOpen(false);
                    }}
-                   className="cursor-pointer truncate px-3 py-2 text-sm text-slate-700 hover:bg-blue-50"
+                   className="group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50"
                    title={desc}
                   >
-                   {desc}
+                   <span className="flex-1 truncate">{desc}</span>
+                   <button
+                    type="button"
+                    onMouseDown={(event) => {
+                     event.preventDefault();
+                     event.stopPropagation();
+                     excludeDescriptionSuggestion(desc);
+                    }}
+                    title={t('transaction_description_suggestion_remove')}
+                    aria-label={t('transaction_description_suggestion_remove')}
+                    className="shrink-0 rounded p-0.5 text-slate-300 opacity-0 transition hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
+                   >
+                    <svg
+                     width="12"
+                     height="12"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="2.5"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                   </button>
                   </li>
                  ))}
                 </ul>
