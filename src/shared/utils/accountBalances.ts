@@ -1,5 +1,15 @@
-import { getCommissionAmount } from './commission';
+import { getCommissionAmount, chargeLedgerEffect } from './commission';
 import type { ClientAccount, ClientAdjustment, Transaction } from '@/shared/types';
+
+// chargesExchangeRate converts the charge's own currency into the *payer's* account
+// currency — it's meaningless (and must not be applied) for a side whose account currency
+// already matches the charge's currency, where the conversion is definitionally 1:1.
+// Forcing rate=1 here guards against a stale/incorrect chargesExchangeRate left over from
+// when the charge's currency or payer was last changed. Mirrors ledgerBalances.ts's
+// effectiveChargeRate exactly — keep both in sync.
+function effectiveChargeRate(chargesCurrencyId: number | null, accountCurrencyId: number, chargesExchangeRate: number): number {
+ return chargesCurrencyId != null && chargesCurrencyId === accountCurrencyId ? 1 : chargesExchangeRate;
+}
 
 // Net balance (starting balance + every non-archived transaction + every adjustment)
 // of each client account. Shared by every feature that needs a per-account balance:
@@ -21,9 +31,11 @@ export function computeAccountBalances({ clientAccounts, transactions, adjustmen
    const account = clientAccountMap.get(transaction.accountFromId);
    if (account) {
     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateFrom === 0;
+    const chargeRate = effectiveChargeRate(transaction.chargesCurrencyId, account.currencyId, transaction.chargesExchangeRate);
+    const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (transaction.charges * chargeRate) : 0;
     const netChange = pending
      ? 0
-     : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom);
+     : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) + chargeEffect;
     balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
    }
   }
@@ -31,9 +43,11 @@ export function computeAccountBalances({ clientAccounts, transactions, adjustmen
    const account = clientAccountMap.get(transaction.accountToId);
    if (account) {
     const pending = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
+    const chargeRate = effectiveChargeRate(transaction.chargesCurrencyId, account.currencyId, transaction.chargesExchangeRate);
+    const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * chargeRate) : 0;
     const netChange = pending
      ? 0
-     : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo));
+     : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)) + chargeEffect;
     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
    }
   }

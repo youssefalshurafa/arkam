@@ -1,0 +1,93 @@
+import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
+
+export type DragHalf = 'top' | 'bottom';
+
+type UsePointerDragOptions<K> = {
+ /** Reads the drag key back off a `[data-drag-key]` element's attribute value. */
+ parseKey: (raw: string) => K;
+ /** Fired once at the start of a drag (pointerdown on the handle) — typically used to drive the "being dragged" style on the source row. */
+ onDragStart?: (draggedKey: K) => void;
+ /** Fired on every pointer move while dragging, with the currently hovered key/half (or both null when over nothing draggable). */
+ onHoverChange: (overKey: K | null, half: DragHalf | null) => void;
+ /** Fired once when the pointer is released, with whatever was last reported to onHoverChange. */
+ onDrop: (draggedKey: K, overKey: K | null, half: DragHalf | null) => void;
+ /**
+  * Vertical: split hover targets into top/bottom halves (row reordering).
+  * None: no half is computed (column reordering, where the drop handler only cares about the target's index).
+  */
+ axis?: 'vertical' | 'none';
+ /** Attribute carrying the key on droppable elements. Defaults to 'data-drag-key'. */
+ attr?: string;
+};
+
+/**
+ * Pointer-events-based drag-to-reorder, replacing HTML5 native drag-and-drop (`draggable`/
+ * `onDragStart`/`onDragOver`/`onDrop`) which never fires from a touch gesture on mobile browsers
+ * — the underlying reason drag-and-drop was unusable on phones. Pointer events unify mouse,
+ * touch, and pen, and `setPointerCapture` keeps every subsequent move/up event routed to the
+ * handle that started the drag regardless of where the finger/cursor travels, so a single
+ * pointerdown on a drag handle is enough to drive the whole gesture — no separate "did this
+ * start on the handle" tracking needed like the old `draggable` row + ref-guarded onDragStart
+ * required.
+ *
+ * Usage: spread `dragHandleProps(key)` onto the drag handle element, and put `data-drag-key={key}`
+ * on each element that can be dropped onto (usually the row/column itself).
+ */
+export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop, axis = 'vertical', attr = 'data-drag-key' }: UsePointerDragOptions<K>) {
+ const draggedKeyRef = useRef<K | null>(null);
+ const overRef = useRef<{ key: K; half: DragHalf | null } | null>(null);
+
+ const updateHover = (clientX: number, clientY: number) => {
+  const el = document.elementFromPoint(clientX, clientY);
+  const target = (el as HTMLElement | null)?.closest(`[${attr}]`) as HTMLElement | null;
+  const raw = target?.getAttribute(attr);
+  if (!target || raw == null) {
+   overRef.current = null;
+   onHoverChange(null, null);
+   return;
+  }
+  const key = parseKey(raw);
+  let half: DragHalf | null = null;
+  if (axis === 'vertical') {
+   const rect = target.getBoundingClientRect();
+   half = clientY < rect.top + rect.height / 2 ? 'top' : 'bottom';
+  }
+  overRef.current = { key, half };
+  onHoverChange(key, half);
+ };
+
+ const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
+  const draggedKey = draggedKeyRef.current;
+  if (draggedKey == null) return;
+  draggedKeyRef.current = null;
+  try {
+   event.currentTarget.releasePointerCapture(event.pointerId);
+  } catch {
+   /* pointer capture already released (e.g. cancelled) */
+  }
+  const over = overRef.current;
+  overRef.current = null;
+  onDrop(draggedKey, over?.key ?? null, over?.half ?? null);
+ };
+
+ const dragHandleProps = (key: K) => ({
+  onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+   // Primary button only (touch/pen contacts report button -1, which is fine).
+   if (event.pointerType === 'mouse' && event.button !== 0) return;
+   draggedKeyRef.current = key;
+   overRef.current = null;
+   event.currentTarget.setPointerCapture(event.pointerId);
+   onDragStart?.(key);
+  },
+  onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+   if (draggedKeyRef.current == null) return;
+   updateHover(event.clientX, event.clientY);
+  },
+  onPointerUp: endDrag,
+  onPointerCancel: endDrag,
+  // Prevents the browser's touch-scroll gesture from hijacking a touch-and-drag on this handle.
+  style: { touchAction: 'none' as const },
+ });
+
+ return { dragHandleProps };
+}

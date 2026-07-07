@@ -77,7 +77,10 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
           <div className="mt-5 flex flex-col gap-4">
            <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_direction')}</label>
-            <div className="grid grid-cols-2 gap-2">
+            {/* Fixed LTR order regardless of app language — debit/credit is a universal
+                accounting convention, not text, so it shouldn't mirror in Arabic (the
+                colors looked "reversed" because the grid itself was flipping side). */}
+            <div dir="ltr" className="grid grid-cols-2 gap-2">
              <button
               type="button"
               onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'debit' } : prev))}

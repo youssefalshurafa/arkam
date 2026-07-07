@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
+import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
@@ -161,7 +162,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const { t } = useTranslation(language);
  const numLocale = language === 'fr' ? 'fr-FR' : language;
  const showToast = useAppStatusStore((s) => s.showToast);
- const dragFromHandle = useRef(false);
  // Right-click row actions (Edit/Delete) — replaces the row's icon-button cluster with a
  // single context menu when not editing.
  const rowContextMenu = useContextMenu();
@@ -170,14 +170,42 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
 
  // Shared by the row's onContextMenu (desktop right-click) and its visible "⋮" button
- // (touch devices have no right-click event to hook into).
+ // (touch devices have no right-click event to hook into). contextMenuRowId drives a
+ // border on whichever row the open menu belongs to, so it's clear which row the menu's
+ // actions apply to; closeRowMenu clears it alongside the menu itself.
+ const [contextMenuRowId, setContextMenuRowId] = useState<number | null>(null);
  const openRowMenu = (event: ReactMouseEvent, txn: Transaction) => {
   if (editingRowIds.has(txn.id)) return;
+  setContextMenuRowId(txn.id);
   rowContextMenu.open(event, [
    { key: 'edit', label: t('edit'), onSelect: () => setEditingRowIds((prev) => new Set([...prev, txn.id])) },
    { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const },
   ]);
  };
+ const closeRowMenu = () => {
+  rowContextMenu.close();
+  setContextMenuRowId(null);
+ };
+
+ // Row drag-to-reorder via pointer events (not native HTML5 drag-and-drop, which never fires
+ // from a touch gesture — the reason this was unusable on mobile). See usePointerDrag for why.
+ const transactionRowDrag = usePointerDrag<number>({
+  parseKey: (raw) => Number(raw),
+  onDragStart: (id) => setDragRowId(id),
+  onHoverChange: (overId, half) => {
+   setDragOverRowId(overId);
+   if (half) setDragOverHalf(half);
+  },
+  onDrop: (draggedId, overId, half) => {
+   if (overId !== null && draggedId !== overId && half) {
+    // If the dragged row is part of the selection, drag the whole selection; otherwise just this row.
+    const idsToMove = selectedTransactionIds.has(draggedId) && selectedTransactionIds.size > 1 ? [...selectedTransactionIds] : [draggedId];
+    void onTransactionRowDrop(idsToMove, overId, half);
+   }
+   setDragRowId(null);
+   setDragOverRowId(null);
+  },
+ });
 
  // The data columns' relative widths (as percentages of the table, summing to 100 when every
  // column is visible). Hardcoded percentages that don't renormalize when optional columns
@@ -776,7 +804,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     setTransactionForm((c) => ({ ...c, exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
                     setTxFromRateReversed((r) => !r);
                    }}
-                   className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                   className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
                   >
                    <svg
                     width="14"
@@ -792,6 +820,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     <path d="M7 4 3 8l4 4M3 8h13.5" />
                     <path d="M17 20l4-4-4-4m4 4H7.5" />
                    </svg>
+                   <span className="text-xs font-semibold" aria-hidden>
+                    {txFromRateReversed ? '÷' : '×'}
+                   </span>
                   </button>
                  )}
                 </div>
@@ -846,7 +877,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
                      setTxToRateReversed((r) => !r);
                     }}
-                    className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                    className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
                    >
                     <svg
                      width="14"
@@ -862,6 +893,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      <path d="M7 4 3 8l4 4M3 8h13.5" />
                      <path d="M17 20l4-4-4-4m4 4H7.5" />
                     </svg>
+                    <span className="text-xs font-semibold" aria-hidden>
+                     {txToRateReversed ? '÷' : '×'}
+                    </span>
                    </button>
                   )}
                  </div>
@@ -1791,31 +1825,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              {paginatedTransactions.map((txn, index) => (
               <tr
                key={txn.id}
-               draggable={!editingRowIds.has(txn.id)}
-               onDragStart={(e) => {
-                if (!dragFromHandle.current) {
-                 e.preventDefault();
-                 return;
-                }
-                setDragRowId(txn.id);
-               }}
-               onDragEnd={() => {
-                dragFromHandle.current = false;
-                if (dragRowId !== null && dragOverRowId !== null && dragRowId !== dragOverRowId) {
-                 // If the dragged row is part of the selection, drag the whole selection; otherwise just this row
-                 const idsToMove = selectedTransactionIds.has(dragRowId) && selectedTransactionIds.size > 1 ? [...selectedTransactionIds] : [dragRowId];
-                 void onTransactionRowDrop(idsToMove, dragOverRowId, dragOverHalf);
-                }
-                setDragRowId(null);
-                setDragOverRowId(null);
-               }}
-               onDragOver={(e) => {
-                e.preventDefault();
-                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                setDragOverHalf(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom');
-                setDragOverRowId(txn.id);
-               }}
-               onDragLeave={() => setDragOverRowId((prev) => (prev === txn.id ? null : prev))}
+               data-drag-key={txn.id}
                onContextMenu={(e) => openRowMenu(e, txn)}
                onKeyDown={(e) => {
                 focusAdjacentRowField(e, isRTL);
@@ -1830,7 +1840,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
-               }`}
+               } ${contextMenuRowId === txn.id ? 'ring-2 ring-inset ring-indigo-400' : ''}`}
                style={(() => {
                 const color = highlightedTxRows.get(txn.id);
                 const isEditingRow = editingRowIds.has(txn.id);
@@ -1878,13 +1888,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   <td className="w-px whitespace-nowrap px-1 py-3 align-top">
                    {isEditingRow ? (
                     <div className="flex flex-col items-center gap-1">
-                     <span
-                      className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
-                      title="Drag to reorder"
-                      onMouseDown={() => {
-                       dragFromHandle.current = true;
-                      }}
-                     >
+                     {/* Dragging is disabled while editing (matches the previous native-drag
+                         behavior) — this handle is a static visual placeholder here. */}
+                     <span className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing" title="Drag to reorder">
                       <svg
                        width="12"
                        height="12"
@@ -2041,11 +2047,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     // which is the only way to reach them on touch devices (no right-click there).
                     <div className="flex items-center justify-center gap-1">
                      <span
+                      {...transactionRowDrag.dragHandleProps(txn.id)}
                       className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
                       title="Drag to reorder"
-                      onMouseDown={() => {
-                       dragFromHandle.current = true;
-                      }}
                      >
                       <svg
                        width="12"
@@ -2164,7 +2168,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
                           setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
                          }}
-                         className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                         className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
                         >
                          <svg
                           width="14"
@@ -2180,6 +2184,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           <path d="M7 4 3 8l4 4M3 8h13.5" />
                           <path d="M17 20l4-4-4-4m4 4H7.5" />
                          </svg>
+                         <span className="text-xs font-semibold" aria-hidden>
+                          {tableRateFromReversed[txn.id] ? '÷' : '×'}
+                         </span>
                         </button>
                        </div>
                       )}
@@ -2312,7 +2319,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
                           setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
                          }}
-                         className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                         className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
                         >
                          <svg
                           width="14"
@@ -2328,6 +2335,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           <path d="M7 4 3 8l4 4M3 8h13.5" />
                           <path d="M17 20l4-4-4-4m4 4H7.5" />
                          </svg>
+                         <span className="text-xs font-semibold" aria-hidden>
+                          {tableRateToReversed[txn.id] ? '÷' : '×'}
+                         </span>
                         </button>
                        </div>
                       )}
@@ -2713,7 +2723,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
           {transactionsPager}
          </div>
         </section>
-   <ContextMenu menu={rowContextMenu.menu} onClose={rowContextMenu.close} />
+   <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} />
   </>
  );
 }
