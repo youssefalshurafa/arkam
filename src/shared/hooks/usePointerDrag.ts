@@ -39,7 +39,29 @@ export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop
 
  const updateHover = (clientX: number, clientY: number) => {
   const el = document.elementFromPoint(clientX, clientY);
-  const target = (el as HTMLElement | null)?.closest(`[${attr}]`) as HTMLElement | null;
+  let target = (el as HTMLElement | null)?.closest(`[${attr}]`) as HTMLElement | null;
+
+  // The pointer overshot past the top/bottom edge of the draggable list — e.g. a fast drag
+  // landing below the last row, where elementFromPoint hits the table's padding/border or
+  // whatever sits below it instead of a row. Left unhandled, that makes it impossible to ever
+  // drop into the very first/last position (only "before the last row" is reachable). Fall back
+  // to whichever draggable row is vertically closest to the pointer, among candidates roughly
+  // under the cursor horizontally (so this doesn't jump across unrelated side-by-side lists).
+  if (!target && axis === 'vertical') {
+   let closest: HTMLElement | null = null;
+   let closestDistance = Infinity;
+   for (const candidate of document.querySelectorAll<HTMLElement>(`[${attr}]`)) {
+    const rect = candidate.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right) continue;
+    const distance = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+    if (distance < closestDistance) {
+     closestDistance = distance;
+     closest = candidate;
+    }
+   }
+   target = closest;
+  }
+
   const raw = target?.getAttribute(attr);
   if (!target || raw == null) {
    overRef.current = null;

@@ -29,6 +29,10 @@ export type Client = {
  email: string;
  phone: string;
  address: string;
+ // When true, this client's accounts are still selectable as a transaction sender/receiver
+ // and show their own balance on the Clients page, but are left out of the pooled totals on
+ // the Overview and Organizations pages (e.g. a "me" client used to track personal transfers).
+ excludeFromBalance: boolean;
  accountCount: number;
  createdAt: string;
  updatedAt: string;
@@ -41,6 +45,7 @@ export type ClientForm = {
  email: string;
  phone: string;
  address: string;
+ excludeFromBalance: boolean;
 };
 
 export type NewClientAccountDraft = {
@@ -211,6 +216,10 @@ export type ClientLedgerEntry = {
  createdAt: string;
  counterpartyName: string;
  counterpartyClientId: number | null;
+ // Currency of the counterparty's own account (may differ from this entry's/account's
+ // currency in a cross-currency transaction) — shown next to their name in the ledger.
+ counterpartyCurrencyCode: string;
+ counterpartyCurrencySymbol: string;
  direction: 'incoming' | 'outgoing';
  type: string;
  amount: number;

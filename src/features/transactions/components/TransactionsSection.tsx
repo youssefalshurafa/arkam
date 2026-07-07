@@ -14,6 +14,7 @@ import { formatRateValue, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
+import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
@@ -953,7 +954,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </button>
               {isNewTransactionExpensesOpen && (
                <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
-                <div className="grid gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                  <input
                   type="text"
                   inputMode="decimal"
@@ -978,49 +979,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    </option>
                   ))}
                  </select>
-                 <select
+                 <ChargesPayerSelects
                   value={transactionForm.chargesPayer}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesPayer: event.target.value }))}
+                  onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer }))}
+                  fromLabel={transactionForm.accountFromId ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from')) : t('transaction_account_from')}
+                  toLabel={transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
+                  meLabel={t('charges_payer_me')}
+                  paidByPlaceholder={t('charges_payer_placeholder')}
+                  paidToPlaceholder={t('charges_payer_to_placeholder')}
                   className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 >
-                  <option value="">{t('charges_payer_placeholder')}</option>
-                  <option value="from">
-                   {transactionForm.accountFromId
-                    ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
-                    : t('transaction_account_from')}
-                  </option>
-                  <option value="to">
-                   {transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
-                  </option>
-                  <option value="me_to_from">
-                   {t('charges_payer_me_to_name', {
-                    name: transactionForm.accountFromId
-                     ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
-                     : t('transaction_account_from'),
-                   })}
-                  </option>
-                  <option value="me_to_to">
-                   {t('charges_payer_me_to_name', {
-                    name: transactionForm.accountToId
-                     ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to'))
-                     : t('transaction_account_to'),
-                   })}
-                  </option>
-                  <option value="from_to_me">
-                   {t('charges_payer_name_to_me', {
-                    name: transactionForm.accountFromId
-                     ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from'))
-                     : t('transaction_account_from'),
-                   })}
-                  </option>
-                  <option value="to_to_me">
-                   {t('charges_payer_name_to_me', {
-                    name: transactionForm.accountToId
-                     ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to'))
-                     : t('transaction_account_to'),
-                   })}
-                  </option>
-                 </select>
+                 />
                 </div>
                 {showChargesExchangeRate && (
                  <div className="mt-2">
@@ -2526,19 +2494,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           </option>
                          ))}
                         </select>
-                        <select
+                        <ChargesPayerSelects
                          value={draft.chargesPayer}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesPayer: event.target.value })}
+                         onChange={(chargesPayer) => updateTransactionTableDraft(txn.id, { chargesPayer })}
+                         fromLabel={txn.clientFromName}
+                         toLabel={txn.clientToName}
+                         meLabel={t('charges_payer_me')}
+                         paidByPlaceholder={t('charges_payer_placeholder')}
+                         paidToPlaceholder={t('charges_payer_to_placeholder')}
                          className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                        >
-                         <option value="">{t('charges_payer_placeholder')}</option>
-                         <option value="from">{txn.clientFromName}</option>
-                         <option value="to">{txn.clientToName}</option>
-                         <option value="me_to_from">{t('charges_payer_me_to_name', { name: txn.clientFromName })}</option>
-                         <option value="me_to_to">{t('charges_payer_me_to_name', { name: txn.clientToName })}</option>
-                         <option value="from_to_me">{t('charges_payer_name_to_me', { name: txn.clientFromName })}</option>
-                         <option value="to_to_me">{t('charges_payer_name_to_me', { name: txn.clientToName })}</option>
-                        </select>
+                        />
                         {(() => {
                          const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
                          const draftPayerAccountCurrencyCode =

@@ -17,6 +17,7 @@ import { formatDateValue } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
+import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
@@ -1733,9 +1734,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 className="cursor-pointer font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
                                >
                                 {entry.counterpartyName}
+                                {(entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode) && (
+                                 <span className="font-normal text-blue-400"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
+                                )}
                                </a>
                               ) : (
-                               entry.counterpartyName
+                               <>
+                                {entry.counterpartyName}
+                                {(entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode) && (
+                                 <span className="font-normal text-slate-400"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
+                                )}
+                               </>
                               )}
                              </td>
                             );
@@ -2433,19 +2442,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              </option>
                             ))}
                            </select>
-                           <select
+                           <ChargesPayerSelects
                             value={chargesDraft.chargesPayer}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer: event.target.value })}
+                            onChange={(chargesPayer) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer })}
+                            fromLabel={fromSideName}
+                            toLabel={toSideName}
+                            meLabel={t('charges_payer_me')}
+                            paidByPlaceholder={t('charges_payer_placeholder')}
+                            paidToPlaceholder={t('charges_payer_to_placeholder')}
                             className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
-                           >
-                            <option value="">{t('charges_payer_placeholder')}</option>
-                            <option value="from">{fromSideName}</option>
-                            <option value="to">{toSideName}</option>
-                            <option value="me_to_from">{t('charges_payer_me_to_name', { name: fromSideName })}</option>
-                            <option value="me_to_to">{t('charges_payer_me_to_name', { name: toSideName })}</option>
-                            <option value="from_to_me">{t('charges_payer_name_to_me', { name: fromSideName })}</option>
-                            <option value="to_to_me">{t('charges_payer_name_to_me', { name: toSideName })}</option>
-                           </select>
+                           />
                            {showRate && (
                             <div className="flex items-center gap-1">
                              <span className="text-xs text-slate-500">

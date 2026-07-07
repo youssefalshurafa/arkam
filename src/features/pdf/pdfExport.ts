@@ -115,7 +115,10 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
 <style>
- * { box-sizing: border-box; margin: 0; padding: 0; }
+ /* Without this, Chromium's print/PDF pipeline silently drops all background colors
+    (row striping, highlighted cells, meta cards) unless the user manually checks
+    "Background graphics" in the print dialog — this forces them to always render. */
+ * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
  .header-left { display: flex; align-items: center; gap: 14px; }
@@ -127,7 +130,7 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
  thead tr { background: #e2e8f0; }
  th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
  td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
- tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(odd) { background: #f1f5f9; }
  tbody tr:nth-child(even) { background: #ffffff; }
  td.num { font-variant-numeric: tabular-nums; }
  .muted { color: #94a3b8; font-style: italic; }
@@ -189,7 +192,10 @@ export function generateTransactionsExportHtml(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
 <style>
- * { box-sizing: border-box; margin: 0; padding: 0; }
+ /* Without this, Chromium's print/PDF pipeline silently drops all background colors
+    (row striping, highlighted cells, meta cards) unless the user manually checks
+    "Background graphics" in the print dialog — this forces them to always render. */
+ * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
  .header-left { display: flex; align-items: center; gap: 14px; }
@@ -201,7 +207,7 @@ export function generateTransactionsExportHtml(
  thead tr { background: #e2e8f0; }
  th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
  td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
- tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(odd) { background: #f1f5f9; }
  tbody tr:nth-child(even) { background: #ffffff; }
  .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
  .empty { margin-top: 24px; text-align: center; color: #94a3b8; }
@@ -420,7 +426,10 @@ export function generateLedgerHtml(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
 <style>
- * { box-sizing: border-box; margin: 0; padding: 0; }
+ /* Without this, Chromium's print/PDF pipeline silently drops all background colors
+    (row striping, highlighted cells, meta cards) unless the user manually checks
+    "Background graphics" in the print dialog — this forces them to always render. */
+ * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
  .header-left { display: flex; align-items: center; gap: 14px; }
@@ -441,7 +450,7 @@ export function generateLedgerHtml(
  thead tr { background: #e2e8f0; }
  th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
  td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
- tbody tr:nth-child(odd) { background: #f8fafc; }
+ tbody tr:nth-child(odd) { background: #f1f5f9; }
  tbody tr:nth-child(even) { background: #ffffff; }
  td.num { font-variant-numeric: tabular-nums; }
  th.num { }
@@ -561,7 +570,10 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap">
 <style>
- * { box-sizing: border-box; margin: 0; padding: 0; }
+ /* Without this, Chromium's print/PDF pipeline silently drops all background colors
+    (row striping, highlighted cells, meta cards) unless the user manually checks
+    "Background graphics" in the print dialog — this forces them to always render. */
+ * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
  body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #1e293b; padding: 32px; }
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
  .header-left { display: flex; align-items: center; gap: 14px; }

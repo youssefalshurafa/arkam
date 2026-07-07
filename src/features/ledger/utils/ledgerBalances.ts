@@ -109,6 +109,8 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          createdAt: transaction.createdAt,
          counterpartyName: counterparty?.clientName || '-',
          counterpartyClientId: counterparty?.clientId ?? null,
+         counterpartyCurrencyCode: counterparty?.currencyCode || '',
+         counterpartyCurrencySymbol: counterparty?.currencySymbol || '',
          direction: 'outgoing' as const,
          type: transaction.type,
          amount: transaction.amount,
@@ -151,6 +153,8 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          createdAt: transaction.createdAt,
          counterpartyName: counterparty?.clientName || '-',
          counterpartyClientId: counterparty?.clientId ?? null,
+         counterpartyCurrencyCode: counterparty?.currencyCode || '',
+         counterpartyCurrencySymbol: counterparty?.currencySymbol || '',
          direction: 'incoming' as const,
          type: transaction.type,
          amount: transaction.amount,
@@ -192,6 +196,8 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
         createdAt: adj.createdAt,
         counterpartyName: '',
         counterpartyClientId: null,
+        counterpartyCurrencyCode: '',
+        counterpartyCurrencySymbol: '',
         // debit: client owes us (e.g. gas money) ? balance moves in our favor (negative)
         // credit: we owe the client (e.g. iPhone) ? balance moves in their favor (positive)
         direction: (adj.direction === 'credit' ? 'outgoing' : 'incoming') as 'incoming' | 'outgoing',
