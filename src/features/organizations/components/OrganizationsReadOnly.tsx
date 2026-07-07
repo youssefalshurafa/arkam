@@ -23,7 +23,9 @@ export default function OrganizationsReadOnly({
 }: OrganizationsReadOnlyProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
- const numLocale = language === 'fr' ? 'fr-FR' : language;
+ // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
+ // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
+ const numLocale = language === 'fr' ? 'en-US' : language;
 
  // Per-organization, per-currency net balance (summed across all of the org's clients).
  // Shown as a breakdown badge per currency, so no exchange-rate conversion is needed.

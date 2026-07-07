@@ -160,7 +160,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  } = props;
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
- const numLocale = language === 'fr' ? 'fr-FR' : language;
+ // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
+ // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
+ const numLocale = language === 'fr' ? 'en-US' : language;
  const showToast = useAppStatusStore((s) => s.showToast);
  // Right-click row actions (Edit/Delete) — replaces the row's icon-button cluster with a
  // single context menu when not editing.

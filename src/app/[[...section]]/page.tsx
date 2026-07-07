@@ -153,7 +153,9 @@ function AuthenticatedHome() {
  const router = useRouter();
  const pathname = usePathname();
  const { language, setLanguage, isRTL } = useLanguage();
- const numLocale = language === 'fr' ? 'fr-FR' : language;
+ // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
+ // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
+ const numLocale = language === 'fr' ? 'en-US' : language;
  const { t } = useTranslation(language);
  const [section, setSection] = useState<Section>(() => getSectionFromPath(pathname).section);
  const [settingsTab, setSettingsTab] = useState<SettingsTab>('clients');
@@ -2202,7 +2204,7 @@ function AuthenticatedHome() {
   const hours = Math.round(diffMs / 3600000);
   const days = Math.round(diffMs / 86400000);
 
-  const exact = new Date(lastBackupAt).toLocaleString(numLocale, {
+  const exact = new Date(lastBackupAt).toLocaleString(language, {
    year: 'numeric',
    month: 'short',
    day: 'numeric',

@@ -256,7 +256,7 @@ export const accountingApi = {
    if (!response.ok) {
     throw new Error(data?.error || 'Failed to invite member.');
    }
-   return data as { ok: true; status: 'invited' | 'added' };
+   return data as { ok: true; status: 'invited' | 'added'; emailSent: boolean };
   }),
  updateWorkspaceMemberRole: ({ workspaceId, targetUserId, role }: { workspaceId: string; targetUserId: string; role: WorkspaceRole }) =>
   fetch(`/api/workspaces/${workspaceId}/members`, {

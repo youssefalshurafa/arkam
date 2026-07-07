@@ -374,7 +374,7 @@ async function inviteWorkspaceMember({ workspaceId, email, name, role, invitedBy
     const normalizedRole = String(role || 'member').trim().toLowerCase();
 
     if (!normalizedEmail) {
-        throw new Error('Email is required.');
+        throw new Error('Email or username is required.');
     }
     if (!['admin', 'member', 'viewer'].includes(normalizedRole)) {
         throw new Error('Role must be one of: admin, member, viewer.');

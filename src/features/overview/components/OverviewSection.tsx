@@ -37,7 +37,9 @@ type OverviewSectionProps = {
 export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, adjustments, isLoading, navigateToSection, onExportOverviewPdf }: OverviewSectionProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
- const numLocale = language === 'fr' ? 'fr-FR' : language;
+ // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
+ // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
+ const numLocale = language === 'fr' ? 'en-US' : language;
 
  const { overviewRates, overviewFlipped, setOverviewFlipped, updateOverviewRate } = useOverviewStore();
 

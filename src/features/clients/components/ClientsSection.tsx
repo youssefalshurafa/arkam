@@ -41,7 +41,9 @@ export default function ClientsSection({
 }: ClientsSectionProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
- const numLocale = language === 'fr' ? 'fr-FR' : language;
+ // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
+ // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
+ const numLocale = language === 'fr' ? 'en-US' : language;
  const { clientForm, setClientForm, clientSearch, setClientSearch, setClientsPage, clientsPageSize, setClientsPageSize, newAccountCurrencyId, setNewAccountCurrencyId, newAccountStartingBalance, setNewAccountStartingBalance, newAccountBalanceType, setNewAccountBalanceType, showAddAccountForm, setShowAddAccountForm, editingAccountId, setEditingAccountId, editingAccountCurrencyId, setEditingAccountCurrencyId, editingAccountBalance, setEditingAccountBalance, editingAccountBalanceType, setEditingAccountBalanceType, moveTargetAccountId, setMoveTargetAccountId, isMovingAccount, openAccountOnCreate, setOpenAccountOnCreate, newClientAccountDrafts, setNewClientAccountDrafts } = useClientsStore();
 
  return (
