@@ -1691,15 +1691,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </colgroup>
             <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
              <tr>
-              <th className="w-px whitespace-nowrap px-2 py-3">
-               <input
-                type="checkbox"
-                checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
-                onChange={onToggleSelectAllTransactions}
-                aria-label="Select all"
-                className="h-4 w-4 cursor-pointer rounded border-slate-300"
-               />
-              </th>
               <th className="w-px whitespace-nowrap px-1 py-3">
                {isEditAllTransactions ? (
                 <div className="flex flex-col items-center gap-1">
@@ -1778,6 +1769,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  </svg>
                 </button>
                )}
+              </th>
+              <th className="w-px whitespace-nowrap px-2 py-3">
+               <input
+                type="checkbox"
+                checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
+                onChange={onToggleSelectAllTransactions}
+                aria-label="Select all"
+                className="h-4 w-4 cursor-pointer rounded border-slate-300"
+               />
               </th>
               {transactionTableSettings.columns.created ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
@@ -1884,15 +1884,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
                 return (
                  <>
-                  <td className="w-px whitespace-nowrap px-2 py-3 align-middle">
-                   <input
-                    type="checkbox"
-                    checked={selectedTransactionIds.has(txn.id)}
-                    onChange={() => onToggleTransactionSelection(txn.id)}
-                    aria-label={`Select transaction ${txn.id}`}
-                    className="h-4 w-4 cursor-pointer rounded border-slate-300"
-                   />
-                  </td>
                   <td className="w-px whitespace-nowrap px-1 py-3 align-top">
                    {isEditingRow ? (
                     <div className="flex flex-col items-center gap-1">
@@ -2119,6 +2110,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      </button>
                     </div>
                    )}
+                  </td>
+                  <td className="w-px whitespace-nowrap px-2 py-3 align-middle">
+                   <input
+                    type="checkbox"
+                    checked={selectedTransactionIds.has(txn.id)}
+                    onChange={() => onToggleTransactionSelection(txn.id)}
+                    aria-label={`Select transaction ${txn.id}`}
+                    className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                   />
                   </td>
                   {transactionTableSettings.columns.created ? (
                    <td className="px-4 py-3 text-slate-500">

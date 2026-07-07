@@ -977,20 +977,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 >
                  <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
                   <tr>
-                   <th className="w-8 px-2 py-3">
-                    <input
-                     type="checkbox"
-                     checked={
-                      ledger.entries.length > 0 && ledger.entries.every((e) => selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)))
-                     }
-                     onChange={() => {
-                      const allKeys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
-                      const allSelected = allKeys.every((k) => selectedLedgerEntryKeys.has(k));
-                      setSelectedLedgerEntryKeys(allSelected ? new Set() : new Set(allKeys));
-                     }}
-                     className="cursor-pointer"
-                    />
-                   </th>
                    <th className="w-10 px-2 py-3">
                     {editAllLedgerAccountIds.has(ledger.accountId) ? (
                      <div className="flex flex-col items-center gap-1">
@@ -1069,6 +1055,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       </svg>
                      </button>
                     )}
+                   </th>
+                   <th className="w-8 px-2 py-3">
+                    <input
+                     type="checkbox"
+                     checked={
+                      ledger.entries.length > 0 && ledger.entries.every((e) => selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)))
+                     }
+                     onChange={() => {
+                      const allKeys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+                      const allSelected = allKeys.every((k) => selectedLedgerEntryKeys.has(k));
+                      setSelectedLedgerEntryKeys(allSelected ? new Set() : new Set(allKeys));
+                     }}
+                     className="cursor-pointer"
+                    />
                    </th>
                    {orderedLedgerColumnOptions.map((column) => {
                     if (!ledgerColumnVisibility[column.key]) {
@@ -1338,15 +1338,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
 
                        return (
                         <>
-                         {/* checkbox */}
-                         <td className="px-2 py-3 align-middle w-8">
-                          <input
-                           type="checkbox"
-                           checked={selectedLedgerEntryKeys.has(rowKey)}
-                           onChange={() => onToggleLedgerEntrySelection(rowKey)}
-                           className="cursor-pointer"
-                          />
-                         </td>
                          {/* actions */}
                          <td className="px-2 py-3 align-top w-10">
                           {isEditingRow ? (
@@ -1508,6 +1499,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             </button>
                            </div>
                           )}
+                         </td>
+                         {/* checkbox */}
+                         <td className="px-2 py-3 align-middle w-8">
+                          <input
+                           type="checkbox"
+                           checked={selectedLedgerEntryKeys.has(rowKey)}
+                           onChange={() => onToggleLedgerEntrySelection(rowKey)}
+                           className="cursor-pointer"
+                          />
                          </td>
                          {orderedLedgerColumnOptions.map((column) => {
                           if (!ledgerColumnVisibility[column.key]) {
