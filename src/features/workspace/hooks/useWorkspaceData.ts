@@ -56,7 +56,13 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
    ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[], Reconciliation[], BackupInfo];
 
    let currencies = currencyRows;
-   if (!currencies.length) {
+   // Seed (or repair) the currency catalog when it's empty or clearly under-seeded. A
+   // fully-seeded catalog is the whole ISO list (160+) plus extras like USDT; anything at
+   // or below a handful of rows means it never got seeded — historically a fresh workspace
+   // could end up with ONLY USDT pre-seeded, which a plain `!length` check wouldn't catch,
+   // leaving the user with a one-currency list. Reseed is idempotent (ON CONFLICT) and
+   // preserves any enabled/main flags, so repairing an existing workspace is safe.
+   if (currencies.length <= 1) {
     await accountingApi.reseedCurrencies();
     currencies = (await accountingApi.listCurrencies()) as Currency[];
    }
