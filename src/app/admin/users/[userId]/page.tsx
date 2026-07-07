@@ -52,12 +52,20 @@ function formatDateTime(iso: string | null) {
 }
 
 function getSubscriptionState(endsAt: string | null) {
- if (!endsAt) return { label: 'No subscription', tone: 'none' as const };
+ if (!endsAt) return { label: 'No subscription', tone: 'none' as const, daysLeft: null as number | null };
  const daysLeft = Math.ceil((new Date(endsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
- if (daysLeft <= 0) return { label: 'Expired', tone: 'expired' as const };
- if (daysLeft <= 7) return { label: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, tone: 'soon' as const };
- return { label: `${daysLeft} days left`, tone: 'active' as const };
+ if (daysLeft <= 0) return { label: 'Expired', tone: 'expired' as const, daysLeft };
+ if (daysLeft <= 7) return { label: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, tone: 'soon' as const, daysLeft };
+ return { label: `${daysLeft} days left`, tone: 'active' as const, daysLeft };
 }
+
+// Mirrors the paid-plan durations in src/config/plan.ts, so an admin's manual "renew"
+// grants exactly what a real monthly/6-month/annual purchase would.
+const RENEW_QUICK_OPTIONS = [
+ { label: '+30 days', days: 30 },
+ { label: '+6 months', days: 180 },
+ { label: '+1 year', days: 365 },
+];
 
 function getInitials(name: string) {
  return name
@@ -102,6 +110,71 @@ export default function AdminUserDetailPage() {
  const [data, setData] = useState<DetailResponse | null>(null);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
+
+ // Subscription quick-edit: manual "days remaining" override, plus the +30/+6mo/+1yr
+ // renew shortcuts. Both hit the same admin endpoint the main panel's per-row
+ // Renew/Set days buttons use; success patches `data` locally instead of a full reload.
+ const [daysInput, setDaysInput] = useState('');
+ const [subMutating, setSubMutating] = useState(false);
+ const [subError, setSubError] = useState('');
+
+ useEffect(() => {
+  const daysLeft = data ? getSubscriptionState(data.user.subscriptionEndsAt).daysLeft : null;
+  setDaysInput(daysLeft != null && daysLeft > 0 ? String(daysLeft) : '0');
+ }, [data]);
+
+ const applySubscriptionResult = (endsAt: string) => {
+  setData((prev) => (prev ? { ...prev, user: { ...prev.user, status: 'approved', subscriptionEndsAt: endsAt } } : prev));
+ };
+
+ const onSetDays = async () => {
+  const parsed = Number(daysInput.trim());
+  if (!Number.isFinite(parsed) || parsed < 0) {
+   setSubError('Enter a non-negative number of days.');
+   return;
+  }
+  setSubMutating(true);
+  setSubError('');
+  try {
+   const res = await fetch('/api/admin/access-requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, action: 'setDays', days: parsed }),
+   });
+   const result = (await res.json()) as { ok?: boolean; subscriptionEndsAt?: string; error?: string };
+   if (!res.ok || !result.ok || !result.subscriptionEndsAt) {
+    setSubError(result.error || 'Failed to update subscription.');
+    return;
+   }
+   applySubscriptionResult(result.subscriptionEndsAt);
+  } catch {
+   setSubError('Failed to update subscription.');
+  } finally {
+   setSubMutating(false);
+  }
+ };
+
+ const onRenew = async (durationDays: number) => {
+  setSubMutating(true);
+  setSubError('');
+  try {
+   const res = await fetch('/api/admin/access-requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, action: 'renew', durationDays }),
+   });
+   const result = (await res.json()) as { ok?: boolean; subscriptionEndsAt?: string; error?: string };
+   if (!res.ok || !result.ok || !result.subscriptionEndsAt) {
+    setSubError(result.error || 'Failed to renew subscription.');
+    return;
+   }
+   applySubscriptionResult(result.subscriptionEndsAt);
+  } catch {
+   setSubError('Failed to renew subscription.');
+  } finally {
+   setSubMutating(false);
+  }
+ };
 
  useEffect(() => {
   if (sessionStatus === 'unauthenticated') {
@@ -237,6 +310,52 @@ export default function AdminUserDetailPage() {
        {user.subscriptionStartedAt ? ` · Subscription started ${formatDate(user.subscriptionStartedAt)}` : ''}
        {user.subscriptionEndsAt ? ` · Ends ${formatDate(user.subscriptionEndsAt)}` : ''}
       </p>
+     </div>
+    </div>
+
+    {/* Subscription management */}
+    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+     <h3 className="text-sm font-semibold text-gray-700 mb-4">Subscription</h3>
+     {subError && <p className="mb-3 text-sm text-red-600">{subError}</p>}
+     <div className="flex flex-wrap items-end gap-6">
+      <div>
+       <label className="block text-xs font-medium text-gray-500 mb-1">Days remaining</label>
+       <div className="flex items-center gap-2">
+        <input
+         type="number"
+         min={0}
+         value={daysInput}
+         onChange={(e) => setDaysInput(e.target.value)}
+         disabled={subMutating}
+         className="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+        />
+        <button
+         onClick={() => void onSetDays()}
+         disabled={subMutating}
+         className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
+        >
+         Save
+        </button>
+       </div>
+       <p className="mt-1 text-xs text-gray-400">Replaces the current expiry date exactly.</p>
+      </div>
+      <div>
+       <label className="block text-xs font-medium text-gray-500 mb-1">Quick renew</label>
+       <div className="flex items-center gap-2">
+        {RENEW_QUICK_OPTIONS.map((opt) => (
+         <button
+          key={opt.days}
+          onClick={() => void onRenew(opt.days)}
+          disabled={subMutating}
+          title={sub.tone === 'expired' || sub.tone === 'none' ? `Start a fresh ${opt.label} subscription from today` : `Add ${opt.label} on top of the current expiry date`}
+          className="text-xs px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 font-medium hover:bg-blue-50 disabled:opacity-50"
+         >
+          {opt.label}
+         </button>
+        ))}
+       </div>
+       <p className="mt-1 text-xs text-gray-400">Adds on top of the current expiry (or starts from today if expired).</p>
+      </div>
      </div>
     </div>
 

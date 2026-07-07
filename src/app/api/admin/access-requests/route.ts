@@ -29,22 +29,24 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
- const { id, userId, action, note, days } = (await request.json()) as {
+ const { id, userId, action, note, days, durationDays } = (await request.json()) as {
   id?: string;
   userId?: string;
   action?: 'approve' | 'reject' | 'renew' | 'setDays';
   note?: string;
   days?: number;
+  durationDays?: number;
  };
 
  try {
-  // Renew/extend an existing user's subscription by one period (duration taken
-  // from the user's most recent paid request).
+  // Renew/extend an existing user's subscription by one period — an explicit
+  // durationDays (e.g. the user-detail page's 30/183/365-day quick buttons) overrides
+  // the default of "whatever the user's most recent paid request was for".
   if (action === 'renew') {
    if (!userId) {
     return NextResponse.json({ error: 'userId is required to renew.' }, { status: 400 });
    }
-   const result = await authDb.renewSubscription({ userId });
+   const result = await authDb.renewSubscription({ userId, durationDays });
    try {
     if (result.email) {
      await sendAccessApprovedEmail({
