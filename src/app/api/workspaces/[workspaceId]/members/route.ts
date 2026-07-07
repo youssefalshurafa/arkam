@@ -38,7 +38,13 @@ type AddMemberBody = {
  role?: 'admin' | 'member' | 'viewer';
 };
 
-// Invite a teammate (or add an existing user) to the workspace.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Invite a teammate (or add an existing user) to the workspace. `email` may be a
+// plain username instead of a real address — some workspace members have no email
+// (mirrors the super-admin no-email user creation flow). We only ever attempt to
+// send mail when the identifier is actually email-shaped; otherwise the admin has
+// to hand the identifier to the person directly and point them at /set-password.
 export async function POST(request: NextRequest, context: Context) {
  const session = await getServerSession(authOptions);
  const userId = session?.user?.id;
@@ -59,9 +65,9 @@ export async function POST(request: NextRequest, context: Context) {
    invitedByUserId: userId,
   });
 
-  // New teammate, or an existing user added to this workspace → email them a
-  // set-password link so they know they now have access (best-effort).
-  if ((result.status === 'invited' || result.status === 'added') && result.rawToken) {
+  let emailSent = false;
+
+  if ((result.status === 'invited' || result.status === 'added') && result.rawToken && EMAIL_PATTERN.test(result.email)) {
    try {
     const workspaces = await authDb.listUserWorkspaces(userId);
     const workspaceName = workspaces.find((w: { id: string; name: string }) => w.id === workspaceId)?.name || '';
@@ -72,12 +78,13 @@ export async function POST(request: NextRequest, context: Context) {
      workspaceName,
      inviteUrl: `${request.nextUrl.origin}/reset-password/${result.rawToken}`,
     });
+    emailSent = true;
    } catch (mailError) {
     console.error('[workspaces/members] Invite email failed:', mailError);
    }
   }
 
-  return NextResponse.json({ ok: true, status: result.status });
+  return NextResponse.json({ ok: true, status: result.status, emailSent });
  } catch (error) {
   const message = error instanceof Error ? error.message : 'Failed to add member.';
   return NextResponse.json({ error: message }, { status: 400 });

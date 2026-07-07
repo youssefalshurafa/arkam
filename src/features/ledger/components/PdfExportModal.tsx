@@ -20,7 +20,9 @@ type PdfExportModalProps = {
 export default function PdfExportModal({ selectedClientLedgers, selectedClientForLedger, pdfAllColumns, onExportLedgerPdf, onExportLedgerExcel }: PdfExportModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
- const numLocale = language === 'fr' ? 'fr-FR' : language;
+ // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
+ // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
+ const numLocale = language === 'fr' ? 'en-US' : language;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
  const pdfExportModal = useLedgerStore((s) => s.pdfExportModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);

@@ -22,7 +22,9 @@ type AdjustmentModalProps = {
 export default function AdjustmentModal({ selectedClientLedgers, selectedClientForLedger, localizedCurrencies, clientAccounts, currencyMap, enabledCurrencies, adjustments, onSubmitAdjustment, onDeleteAdjustment }: AdjustmentModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
- const numLocale = language === 'fr' ? 'fr-FR' : language;
+ // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
+ // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
+ const numLocale = language === 'fr' ? 'en-US' : language;
  const adjustmentModal = useLedgerStore((s) => s.adjustmentModal);
  const ledgerDecimals = useLedgerStore((s) => s.ledgerDecimals);
  const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);

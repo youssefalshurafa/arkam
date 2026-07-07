@@ -33,7 +33,9 @@ export default function ClientsReadOnly({
 }: ClientsReadOnlyProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
- const numLocale = language === 'fr' ? 'fr-FR' : language;
+ // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
+ // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
+ const numLocale = language === 'fr' ? 'en-US' : language;
  const { clientSearch, setClientSearch, clientsGroupByOrg, setClientsGroupByOrg, draggedOrgKey, setDraggedOrgKey, dragOverOrgKey, setDragOverOrgKey } = useClientsStore();
 
  return (

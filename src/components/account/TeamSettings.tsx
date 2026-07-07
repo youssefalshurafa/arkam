@@ -113,7 +113,11 @@ export default function TeamSettings() {
   setInviting(true);
   try {
    const res = await accountingApi.inviteWorkspaceMember({ workspaceId, name: inviteName, email: inviteEmail, role: inviteRole });
-   setNotice(res.status === 'invited' ? t('team_invite_sent') : t('team_member_added'));
+   if (!res.emailSent) {
+    setNotice(t('team_invite_no_email_notice'));
+   } else {
+    setNotice(res.status === 'invited' ? t('team_invite_sent') : t('team_member_added'));
+   }
    setInviteName('');
    setInviteEmail('');
    setInviteRole('member');
@@ -305,7 +309,7 @@ export default function TeamSettings() {
        className="rounded border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
       />
       <input
-       type="email"
+       type="text"
        value={inviteEmail}
        onChange={(e) => setInviteEmail(e.target.value)}
        placeholder={t('team_email')}
