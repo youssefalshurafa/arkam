@@ -136,9 +136,13 @@ function UserRow({
  setExpandedUser: React.Dispatch<React.SetStateAction<string | null>>;
  setPendingDelete: (user: AdminUser) => void;
 }) {
+ const router = useRouter();
  return (
   <React.Fragment key={user.id}>
-   <tr className={`hover:bg-gray-50 transition-colors ${nested ? 'bg-gray-50/50' : ''}`}>
+   <tr
+    onClick={() => router.push(`/admin/users/${user.id}`)}
+    className={`cursor-pointer hover:bg-gray-50 transition-colors ${nested ? 'bg-gray-50/50' : ''}`}
+   >
     <td className="px-4 py-3">
      <div className={`flex items-center gap-3 ${nested ? 'pl-8' : ''}`}>
       {nested && <span className="text-gray-300">↳</span>}
@@ -165,7 +169,10 @@ function UserRow({
     <td className="px-4 py-3 text-center">
      {user.workspaceCount > 0 ? (
       <button
-       onClick={() => setExpandedUser((prev) => (prev === user.id ? null : user.id))}
+       onClick={(e) => {
+        e.stopPropagation();
+        setExpandedUser((prev) => (prev === user.id ? null : user.id));
+       }}
        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
       >
        {user.workspaceCount}
@@ -192,7 +199,10 @@ function UserRow({
     </td>
     <td className="px-4 py-3 text-right">
      <button
-      onClick={() => setPendingDelete(user)}
+      onClick={(e) => {
+       e.stopPropagation();
+       setPendingDelete(user);
+      }}
       className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
      >
       Delete
