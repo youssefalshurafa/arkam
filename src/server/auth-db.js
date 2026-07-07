@@ -1195,6 +1195,49 @@ async function listAllUsers() {
     return result.rows;
 }
 
+// Single-user version of listAllUsers, plus subscription info — powers the super admin's
+// per-user detail page (GET /api/admin/users/[userId]). Workspace usage stats (transaction/
+// client counts) are fetched separately per workspace schema by the route, not here.
+async function getUserDetailForAdmin(userId) {
+    await ensurePublicSchema();
+
+    const user = await fetchOne(
+        `SELECT
+            u.id,
+            u.email,
+            u.name,
+            u.image,
+            CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' ELSE 'oauth' END AS "authProvider",
+            u.created_at AS "createdAt",
+            u.status,
+            u.subscription_started_at AS "subscriptionStartedAt",
+            u.subscription_ends_at AS "subscriptionEndsAt"
+         FROM users u
+         WHERE u.id = $1`,
+        [userId],
+    );
+    if (!user) {
+        return null;
+    }
+
+    const workspaces = await runQuery(
+        `SELECT
+            w.id,
+            w.name,
+            w.slug,
+            wm.role,
+            (w.owner_user_id = $1) AS "isOwner",
+            w.created_at AS "createdAt"
+         FROM workspace_members wm
+         JOIN workspaces w ON w.id = wm.workspace_id
+         WHERE wm.user_id = $1
+         ORDER BY w.created_at ASC`,
+        [userId],
+    );
+
+    return { ...user, workspaces: workspaces.rows };
+}
+
 async function deleteUser(userId) {
     await ensurePublicSchema();
 
@@ -1238,6 +1281,7 @@ module.exports = {
     validatePasswordResetToken,
     resetPasswordWithToken,
     listAllUsers,
+    getUserDetailForAdmin,
     deleteUser,
     createUserBySuperAdmin,
     setInitialPassword,

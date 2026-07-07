@@ -32,6 +32,32 @@ async function countWorkspaceTransactions(app) {
     return result.rows[0]?.count || 0;
 }
 
+// Usage snapshot for a workspace — shown on the super admin's per-user detail page to
+// track how actively each account is being used (organizations/clients/transactions
+// created, and when they last recorded a transaction).
+async function getWorkspaceStats(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`
+        SELECT
+            (SELECT COUNT(*) FROM ${schema}.organizations)::int AS "organizationCount",
+            (SELECT COUNT(*) FROM ${schema}.clients)::int AS "clientCount",
+            (SELECT COUNT(*) FROM ${schema}.client_accounts)::int AS "accountCount",
+            (SELECT COUNT(*) FROM ${schema}.transactions)::int AS "transactionCount",
+            (SELECT COUNT(*) FROM ${schema}.client_adjustments)::int AS "adjustmentCount",
+            (SELECT MAX(created_at) FROM ${schema}.transactions) AS "lastTransactionAt"
+    `);
+    return (
+        result.rows[0] || {
+            organizationCount: 0,
+            clientCount: 0,
+            accountCount: 0,
+            transactionCount: 0,
+            adjustmentCount: 0,
+            lastTransactionAt: null,
+        }
+    );
+}
+
 function getSupportedCurrencyCodes() {
     if (typeof Intl.supportedValuesOf === 'function') {
         return Intl.supportedValuesOf('currency');
@@ -1194,6 +1220,7 @@ module.exports = {
     getDbInfo,
     setDbDirectory,
     countWorkspaceTransactions,
+    getWorkspaceStats,
     listOrganizations,
     createOrganization,
     updateOrganization,

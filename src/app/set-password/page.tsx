@@ -7,6 +7,74 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import SiteLayout from '@/components/marketing/SiteLayout';
 
+// Matches the eye/eye-off icon on the login page's password field.
+function PasswordVisibilityToggle({ shown, onToggle }: { shown: boolean; onToggle: () => void }) {
+ return (
+  <button
+   type="button"
+   onClick={onToggle}
+   aria-label={shown ? 'Hide password' : 'Show password'}
+   className="absolute inset-y-0 right-0 inline-flex w-9 items-center justify-center text-gray-400 transition hover:text-gray-600"
+  >
+   {shown ? (
+    <svg
+     xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     strokeWidth="2"
+     width="16"
+     height="16"
+     aria-hidden="true"
+    >
+     <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M3 3l18 18"
+     />
+     <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M10.58 10.58a2 2 0 102.83 2.83"
+     />
+     <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M9.88 5.09A9.77 9.77 0 0112 4.88c4.36 0 8.06 2.69 9.44 6.5a9.73 9.73 0 01-4.02 5.01"
+     />
+     <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M6.61 6.61A9.75 9.75 0 002.56 11.38 10.75 10.75 0 006.5 16.2"
+     />
+    </svg>
+   ) : (
+    <svg
+     xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 24 24"
+     fill="none"
+     stroke="currentColor"
+     strokeWidth="2"
+     width="16"
+     height="16"
+     aria-hidden="true"
+    >
+     <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M2.56 11.38C3.94 7.57 7.64 4.88 12 4.88s8.06 2.69 9.44 6.5c-1.38 3.81-5.08 6.5-9.44 6.5s-8.06-2.69-9.44-6.5z"
+     />
+     <circle
+      cx="12"
+      cy="11.38"
+      r="3"
+     />
+    </svg>
+   )}
+  </button>
+ );
+}
+
 export default function SetInitialPasswordPage() {
  const router = useRouter();
  const { language } = useLanguage();
@@ -14,6 +82,8 @@ export default function SetInitialPasswordPage() {
  const [email, setEmail] = useState('');
  const [password, setPassword] = useState('');
  const [confirmPassword, setConfirmPassword] = useState('');
+ const [showPassword, setShowPassword] = useState(false);
+ const [showConfirmPassword, setShowConfirmPassword] = useState(false);
  const [error, setError] = useState('');
  const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -95,27 +165,39 @@ export default function SetInitialPasswordPage() {
         </div>
         <div>
          <label className="mb-1 block text-xs font-semibold text-gray-600">{t('set_password_new_label')}</label>
-         <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder={t('set_password_new_label')}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          minLength={8}
-          required
-         />
+         <div className="relative">
+          <input
+           type={showPassword ? 'text' : 'password'}
+           value={password}
+           onChange={(event) => setPassword(event.target.value)}
+           placeholder={t('set_password_new_label')}
+           className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           minLength={8}
+           required
+          />
+          <PasswordVisibilityToggle
+           shown={showPassword}
+           onToggle={() => setShowPassword((current) => !current)}
+          />
+         </div>
         </div>
         <div>
          <label className="mb-1 block text-xs font-semibold text-gray-600">{t('set_password_confirm_label')}</label>
-         <input
-          type="password"
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          placeholder={t('set_password_confirm_label')}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          minLength={8}
-          required
-         />
+         <div className="relative">
+          <input
+           type={showConfirmPassword ? 'text' : 'password'}
+           value={confirmPassword}
+           onChange={(event) => setConfirmPassword(event.target.value)}
+           placeholder={t('set_password_confirm_label')}
+           className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           minLength={8}
+           required
+          />
+          <PasswordVisibilityToggle
+           shown={showConfirmPassword}
+           onToggle={() => setShowConfirmPassword((current) => !current)}
+          />
+         </div>
         </div>
 
         {error ? <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
