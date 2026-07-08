@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
-import { isSuperAdmin } from '@/server/permissions';
+import { isSuperAdmin, isAdminPanelUnlocked } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -17,10 +17,10 @@ type Context = {
 // Per-user detail page for the super admin: profile/subscription info plus usage stats
 // (organizations/clients/transactions) pulled from each of the user's workspace schemas,
 // so growth (how much the app is actually being used) is visible per account.
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: NextRequest, context: Context) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email)) {
+ if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
@@ -53,9 +53,15 @@ export async function GET(_request: Request, context: Context) {
   { organizationCount: 0, clientCount: 0, accountCount: 0, transactionCount: 0, adjustmentCount: 0, lastTransactionAt: null as string | null },
  );
 
+ // Surface a pending renewal/signup request right on this page, so the admin doesn't
+ // have to cross-reference the separate Access Requests tab to know one exists.
+ const accessRequests = await authDb.listAccessRequests({ userId, status: 'pending' });
+ const pendingAccessRequest = accessRequests[0] || null;
+
  return NextResponse.json({
   user: { ...user, workspaces: undefined },
   workspaces: workspacesWithStats,
   totals,
+  pendingAccessRequest,
  });
 }

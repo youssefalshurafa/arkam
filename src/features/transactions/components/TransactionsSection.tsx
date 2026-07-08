@@ -126,6 +126,7 @@ type TransactionsSectionProps = {
  onCopySelectedTransaction: (e: React.MouseEvent) => void;
  onDeleteSelectedTransactions: () => void;
  onDeleteTransactionTableRow: (row: TransactionTableRow) => void;
+ onDuplicateTransactionRow: (row: TransactionTableRow) => void;
  onEditAllTransactions: () => void;
  onExportArchivePdf: () => void;
  onImportTransactionsFile: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -154,7 +155,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
   txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopySelectedTransaction, onDeleteSelectedTransactions,
-  onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, onImportTransactionsFile, onPasteCopiedTransaction,
+  onDeleteTransactionTableRow, onDuplicateTransactionRow, onEditAllTransactions, onExportArchivePdf, onImportTransactionsFile, onPasteCopiedTransaction,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
   setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry,
@@ -195,6 +196,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   setContextMenuRowId(txn.id);
   rowContextMenu.open(event, [
    { key: 'edit', label: t('edit'), onSelect: () => setEditingRowIds((prev) => new Set([...prev, txn.id])) },
+   { key: 'duplicate', label: t('duplicate'), onSelect: () => void onDuplicateTransactionRow(txn) },
    { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const },
   ]);
  };
@@ -422,7 +424,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'debit' }))}
                 className={`rounded border px-3 py-2 text-sm font-semibold transition ${
                  transactionForm.adjustmentDirection === 'debit'
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  ? 'border-red-500 bg-red-50 text-red-700'
                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                 }`}
                >
@@ -432,7 +434,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 type="button"
                 onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'credit' }))}
                 className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                 transactionForm.adjustmentDirection === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                 transactionForm.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                 }`}
                >
                 {t('adjustment_direction_credit')}
@@ -1691,15 +1693,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </colgroup>
             <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
              <tr>
-              <th className="w-px whitespace-nowrap px-2 py-3">
-               <input
-                type="checkbox"
-                checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
-                onChange={onToggleSelectAllTransactions}
-                aria-label="Select all"
-                className="h-4 w-4 cursor-pointer rounded border-slate-300"
-               />
-              </th>
               <th className="w-px whitespace-nowrap px-1 py-3">
                {isEditAllTransactions ? (
                 <div className="flex flex-col items-center gap-1">
@@ -1778,6 +1771,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  </svg>
                 </button>
                )}
+              </th>
+              <th className="w-px whitespace-nowrap px-2 py-3">
+               <input
+                type="checkbox"
+                checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
+                onChange={onToggleSelectAllTransactions}
+                aria-label="Select all"
+                className="h-4 w-4 cursor-pointer rounded border-slate-300"
+               />
               </th>
               {transactionTableSettings.columns.created ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
@@ -1884,15 +1886,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
                 return (
                  <>
-                  <td className="w-px whitespace-nowrap px-2 py-3 align-middle">
-                   <input
-                    type="checkbox"
-                    checked={selectedTransactionIds.has(txn.id)}
-                    onChange={() => onToggleTransactionSelection(txn.id)}
-                    aria-label={`Select transaction ${txn.id}`}
-                    className="h-4 w-4 cursor-pointer rounded border-slate-300"
-                   />
-                  </td>
                   <td className="w-px whitespace-nowrap px-1 py-3 align-top">
                    {isEditingRow ? (
                     <div className="flex flex-col items-center gap-1">
@@ -2120,6 +2113,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     </div>
                    )}
                   </td>
+                  <td className="w-px whitespace-nowrap px-2 py-3 align-middle">
+                   <input
+                    type="checkbox"
+                    checked={selectedTransactionIds.has(txn.id)}
+                    onChange={() => onToggleTransactionSelection(txn.id)}
+                    aria-label={`Select transaction ${txn.id}`}
+                    className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                   />
+                  </td>
                   {transactionTableSettings.columns.created ? (
                    <td className="px-4 py-3 text-slate-500">
                     {isEditingRow && draft ? (
@@ -2289,7 +2291,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        type="button"
                        onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'debit' })}
                        className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                        draft.adjustmentDirection === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                        draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                        }`}
                       >
                        {t('adjustment_direction_debit_short')}
@@ -2298,7 +2300,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        type="button"
                        onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'credit' })}
                        className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                        draft.adjustmentDirection === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                        draft.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                        }`}
                       >
                        {t('adjustment_direction_credit_short')}

@@ -5,7 +5,7 @@ const ZOOM_STEP = 0.1;
 // Spreadsheet-style zoom control for the wide ledger / transactions tables. Lets the
 // user shrink the table (via CSS `zoom`) so every column fits on a narrow screen, then
 // zoom back in to read or edit a cell. Purely presentational — state lives in the caller.
-export function TableZoomControl({ zoom, onZoomChange }: { zoom: number; onZoomChange: (z: number) => void }) {
+export function TableZoomControl({ zoom, onZoomChange, className = 'mt-3' }: { zoom: number; onZoomChange: (z: number) => void; className?: string }) {
  const clamp = (z: number) => Math.min(maxTableZoom, Math.max(minTableZoom, Math.round(z * 100) / 100));
  const atMin = zoom <= minTableZoom + 1e-9;
  const atMax = zoom >= maxTableZoom - 1e-9;
@@ -13,7 +13,7 @@ export function TableZoomControl({ zoom, onZoomChange }: { zoom: number; onZoomC
   'rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
 
  return (
-  <div className="mt-3 flex items-center justify-end gap-1 whitespace-nowrap">
+  <div className={`flex items-center justify-end gap-1 whitespace-nowrap ${className}`}>
    <button
     type="button"
     aria-label="Zoom out"

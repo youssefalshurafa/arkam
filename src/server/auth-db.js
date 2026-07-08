@@ -761,15 +761,20 @@ async function consumeEmailVerificationAndCreatePendingUser({
 
 // Lists access requests joined with the requester's user info. Never selects the
 // (potentially large) proof_data blob — that's fetched separately on demand.
-async function listAccessRequests({ status } = {}) {
+async function listAccessRequests({ status, userId } = {}) {
     await ensurePublicSchema();
 
+    const conditions = [];
     const params = [];
-    let where = '';
     if (status) {
         params.push(status);
-        where = 'WHERE ar.status = $1';
+        conditions.push(`ar.status = $${params.length}`);
     }
+    if (userId) {
+        params.push(userId);
+        conditions.push(`ar.user_id = $${params.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const result = await runQuery(
         `SELECT

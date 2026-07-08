@@ -112,7 +112,7 @@ import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml, generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
-import { computeClientLedgers, computeLedgerSelectionSummary, computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
+import { computeClientLedgers, computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
@@ -421,6 +421,7 @@ function AuthenticatedHome() {
  const setTableRateToReversed = useTransactionsStore((s) => s.setTableRateToReversed);
  const error = useAppStatusStore((s) => s.error);
  const setError = useAppStatusStore((s) => s.setError);
+ const showUndo = useAppStatusStore((s) => s.showUndo);
  const [importSummary, setImportSummary] = useState('');
  const setIsImportingTransactions = useTransactionsStore((s) => s.setIsImportingTransactions);
  const pendingImportData = useTransactionsStore((s) => s.pendingImportData);
@@ -1826,9 +1827,9 @@ function AuthenticatedHome() {
    const entry = ledger?.entries.find((e) => e.transactionId === txId);
    if (!entry) continue;
    if (entry.isAdjustment && entry.adjustmentId) {
-    await onDeleteAdjustment(entry.adjustmentId);
+    await onDeleteAdjustment(entry.adjustmentId, { offerUndo: false });
    } else {
-    await onDeleteTransaction(entry.transactionId);
+    await onDeleteTransaction(entry.transactionId, { offerUndo: false });
    }
   }
   setSelectedLedgerEntryKeys(new Set());
@@ -3136,7 +3137,8 @@ function AuthenticatedHome() {
   }
  }
 
- async function onDeleteTransaction(id: number) {
+ async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {}) {
+  const { offerUndo = true } = opts;
   if (!accountingApi) {
    setError(t('error_bridge'));
    return;
@@ -3156,6 +3158,9 @@ function AuthenticatedHome() {
    });
    setError('');
    await loadData();
+   if (offerUndo && tx) {
+    showUndo(t('toast_transaction_deleted'), () => void onUndoDeleteTransaction(tx));
+   }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
   }
@@ -3255,7 +3260,8 @@ function AuthenticatedHome() {
   }
  }
 
- async function onDeleteAdjustment(id: number) {
+ async function onDeleteAdjustment(id: number, opts: { offerUndo?: boolean } = {}) {
+  const { offerUndo = true } = opts;
   if (!accountingApi) {
    setError(t('error_bridge'));
    return;
@@ -3270,9 +3276,83 @@ function AuthenticatedHome() {
    await accountingApi.deleteClientAdjustment(id);
    setError('');
    await loadData();
+   if (offerUndo && adj) {
+    showUndo(t('toast_expense_deleted'), () => void onUndoDeleteAdjustment(adj));
+   }
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_delete'));
   }
+ }
+
+ // Reverses a delete by recreating the row from its captured snapshot, on the exact
+ // same createdAt so it lands back in the same spot. New DB id (hard delete leaves
+ // nothing to restore by id); a reconciliation mark on the old id would not carry over.
+ async function onUndoDeleteTransaction(tx: Transaction) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+  try {
+   await accountingApi.createTransaction(buildTransactionCreatePayload(tx, tx.createdAt));
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ async function onUndoDeleteAdjustment(adj: ClientAdjustment) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+  try {
+   await accountingApi.createClientAdjustment({
+    accountId: adj.accountId,
+    amount: adj.amount,
+    direction: adj.direction,
+    currencyId: adj.currencyId,
+    currencyCode: adj.currencyCode,
+    currencySymbol: adj.currencySymbol,
+    exchangeRate: adj.exchangeRate,
+    exchangeRateReversed: !!adj.exchangeRateReversed,
+    description: adj.description,
+    createdAt: adj.createdAt,
+   });
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
+ }
+
+ // Shared field mapping from a stored transaction/table-row to a createTransaction
+ // payload (same shape createTransaction expects) — used by both duplicate and undo,
+ // which differ only in which createdAt they pass in.
+ function buildTransactionCreatePayload(tx: Transaction, createdAt: string) {
+  return {
+   accountFromId: tx.accountFromId,
+   accountToId: tx.accountToId,
+   currencyId: tx.currencyId,
+   amount: tx.amount,
+   type: tx.type,
+   isArchived: !!tx.isArchived,
+   exchangeRateFrom: tx.exchangeRateFrom,
+   commissionFrom: tx.commissionFrom,
+   exchangeRateTo: tx.exchangeRateTo,
+   commissionTo: tx.commissionTo,
+   exchangeRateFromReversed: tx.exchangeRateFromReversed,
+   exchangeRateToReversed: tx.exchangeRateToReversed,
+   charges: tx.charges,
+   chargesCurrencyId: tx.chargesCurrencyId,
+   chargesPayer: tx.chargesPayer,
+   chargesExchangeRate: tx.chargesExchangeRate,
+   chargesDescription: tx.chargesDescription,
+   description: tx.description,
+   descriptionFrom: tx.descriptionFrom,
+   descriptionTo: tx.descriptionTo,
+   createdAt,
+  };
  }
 
  // One-click zero-out for a small (negligible) account balance: creates a single
@@ -3393,6 +3473,46 @@ function AuthenticatedHome() {
   }
 
   await onDeleteTransaction(row.id);
+ }
+
+ // Creates an exact copy of a row (same accounts/amount/rates/charges/description) dated
+ // on the same day as the original, landing right after it in that day's sequence — same
+ // logic new rows always use (nextCreatedAtForDate), just seeded with the original's date
+ // instead of "today".
+ async function onDuplicateTransactionRow(row: TransactionTableRow) {
+  if (!accountingApi) {
+   setError(t('error_bridge'));
+   return;
+  }
+
+  const createdAt = nextCreatedAtForDate(row.createdAt.slice(0, 10));
+
+  try {
+   if (row.isAdjustment) {
+    const adjPayload = {
+     accountId: row.accountFromId as number,
+     amount: row.amount,
+     direction: row.adjustmentDirection ?? ('debit' as const),
+     currencyId: row.currencyId,
+     currencyCode: row.currencyCode,
+     currencySymbol: row.currencySymbol,
+     exchangeRate: row.exchangeRateFrom,
+     exchangeRateReversed: !!row.exchangeRateFromReversed,
+     description: row.description,
+     createdAt,
+    };
+    if (!(await confirmIfLocked([adjPayload.accountId], adjPayload.createdAt, NEW_ROW_REF_ID))) return;
+    await accountingApi.createClientAdjustment(adjPayload);
+   } else {
+    const txPayload = buildTransactionCreatePayload(row, createdAt);
+    if (!row.isArchived && !(await confirmIfLocked([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID))) return;
+    await accountingApi.createTransaction(txPayload);
+   }
+   setError('');
+   await loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  }
  }
 
  function onToggleTransactionSelection(transactionId: number) {
@@ -4558,13 +4678,6 @@ function AuthenticatedHome() {
   [adjustments, reconciliations, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
  );
 
- // Totals for the rows the user has checkbox-selected in the ledger, shown next to the
- // "Delete (N)" action: sum of the entry amounts and sum of their net change.
- const selectedLedgerSummary = useMemo(
-  () => computeLedgerSelectionSummary({ selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId }),
-  [selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId],
- );
-
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
    return '';
@@ -5328,7 +5441,6 @@ function AuthenticatedHome() {
          setSelectedLedgerAccountId={setSelectedLedgerAccountId}
          selectedOrganizationForClients={selectedOrganizationForClients}
          selectedClientLedgers={selectedClientLedgers}
-         selectedLedgerSummary={selectedLedgerSummary}
          orderedLedgerColumnOptions={orderedLedgerColumnOptions}
          ledgerHistory={ledgerHistory}
          getClientLedgerDraft={getClientLedgerDraft}
@@ -5418,6 +5530,7 @@ function AuthenticatedHome() {
          onCopySelectedTransaction={onCopySelectedTransaction}
          onDeleteSelectedTransactions={onDeleteSelectedTransactions}
          onDeleteTransactionTableRow={onDeleteTransactionTableRow}
+         onDuplicateTransactionRow={onDuplicateTransactionRow}
          onEditAllTransactions={onEditAllTransactions}
          onExportArchivePdf={onExportArchivePdf}
          onImportTransactionsFile={onImportTransactionsFile}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
-import { isSuperAdmin } from '@/server/permissions';
+import { isSuperAdmin, isAdminPanelUnlocked } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -10,10 +10,10 @@ const { dropWorkspaceSchema } = require('@/server/postgres');
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email)) {
+ if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
@@ -34,7 +34,7 @@ type CreateUserBody = {
 export async function POST(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email)) {
+ if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email)) {
+ if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 

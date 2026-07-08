@@ -15,6 +15,8 @@ type ToastPosition = { x: number; y: number } | null;
 // Structural subset of MouseEvent so callers can pass a React or DOM mouse event.
 type PointerLike = { clientX: number; clientY: number };
 
+type UndoOffer = { message: string; onUndo: () => void } | null;
+
 type AppStatusStore = {
  error: string;
  setError: (message: string) => void;
@@ -25,9 +27,17 @@ type AppStatusStore = {
   * the click; omit for the default bottom-center position.
   */
  showToast: (message: string, event?: PointerLike) => void;
+ undo: UndoOffer;
+ /**
+  * Offer a ~6s undo window after a destructive action (e.g. a delete). Replaces
+  * any pending offer — only the most recent destructive action is undoable.
+  */
+ showUndo: (message: string, onUndo: () => void) => void;
+ clearUndo: () => void;
 };
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let undoTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useAppStatusStore = create<AppStatusStore>((set) => ({
  error: '',
@@ -38,5 +48,15 @@ export const useAppStatusStore = create<AppStatusStore>((set) => ({
   set({ toast: message, toastPos: event ? { x: event.clientX, y: event.clientY } : null });
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => set({ toast: '' }), 1000);
+ },
+ undo: null,
+ showUndo: (message, onUndo) => {
+  set({ undo: { message, onUndo } });
+  if (undoTimer) clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => set({ undo: null }), 6000);
+ },
+ clearUndo: () => {
+  if (undoTimer) clearTimeout(undoTimer);
+  set({ undo: null });
  },
 }));

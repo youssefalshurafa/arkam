@@ -87,7 +87,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
               type="button"
               onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'debit' } : prev))}
               className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-               adjustmentModal.direction === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+               adjustmentModal.direction === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
               }`}
              >
               {t('adjustment_direction_debit')}
@@ -96,7 +96,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
               type="button"
               onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'credit' } : prev))}
               className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-               adjustmentModal.direction === 'credit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+               adjustmentModal.direction === 'credit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
               }`}
              >
               {t('adjustment_direction_credit')}
