@@ -191,6 +191,10 @@ export default function LoginPage() {
          placeholder={t('login_email')}
          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
          required
+         autoComplete="username"
+         autoCapitalize="none"
+         autoCorrect="off"
+         spellCheck={false}
         />
        </div>
 
@@ -205,6 +209,10 @@ export default function LoginPage() {
           className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           minLength={8}
           required
+          autoComplete="current-password"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
          />
          <button
           type="button"
