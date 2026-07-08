@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
-import { isSuperAdmin } from '@/server/permissions';
+import { isSuperAdmin, isAdminPanelUnlocked } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 
@@ -10,10 +10,10 @@ export const dynamic = 'force-dynamic';
 
 // Serves the raw payment screenshot bytes for one request. Super-admin only —
 // these images can contain sensitive financial data.
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email)) {
+ if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 

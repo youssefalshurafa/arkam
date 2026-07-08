@@ -266,6 +266,14 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
     ? t('account_status_none')
     : t('account_days_left', { days: subscriptionState.daysLeft ?? 0 });
 
+ // Tier names come from the server (config/plan.ts) as plain English; translate by id,
+ // falling back to the server's name if a tier has no matching translation key yet.
+ const tierLabel = (tier: { id: string; name: string }) => {
+  const key = `plan_tier_${tier.id}`;
+  const label = t(key);
+  return label === key ? tier.name : label;
+ };
+
  return (
   <section className="flex flex-col gap-6">
    {/* Subscription */}
@@ -324,7 +332,7 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
             selected ? 'border-blue-600 bg-white ring-1 ring-blue-600' : 'border-gray-300 bg-white hover:border-gray-400'
            }`}
           >
-           <span className="text-sm font-semibold text-gray-900">{tier.name}</span>
+           <span className="text-sm font-semibold text-gray-900">{tierLabel(tier)}</span>
            <span className="flex items-baseline gap-1.5">
             {tier.originalUsdt && <span className="text-xs text-gray-400 line-through">{tier.originalUsdt}</span>}
             <span className="text-sm font-bold text-gray-900">{tier.amount}</span>

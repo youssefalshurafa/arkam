@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
@@ -33,6 +33,18 @@ export type WorkspaceData = {
 };
 
 /**
+ * Same-browser cross-tab notification channel for a workspace snapshot. Named after
+ * the same (userId, workspaceId) pair as the query key so a mutation in one tab only
+ * pokes other tabs viewing the same user+workspace — never a different account or
+ * workspace sharing the browser. BroadcastChannel never delivers a tab's own posts
+ * back to itself, so the sender never re-triggers its own invalidate.
+ */
+function getWorkspaceSyncChannel(userId: string | null | undefined, workspaceId: string | null | undefined): BroadcastChannel | null {
+ if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return null;
+ return new BroadcastChannel(`arkam:workspace-sync:${userId ?? '__anon__'}:${workspaceId ?? '__none__'}`);
+}
+
+/**
  * Loads (and caches) the workspace snapshot. Ports loadData() verbatim: the same
  * parallel fetch, the empty-currency reseed fallback, and the sessionStorage
  * cache write. initialData seeds instantly from that cache so the first paint has
@@ -41,8 +53,22 @@ export type WorkspaceData = {
  * fresh fetch still runs on mount.
  */
 export function useWorkspaceData(userId: string | null | undefined, workspaceId: string | null | undefined) {
+ const queryClient = useQueryClient();
+ const queryKey = queryKeys.workspaceData(userId, workspaceId);
+
+ // Cross-tab live sync: another tab on the same user+workspace broadcasts here after
+ // its own mutations settle (see useWorkspaceCache below); refetch so this tab's view
+ // (e.g. a client's ledger) picks up changes made elsewhere without a manual reload.
+ useEffect(() => {
+  const channel = getWorkspaceSyncChannel(userId, workspaceId);
+  if (!channel) return;
+  channel.onmessage = () => queryClient.invalidateQueries({ queryKey });
+  return () => channel.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [queryClient, userId, workspaceId]);
+
  return useQuery<WorkspaceData>({
-  queryKey: queryKeys.workspaceData(userId, workspaceId),
+  queryKey,
   queryFn: async () => {
    const [organizations, clients, currencyRows, transactions, clientAccounts, adjustments, reconciliations, backup] = (await Promise.all([
     accountingApi.listOrganizations(),
@@ -109,11 +135,18 @@ export function useWorkspaceCache(userId: string | null | undefined, workspaceId
   [queryClient, userId, workspaceId],
  );
 
- const invalidate = useCallback(
-  () => queryClient.invalidateQueries({ queryKey }),
+ const invalidate = useCallback(() => {
+  const result = queryClient.invalidateQueries({ queryKey });
+  // Tell other same-browser tabs on this user+workspace to refetch too, so e.g. a
+  // client's ledger open in another tab picks up a transaction just added here.
+  const channel = getWorkspaceSyncChannel(userId, workspaceId);
+  if (channel) {
+   channel.postMessage('invalidate');
+   channel.close();
+  }
+  return result;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [queryClient, userId, workspaceId],
- );
+ }, [queryClient, userId, workspaceId]);
 
  /**
   * Stable `setState`-compatible setters, one per collection. Identity is memoized

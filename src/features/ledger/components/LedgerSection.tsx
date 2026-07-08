@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useRouter } from 'next/navigation';
@@ -35,14 +35,6 @@ import type {
  Section,
 } from '@/shared/types';
 
-type LedgerSelectionSummary = {
- count: number;
- amountSum: number;
- netChangeSum: number;
- amountCurrencyCode: string;
- netCurrencyCode: string;
-};
-
 type LedgerSectionProps = {
  isLoading: boolean;
  clients: Client[];
@@ -55,7 +47,6 @@ type LedgerSectionProps = {
  setSelectedLedgerAccountId: (id: number | null) => void;
  selectedOrganizationForClients: Organization | null;
  selectedClientLedgers: ClientAccountLedger[];
- selectedLedgerSummary: LedgerSelectionSummary | null;
  orderedLedgerColumnOptions: Array<{ key: LedgerColumnKey; label: string }>;
  ledgerHistory: DraftHistory;
  getClientLedgerDraft: (transactionId: number, ledgerAccountId: number) => LedgerTransactionDraft | null;
@@ -89,7 +80,7 @@ type LedgerSectionProps = {
 export default function LedgerSection(props: LedgerSectionProps) {
  const {
   isLoading, clients, clientAccounts, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
-  selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, selectedLedgerSummary,
+  selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onToggleLedgerEntrySelection,
@@ -105,6 +96,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const showToast = useAppStatusStore((s) => s.showToast);
  const setError = useAppStatusStore((s) => s.setError);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+
+ // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
+ // sit at the bottom of the scrollable table. Jump there on open (and whenever the
+ // selected client or currency account changes) so the latest activity is visible
+ // without the user having to scroll down manually.
+ const ledgerTableScrollRef = useRef<HTMLDivElement | null>(null);
+ useLayoutEffect(() => {
+  const el = ledgerTableScrollRef.current;
+  if (el) el.scrollTop = el.scrollHeight;
+ }, [selectedClientForLedger?.id, selectedLedgerAccountId]);
 
  // Right-click row actions (Edit/Reconcile/Write off/Delete) — replaces a cluster of
  // per-row icon buttons with a single context menu, decluttering the actions column.
@@ -326,24 +327,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
               >
                {t('delete')} ({selectedLedgerEntryKeys.size})
               </button>
-             ) : null}
-             {selectedLedgerSummary ? (
-              <>
-               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                <span className="font-medium text-slate-500">{t('amount')}</span>
-                <span className="font-semibold text-slate-800">
-                 {selectedLedgerSummary.amountSum.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                 {selectedLedgerSummary.amountCurrencyCode ? ` ${selectedLedgerSummary.amountCurrencyCode}` : ''}
-                </span>
-               </span>
-               <span className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                <span className="font-medium text-slate-500">{t('net_change')}</span>
-                <span className={`font-semibold ${selectedLedgerSummary.netChangeSum >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                 {selectedLedgerSummary.netChangeSum.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                 {selectedLedgerSummary.netCurrencyCode ? ` ${selectedLedgerSummary.netCurrencyCode}` : ''}
-                </span>
-               </span>
-              </>
              ) : null}
              <button
               type="button"
@@ -909,58 +892,65 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
                  return true;
                 }).length;
-                if (visibleCount === 0) return null;
                 const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
                 const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
-                if (totalLedgerPages <= 1) return null;
+                const showPager = visibleCount > 0 && totalLedgerPages > 1;
                 return (
                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-slate-600">
-                   {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                   {showPager
+                    ? `${(currentLedgerPage - 1) * ledgerPageSize + 1}–${Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} ${t('pagination_of')} ${visibleCount}`
+                    : null}
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                   <button
-                    type="button"
-                    onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
-                    disabled={currentLedgerPage <= 1}
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                   >
-                    {t('pagination_prev')}
-                   </button>
-                   <input
-                    key={currentLedgerPage}
-                    type="number"
-                    min={1}
-                    max={totalLedgerPages}
-                    defaultValue={currentLedgerPage}
-                    onBlur={(event) => {
-                     const n = parseInt(event.target.value, 10);
-                     if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
-                     else event.target.value = String(currentLedgerPage);
-                    }}
-                    onKeyDown={(event) => {
-                     if (event.key === 'Enter') event.currentTarget.blur();
-                    }}
-                    className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  <div className="flex flex-wrap items-center gap-2">
+                   {showPager && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                     <button
+                      type="button"
+                      onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
+                      disabled={currentLedgerPage <= 1}
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                     >
+                      {t('pagination_prev')}
+                     </button>
+                     <input
+                      key={currentLedgerPage}
+                      type="number"
+                      min={1}
+                      max={totalLedgerPages}
+                      defaultValue={currentLedgerPage}
+                      onBlur={(event) => {
+                       const n = parseInt(event.target.value, 10);
+                       if (n >= 1 && n <= totalLedgerPages) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: n }));
+                       else event.target.value = String(currentLedgerPage);
+                      }}
+                      onKeyDown={(event) => {
+                       if (event.key === 'Enter') event.currentTarget.blur();
+                      }}
+                      className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                     />
+                     <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
+                     <button
+                      type="button"
+                      onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
+                      disabled={currentLedgerPage >= totalLedgerPages}
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                     >
+                      {t('pagination_next')}
+                     </button>
+                    </div>
+                   )}
+                   <TableZoomControl
+                    zoom={tableZoom}
+                    onZoomChange={changeTableZoom}
+                    className=""
                    />
-                   <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
-                   <button
-                    type="button"
-                    onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
-                    disabled={currentLedgerPage >= totalLedgerPages}
-                    className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                   >
-                    {t('pagination_next')}
-                   </button>
                   </div>
                  </div>
                 );
                })()}
-               <TableZoomControl
-                zoom={tableZoom}
-                onZoomChange={changeTableZoom}
-               />
                <div
+                ref={ledgerTableScrollRef}
                 className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}
                 onKeyDown={(event) => {
                  if (event.key === 'Enter' && editAllLedgerAccountIds.has(ledger.accountId)) {
@@ -1540,7 +1530,33 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap"
                              >
-                              {entry.isAdjustment ? (
+                              {entry.isAdjustment && draft ? (
+                               // Mirrors the 'direction' column's edit toggle (kept there too for when that
+                               // optional column is shown) — repeated here because 'direction' defaults to
+                               // hidden, and this is the only always-visible cell for an adjustment row.
+                               <div className="grid grid-cols-2 gap-1">
+                                <button
+                                 type="button"
+                                 onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
+                                 className={`rounded border px-2 py-1 text-xs font-semibold transition ${
+                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                 }`}
+                                >
+                                 {t('adjustment_direction_debit_short')}
+                                </button>
+                                <button
+                                 type="button"
+                                 onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
+                                 className={`rounded border px-2 py-1 text-xs font-semibold transition ${
+                                  draft.adjustmentDirection === 'credit'
+                                   ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                 }`}
+                                >
+                                 {t('adjustment_direction_credit_short')}
+                                </button>
+                               </div>
+                              ) : entry.isAdjustment ? (
                                <span className="text-slate-400">-</span>
                               ) : draft ? (
                                (() => {
@@ -1760,7 +1776,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  type="button"
                                  onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
                                  className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                  draft.adjustmentDirection === 'debit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                                  }`}
                                 >
                                  {t('adjustment_direction_debit_short')}
@@ -1770,7 +1786,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
                                  className={`rounded border px-2 py-1 text-xs font-semibold transition ${
                                   draft.adjustmentDirection === 'credit'
-                                   ? 'border-red-500 bg-red-50 text-red-700'
+                                   ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
                                    : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
                                  }`}
                                 >
@@ -1779,7 +1795,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                </div>
                               ) : entry.isAdjustment ? (
                                <span
-                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
                                >
                                 {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
                                </span>

@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
-import { isSuperAdmin } from '@/server/permissions';
+import { isSuperAdmin, isAdminPanelUnlocked } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -17,10 +17,10 @@ type Context = {
 // Per-user detail page for the super admin: profile/subscription info plus usage stats
 // (organizations/clients/transactions) pulled from each of the user's workspace schemas,
 // so growth (how much the app is actually being used) is visible per account.
-export async function GET(_request: Request, context: Context) {
+export async function GET(request: NextRequest, context: Context) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email)) {
+ if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 

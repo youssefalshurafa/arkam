@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useParams, useRouter } from 'next/navigation';
+import LockButton from '@/app/admin/LockButton';
 
 type WorkspaceStats = {
  organizationCount: number;
@@ -264,30 +265,33 @@ export default function AdminUserDetailPage() {
 
  return (
   <div dir="ltr" className="min-h-screen bg-gray-50">
-   <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3">
-    <button
-     onClick={() => router.push('/admin')}
-     className="text-gray-400 hover:text-gray-700 text-sm flex items-center gap-1"
-    >
-     <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+   <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between gap-3">
+    <div className="flex items-center gap-3">
+     <button
+      onClick={() => router.push('/admin')}
+      className="text-gray-400 hover:text-gray-700 text-sm flex items-center gap-1"
      >
-      <path
-       d="M10 12L6 8L10 4"
-       stroke="currentColor"
-       strokeWidth="1.5"
-       strokeLinecap="round"
-       strokeLinejoin="round"
-      />
-     </svg>
-     Back
-    </button>
-    <span className="text-gray-300">|</span>
-    <h1 className="text-base font-semibold text-gray-900">User details</h1>
+      <svg
+       width="16"
+       height="16"
+       viewBox="0 0 16 16"
+       fill="none"
+       xmlns="http://www.w3.org/2000/svg"
+      >
+       <path
+        d="M10 12L6 8L10 4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+       />
+      </svg>
+      Back
+     </button>
+     <span className="text-gray-300">|</span>
+     <h1 className="text-base font-semibold text-gray-900">User details</h1>
+    </div>
+    <LockButton />
    </div>
 
    <div className="max-w-5xl mx-auto px-6 py-8">

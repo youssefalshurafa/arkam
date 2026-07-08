@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { confirmDialog, alertDialog, promptDialog } from '@/components/ui/AppDialog';
+import LockButton from '@/app/admin/LockButton';
 
 type Workspace = {
  id: string;
@@ -899,7 +900,10 @@ export default function AdminPage() {
      <span className="text-gray-300">|</span>
      <h1 className="text-base font-semibold text-gray-900">Super Admin</h1>
     </div>
-    <span className="text-xs text-gray-400">{session?.user?.email}</span>
+    <div className="flex items-center gap-3">
+     <span className="text-xs text-gray-400">{session?.user?.email}</span>
+     <LockButton />
+    </div>
    </div>
 
    <div className="max-w-6xl mx-auto px-6 py-8">

@@ -1,5 +1,4 @@
 import { getCommissionAmount, chargeLedgerEffect } from '@/shared/utils/commission';
-import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { buildLockBoundaries, isAtOrBeforeBoundary, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
 import type {
  Client,
@@ -264,48 +263,4 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));
-}
-
-type LedgerSelectionSummary = {
- count: number;
- amountSum: number;
- netChangeSum: number;
- amountCurrencyCode: string;
- netCurrencyCode: string;
-};
-
-// Totals for the currently multi-selected ledger entries (sum mode). Ported verbatim.
-export function computeLedgerSelectionSummary({ selectedLedgerEntryKeys, selectedClientLedgers, selectedLedgerAccountId }: {
- selectedLedgerEntryKeys: Set<string>;
- selectedClientLedgers: ClientAccountLedger[];
- selectedLedgerAccountId: number | null;
-}): LedgerSelectionSummary | null {
-  if (selectedLedgerEntryKeys.size === 0) return null;
-  const entryByKey = new Map<string, ClientLedgerEntry>();
-  for (const ledger of selectedClientLedgers) {
-   for (const entry of ledger.entries) {
-    entryByKey.set(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId), entry);
-   }
-  }
-  let amountSum = 0;
-  let netChangeSum = 0;
-  let count = 0;
-  const currencyCodes = new Set<string>();
-  for (const key of selectedLedgerEntryKeys) {
-   const entry = entryByKey.get(key);
-   if (!entry) continue;
-   amountSum += entry.amount;
-   netChangeSum += entry.netChange;
-   currencyCodes.add(entry.currencyCode);
-   count += 1;
-  }
-  // Net change is always expressed in the account's currency.
-  const accountCurrency = selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0];
-  return {
-   count,
-   amountSum,
-   netChangeSum,
-   amountCurrencyCode: currencyCodes.size === 1 ? [...currencyCodes][0] : '',
-   netCurrencyCode: accountCurrency?.currencyCode ?? '',
-  };
 }
