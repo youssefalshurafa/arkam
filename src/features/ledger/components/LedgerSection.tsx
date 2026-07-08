@@ -68,6 +68,8 @@ type LedgerSectionProps = {
  onLedgerRowDrop: (draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) => void;
  onSaveAllLedger: (ledger: ClientAccountLedger) => void;
  onSaveLedgerRow: (transactionId: number, ledgerAccountId: number) => void;
+ onSaveAllEditingLedgerRows: () => void;
+ onCancelAllEditingLedgerRows: () => void;
  onToggleLedgerEntrySelection: (key: string) => void;
  openAdjustmentModal: (accountId: number, existing?: ClientAdjustment) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
@@ -83,7 +85,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
-  onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onToggleLedgerEntrySelection,
+  onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openAdjustmentModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight,
  } = props;
@@ -2638,6 +2640,51 @@ export default function LedgerSection(props: LedgerSectionProps) {
          )}
         </section>
    <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
+   {editingLedgerRowKeys.size > 0 ? (
+    <div className={`fixed bottom-6 z-30 flex flex-col gap-3 sm:hidden ${isRTL ? 'left-6' : 'right-6'}`}>
+     <button
+      type="button"
+      title={t('save_changes')}
+      onClick={() => void onSaveAllEditingLedgerRows()}
+      className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg active:bg-emerald-700"
+     >
+      <svg
+       width="22"
+       height="22"
+       viewBox="0 0 24 24"
+       fill="none"
+       stroke="currentColor"
+       strokeWidth="2.5"
+       strokeLinecap="round"
+       strokeLinejoin="round"
+       aria-hidden
+      >
+       <polyline points="20 6 9 17 4 12" />
+      </svg>
+     </button>
+     <button
+      type="button"
+      title={t('cancel')}
+      onClick={() => onCancelAllEditingLedgerRows()}
+      className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-500 shadow-lg ring-1 ring-slate-300 active:bg-slate-100"
+     >
+      <svg
+       width="20"
+       height="20"
+       viewBox="0 0 24 24"
+       fill="none"
+       stroke="currentColor"
+       strokeWidth="2.5"
+       strokeLinecap="round"
+       strokeLinejoin="round"
+       aria-hidden
+      >
+       <line x1="18" y1="6" x2="6" y2="18" />
+       <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+     </button>
+    </div>
+   ) : null}
   </>
  );
 }

@@ -120,7 +120,6 @@
  "undo": "Undo",
  "redo": "Redo",
  "delete": "Delete",
- "duplicate": "Duplicate",
  "toast_transaction_deleted": "Transaction deleted",
  "toast_expense_deleted": "Expense deleted",
  "row_actions_menu": "More actions",

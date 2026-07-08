@@ -119,7 +119,6 @@
  "undo": "Annuler",
  "redo": "Rétablir",
  "delete": "Supprimer",
- "duplicate": "Dupliquer",
  "toast_transaction_deleted": "Transaction supprimée",
  "toast_expense_deleted": "Dépense supprimée",
  "row_actions_menu": "Plus d'actions",

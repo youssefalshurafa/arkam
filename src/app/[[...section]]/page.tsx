@@ -1653,6 +1653,23 @@ function AuthenticatedHome() {
   });
  }
 
+ // Mobile floating save/cancel button: saves or cancels every ledger row currently being
+ // edited, across however many accounts' ledgers are open at once (covers both a single
+ // pencil-edited row and full "edit all" ledgers).
+ async function onSaveAllEditingLedgerRows() {
+  const editingAccountIds = new Set([...editingLedgerRowKeys].map((k) => parseInt(k.split(':')[1], 10)));
+  for (const ledger of selectedClientLedgers) {
+   if (editingAccountIds.has(ledger.accountId)) await onSaveAllLedger(ledger);
+  }
+ }
+
+ function onCancelAllEditingLedgerRows() {
+  const editingAccountIds = new Set([...editingLedgerRowKeys].map((k) => parseInt(k.split(':')[1], 10)));
+  for (const ledger of selectedClientLedgers) {
+   if (editingAccountIds.has(ledger.accountId)) onCancelAllLedger(ledger);
+  }
+ }
+
  // Puts a single ledger row into inline-edit mode (builds its draft + seeds the
  // reversed-rate flag). Shared by the row's Edit (pencil) button and the arrow-key
  // "save and move to next row" flow below.
@@ -3483,46 +3500,6 @@ function AuthenticatedHome() {
   await onDeleteTransaction(row.id);
  }
 
- // Creates an exact copy of a row (same accounts/amount/rates/charges/description) dated
- // on the same day as the original, landing right after it in that day's sequence — same
- // logic new rows always use (nextCreatedAtForDate), just seeded with the original's date
- // instead of "today".
- async function onDuplicateTransactionRow(row: TransactionTableRow) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const createdAt = nextCreatedAtForDate(row.createdAt.slice(0, 10));
-
-  try {
-   if (row.isAdjustment) {
-    const adjPayload = {
-     accountId: row.accountFromId as number,
-     amount: row.amount,
-     direction: row.adjustmentDirection ?? ('debit' as const),
-     currencyId: row.currencyId,
-     currencyCode: row.currencyCode,
-     currencySymbol: row.currencySymbol,
-     exchangeRate: row.exchangeRateFrom,
-     exchangeRateReversed: !!row.exchangeRateFromReversed,
-     description: row.description,
-     createdAt,
-    };
-    if (!(await confirmIfLocked([adjPayload.accountId], adjPayload.createdAt, NEW_ROW_REF_ID))) return;
-    await accountingApi.createClientAdjustment(adjPayload);
-   } else {
-    const txPayload = buildTransactionCreatePayload(row, createdAt);
-    if (!row.isArchived && !(await confirmIfLocked([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID))) return;
-    await accountingApi.createTransaction(txPayload);
-   }
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
-
  function onToggleTransactionSelection(transactionId: number) {
   setSelectedTransactionIds((current) => {
    const next = new Set(current);
@@ -3552,17 +3529,9 @@ function AuthenticatedHome() {
   });
  }
 
- function onCopySelectedTransaction(e: React.MouseEvent) {
-  const ids = [...selectedTransactionIds];
-  if (ids.length !== 1) return;
-  const row = transactionTableRowMap.get(ids[0]);
-  if (row) {
-   setCopiedTransaction(row);
-   // Unmark the row once copied: the selection toolbar collapses and the row is free to be
-   // re-selected, so a follow-up copy/paste doesn't act on a stale marking.
-   setSelectedTransactionIds(new Set());
-   showToast(t('toast_copied'), e);
-  }
+ function onCopyTransactionRow(row: TransactionTableRow) {
+  setCopiedTransaction(row);
+  showToast(t('toast_copied'));
  }
 
  function onPasteCopiedTransaction() {
@@ -5490,6 +5459,8 @@ function AuthenticatedHome() {
          onLedgerRowDrop={onLedgerRowDrop}
          onSaveAllLedger={onSaveAllLedger}
          onSaveLedgerRow={onSaveLedgerRow}
+         onSaveAllEditingLedgerRows={onSaveAllEditingLedgerRows}
+         onCancelAllEditingLedgerRows={onCancelAllEditingLedgerRows}
          onToggleLedgerEntrySelection={onToggleLedgerEntrySelection}
          openAdjustmentModal={openAdjustmentModal}
          openClientLedger={openClientLedger}
@@ -5559,10 +5530,9 @@ function AuthenticatedHome() {
          txSumByCurrency={txSumByCurrency}
          transactionsImportInputRef={transactionsImportInputRef}
          onCancelAllTransactions={onCancelAllTransactions}
-         onCopySelectedTransaction={onCopySelectedTransaction}
+         onCopyTransactionRow={onCopyTransactionRow}
          onDeleteSelectedTransactions={onDeleteSelectedTransactions}
          onDeleteTransactionTableRow={onDeleteTransactionTableRow}
-         onDuplicateTransactionRow={onDuplicateTransactionRow}
          onEditAllTransactions={onEditAllTransactions}
          onExportArchivePdf={onExportArchivePdf}
          onImportTransactionsFile={onImportTransactionsFile}
