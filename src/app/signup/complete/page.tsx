@@ -1,10 +1,10 @@
 'use client';
 
 import { FormEvent, Suspense, useEffect, useRef, useState } from 'react';
-import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useStableSession } from '@/hooks/useStableSession';
 import SiteLayout from '@/components/marketing/SiteLayout';
 
 type VerifyResponse = {
@@ -38,7 +38,7 @@ function CompleteForm() {
  const searchParams = useSearchParams();
  const { language } = useLanguage();
  const { t } = useTranslation(language);
- const { status } = useSession();
+ const { status } = useStableSession();
  const token = searchParams.get('token') ?? '';
 
  const [tokenState, setTokenState] = useState<'loading' | 'valid' | 'invalid'>('loading');

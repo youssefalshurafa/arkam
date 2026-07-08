@@ -1,17 +1,18 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { getProviders, signIn, useSession } from 'next-auth/react';
+import { getProviders, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useStableSession } from '@/hooks/useStableSession';
 import SiteLayout from '@/components/marketing/SiteLayout';
 
 export default function SignupPage() {
  const router = useRouter();
  const { language } = useLanguage();
  const { t } = useTranslation(language);
- const { status } = useSession();
+ const { status } = useStableSession();
 
  const [fullName, setFullName] = useState('');
  const [email, setEmail] = useState('');

@@ -1,9 +1,9 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useStableSession } from '@/hooks/useStableSession';
 import { confirmDialog, promptDialog } from '@/components/ui/AppDialog';
 import { accountingApi, type WorkspaceMember, type WorkspaceRole } from '@/lib/accountingApi';
 
@@ -42,7 +42,7 @@ const panelClass = 'rounded-lg border border-gray-200 bg-white p-5 shadow-sm';
 export default function TeamSettings() {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
- const { data: session } = useSession();
+ const { data: session } = useStableSession();
  const currentUserId = session?.user?.id;
  const isSuperAdmin = Boolean(session?.user?.isSuperAdmin);
 

@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useSession } from 'next-auth/react';
 import { useParams, useRouter } from 'next/navigation';
+import { useStableSession } from '@/hooks/useStableSession';
 import LockButton from '@/app/admin/LockButton';
 
 type WorkspaceStats = {
@@ -114,7 +114,7 @@ function StatCard({ label, value, sub }: { label: string; value: number | string
 }
 
 export default function AdminUserDetailPage() {
- const { status: sessionStatus } = useSession();
+ const { status: sessionStatus } = useStableSession();
  const router = useRouter();
  const params = useParams<{ userId: string }>();
  const userId = params?.userId || '';
