@@ -45,6 +45,10 @@ export const pdfSettingsStorageKey = 'arkam:pdf-settings';
 export const pdfColsStorageKeyPrefix = 'arkam:pdf-cols:';
 export const pdfDateRangeStorageKeyPrefix = 'arkam:pdf-date-range:';
 export const transactionTableSettingsStorageKey = 'arkam:transaction-table-settings';
+// Archive is a distinct table from the main Transactions table (different rows, different
+// columns like "more info"), so its column visibility/date-format is stored separately —
+// hiding a column in one must not affect the other.
+export const archiveTableSettingsStorageKey = 'arkam:archive-table-settings';
 // On-screen table zoom level, keyed per table ('ledger' | 'transactions'). A pure
 // viewing preference (like a spreadsheet's zoom), so it is stored globally rather
 // than per-client. Lets mobile users shrink these wide tables to see every column.
@@ -320,10 +324,10 @@ export function savePdfDateRange(accountId: number, fromDate: string, toDate: st
  }
 }
 
-export function getStoredTransactionTableSettings(): TransactionTableSettings {
+function getStoredTableSettings(storageKey: string): TransactionTableSettings {
  if (typeof window === 'undefined') return defaultTransactionTableSettings;
  try {
-  const raw = window.localStorage.getItem(transactionTableSettingsStorageKey);
+  const raw = window.localStorage.getItem(storageKey);
   if (!raw) return defaultTransactionTableSettings;
   const parsed = JSON.parse(raw);
   return {
@@ -336,12 +340,28 @@ export function getStoredTransactionTableSettings(): TransactionTableSettings {
  }
 }
 
-export function saveTransactionTableSettings(settings: TransactionTableSettings) {
+function saveTableSettings(storageKey: string, settings: TransactionTableSettings) {
  try {
-  window.localStorage.setItem(transactionTableSettingsStorageKey, JSON.stringify(settings));
+  window.localStorage.setItem(storageKey, JSON.stringify(settings));
  } catch {
   /* ignore */
  }
+}
+
+export function getStoredTransactionTableSettings(): TransactionTableSettings {
+ return getStoredTableSettings(transactionTableSettingsStorageKey);
+}
+
+export function saveTransactionTableSettings(settings: TransactionTableSettings) {
+ saveTableSettings(transactionTableSettingsStorageKey, settings);
+}
+
+export function getStoredArchiveTableSettings(): TransactionTableSettings {
+ return getStoredTableSettings(archiveTableSettingsStorageKey);
+}
+
+export function saveArchiveTableSettings(settings: TransactionTableSettings) {
+ saveTableSettings(archiveTableSettingsStorageKey, settings);
 }
 export const defaultPdfSettings: PdfSettings = {
  decimals: 2,

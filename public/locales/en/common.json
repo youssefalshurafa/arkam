@@ -224,6 +224,7 @@
  "no_transactions": "No transactions yet. Create your first transaction from the form.",
  "client_accounts": "Accounts",
  "balance": "Balance",
+ "organization_pending_pricing": "Pending Pricing",
  "client_accounts_for": "Accounts for",
  "client_page_open": "Open Page",
  "client_page_title": "Client Ledger",
