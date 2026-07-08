@@ -256,9 +256,11 @@ function AuthenticatedHome() {
  const [highlightedTxRows, setHighlightedTxRows] = useState<Map<number, string>>(() => getStoredTxHighlights());
  const [txRowHighlightColor, setTxRowHighlightColor] = useState<string>(() => getStoredTxRowSettings().rowHighlightColor);
  // "Sum mode" for the transactions table: a third row-click mode alongside highlight/copy.
- // Clicking an amount while it's on adds it to txSumSelection; clicking again removes it.
+ // Clicking an amount while it's on adds its id to txSumSelection; clicking again removes it.
+ // The total (txSumByCurrency) looks up each id's CURRENT amount live rather than a snapshot,
+ // so editing a summed row's amount afterward updates the total instead of it going stale.
  const [txSumMode, setTxSumMode] = useState(false);
- const [txSumSelection, setTxSumSelection] = useState<Map<number, { amount: number; currencyCode: string; currencySymbol: string }>>(new Map());
+ const [txSumSelection, setTxSumSelection] = useState<Set<number>>(new Set());
  const setLedgerStartingBalanceDrafts = useLedgerStore((s) => s.setLedgerStartingBalanceDrafts);
  const setEditingStartingBalanceIds = useLedgerStore((s) => s.setEditingStartingBalanceIds);
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
@@ -896,7 +898,7 @@ function AuthenticatedHome() {
   // Start each client's ledger with a clean sum-mode calculator (a running total from the
   // previous client would be meaningless here).
   setLedgerSumMode(false);
-  setLedgerSumSelection(new Map());
+  setLedgerSumSelection(new Set());
   setSelectedClientForLedger(client);
   // When a specific account is requested (e.g. clicking a client's USD vs EUR row),
   // preselect it; the ledger-account effect keeps it since it belongs to the client.
@@ -1028,17 +1030,17 @@ function AuthenticatedHome() {
  // Sum mode: toggling it off clears whatever was accumulated so the next session starts fresh.
  function toggleTxSumMode() {
   setTxSumMode((on) => {
-   if (on) setTxSumSelection(new Map());
+   if (on) setTxSumSelection(new Set());
    return !on;
   });
  }
 
- // Add the clicked amount to the running total, or remove it if it was already added.
- function toggleTxSumEntry(id: number, amount: number, currencyCode: string, currencySymbol: string) {
+ // Toggle a row's id into (or out of) the running total.
+ function toggleTxSumEntry(id: number) {
   setTxSumSelection((prev) => {
-   const next = new Map(prev);
+   const next = new Set(prev);
    if (next.has(id)) next.delete(id);
-   else next.set(id, { amount, currencyCode, currencySymbol });
+   else next.add(id);
    return next;
   });
  }
@@ -4488,18 +4490,23 @@ function AuthenticatedHome() {
  }, [selectedTransactionIds, transactionTableRowMap]);
 
  // Sum-mode running total, grouped per currency so clicking amounts across different
- // currencies shows one box each instead of adding incompatible currencies together.
+ // currencies shows one box each instead of adding incompatible currencies together. Looks up
+ // each selected id's CURRENT row from transactionTableRowMap on every render (rather than a
+ // snapshot captured at click time), so editing a summed row's amount afterward is reflected
+ // instead of going stale.
  const txSumByCurrency = useMemo(() => {
   const byCurrency = new Map<string, { code: string; symbol: string; total: number; count: number }>();
-  for (const entry of txSumSelection.values()) {
-   const code = entry.currencyCode || '';
-   const existing = byCurrency.get(code) ?? { code, symbol: entry.currencySymbol || '', total: 0, count: 0 };
-   existing.total += entry.amount;
+  for (const id of txSumSelection) {
+   const row = transactionTableRowMap.get(id);
+   if (!row) continue;
+   const code = row.currencyCode || '';
+   const existing = byCurrency.get(code) ?? { code, symbol: row.currencySymbol || '', total: 0, count: 0 };
+   existing.total += row.amount;
    existing.count += 1;
    byCurrency.set(code, existing);
   }
   return [...byCurrency.values()].sort((a, b) => a.code.localeCompare(b.code));
- }, [txSumSelection]);
+ }, [txSumSelection, transactionTableRowMap]);
  const selectedOrganizationClients = useMemo(
   () => (selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : []),
   [clients, selectedOrganizationForClients],

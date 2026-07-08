@@ -119,7 +119,7 @@ type TransactionsSectionProps = {
  txRowClickHighlight: boolean;
  txRowClickActive: boolean;
  txSumMode: boolean;
- txSumSelection: Map<number, { amount: number; currencyCode: string; currencySymbol: string }>;
+ txSumSelection: Set<number>;
  txSumByCurrency: SumCurrencyTotal[];
  transactionsImportInputRef: RefObject<HTMLInputElement | null>;
  onCancelAllTransactions: () => void;
@@ -143,7 +143,7 @@ type TransactionsSectionProps = {
  setTxRowClickMode: (mode: 'highlight' | 'copy' | 'none') => void;
  toggleTxRowHighlight: (txnId: number) => void;
  toggleTxSumMode: () => void;
- toggleTxSumEntry: (id: number, amount: number, currencyCode: string, currencySymbol: string) => void;
+ toggleTxSumEntry: (id: number) => void;
 };
 
 export default function TransactionsSection(props: TransactionsSectionProps) {
@@ -222,6 +222,14 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
    }
    setDragRowId(null);
    setDragOverRowId(null);
+  },
+  // Short "what am I dragging" label for the floating ghost badge (see usePointerDrag).
+  renderGhost: (id) => {
+   const row = displayedTransactionRows.find((r) => r.id === id);
+   if (!row) return '…';
+   const amount = row.amount.toLocaleString(numLocale, { maximumFractionDigits: 2 });
+   const who = row.clientFromName || row.clientToName || row.description;
+   return who ? `${who} · ${amount} ${row.currencyCode}` : `${amount} ${row.currencyCode}`;
   },
  });
 
@@ -324,6 +332,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
  return (
   <>
+        {transactionRowDrag.dragGhost}
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
          {(section === 'transactions' || section === 'archive') && isNewTransactionSectionOpen ? (
           <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
@@ -2437,7 +2446,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       return (
                        <button
                         type="button"
-                        onClick={() => toggleTxSumEntry(txn.id, txn.amount, txn.currencyCode, txn.currencySymbol)}
+                        onClick={() => toggleTxSumEntry(txn.id)}
                         className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
                        >
                         <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
