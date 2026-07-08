@@ -1,3 +1,1 @@
-1. in the sum mode , i had an amount added to the addition and then i edited it and changed the number and saved and it is still marked but the total value still holds the old value.
-
-2.when dragging a row or a column i need to see the column or row being dragged
+1.sometimes when i add a transaction that has a currency that does not match the clients account it takes default exhange rate 1 which is wrong it should be - or 0 untill the user changes it , it works most of the time as intended but sometimes it happens that it takes exchange rate 1

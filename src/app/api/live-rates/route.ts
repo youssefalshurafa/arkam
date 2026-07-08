@@ -4,13 +4,17 @@ import type { LiveRate } from '@/shared/types';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Live TRY-based FX quotes from the Harem Altin RapidAPI feed. Proxied through the
-// server so the RapidAPI key never ships in the client bundle. The key is read
-// from the HAREM_RAPIDAPI_KEY env var; the literal fallback keeps the feature
-// working out of the box and should be moved into the environment for production.
-const RAPIDAPI_HOST = 'live-exchange-rates-api-try-based-forex-pairs.p.rapidapi.com';
-const RAPIDAPI_URL = `https://${RAPIDAPI_HOST}/harem_altin/prices/doviz/ebc099879744f4aa3e02ff6762874055`;
-const RAPIDAPI_KEY = process.env.HAREM_RAPIDAPI_KEY ?? 'c879306ca8mshe548e4ad5cbee7ap1e4446jsnd676fee577fc';
+// Live TRY-based FX/gold quotes from altinapi.com (https://altinapi.com/docs/). Proxied
+// through the server so the API key never ships in the client bundle. Requires
+// ALTINAPI_KEY to be set — no hardcoded fallback, since that would ship a real secret
+// in source.
+const ALTINAPI_URL = 'https://altinapi.com/api/v1/prices';
+const ALTINAPI_KEY = process.env.ALTINAPI_KEY;
+
+// The upstream feed carries 200+ symbols (every metal/gold-jewelry/cross-pair variant it
+// tracks); the app only shows this curated set, in this order, matching the reference
+// Harem Altın "Döviz" (forex) tab.
+const DISPLAY_SYMBOLS = ['USDTRY', 'EURTRY', 'EURUSD', 'GBPTRY', 'CHFTRY', 'AUDTRY', 'CADTRY', 'SARTRY', 'JPYTRY'];
 
 // A quote value may arrive as a number or a numeric string — coerce defensively.
 const num = (value: unknown): number => {
@@ -19,23 +23,25 @@ const num = (value: unknown): number => {
 };
 
 type UpstreamQuote = {
- kod?: string;
- alis?: unknown;
- satis?: unknown;
- yuksek?: unknown;
- dusuk?: unknown;
- last_update?: string;
- kayit_tarihi?: string;
+ symbol?: string;
+ bid?: unknown;
+ ask?: unknown;
+ timestamp?: unknown;
+};
+
+type UpstreamResponse = {
+ data?: UpstreamQuote[];
+ updatedAt?: string;
 };
 
 export async function GET() {
+ if (!ALTINAPI_KEY) {
+  return NextResponse.json({ ok: false, error: 'missing_api_key' }, { status: 500 });
+ }
+
  try {
-  const upstream = await fetch(RAPIDAPI_URL, {
-   headers: {
-    'Content-Type': 'application/json',
-    'x-rapidapi-host': RAPIDAPI_HOST,
-    'x-rapidapi-key': RAPIDAPI_KEY,
-   },
+  const upstream = await fetch(ALTINAPI_URL, {
+   headers: { 'X-API-Key': ALTINAPI_KEY },
    // Always fetch fresh quotes; this feed is meant to be live.
    cache: 'no-store',
   });
@@ -44,19 +50,27 @@ export async function GET() {
    return NextResponse.json({ ok: false, error: `upstream_${upstream.status}` }, { status: 502 });
   }
 
-  const body = (await upstream.json()) as { success?: boolean; data?: UpstreamQuote[] };
+  const body = (await upstream.json()) as UpstreamResponse;
   const data = Array.isArray(body?.data) ? body.data : [];
+  const bySymbol = new Map(data.map((entry) => [entry.symbol, entry]));
 
-  const rates: LiveRate[] = data.map((entry) => ({
-   code: String(entry.kod ?? ''),
-   buy: num(entry.alis),
-   sell: num(entry.satis),
-   high: num(entry.yuksek),
-   low: num(entry.dusuk),
-   time: String(entry.last_update ?? entry.kayit_tarihi ?? ''),
-  }));
+  const rates: LiveRate[] = DISPLAY_SYMBOLS.flatMap((symbol) => {
+   const entry = bySymbol.get(symbol);
+   if (!entry) return [];
+   const timestampMs = num(entry.timestamp);
+   return [
+    {
+     code: symbol,
+     buy: num(entry.bid),
+     sell: num(entry.ask),
+     high: 0,
+     low: 0,
+     time: timestampMs ? new Date(timestampMs).toISOString() : body.updatedAt || '',
+    },
+   ];
+  });
 
-  return NextResponse.json({ ok: true, rates, timestamp: new Date().toISOString() });
+  return NextResponse.json({ ok: true, rates, timestamp: body.updatedAt || new Date().toISOString() });
  } catch {
   return NextResponse.json({ ok: false, error: 'fetch_failed' }, { status: 502 });
  }
