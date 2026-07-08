@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { confirmDialog, alertDialog, promptDialog } from '@/components/ui/AppDialog';
+import { useStableSession } from '@/hooks/useStableSession';
 import LockButton from '@/app/admin/LockButton';
 
 type Workspace = {
@@ -639,7 +639,7 @@ function AccessRequestsPanel({ requests, loading, reviewingId, onRefresh, onRevi
 }
 
 export default function AdminPage() {
- const { data: session, status } = useSession();
+ const { data: session, status } = useStableSession();
  const router = useRouter();
 
  const [tab, setTab] = useState<'users' | 'requests'>('requests');

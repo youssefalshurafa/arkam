@@ -3,7 +3,8 @@
 import { ChangeEvent, Fragment, FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { signOut, useSession } from 'next-auth/react';
+import { signOut } from 'next-auth/react';
+import { useStableSession } from '@/hooks/useStableSession';
 import { useLanguage } from '@/contexts/LanguageContext';
 import HomePage from '@/components/marketing/HomePage';
 import AccountSettings from '@/components/account/AccountSettings';
@@ -177,7 +178,7 @@ function AuthenticatedHome() {
  // browser (and clear the in-memory query cache) so one user's data can never bleed
  // into another's on a shared browser. Runs once per mount, synchronously, ahead of
  // useWorkspaceData's cache read below.
- const { data: authSession } = useSession();
+ const { data: authSession } = useStableSession();
  const sessionUserId = authSession?.user?.id ?? null;
  const queryClient = useQueryClient();
  useState(() => {
@@ -5628,7 +5629,7 @@ function AuthenticatedHome() {
 
 
 export default function Home() {
- const { status } = useSession();
+ const { status } = useStableSession();
 
  if (status === 'loading') {
   return null;

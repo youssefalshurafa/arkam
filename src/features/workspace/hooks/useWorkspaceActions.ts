@@ -1,8 +1,8 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
 import { accountingApi } from '@/lib/accountingApi';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
+import { useStableSession } from '@/hooks/useStableSession';
 import { useWorkspaceCache } from './useWorkspaceData';
 
 /**
@@ -14,7 +14,7 @@ import { useWorkspaceCache } from './useWorkspaceData';
  * without onReload/onError/setX props plumbed down from the page.
  */
 export function useWorkspaceActions() {
- const { data: authSession } = useSession();
+ const { data: authSession } = useStableSession();
  const sessionUserId = authSession?.user?.id ?? null;
  // Read directly from storage rather than via page state: it's exactly what
  // accountingApi.request() sends as the x-workspace-id header, so the cache
