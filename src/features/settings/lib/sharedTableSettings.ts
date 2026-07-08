@@ -4,15 +4,16 @@ import {
  ledgerSettingsStorageKeyPrefix,
  legacyLedgerColumnOrderStorageKey,
  transactionTableSettingsStorageKey,
+ archiveTableSettingsStorageKey,
  txRowSettingsStorageKey,
 } from '@/shared/lib/localStorage';
 
 // The localStorage entries that make up the shareable "table settings": the ledger's
 // per-client column visibility / order / display settings, plus the workspace-wide
-// transaction table settings and row settings. Row highlights and personal marks are
-// intentionally excluded — those are per-user data, not layout settings.
+// transaction/archive table settings and row settings. Row highlights and personal marks
+// are intentionally excluded — those are per-user data, not layout settings.
 const SHARED_KEY_PREFIXES = [ledgerColumnVisibilityStorageKeyPrefix, ledgerColumnOrderStorageKeyPrefix, ledgerSettingsStorageKeyPrefix];
-const SHARED_EXACT_KEYS = [legacyLedgerColumnOrderStorageKey, transactionTableSettingsStorageKey, txRowSettingsStorageKey];
+const SHARED_EXACT_KEYS = [legacyLedgerColumnOrderStorageKey, transactionTableSettingsStorageKey, archiveTableSettingsStorageKey, txRowSettingsStorageKey];
 
 function isSharedKey(key: string): boolean {
  return SHARED_EXACT_KEYS.includes(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));

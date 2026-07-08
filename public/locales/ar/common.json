@@ -224,6 +224,7 @@
  "لا توجد معاملات حتى الآن. أنشئ معاملتك الأولى من النموذج.": "",
  "client_accounts": "الحسابات",
  "balance": "الرصيد",
+ "organization_pending_pricing": "بانتظار التسعير",
  "client_accounts_for": "حسابات",
  "client_page_open": "فتح الصفحة",
  "client_page_title": "صفحة العميل",

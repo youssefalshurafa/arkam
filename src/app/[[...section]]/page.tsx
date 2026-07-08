@@ -60,6 +60,8 @@ import {
  savePdfDateRange,
  getStoredTransactionTableSettings,
  saveTransactionTableSettings,
+ getStoredArchiveTableSettings,
+ saveArchiveTableSettings,
  getStoredLedgerColumnOrder,
  defaultLedgerColumnVisibility,
  defaultLedgerColumnOrder,
@@ -115,7 +117,7 @@ import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml, generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers, computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
-import { computeClientPageBalances } from '@/features/clients/utils/clientBalances';
+import { computeClientPageBalances, computeClientPendingPricingCounts } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
@@ -283,10 +285,22 @@ function AuthenticatedHome() {
  const setLedgerPageSize = useLedgerStore((s) => s.setLedgerPageSize);
  const showTransactionTableSettingsModal = useTransactionsStore((s) => s.showTransactionTableSettingsModal);
  const setShowTransactionTableSettingsModal = useTransactionsStore((s) => s.setShowTransactionTableSettingsModal);
- const transactionTableSettings = useTransactionsStore((s) => s.transactionTableSettings);
- const setTransactionTableSettings = useTransactionsStore((s) => s.setTransactionTableSettings);
- const transactionTableSettingsDraft = useTransactionsStore((s) => s.transactionTableSettingsDraft);
- const setTransactionTableSettingsDraft = useTransactionsStore((s) => s.setTransactionTableSettingsDraft);
+ const transactionTableSettingsStore = useTransactionsStore((s) => s.transactionTableSettings);
+ const setTransactionTableSettingsStore = useTransactionsStore((s) => s.setTransactionTableSettings);
+ const transactionTableSettingsDraftStore = useTransactionsStore((s) => s.transactionTableSettingsDraft);
+ const setTransactionTableSettingsDraftStore = useTransactionsStore((s) => s.setTransactionTableSettingsDraft);
+ // Archive is a distinct table from Transactions (different rows, own "more info" column),
+ // so its column visibility/date-format is a separate slice — hiding a column in one must
+ // not affect the other. Both this component and TransactionsSection.tsx resolve which
+ // slice is "active" the same way: by the current section.
+ const archiveTableSettings = useTransactionsStore((s) => s.archiveTableSettings);
+ const setArchiveTableSettings = useTransactionsStore((s) => s.setArchiveTableSettings);
+ const archiveTableSettingsDraft = useTransactionsStore((s) => s.archiveTableSettingsDraft);
+ const setArchiveTableSettingsDraft = useTransactionsStore((s) => s.setArchiveTableSettingsDraft);
+ const transactionTableSettings = section === 'archive' ? archiveTableSettings : transactionTableSettingsStore;
+ const setTransactionTableSettings = section === 'archive' ? setArchiveTableSettings : setTransactionTableSettingsStore;
+ const transactionTableSettingsDraft = section === 'archive' ? archiveTableSettingsDraft : transactionTableSettingsDraftStore;
+ const setTransactionTableSettingsDraft = section === 'archive' ? setArchiveTableSettingsDraft : setTransactionTableSettingsDraftStore;
  const showTransactionExportModal = useTransactionsStore((s) => s.showTransactionExportModal);
  const setShowTransactionExportModal = useTransactionsStore((s) => s.setShowTransactionExportModal);
  const transactionExportFrom = useTransactionsStore((s) => s.transactionExportFrom);
@@ -675,8 +689,9 @@ function AuthenticatedHome() {
   setAppliedSharedVersion(settings.version);
   lastPushedSharedSnapshot.current = serializeSnapshot(snapshotSharedSettings());
   hydrateLedgerPrefsFromStorage();
-  setTransactionTableSettings(getStoredTransactionTableSettings());
- }, [workspaceSettingsQuery.data, hydrateLedgerPrefsFromStorage, setTransactionTableSettings]);
+  setTransactionTableSettingsStore(getStoredTransactionTableSettings());
+  setArchiveTableSettings(getStoredArchiveTableSettings());
+ }, [workspaceSettingsQuery.data, hydrateLedgerPrefsFromStorage, setTransactionTableSettingsStore, setArchiveTableSettings]);
 
  // Debounced push of the current shared-settings snapshot — no-op unless sharing is
  // on AND the current user is the owner AND something shareable actually changed.
@@ -738,10 +753,11 @@ function AuthenticatedHome() {
   if (Object.keys(settings).length > 0) {
    applySharedSettings(settings);
    hydrateLedgerPrefsFromStorage();
-   setTransactionTableSettings(getStoredTransactionTableSettings());
+   setTransactionTableSettingsStore(getStoredTransactionTableSettings());
+   setArchiveTableSettings(getStoredArchiveTableSettings());
   }
   lastPushedUserSnapshot.current = serializeSnapshot(snapshotSharedSettings());
- }, [userTableSettingsQuery.data, hydrateLedgerPrefsFromStorage, setTransactionTableSettings]);
+ }, [userTableSettingsQuery.data, hydrateLedgerPrefsFromStorage, setTransactionTableSettingsStore, setArchiveTableSettings]);
 
  // Debounced push of this user's current settings snapshot — always on (unlike the
  // owner-only shared push above), skipped when nothing actually changed.
@@ -4463,6 +4479,13 @@ function AuthenticatedHome() {
   [clientAccounts, transactions, adjustments],
  );
 
+ // Per-client count of transactions/adjustments awaiting a manually-entered exchange rate
+ // (excluded from clientPageBalances above until set). Shown on the organization page.
+ const clientPendingPricingCounts = useMemo(
+  () => computeClientPendingPricingCounts({ clientAccounts, transactions, adjustments }),
+  [clientAccounts, transactions, adjustments],
+ );
+
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
 
@@ -4520,7 +4543,7 @@ function AuthenticatedHome() {
  const updateTransactionTableSettings = (updater: (current: TransactionTableSettings) => TransactionTableSettings) => {
   setTransactionTableSettings((current) => {
    const next = updater(current);
-   saveTransactionTableSettings(next);
+   (section === 'archive' ? saveArchiveTableSettings : saveTransactionTableSettings)(next);
    return next;
   });
   pushSharedSettingsIfOwner();
@@ -4539,7 +4562,7 @@ function AuthenticatedHome() {
 
  const saveTransactionTableSettingsModal = () => {
   setTransactionTableSettings(transactionTableSettingsDraft);
-  saveTransactionTableSettings(transactionTableSettingsDraft);
+  (section === 'archive' ? saveArchiveTableSettings : saveTransactionTableSettings)(transactionTableSettingsDraft);
   setShowTransactionTableSettingsModal(false);
   pushSharedSettingsIfOwner();
   pushUserTableSettings();
@@ -5356,8 +5379,8 @@ function AuthenticatedHome() {
              <thead className="bg-slate-100 text-slate-700">
               <tr>
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('balance')}</th>
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('organization_pending_pricing')}</th>
               </tr>
              </thead>
              <tbody>
@@ -5379,7 +5402,6 @@ function AuthenticatedHome() {
                   {client.name}
                  </a>
                 </td>
-                <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
                 <td className="px-4 py-3">
                  <div className="flex flex-wrap gap-1">
                   {(clientPageBalances.get(client.id) ?? []).map((entry) => (
@@ -5391,6 +5413,20 @@ function AuthenticatedHome() {
                    </span>
                   ))}
                  </div>
+                </td>
+                <td className="px-4 py-3">
+                 {(() => {
+                  const pendingCount = clientPendingPricingCounts.get(client.id) ?? 0;
+                  if (pendingCount === 0) return <span className="text-slate-400">—</span>;
+                  return (
+                   <span
+                    title={t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
+                    className="rounded bg-amber-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-amber-700"
+                   >
+                    {pendingCount}
+                   </span>
+                  );
+                 })()}
                 </td>
                </tr>
               ))}
@@ -5562,7 +5598,13 @@ function AuthenticatedHome() {
    ) : null}
 
    {showTransactionTableSettingsModal ? (
-    <TransactionTableSettingsModal closeTransactionTableSettingsModal={closeTransactionTableSettingsModal} saveTransactionTableSettingsModal={saveTransactionTableSettingsModal} txRowHighlightColor={txRowHighlightColor} updateTxRowHighlightColor={updateTxRowHighlightColor} />
+    <TransactionTableSettingsModal
+     section={section}
+     closeTransactionTableSettingsModal={closeTransactionTableSettingsModal}
+     saveTransactionTableSettingsModal={saveTransactionTableSettingsModal}
+     txRowHighlightColor={txRowHighlightColor}
+     updateTxRowHighlightColor={updateTxRowHighlightColor}
+    />
    ) : null}
 
    {section === 'transactions' || section === 'archive' ? (

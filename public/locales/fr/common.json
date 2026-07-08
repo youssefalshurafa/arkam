@@ -223,6 +223,7 @@
  "no_transactions": "Aucune transaction pour le moment. Créez votre première transaction depuis le formulaire.",
  "client_accounts": "Comptes",
  "balance": "Solde",
+ "organization_pending_pricing": "Tarification en attente",
  "client_accounts_for": "Comptes de",
  "client_page_open": "Ouvrir la fiche",
  "client_page_title": "Grand livre client",

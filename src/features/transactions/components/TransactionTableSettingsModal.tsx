@@ -3,21 +3,24 @@
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
-import type { TransactionColumnKey, TransactionTableSettings } from '@/shared/types';
+import type { Section, TransactionColumnKey, TransactionTableSettings } from '@/shared/types';
 
 type Props = {
+ section: Section;
  closeTransactionTableSettingsModal: () => void;
  saveTransactionTableSettingsModal: () => void;
  txRowHighlightColor: string;
  updateTxRowHighlightColor: (next: string) => void;
 };
 
-export default function TransactionTableSettingsModal({ closeTransactionTableSettingsModal, saveTransactionTableSettingsModal, txRowHighlightColor, updateTxRowHighlightColor }: Props) {
+export default function TransactionTableSettingsModal({ section, closeTransactionTableSettingsModal, saveTransactionTableSettingsModal, txRowHighlightColor, updateTxRowHighlightColor }: Props) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const setShowTransactionTableSettingsModal = useTransactionsStore((s) => s.setShowTransactionTableSettingsModal);
- const transactionTableSettingsDraft = useTransactionsStore((s) => s.transactionTableSettingsDraft);
- const setTransactionTableSettingsDraft = useTransactionsStore((s) => s.setTransactionTableSettingsDraft);
+ // Archive and Transactions keep separate column-visibility drafts (see transactionsStore.ts) —
+ // this modal edits whichever one matches the section it was opened from.
+ const transactionTableSettingsDraft = useTransactionsStore((s) => (section === 'archive' ? s.archiveTableSettingsDraft : s.transactionTableSettingsDraft));
+ const setTransactionTableSettingsDraft = useTransactionsStore((s) => (section === 'archive' ? s.setArchiveTableSettingsDraft : s.setTransactionTableSettingsDraft));
 
  return (
     <div

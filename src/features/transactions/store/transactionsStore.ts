@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
-import { getStoredTransactionTableSettings } from '@/shared/lib/localStorage';
+import { getStoredArchiveTableSettings, getStoredTransactionTableSettings } from '@/shared/lib/localStorage';
 import { emptyTransactionForm } from '@/features/transactions/forms';
 import type {
  ImportClientReview,
@@ -49,6 +49,12 @@ type TransactionsStore = {
  setTransactionTableSettings: Dispatch<SetStateAction<TransactionTableSettings>>;
  transactionTableSettingsDraft: TransactionTableSettings;
  setTransactionTableSettingsDraft: Dispatch<SetStateAction<TransactionTableSettings>>;
+ // Archive is a separate table from Transactions (different rows/columns), so its column
+ // visibility/date-format is tracked independently — see archiveTableSettingsStorageKey.
+ archiveTableSettings: TransactionTableSettings;
+ setArchiveTableSettings: Dispatch<SetStateAction<TransactionTableSettings>>;
+ archiveTableSettingsDraft: TransactionTableSettings;
+ setArchiveTableSettingsDraft: Dispatch<SetStateAction<TransactionTableSettings>>;
  showTransactionExportModal: boolean;
  setShowTransactionExportModal: Dispatch<SetStateAction<boolean>>;
  transactionExportFrom: string;
@@ -160,6 +166,10 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTransactionTableSettings: setter('transactionTableSettings'),
   transactionTableSettingsDraft: getStoredTransactionTableSettings(),
   setTransactionTableSettingsDraft: setter('transactionTableSettingsDraft'),
+  archiveTableSettings: getStoredArchiveTableSettings(),
+  setArchiveTableSettings: setter('archiveTableSettings'),
+  archiveTableSettingsDraft: getStoredArchiveTableSettings(),
+  setArchiveTableSettingsDraft: setter('archiveTableSettingsDraft'),
   showTransactionExportModal: false,
   setShowTransactionExportModal: setter('showTransactionExportModal'),
   transactionExportFrom: '',
