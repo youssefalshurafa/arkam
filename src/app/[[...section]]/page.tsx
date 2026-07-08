@@ -3077,6 +3077,11 @@ function AuthenticatedHome() {
      }
      const selectedCurrency = currencyMap.get(draft.currencyId);
      const account = clientAccountMap.get(draft.accountFromId);
+     // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
+     const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+     const adjRawRate = parseFloat(draft.exchangeRateFrom);
+     const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
+     const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
      await accountingApi.updateClientAdjustment({
       id: draft.adjustmentId,
       accountId: draft.accountFromId,
@@ -3085,8 +3090,8 @@ function AuthenticatedHome() {
       currencyId: draft.currencyId,
       currencyCode: selectedCurrency?.code || account?.currencyCode || '',
       currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-      exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
-      exchangeRateReversed: !!tableRateFromReversed[transactionId],
+      exchangeRate: adjRate,
+      exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
       description: draft.description,
       createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
      });
@@ -3943,6 +3948,12 @@ function AuthenticatedHome() {
    const selectedCurrency = currencyMap.get(draft.currencyId);
    const account = clientAccountMap.get(draft.accountFromId);
 
+   // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
+   const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+   const adjRawRate = parseFloat(draft.exchangeRateFrom);
+   const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
+   const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
+
    const adjustmentPayload: ClientAdjustment = {
     id: draft.adjustmentId,
     accountId: draft.accountFromId,
@@ -3951,8 +3962,8 @@ function AuthenticatedHome() {
     currencyId: draft.currencyId,
     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-    exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
-    exchangeRateReversed: !!tableRateFromReversed[transactionId],
+    exchangeRate: adjRate,
+    exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
     description: draft.description,
     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    };
@@ -3989,6 +4000,19 @@ function AuthenticatedHome() {
    return;
   }
 
+  // Preserve the "unset" (0) rate for cross-currency sides so a pending row isn't forced to 1.
+  const fromAcc = draft.accountFromId ? clientAccountMap.get(draft.accountFromId) : null;
+  const toAcc = draft.accountToId ? clientAccountMap.get(draft.accountToId) : null;
+  const fromCross = !!fromAcc && fromAcc.currencyId !== draft.currencyId;
+  const toCross = !!toAcc && toAcc.currencyId !== draft.currencyId;
+  const sideRate = (field: string, cross: boolean, reversed: boolean) => {
+   const r = parseFloat(field);
+   if (Number.isFinite(r) && r > 0) return reversed ? 1 / r : r;
+   return cross ? 0 : 1;
+  };
+  const fromRateVal = sideRate(draft.exchangeRateFrom, fromCross, !!tableRateFromReversed[transactionId]);
+  const toRateVal = sideRate(draft.exchangeRateTo, toCross, !!tableRateToReversed[transactionId]);
+
   const transactionPayload: TransactionUpdateInput = {
    id: transaction.id,
    accountFromId: draft.accountFromId,
@@ -3996,12 +4020,12 @@ function AuthenticatedHome() {
    currencyId: draft.currencyId,
    amount,
    type: draft.type,
-   exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+   exchangeRateFrom: fromRateVal,
    commissionFrom: parseFloat(draft.commissionFrom) || 0,
-   exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
+   exchangeRateTo: toRateVal,
    commissionTo: parseFloat(draft.commissionTo) || 0,
-   exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
-   exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
+   exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
+   exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
    charges: parseFloat(draft.charges) || 0,
    chargesCurrencyId: draft.chargesCurrencyId || null,
    chargesPayer: draft.chargesPayer,

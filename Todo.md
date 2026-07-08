@@ -1,1 +1,0 @@
-1.sometimes when i add a transaction that has a currency that does not match the clients account it takes default exhange rate 1 which is wrong it should be - or 0 untill the user changes it , it works most of the time as intended but sometimes it happens that it takes exchange rate 1
