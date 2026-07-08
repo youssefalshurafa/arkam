@@ -46,12 +46,13 @@ type LedgerStore = {
  setEditAllLedgerAccountIds: Dispatch<SetStateAction<Set<number>>>;
  selectedLedgerEntryKeys: Set<string>;
  setSelectedLedgerEntryKeys: Dispatch<SetStateAction<Set<string>>>;
- // "Sum mode": a running-total calculator. While on, clicking a row's amount toggles it into
- // ledgerSumSelection (key -> its amount + currency); the toolbar shows the sum of the values.
+ // "Sum mode": a running-total calculator. While on, clicking a row's amount toggles its key
+ // into ledgerSumSelection; the toolbar shows the sum of the CURRENT (live) values for those
+ // keys, so editing a summed row's amount afterward updates the total instead of it going stale.
  ledgerSumMode: boolean;
  setLedgerSumMode: Dispatch<SetStateAction<boolean>>;
- ledgerSumSelection: Map<string, { amount: number; currencyCode: string }>;
- setLedgerSumSelection: Dispatch<SetStateAction<Map<string, { amount: number; currencyCode: string }>>>;
+ ledgerSumSelection: Set<string>;
+ setLedgerSumSelection: Dispatch<SetStateAction<Set<string>>>;
  showLedgerSettingsModal: boolean;
  setShowLedgerSettingsModal: Dispatch<SetStateAction<boolean>>;
  ledgerFilterOpen: boolean;
@@ -141,7 +142,7 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setSelectedLedgerEntryKeys: setter('selectedLedgerEntryKeys'),
   ledgerSumMode: false,
   setLedgerSumMode: setter('ledgerSumMode'),
-  ledgerSumSelection: new Map(),
+  ledgerSumSelection: new Set(),
   setLedgerSumSelection: setter('ledgerSumSelection'),
   showLedgerSettingsModal: false,
   setShowLedgerSettingsModal: setter('showLedgerSettingsModal'),

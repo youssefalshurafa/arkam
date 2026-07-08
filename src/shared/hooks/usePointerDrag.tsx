@@ -1,4 +1,5 @@
-import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 export type DragHalf = 'top' | 'bottom';
 
@@ -18,6 +19,15 @@ type UsePointerDragOptions<K> = {
  axis?: 'vertical' | 'none';
  /** Attribute carrying the key on droppable elements. Defaults to 'data-drag-key'. */
  attr?: string;
+ /**
+  * Renders a small label describing what's being dragged (e.g. "12,000 USD" for a row, or a
+  * column's header text). Shown in a floating badge that follows the pointer for the rest of
+  * the drag — without this, the only feedback was the source dimming in place, which on a touch
+  * screen is hidden under the finger doing the dragging. Its position is updated by directly
+  * mutating the DOM (not React state) so dragging a big table doesn't re-render on every pixel
+  * of pointer movement.
+  */
+ renderGhost?: (key: K) => ReactNode;
 };
 
 /**
@@ -30,12 +40,21 @@ type UsePointerDragOptions<K> = {
  * start on the handle" tracking needed like the old `draggable` row + ref-guarded onDragStart
  * required.
  *
- * Usage: spread `dragHandleProps(key)` onto the drag handle element, and put `data-drag-key={key}`
- * on each element that can be dropped onto (usually the row/column itself).
+ * Usage: spread `dragHandleProps(key)` onto the drag handle element, put `data-drag-key={key}`
+ * on each element that can be dropped onto (usually the row/column itself), and render
+ * `{dragGhost}` once anywhere in the tree if `renderGhost` is passed.
  */
-export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop, axis = 'vertical', attr = 'data-drag-key' }: UsePointerDragOptions<K>) {
+export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop, axis = 'vertical', attr = 'data-drag-key', renderGhost }: UsePointerDragOptions<K>) {
  const draggedKeyRef = useRef<K | null>(null);
  const overRef = useRef<{ key: K; half: DragHalf | null } | null>(null);
+ const ghostRef = useRef<HTMLDivElement | null>(null);
+ const [ghostContent, setGhostContent] = useState<ReactNode>(null);
+
+ const positionGhost = (clientX: number, clientY: number) => {
+  const el = ghostRef.current;
+  if (!el) return;
+  el.style.transform = `translate(${clientX + 14}px, ${clientY + 14}px)`;
+ };
 
  const updateHover = (clientX: number, clientY: number) => {
   const el = document.elementFromPoint(clientX, clientY);
@@ -82,6 +101,7 @@ export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop
   const draggedKey = draggedKeyRef.current;
   if (draggedKey == null) return;
   draggedKeyRef.current = null;
+  setGhostContent(null);
   try {
    event.currentTarget.releasePointerCapture(event.pointerId);
   } catch {
@@ -100,10 +120,15 @@ export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop
    overRef.current = null;
    event.currentTarget.setPointerCapture(event.pointerId);
    onDragStart?.(key);
+   if (renderGhost) {
+    setGhostContent(renderGhost(key));
+    positionGhost(event.clientX, event.clientY);
+   }
   },
   onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
    if (draggedKeyRef.current == null) return;
    updateHover(event.clientX, event.clientY);
+   positionGhost(event.clientX, event.clientY);
   },
   onPointerUp: endDrag,
   onPointerCancel: endDrag,
@@ -111,5 +136,20 @@ export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop
   style: { touchAction: 'none' as const },
  });
 
- return { dragHandleProps };
+ // pointer-events: none so this floating badge is never what elementFromPoint (in updateHover)
+ // reports under the cursor — otherwise the ghost itself would shadow the real row/column below it.
+ const dragGhost =
+  ghostContent && typeof document !== 'undefined'
+   ? createPortal(
+      <div
+       ref={ghostRef}
+       className="pointer-events-none fixed left-0 top-0 z-[9999] max-w-xs truncate rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-lg"
+      >
+       {ghostContent}
+      </div>,
+      document.body,
+     )
+   : null;
+
+ return { dragHandleProps, dragGhost };
 }

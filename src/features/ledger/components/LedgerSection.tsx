@@ -122,6 +122,19 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // from a touch gesture — the reason this was unusable on mobile). See usePointerDrag for why.
  // One instance handles every account's ledger table on the page — the row key already encodes
  // its account id (`${transactionId}:${accountId}`), so drops are scoped per-account from that.
+ // Short "what am I dragging" label for the floating ghost badge (see usePointerDrag) — looked
+ // up live from the same ledger data the row itself renders from.
+ const ledgerRowGhostLabel = (key: string): string => {
+  const accountId = Number(key.slice(key.lastIndexOf(':') + 1));
+  const transactionId = Number(key.slice(0, key.lastIndexOf(':')));
+  const ledgerForRow = selectedClientLedgers.find((l) => l.accountId === accountId);
+  const entryForRow = ledgerForRow?.entries.find((e) => e.transactionId === transactionId);
+  if (!ledgerForRow || !entryForRow) return '…';
+  const amount = entryForRow.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals });
+  const who = entryForRow.counterpartyName || entryForRow.description;
+  return who ? `${who} · ${amount} ${ledgerForRow.currencyCode}` : `${amount} ${ledgerForRow.currencyCode}`;
+ };
+
  const ledgerRowDrag = usePointerDrag<string>({
   parseKey: (raw) => raw,
   onDragStart: (key) => setDragLedgerRowKey(key),
@@ -141,6 +154,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
    setDragLedgerRowKey(null);
    setDragOverLedgerRowKey(null);
   },
+  renderGhost: ledgerRowGhostLabel,
  });
 
  // Column drag-to-reorder (header cells) — same pointer-events approach, no half needed since
@@ -156,6 +170,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
    if (overKey !== null) onLedgerColumnDrop(overKey);
    setDraggedLedgerColumn(null);
   },
+  renderGhost: (key) => orderedLedgerColumnOptions.find((o) => o.key === key)?.label ?? key,
  });
 
  // Tracks which account's "entries awaiting an exchange rate" note has been expanded to list
@@ -179,28 +194,36 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // Sum mode: toggling it off clears whatever was accumulated so the next session starts fresh.
  const toggleLedgerSumMode = () => {
   setLedgerSumMode((on) => {
-   if (on) setLedgerSumSelection(new Map());
+   if (on) setLedgerSumSelection(new Set());
    return !on;
   });
  };
- // Add the clicked amount to the running total, or remove it if it was already added.
- const toggleLedgerSumEntry = (key: string, amount: number, currencyCode: string) => {
+ // Toggle a row's amount/netChange into (or out of) the running total.
+ const toggleLedgerSumEntry = (key: string) => {
   setLedgerSumSelection((prev) => {
-   const next = new Map(prev);
+   const next = new Set(prev);
    if (next.has(key)) next.delete(key);
-   else next.set(key, { amount, currencyCode });
+   else next.add(key);
    return next;
   });
  };
  // Grouped by currency so mixing e.g. USD and EUR clicks shows one total box per currency
- // instead of adding incompatible currencies together.
+ // instead of adding incompatible currencies together. Looks up each selected key's CURRENT
+ // value from the live ledger data on every render (rather than a snapshot captured at click
+ // time), so editing a summed row's amount afterward is reflected instead of going stale.
  const ledgerSumByCurrency = new Map<string, { total: number; count: number }>();
- for (const entry of ledgerSumSelection.values()) {
-  const code = entry.currencyCode || '';
-  const bucket = ledgerSumByCurrency.get(code) ?? { total: 0, count: 0 };
-  bucket.total += entry.amount;
+ for (const sumKey of ledgerSumSelection) {
+  const [transactionIdRaw, accountIdRaw, field] = sumKey.split(':');
+  const transactionId = Number(transactionIdRaw);
+  const accountId = Number(accountIdRaw);
+  const sumLedger = selectedClientLedgers.find((l) => l.accountId === accountId);
+  const sumEntry = sumLedger?.entries.find((e) => e.transactionId === transactionId);
+  if (!sumLedger || !sumEntry) continue;
+  const { value, code } = field === 'netChange' ? { value: sumEntry.netChange, code: sumLedger.currencyCode } : { value: sumEntry.amount, code: sumEntry.currencyCode };
+  const bucket = ledgerSumByCurrency.get(code || '') ?? { total: 0, count: 0 };
+  bucket.total += value;
   bucket.count += 1;
-  ledgerSumByCurrency.set(code, bucket);
+  ledgerSumByCurrency.set(code || '', bucket);
  }
 
  if (isLoading) {
@@ -258,6 +281,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
 
  return (
   <>
+        {ledgerRowDrag.dragGhost}
+        {ledgerColumnDrag.dragGhost}
         <section className="flex flex-col gap-6">
          <div className={panelClassName}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1898,7 +1923,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 return (
                                  <button
                                   type="button"
-                                  onClick={() => toggleLedgerSumEntry(sumKey, entry.amount, entry.currencyCode)}
+                                  onClick={() => toggleLedgerSumEntry(sumKey)}
                                   className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
                                  >
                                   {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
@@ -2264,7 +2289,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   <>
                                    <button
                                     type="button"
-                                    onClick={() => toggleLedgerSumEntry(sumKey, liveNetChange, ledger.currencyCode)}
+                                    onClick={() => toggleLedgerSumEntry(sumKey)}
                                     className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
                                    >
                                     {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
