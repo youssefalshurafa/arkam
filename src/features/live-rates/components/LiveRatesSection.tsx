@@ -91,7 +91,7 @@ export default function LiveRatesSection() {
  };
 
  return (
-  <section className="overflow-hidden rounded-lg border border-slate-200 shadow-sm">
+  <section className="mx-auto max-w-[430px] overflow-hidden rounded-lg border border-slate-200 shadow-sm">
    {/* Header — royal-blue gradient with brand title and the featured strip */}
    <div
     className="text-white"
@@ -115,14 +115,14 @@ export default function LiveRatesSection() {
      </button>
     </div>
 
-    <div className="mt-4 flex overflow-x-auto pb-4">
+    <div dir="ltr" className="mt-4 flex overflow-x-auto pb-4 text-left">
      {rates.map((rate) => {
       const change = changeOf(rate.code);
       const color = change < 0 ? DOWN : UP;
       return (
        <div key={rate.code} className="min-w-34 shrink-0 border-e border-white/10 px-4 last:border-e-0">
         <div className="text-sm font-medium text-[#8fb2ff]">{rate.code}</div>
-        <div className="mt-0.5 text-2xl font-bold tabular-nums" dir="ltr">{fmtVal(rate.sell)}</div>
+        <div className="mt-0.5 text-2xl font-bold tabular-nums">{fmtVal(rate.sell)}</div>
         <div className="mt-1 flex items-center justify-end">
          <Sparkline points={history[rate.code] ?? []} color={color} />
         </div>
@@ -143,7 +143,7 @@ export default function LiveRatesSection() {
    ) : rates.length === 0 ? (
     <p className="bg-white px-4 py-16 text-center text-sm text-slate-600">{t('live_rates_empty')}</p>
    ) : (
-    <div className="bg-white">
+    <div dir="ltr" className="bg-white text-left">
      {/* Column header */}
      <div className="flex items-center gap-4 bg-[#eef1f5] px-4 py-3 text-sm font-medium text-slate-500">
       <span className="flex flex-1 items-center gap-1">
@@ -163,8 +163,8 @@ export default function LiveRatesSection() {
         <div className="text-[15px] font-bold text-slate-800">{rate.code}</div>
         <div className="truncate text-xs text-slate-400">{pairName(rate.code)}</div>
        </div>
-       <div className="w-24 text-end text-[17px] tabular-nums text-slate-700" dir="ltr">{fmtVal(rate.buy)}</div>
-       <div className="w-24 text-end text-[17px] tabular-nums text-slate-700" dir="ltr">{fmtVal(rate.sell)}</div>
+       <div className="w-24 text-end text-[17px] tabular-nums text-slate-700">{fmtVal(rate.buy)}</div>
+       <div className="w-24 text-end text-[17px] tabular-nums text-slate-700">{fmtVal(rate.sell)}</div>
       </div>
      ))}
 

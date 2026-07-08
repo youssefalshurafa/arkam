@@ -119,7 +119,6 @@
  "undo": "تراجع",
  "redo": "إعادة",
  "delete": "حذف",
- "duplicate": "تكرار",
  "toast_transaction_deleted": "تم حذف المعاملة",
  "toast_expense_deleted": "تم حذف المصروف",
  "row_actions_menu": "المزيد من الإجراءات",

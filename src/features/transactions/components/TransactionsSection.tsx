@@ -123,10 +123,9 @@ type TransactionsSectionProps = {
  txSumByCurrency: SumCurrencyTotal[];
  transactionsImportInputRef: RefObject<HTMLInputElement | null>;
  onCancelAllTransactions: () => void;
- onCopySelectedTransaction: (e: React.MouseEvent) => void;
+ onCopyTransactionRow: (row: TransactionTableRow) => void;
  onDeleteSelectedTransactions: () => void;
  onDeleteTransactionTableRow: (row: TransactionTableRow) => void;
- onDuplicateTransactionRow: (row: TransactionTableRow) => void;
  onEditAllTransactions: () => void;
  onExportArchivePdf: () => void;
  onImportTransactionsFile: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -154,8 +153,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   transactionAccountFromCurrencyCode, transactionAccountToCurrencyCode, transactionSelectedCurrencyCode,
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
   txSumMode, txSumSelection, txSumByCurrency,
-  transactionsImportInputRef, onCancelAllTransactions, onCopySelectedTransaction, onDeleteSelectedTransactions,
-  onDeleteTransactionTableRow, onDuplicateTransactionRow, onEditAllTransactions, onExportArchivePdf, onImportTransactionsFile, onPasteCopiedTransaction,
+  transactionsImportInputRef, onCancelAllTransactions, onCopyTransactionRow, onDeleteSelectedTransactions,
+  onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, onImportTransactionsFile, onPasteCopiedTransaction,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
   setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry,
@@ -196,7 +195,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   setContextMenuRowId(txn.id);
   rowContextMenu.open(event, [
    { key: 'edit', label: t('edit'), onSelect: () => setEditingRowIds((prev) => new Set([...prev, txn.id])) },
-   { key: 'duplicate', label: t('duplicate'), onSelect: () => void onDuplicateTransactionRow(txn) },
+   { key: 'copy', label: t('copy_transaction'), onSelect: () => onCopyTransactionRow(txn) },
    { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const },
   ]);
  };
@@ -1290,36 +1289,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               />
              </svg>
             </button>
-            {selectedTransactionIds.size === 1 ? (
-             <button
-              type="button"
-              onClick={(e) => onCopySelectedTransaction(e)}
-              title={t('copy_transaction')}
-              aria-label={t('copy_transaction')}
-              className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
-             >
-              <svg
-               width="16"
-               height="16"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="1.8"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               aria-hidden
-              >
-               <rect
-                x="9"
-                y="9"
-                width="11"
-                height="11"
-                rx="2"
-               />
-               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-             </button>
-            ) : null}
             {selectedTransactionIds.size > 0 ? (
              <button
               type="button"
@@ -2740,6 +2709,51 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
          </div>
         </section>
    <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
+   {editingRowIds.size > 0 ? (
+    <div className={`fixed bottom-6 z-30 flex flex-col gap-3 sm:hidden ${isRTL ? 'left-6' : 'right-6'}`}>
+     <button
+      type="button"
+      title={t('save_changes')}
+      onClick={() => void onSaveAllTransactions()}
+      className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg active:bg-emerald-700"
+     >
+      <svg
+       width="22"
+       height="22"
+       viewBox="0 0 24 24"
+       fill="none"
+       stroke="currentColor"
+       strokeWidth="2.5"
+       strokeLinecap="round"
+       strokeLinejoin="round"
+       aria-hidden
+      >
+       <polyline points="20 6 9 17 4 12" />
+      </svg>
+     </button>
+     <button
+      type="button"
+      title={t('cancel')}
+      onClick={() => onCancelAllTransactions()}
+      className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-500 shadow-lg ring-1 ring-slate-300 active:bg-slate-100"
+     >
+      <svg
+       width="20"
+       height="20"
+       viewBox="0 0 24 24"
+       fill="none"
+       stroke="currentColor"
+       strokeWidth="2.5"
+       strokeLinecap="round"
+       strokeLinejoin="round"
+       aria-hidden
+      >
+       <line x1="18" y1="6" x2="6" y2="18" />
+       <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+     </button>
+    </div>
+   ) : null}
   </>
  );
 }

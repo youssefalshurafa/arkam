@@ -1653,6 +1653,23 @@ function AuthenticatedHome() {
   });
  }
 
+ // Mobile floating save/cancel button: saves or cancels every ledger row currently being
+ // edited, across however many accounts' ledgers are open at once (covers both a single
+ // pencil-edited row and full "edit all" ledgers).
+ async function onSaveAllEditingLedgerRows() {
+  const editingAccountIds = new Set([...editingLedgerRowKeys].map((k) => parseInt(k.split(':')[1], 10)));
+  for (const ledger of selectedClientLedgers) {
+   if (editingAccountIds.has(ledger.accountId)) await onSaveAllLedger(ledger);
+  }
+ }
+
+ function onCancelAllEditingLedgerRows() {
+  const editingAccountIds = new Set([...editingLedgerRowKeys].map((k) => parseInt(k.split(':')[1], 10)));
+  for (const ledger of selectedClientLedgers) {
+   if (editingAccountIds.has(ledger.accountId)) onCancelAllLedger(ledger);
+  }
+ }
+
  // Puts a single ledger row into inline-edit mode (builds its draft + seeds the
  // reversed-rate flag). Shared by the row's Edit (pencil) button and the arrow-key
  // "save and move to next row" flow below.
@@ -3077,6 +3094,11 @@ function AuthenticatedHome() {
      }
      const selectedCurrency = currencyMap.get(draft.currencyId);
      const account = clientAccountMap.get(draft.accountFromId);
+     // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
+     const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+     const adjRawRate = parseFloat(draft.exchangeRateFrom);
+     const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
+     const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
      await accountingApi.updateClientAdjustment({
       id: draft.adjustmentId,
       accountId: draft.accountFromId,
@@ -3085,8 +3107,8 @@ function AuthenticatedHome() {
       currencyId: draft.currencyId,
       currencyCode: selectedCurrency?.code || account?.currencyCode || '',
       currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-      exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
-      exchangeRateReversed: !!tableRateFromReversed[transactionId],
+      exchangeRate: adjRate,
+      exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
       description: draft.description,
       createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
      });
@@ -3478,46 +3500,6 @@ function AuthenticatedHome() {
   await onDeleteTransaction(row.id);
  }
 
- // Creates an exact copy of a row (same accounts/amount/rates/charges/description) dated
- // on the same day as the original, landing right after it in that day's sequence — same
- // logic new rows always use (nextCreatedAtForDate), just seeded with the original's date
- // instead of "today".
- async function onDuplicateTransactionRow(row: TransactionTableRow) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const createdAt = nextCreatedAtForDate(row.createdAt.slice(0, 10));
-
-  try {
-   if (row.isAdjustment) {
-    const adjPayload = {
-     accountId: row.accountFromId as number,
-     amount: row.amount,
-     direction: row.adjustmentDirection ?? ('debit' as const),
-     currencyId: row.currencyId,
-     currencyCode: row.currencyCode,
-     currencySymbol: row.currencySymbol,
-     exchangeRate: row.exchangeRateFrom,
-     exchangeRateReversed: !!row.exchangeRateFromReversed,
-     description: row.description,
-     createdAt,
-    };
-    if (!(await confirmIfLocked([adjPayload.accountId], adjPayload.createdAt, NEW_ROW_REF_ID))) return;
-    await accountingApi.createClientAdjustment(adjPayload);
-   } else {
-    const txPayload = buildTransactionCreatePayload(row, createdAt);
-    if (!row.isArchived && !(await confirmIfLocked([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID))) return;
-    await accountingApi.createTransaction(txPayload);
-   }
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
-
  function onToggleTransactionSelection(transactionId: number) {
   setSelectedTransactionIds((current) => {
    const next = new Set(current);
@@ -3547,17 +3529,9 @@ function AuthenticatedHome() {
   });
  }
 
- function onCopySelectedTransaction(e: React.MouseEvent) {
-  const ids = [...selectedTransactionIds];
-  if (ids.length !== 1) return;
-  const row = transactionTableRowMap.get(ids[0]);
-  if (row) {
-   setCopiedTransaction(row);
-   // Unmark the row once copied: the selection toolbar collapses and the row is free to be
-   // re-selected, so a follow-up copy/paste doesn't act on a stale marking.
-   setSelectedTransactionIds(new Set());
-   showToast(t('toast_copied'), e);
-  }
+ function onCopyTransactionRow(row: TransactionTableRow) {
+  setCopiedTransaction(row);
+  showToast(t('toast_copied'));
  }
 
  function onPasteCopiedTransaction() {
@@ -3943,6 +3917,12 @@ function AuthenticatedHome() {
    const selectedCurrency = currencyMap.get(draft.currencyId);
    const account = clientAccountMap.get(draft.accountFromId);
 
+   // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
+   const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+   const adjRawRate = parseFloat(draft.exchangeRateFrom);
+   const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
+   const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
+
    const adjustmentPayload: ClientAdjustment = {
     id: draft.adjustmentId,
     accountId: draft.accountFromId,
@@ -3951,8 +3931,8 @@ function AuthenticatedHome() {
     currencyId: draft.currencyId,
     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-    exchangeRate: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
-    exchangeRateReversed: !!tableRateFromReversed[transactionId],
+    exchangeRate: adjRate,
+    exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
     description: draft.description,
     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    };
@@ -3989,6 +3969,19 @@ function AuthenticatedHome() {
    return;
   }
 
+  // Preserve the "unset" (0) rate for cross-currency sides so a pending row isn't forced to 1.
+  const fromAcc = draft.accountFromId ? clientAccountMap.get(draft.accountFromId) : null;
+  const toAcc = draft.accountToId ? clientAccountMap.get(draft.accountToId) : null;
+  const fromCross = !!fromAcc && fromAcc.currencyId !== draft.currencyId;
+  const toCross = !!toAcc && toAcc.currencyId !== draft.currencyId;
+  const sideRate = (field: string, cross: boolean, reversed: boolean) => {
+   const r = parseFloat(field);
+   if (Number.isFinite(r) && r > 0) return reversed ? 1 / r : r;
+   return cross ? 0 : 1;
+  };
+  const fromRateVal = sideRate(draft.exchangeRateFrom, fromCross, !!tableRateFromReversed[transactionId]);
+  const toRateVal = sideRate(draft.exchangeRateTo, toCross, !!tableRateToReversed[transactionId]);
+
   const transactionPayload: TransactionUpdateInput = {
    id: transaction.id,
    accountFromId: draft.accountFromId,
@@ -3996,12 +3989,12 @@ function AuthenticatedHome() {
    currencyId: draft.currencyId,
    amount,
    type: draft.type,
-   exchangeRateFrom: tableRateFromReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateFrom) || 1) : parseFloat(draft.exchangeRateFrom) || 1,
+   exchangeRateFrom: fromRateVal,
    commissionFrom: parseFloat(draft.commissionFrom) || 0,
-   exchangeRateTo: tableRateToReversed[transactionId] ? 1 / (parseFloat(draft.exchangeRateTo) || 1) : parseFloat(draft.exchangeRateTo) || 1,
+   exchangeRateTo: toRateVal,
    commissionTo: parseFloat(draft.commissionTo) || 0,
-   exchangeRateFromReversed: tableRateFromReversed[transactionId] ? 1 : 0,
-   exchangeRateToReversed: tableRateToReversed[transactionId] ? 1 : 0,
+   exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
+   exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
    charges: parseFloat(draft.charges) || 0,
    chargesCurrencyId: draft.chargesCurrencyId || null,
    chargesPayer: draft.chargesPayer,
@@ -5466,6 +5459,8 @@ function AuthenticatedHome() {
          onLedgerRowDrop={onLedgerRowDrop}
          onSaveAllLedger={onSaveAllLedger}
          onSaveLedgerRow={onSaveLedgerRow}
+         onSaveAllEditingLedgerRows={onSaveAllEditingLedgerRows}
+         onCancelAllEditingLedgerRows={onCancelAllEditingLedgerRows}
          onToggleLedgerEntrySelection={onToggleLedgerEntrySelection}
          openAdjustmentModal={openAdjustmentModal}
          openClientLedger={openClientLedger}
@@ -5535,10 +5530,9 @@ function AuthenticatedHome() {
          txSumByCurrency={txSumByCurrency}
          transactionsImportInputRef={transactionsImportInputRef}
          onCancelAllTransactions={onCancelAllTransactions}
-         onCopySelectedTransaction={onCopySelectedTransaction}
+         onCopyTransactionRow={onCopyTransactionRow}
          onDeleteSelectedTransactions={onDeleteSelectedTransactions}
          onDeleteTransactionTableRow={onDeleteTransactionTableRow}
-         onDuplicateTransactionRow={onDuplicateTransactionRow}
          onEditAllTransactions={onEditAllTransactions}
          onExportArchivePdf={onExportArchivePdf}
          onImportTransactionsFile={onImportTransactionsFile}
