@@ -2,9 +2,35 @@
 
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import CustomSelect from '@/shared/components/CustomSelect';
 import { panelClassName } from '@/shared/styles';
 import type { PdfSettings } from '@/shared/types';
 import { useSettingsStore } from '../store/settingsStore';
+
+const selectClassName =
+ 'mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400';
+
+const FONT_FAMILY_OPTIONS = [
+ { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
+ { value: "'Cairo', sans-serif", label: 'Cairo' },
+ { value: "'Times New Roman', Times, serif", label: 'Times New Roman' },
+ { value: "Georgia, 'Times New Roman', serif", label: 'Georgia' },
+ { value: 'Verdana, Geneva, sans-serif', label: 'Verdana' },
+ { value: 'Tahoma, Geneva, sans-serif', label: 'Tahoma' },
+ { value: 'Trebuchet MS, Helvetica, sans-serif', label: 'Trebuchet MS' },
+ { value: "'Courier New', Courier, monospace", label: 'Courier New' },
+];
+
+const FONT_SIZE_OPTIONS = [8, 9, 10, 11, 12, 13, 14, 16, 18].map((s) => ({ value: s, label: `${s}px` }));
+const HEAD_FONT_SIZE_OPTIONS = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20].map((s) => ({ value: s, label: `${s}px` }));
+
+const DATE_FORMAT_OPTIONS: { value: PdfSettings['dateFormat']; label: string }[] = [
+ { value: 'full', label: '2026-06-26 (YYYY-MM-DD)' },
+ { value: 'day-month', label: '26/06 (DD/MM)' },
+ { value: 'month-day', label: '06/26 (MM/DD)' },
+ { value: 'day-month-year-2', label: '26/06/26 (DD/MM/YY)' },
+ { value: 'month-year', label: '06/2026 (MM/YYYY)' },
+];
 
 export default function PdfSettingsTab() {
  const { language } = useLanguage();
@@ -23,56 +49,32 @@ export default function PdfSettingsTab() {
      <div>
       <h3 className="text-sm font-semibold text-slate-800">{t('pdf_font_family_label')}</h3>
       <p className="mt-1 text-xs text-slate-500">{t('pdf_font_family_hint')}</p>
-      <select
+      <CustomSelect
        value={pdfSettings.fontFamily}
-       onChange={(e) => updatePdfSettings({ fontFamily: e.target.value })}
-       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-      >
-       <option value="Arial, Helvetica, sans-serif">Arial</option>
-       <option value="'Cairo', sans-serif">Cairo</option>
-       <option value="'Times New Roman', Times, serif">Times New Roman</option>
-       <option value="Georgia, 'Times New Roman', serif">Georgia</option>
-       <option value="Verdana, Geneva, sans-serif">Verdana</option>
-       <option value="Tahoma, Geneva, sans-serif">Tahoma</option>
-       <option value="Trebuchet MS, Helvetica, sans-serif">Trebuchet MS</option>
-       <option value="'Courier New', Courier, monospace">Courier New</option>
-      </select>
+       onChange={(value) => updatePdfSettings({ fontFamily: value })}
+       options={FONT_FAMILY_OPTIONS}
+       className={selectClassName}
+      />
      </div>
      <div>
       <h3 className="text-sm font-semibold text-slate-800">{t('pdf_font_size_label')}</h3>
       <p className="mt-1 text-xs text-slate-500">{t('pdf_font_size_hint')}</p>
-      <select
+      <CustomSelect
        value={pdfSettings.fontSize}
-       onChange={(e) => updatePdfSettings({ fontSize: Number(e.target.value) })}
-       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-      >
-       {[8, 9, 10, 11, 12, 13, 14, 16, 18].map((s) => (
-        <option
-         key={s}
-         value={s}
-        >
-         {s}px
-        </option>
-       ))}
-      </select>
+       onChange={(value) => updatePdfSettings({ fontSize: value })}
+       options={FONT_SIZE_OPTIONS}
+       className={selectClassName}
+      />
      </div>
      <div>
       <h3 className="text-sm font-semibold text-slate-800">{t('pdf_head_font_size_label')}</h3>
       <p className="mt-1 text-xs text-slate-500">{t('pdf_head_font_size_hint')}</p>
-      <select
+      <CustomSelect
        value={pdfSettings.headFontSize}
-       onChange={(e) => updatePdfSettings({ headFontSize: Number(e.target.value) })}
-       className="mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-      >
-       {[8, 9, 10, 11, 12, 13, 14, 16, 18, 20].map((s) => (
-        <option
-         key={s}
-         value={s}
-        >
-         {s}px
-        </option>
-       ))}
-      </select>
+       onChange={(value) => updatePdfSettings({ headFontSize: value })}
+       options={HEAD_FONT_SIZE_OPTIONS}
+       className={selectClassName}
+      />
      </div>
     </div>
 
@@ -80,17 +82,14 @@ export default function PdfSettingsTab() {
     <div className="mt-6">
      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_date_format_label')}</h3>
      <p className="mt-1 text-xs text-slate-500">{t('pdf_date_format_hint')}</p>
-     <select
-      value={pdfSettings.dateFormat}
-      onChange={(e) => updatePdfSettings({ dateFormat: e.target.value as PdfSettings['dateFormat'] })}
-      className="mt-3 w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-     >
-      <option value="full">2026-06-26 (YYYY-MM-DD)</option>
-      <option value="day-month">26/06 (DD/MM)</option>
-      <option value="month-day">06/26 (MM/DD)</option>
-      <option value="day-month-year-2">26/06/26 (DD/MM/YY)</option>
-      <option value="month-year">06/2026 (MM/YYYY)</option>
-     </select>
+     <div className="max-w-xs">
+      <CustomSelect
+       value={pdfSettings.dateFormat}
+       onChange={(value) => updatePdfSettings({ dateFormat: value })}
+       options={DATE_FORMAT_OPTIONS}
+       className={selectClassName}
+      />
+     </div>
     </div>
 
     {/* Decimal places */}
