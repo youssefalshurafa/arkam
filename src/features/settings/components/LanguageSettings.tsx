@@ -2,6 +2,7 @@
 
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import CustomSelect from '@/shared/components/CustomSelect';
 import { panelClassName } from '@/shared/styles';
 
 export default function LanguageSettings() {
@@ -16,15 +17,16 @@ export default function LanguageSettings() {
 
     <div className="mt-6 max-w-md">
      <label className="block text-sm font-medium text-slate-700">{t('select_language')}</label>
-     <select
+     <CustomSelect
       value={language}
-      onChange={(e) => setLanguage(e.target.value as 'en' | 'ar' | 'fr')}
+      onChange={(value) => setLanguage(value)}
+      options={[
+       { value: 'en', label: t('english') },
+       { value: 'ar', label: t('arabic') },
+       { value: 'fr', label: t('french') },
+      ]}
       className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-     >
-      <option value="en">{t('english')}</option>
-      <option value="ar">{t('arabic')}</option>
-      <option value="fr">{t('french')}</option>
-     </select>
+     />
     </div>
    </div>
   </section>

@@ -100,6 +100,11 @@ export function computeOverviewBalances({ transactions, adjustments, clientAccou
    if (list) list.push(group);
    else byOrg.set(orgKey, [group]);
   }
+  // Drop organizations (including "no organization") whose every currency group has
+  // settled to zero — nothing would render for them, so their section header shouldn't either.
+  for (const [orgKey, orgGroups] of byOrg) {
+   if (orgGroups.every((g) => g.total === 0)) byOrg.delete(orgKey);
+  }
 
   return { groups, byOrg, hasAccounts: clientAccounts.length > 0 };
 }

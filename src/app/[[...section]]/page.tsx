@@ -3461,17 +3461,21 @@ function AuthenticatedHome() {
   if (!account) return;
 
   // Time-place the write-off strictly after the target row (and before the next one when
-  // they differ), so it sorts right after this row in the ledger.
+  // there's room), so it sorts right after this row in the ledger. Must never land on the
+  // exact same createdAt as the target: same-timestamp ties are broken by comparing raw
+  // adjustmentId against transactionId (two independent id sequences), which can easily sort
+  // a new write-off before the row it's meant to follow.
   const ledger = selectedClientLedgers.find((l) => l.accountId === ledgerAccountId);
   const entries = ledger?.entries ?? [];
   const idx = entries.findIndex((e) => e.transactionId === entry.transactionId);
   const nextEntry = idx >= 0 ? entries[idx + 1] : undefined;
   const targetMs = Date.parse(entry.createdAt);
-  let createdAt = entry.createdAt;
+  let createdAtMs = targetMs + 1;
   if (nextEntry) {
    const nextMs = Date.parse(nextEntry.createdAt);
-   if (nextMs > targetMs) createdAt = new Date(targetMs + Math.min(1000, Math.floor((nextMs - targetMs) / 2))).toISOString();
+   if (nextMs > createdAtMs) createdAtMs = targetMs + Math.min(1000, Math.floor((nextMs - targetMs) / 2));
   }
+  const createdAt = new Date(createdAtMs).toISOString();
 
   const confirmed = await confirmDialog({
    title: t('write_off_confirm_title'),
@@ -3651,7 +3655,9 @@ function AuthenticatedHome() {
 
   // Reconciliation guard: a drag that re-dates a row onto (or currently sitting on)
   // reconciled history must warn before we reorder. Replays the zone logic below.
+  // Also tracks whether the drop silently re-dates any row, so we can confirm that too.
   let dropLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+  let dateChange: { from: string; to: string } | null = null;
   for (const draggedId of draggedIds) {
    const draggedRow = rowMap.get(draggedId);
    if (!draggedRow) continue;
@@ -3661,12 +3667,16 @@ function AuthenticatedHome() {
    const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
    const draggedDate = draggedRow.createdAt.slice(0, 10);
    const newCreatedAt = !zoneDate || zoneDate === draggedDate ? draggedRow.createdAt : zoneDate + draggedRow.createdAt.slice(10);
+   if (zoneDate && zoneDate !== draggedDate && !dateChange) dateChange = { from: draggedDate, to: zoneDate };
    const accIds = draggedRow.isAdjustment ? [draggedRow.accountFromId] : [draggedRow.accountFromId, draggedRow.accountToId];
    const refId = draggedRow.isAdjustment ? draggedRow.adjustmentId ?? 0 : draggedRow.id;
    dropLockHit = violatedLock(accIds, draggedRow.createdAt, refId, lockBoundaries) ?? violatedLock(accIds, newCreatedAt, refId, lockBoundaries);
-   if (dropLockHit) break;
+   if (dropLockHit && dateChange) break;
   }
   if (dropLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(dropLockHit.accountId, dropLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
+   return;
+  }
+  if (dateChange && !(await confirmDialog({ title: t('drag_date_change_title'), message: t('drag_date_change_message', { from: dateChange.from, to: dateChange.to }), confirmText: t('drag_date_change_confirm'), tone: 'danger' }))) {
    return;
   }
 
@@ -3782,8 +3792,11 @@ function AuthenticatedHome() {
    newTimes.set(k, new Date(ts).toISOString());
   });
 
-  // Reconciliation guard: reordering rows at or before the lock line rewrites reconciled history.
-  const reorderRows = next.flatMap((k) => {
+  // Reconciliation guard: only the rows the user actually dragged can move at or before
+  // the lock line — bystander rows on the same date keep their relative order (the reflow
+  // above only spaces out timestamps, it doesn't reorder them), so checking the full
+  // same-day group here would false-positive on the lock's own anchor row.
+  const reorderRows = orderedDragged.flatMap((k) => {
    const e = entryMap.get(k);
    if (!e) return [];
    return [{ createdAt: e.createdAt, refId: e.isAdjustment ? e.adjustmentId ?? 0 : e.transactionId, newCreatedAt: newTimes.get(k) ?? e.createdAt }];
