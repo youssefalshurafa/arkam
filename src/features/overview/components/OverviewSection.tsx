@@ -35,7 +35,7 @@ type OverviewSectionProps = {
 };
 
 export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, adjustments, isLoading, navigateToSection, onExportOverviewPdf }: OverviewSectionProps) {
- const { language } = useLanguage();
+ const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
@@ -343,27 +343,6 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                 {fmt(grandTotal)} {mainSymbol}
                </p>
               </div>
-              {selectedShownCount > 0 ? (
-               <>
-                {/* Sticky so the action stays reachable while scrolling through a long list of
-                    organization cards to pick more of them, instead of scrolling away with the header. */}
-                <button
-                 type="button"
-                 onClick={printSelected}
-                 className="sticky top-4 z-20 shrink-0 inline-flex items-center gap-1.5 rounded border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-800"
-                >
-                 {printIcon}
-                 {t('overview_print_selected', { count: selectedShownCount })}
-                </button>
-                <button
-                 type="button"
-                 onClick={() => setSelectedCardKeys(new Set())}
-                 className="sticky top-4 z-20 shrink-0 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-lg transition hover:bg-slate-50"
-                >
-                 {t('overview_deselect_all')}
-                </button>
-               </>
-              ) : null}
              </div>
             </div>
 
@@ -702,6 +681,26 @@ export default function OverviewSection({ organizations, clients, clientAccounts
 
             {anyRateMissing ? <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
            </div>
+
+           {selectedShownCount > 0 ? (
+            <div className={`fixed bottom-6 z-30 flex flex-wrap items-center gap-2 ${isRTL ? 'left-6' : 'right-6'}`}>
+             <button
+              type="button"
+              onClick={printSelected}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-800"
+             >
+              {printIcon}
+              {t('overview_print_selected', { count: selectedShownCount })}
+             </button>
+             <button
+              type="button"
+              onClick={() => setSelectedCardKeys(new Set())}
+              className="shrink-0 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-lg transition hover:bg-slate-50"
+             >
+              {t('overview_deselect_all')}
+             </button>
+            </div>
+           ) : null}
            </>
           );
          })()}
