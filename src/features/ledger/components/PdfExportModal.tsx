@@ -71,17 +71,20 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            {/* Shortcut: derive the range from the highlighted rows. Both boundaries are
                inclusive — the first highlighted row is the first row shown, the last
                highlighted row is the final row shown. Everything before the first highlight
-               is rolled into the opening (pre-)balance. */}
+               is rolled into the opening (pre-)balance. A single highlighted row exports just
+               that row (it's both the first and the last). */}
            {(() => {
             const highlightedEntries = ledger.entries.filter((e) => highlightedLedgerRows.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)));
-            if (highlightedEntries.length < 2) return null;
+            if (highlightedEntries.length < 1) return null;
             return (
              <div className="flex flex-col gap-1">
               <button
                type="button"
                onClick={() => {
-                const first = highlightedEntries[highlightedEntries.length - 2];
                 const last = highlightedEntries[highlightedEntries.length - 1];
+                // With 2+ highlights the range runs between the last two; with a single
+                // highlight that row is both boundaries, so the PDF holds just that one row.
+                const first = highlightedEntries.length >= 2 ? highlightedEntries[highlightedEntries.length - 2] : last;
                 // Both highlighted rows are included in the export: start AT the first
                 // highlight (not the row after it), end AT the last highlight.
                 const newFrom = first.createdAt.slice(0, 10);
