@@ -133,6 +133,7 @@ import LedgerSection from '@/features/ledger/components/LedgerSection';
 import ImportWizard from '@/features/transactions/components/ImportWizard';
 import CreateOrgDialog from '@/features/organizations/components/CreateOrgDialog';
 import { useOrganizationActions } from '@/features/organizations/hooks/useOrganizationActions';
+import { useBackupActions } from '@/features/settings/hooks/useBackupActions';
 import ToastHost from '@/shared/components/ToastHost';
 import Sidebar from '@/shared/components/Sidebar';
 import AppHeader from '@/shared/components/AppHeader';
@@ -2097,132 +2098,19 @@ function AuthenticatedHome() {
   }
  }
 
- async function onDownloadBackup() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  setIsBackingUp(true);
-  try {
-   const backup = await accountingApi.exportWorkspaceData();
-   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-   const url = URL.createObjectURL(blob);
-   const link = document.createElement('a');
-   link.href = url;
-   link.download = `arkam_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
-   document.body.appendChild(link);
-   link.click();
-   document.body.removeChild(link);
-   URL.revokeObjectURL(url);
-   // Stamp the backup server-side so the indicator syncs to every device.
-   try {
-    const recorded = await accountingApi.recordBackup(getDeviceLabel());
-    setLastBackupAt(recorded.lastBackupAt);
-    setLastBackupDevice(recorded.lastBackupDevice);
-   } catch {
-    // Download already succeeded; a failed stamp is non-fatal.
-    setLastBackupAt(new Date().toISOString());
-    setLastBackupDevice(getDeviceLabel());
-   }
-   setError('');
-   setImportSummary(t('backup_download_success'));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsBackingUp(false);
-  }
- }
-
- async function onRestoreBackupFile(event: ChangeEvent<HTMLInputElement>) {
-  const file = event.target.files?.[0];
-  if (backupRestoreInputRef.current) backupRestoreInputRef.current.value = '';
-  if (!file) return;
-
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const confirmed = await confirmDialog({
-   title: t('danger_action_cannot_undo'),
-   message: t('backup_restore_confirm'),
-   tone: 'danger',
+  const { onDownloadBackup, onRestoreBackupFile, lastBackupLabel } = useBackupActions({
+   setIsBackingUp,
+   setIsRestoringBackup,
+   lastBackupAt,
+   setLastBackupAt,
+   lastBackupDevice,
+   setLastBackupDevice,
+   backupRestoreInputRef,
+   setImportSummary,
+   setSelectedClientForAccounts,
+   setSelectedClientForLedger,
+   setSelectedLedgerAccountId,
   });
-  if (!confirmed) return;
-
-  setIsRestoringBackup(true);
-  try {
-   const text = await file.text();
-   let parsed: unknown;
-   try {
-    parsed = JSON.parse(text);
-   } catch {
-    throw new Error(t('backup_restore_invalid_file'));
-   }
-
-   if (!parsed || typeof parsed !== 'object' || (parsed as { format?: string }).format !== 'arkam-backup') {
-    throw new Error(t('backup_restore_invalid_file'));
-   }
-
-   await accountingApi.importWorkspaceData(parsed as Parameters<typeof accountingApi.importWorkspaceData>[0]);
-   setSelectedTransactionIds(new Set());
-   setTransactionTableDrafts({});
-   setCommissionExpandedTxns(new Set());
-   setExpensesExpandedTxns(new Set());
-   setClientForm(emptyClientForm());
-   setSelectedClientForAccounts(null);
-   setSelectedClientForLedger(null);
-   setSelectedLedgerAccountId(null);
-   setTransactionsPage(99999);
-   setError('');
-   await loadData();
-   setImportSummary(t('backup_restore_success'));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsRestoringBackup(false);
-  }
- }
-
- // Localized "Last backup: 2 days ago" style label, or a "never" message.
- function lastBackupLabel(): string {
-  if (!lastBackupAt) return t('backup_last_never');
-
-  const then = new Date(lastBackupAt).getTime();
-  if (Number.isNaN(then)) return t('backup_last_never');
-
-  const diffMs = Date.now() - then;
-  const minutes = Math.round(diffMs / 60000);
-  const hours = Math.round(diffMs / 3600000);
-  const days = Math.round(diffMs / 86400000);
-
-  const exact = new Date(lastBackupAt).toLocaleString(language, {
-   year: 'numeric',
-   month: 'short',
-   day: 'numeric',
-   hour: '2-digit',
-   minute: '2-digit',
-   second: '2-digit',
-  });
-
-  let relative: string;
-  try {
-   const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
-   if (Math.abs(days) >= 1) relative = rtf.format(-days, 'day');
-   else if (Math.abs(hours) >= 1) relative = rtf.format(-hours, 'hour');
-   else if (Math.abs(minutes) >= 1) relative = rtf.format(-minutes, 'minute');
-   else relative = rtf.format(0, 'minute');
-  } catch {
-   relative = exact;
-  }
-
-  const time = `${relative} (${exact})`;
-  if (lastBackupDevice) {
-   return t('backup_last_device').replace('{time}', time).replace('{device}', lastBackupDevice);
-  }
-  return t('backup_last_label').replace('{time}', time);
- }
 
  async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
