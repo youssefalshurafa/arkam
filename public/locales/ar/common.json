@@ -541,6 +541,7 @@
  "tx_filter_toggle": "تصفية وبحث",
  "tx_filter_search": "بحث",
  "tx_filter_search_placeholder": "عميل أو وصف أو مبلغ...",
+ "tx_filter_whole_word": "مطابقة الكلمة أو الرقم كاملاً فقط",
  "tx_filter_client": "العميل",
  "tx_filter_client_all": "جميع العملاء",
  "tx_filter_date_from": "من تاريخ",

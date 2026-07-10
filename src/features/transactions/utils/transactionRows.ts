@@ -1,4 +1,5 @@
 import type { ClientAccount, ClientAdjustment, Section, Transaction, TransactionTableRow } from '@/shared/types';
+import { amountMatchesSearch, textMatchesSearch } from '@/shared/utils/searchMatch';
 
 // Combines transactions with adjustment-derived rows and sorts by date (then id).
 // Ported verbatim from the page's transactionTableRows memo.
@@ -61,11 +62,12 @@ export function buildTransactionTableRows({ adjustments, clientAccounts, transac
 
 // Applies manual ordering, the archive/transactions split, and the active filters.
 // Ported verbatim from the page's displayedTransactionRows memo.
-export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }: {
+export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }: {
  transactionTableRows: TransactionTableRow[];
  manualRowOrder: number[] | null;
  section: Section;
  txFilterSearch: string;
+ txFilterWholeWord: boolean;
  txFilterClient: string;
  txFilterDateFrom: string;
  txFilterDateTo: string;
@@ -82,16 +84,12 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
   let filtered =
    section === 'archive' ? ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId))) : ordered.filter((row) => !row.isArchived);
   if (txFilterSearch) {
-   const q = txFilterSearch.toLowerCase();
-   // Amount matching ignores thousands separators/spaces, so "500,000" and
-   // "500000" both match the stored numeric amount.
-   const amountQ = q.replace(/[,\s]/g, '');
    filtered = filtered.filter(
     (row) =>
-     row.clientFromName.toLowerCase().includes(q) ||
-     row.clientToName.toLowerCase().includes(q) ||
-     row.description.toLowerCase().includes(q) ||
-     (amountQ !== '' && String(row.amount).includes(amountQ)),
+     textMatchesSearch(row.clientFromName, txFilterSearch, txFilterWholeWord) ||
+     textMatchesSearch(row.clientToName, txFilterSearch, txFilterWholeWord) ||
+     textMatchesSearch(row.description, txFilterSearch, txFilterWholeWord) ||
+     amountMatchesSearch(row.amount, txFilterSearch, txFilterWholeWord),
    );
   }
   if (txFilterClient) {

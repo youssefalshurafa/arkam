@@ -229,6 +229,7 @@ function AuthenticatedHome() {
  const setShowLedgerSettingsModal = useLedgerStore((s) => s.setShowLedgerSettingsModal);
  const setLedgerFilterOpen = useLedgerStore((s) => s.setLedgerFilterOpen);
  const ledgerFilterSearch = useLedgerStore((s) => s.ledgerFilterSearch);
+ const ledgerFilterWholeWord = useLedgerStore((s) => s.ledgerFilterWholeWord);
  const setLedgerFilterSearch = useLedgerStore((s) => s.setLedgerFilterSearch);
  const ledgerFilterCounterparty = useLedgerStore((s) => s.ledgerFilterCounterparty);
  const setLedgerFilterCounterparty = useLedgerStore((s) => s.setLedgerFilterCounterparty);
@@ -314,6 +315,7 @@ function AuthenticatedHome() {
  const setTxFilterOpen = useTransactionsStore((s) => s.setTxFilterOpen);
  const txFilterSearch = useTransactionsStore((s) => s.txFilterSearch);
  const setTxFilterSearch = useTransactionsStore((s) => s.setTxFilterSearch);
+ const txFilterWholeWord = useTransactionsStore((s) => s.txFilterWholeWord);
  const txFilterClient = useTransactionsStore((s) => s.txFilterClient);
  const setTxFilterClient = useTransactionsStore((s) => s.setTxFilterClient);
  const txFilterDateFrom = useTransactionsStore((s) => s.txFilterDateFrom);
@@ -803,8 +805,8 @@ function AuthenticatedHome() {
  // The Archive section shows only transactions missing a party; the main
  // Transactions section shows everything (including those archived rows).
  const displayedTransactionRows = useMemo<TransactionTableRow[]>(
-  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }),
-  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses],
+  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }),
+  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses],
  );
 
  const txFilterClientOptions = useMemo(() => {
@@ -845,11 +847,11 @@ function AuthenticatedHome() {
 
  useEffect(() => {
   setTransactionsPage(99999);
- }, [txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses]);
+ }, [txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses]);
 
  useEffect(() => {
   setLedgerPageState({});
- }, [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
+ }, [ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;

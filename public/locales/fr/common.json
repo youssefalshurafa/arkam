@@ -540,6 +540,7 @@
  "tx_filter_toggle": "Filtrer et rechercher",
  "tx_filter_search": "Rechercher",
  "tx_filter_search_placeholder": "Client, description ou montant...",
+ "tx_filter_whole_word": "Mot ou nombre entier uniquement",
  "tx_filter_client": "Client",
  "tx_filter_client_all": "Tous les clients",
  "tx_filter_date_from": "Du",
