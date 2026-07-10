@@ -355,6 +355,28 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   return false;
  }
 
+ // The counterparty side isn't editable from this ledger row, so its rate is normally carried
+ // over from the transaction unchanged. But if a counterparty is being ADDED to a previously
+ // one-sided transaction, that side's stored rate is a stale default (typically 1) — force it
+ // to pending (0) when the new counterparty's currency differs from the transaction currency,
+ // so it isn't silently applied as a 1:1 conversion in the counterparty's own ledger. Mirrors
+ // the transaction-table draft guard / new-transaction form.
+ let counterpartyRateFrom = transaction.exchangeRateFrom;
+ let counterpartyRateTo = transaction.exchangeRateTo;
+ let counterpartyReversedFrom = transaction.exchangeRateFromReversed ?? 0;
+ let counterpartyReversedTo = transaction.exchangeRateToReversed ?? 0;
+ if (originalCounterpartyId == null && draft.counterpartyAccountId != null) {
+  const cpAccount = clientAccounts.find((a) => a.id === draft.counterpartyAccountId);
+  const cpRate = cpAccount != null && cpAccount.currencyId !== draft.currencyId ? 0 : 1;
+  if (draft.direction === 'outgoing') {
+   counterpartyRateTo = cpRate;
+   counterpartyReversedTo = 0;
+  } else {
+   counterpartyRateFrom = cpRate;
+   counterpartyReversedFrom = 0;
+  }
+ }
+
  const createdAt = resolveCreatedAt(draft.createdDate, transaction.createdAt);
  const payload: TransactionUpdateInput = {
   id: transaction.id,
@@ -363,12 +385,12 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   currencyId: draft.currencyId,
   amount,
   type: draft.type,
-  exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
+  exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : counterpartyRateFrom,
   commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
-  exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
+  exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : counterpartyRateTo,
   commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
-  exchangeRateFromReversed: draft.direction === 'outgoing' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
-  exchangeRateToReversed: draft.direction === 'incoming' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
+  exchangeRateFromReversed: draft.direction === 'outgoing' ? (rateIsReversed ? 1 : 0) : counterpartyReversedFrom,
+  exchangeRateToReversed: draft.direction === 'incoming' ? (rateIsReversed ? 1 : 0) : counterpartyReversedTo,
   charges: parseFloat(draft.charges) || 0,
   chargesCurrencyId: draft.chargesCurrencyId,
   chargesPayer: draft.chargesPayer,

@@ -75,7 +75,6 @@ import {
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { HIGHLIGHT_PEN_CURSOR, formatRateValue } from '@/shared/utils/format';
-import { formatDateValue } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { renderIcon } from '@/shared/utils/icons';
 import { getSectionFromPath } from '@/shared/utils/section';
@@ -105,11 +104,14 @@ import { ensureCacheOwner } from '@/shared/lib/cacheOwner';
 import { panelClassName, mutedPanelClassName, tableWrapClassName } from '@/shared/styles';
 import OverviewSection from '@/features/overview/components/OverviewSection';
 import LiveRatesSection from '@/features/live-rates/components/LiveRatesSection';
+import TreasurySection from '@/features/treasury/components/TreasurySection';
 import CurrenciesSection from '@/features/currencies/components/CurrenciesSection';
 import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadOnly';
 import OrganizationsSection from '@/features/organizations/components/OrganizationsSection';
 import OrganizationsReadOnly from '@/features/organizations/components/OrganizationsReadOnly';
 import OrganizationClientsSection from '@/features/organizations/components/OrganizationClientsSection';
+import PendingPricingModal from '@/features/organizations/components/PendingPricingModal';
+import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
 import LanguageSettings from '@/features/settings/components/LanguageSettings';
 import DangerZone from '@/features/settings/components/DangerZone';
 import PdfSettingsTab from '@/features/settings/components/PdfSettings';
@@ -120,7 +122,7 @@ import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml, generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers, computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
-import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries } from '@/features/clients/utils/clientBalances';
+import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
@@ -1256,6 +1258,7 @@ function AuthenticatedHome() {
   { key: 'transactions', label: t('nav_transactions'), icon: 'transactions' },
   { key: 'archive', label: t('nav_archive'), icon: 'archive' },
   { key: 'live-rates', label: t('nav_live_rates'), icon: 'rates' },
+  { key: 'treasury', label: t('nav_treasury'), icon: 'treasury' },
  ];
 
  // Editors (workspace role 'member') don't get destructive/billing controls.
@@ -1365,6 +1368,73 @@ function AuthenticatedHome() {
   [clientAccounts, transactions, adjustments],
  );
  const [pendingPricingModalClientId, setPendingPricingModalClientId] = useState<number | null>(null);
+
+ // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
+ // account's balance from that date forward, so it must respect reconciliation locks the
+ // same way the ledger/transaction edit paths do.
+ const { confirmIfTransactionEditLocked, confirmIfEditLocked } = useReconciliationLocks({ reconciliations, clientAccountMap });
+
+ // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
+ // reusing the same update endpoints the ledger edit uses. The rate multiplies the entry's
+ // amount into its account currency (1 <entry currency> = rate <account currency>). Only the
+ // pending side's rate is touched; every other field is preserved from the stored record.
+ const onSavePendingPricingRate = useCallback(
+  async (entry: PendingPricingEntry, rateInput: string): Promise<boolean> => {
+   const rate = parseFloat(normalizeDecimalInput(rateInput));
+   if (!Number.isFinite(rate) || rate <= 0) {
+    setError(t('pending_pricing_invalid_rate'));
+    return false;
+   }
+   try {
+    if (entry.kind === 'adjustment' && entry.adjustmentId != null) {
+     const adj = adjustments.find((a) => a.id === entry.adjustmentId);
+     if (!adj) return false;
+     if (!(await confirmIfEditLocked([adj.accountId], adj.createdAt, [adj.accountId], adj.createdAt, adj.id))) {
+      return false;
+     }
+     await accountingApi.updateClientAdjustment({ ...adj, exchangeRate: rate, exchangeRateReversed: false });
+    } else if (entry.kind === 'transaction' && entry.transactionId != null) {
+     const tx = transactions.find((x) => x.id === entry.transactionId);
+     if (!tx) return false;
+     const payload: TransactionUpdateInput = {
+      id: tx.id,
+      accountFromId: tx.accountFromId,
+      accountToId: tx.accountToId,
+      currencyId: tx.currencyId,
+      amount: tx.amount,
+      type: tx.type,
+      exchangeRateFrom: entry.side === 'from' ? rate : tx.exchangeRateFrom,
+      commissionFrom: tx.commissionFrom,
+      exchangeRateTo: entry.side === 'to' ? rate : tx.exchangeRateTo,
+      commissionTo: tx.commissionTo,
+      exchangeRateFromReversed: entry.side === 'from' ? 0 : tx.exchangeRateFromReversed,
+      exchangeRateToReversed: entry.side === 'to' ? 0 : tx.exchangeRateToReversed,
+      charges: tx.charges,
+      chargesCurrencyId: tx.chargesCurrencyId,
+      chargesPayer: tx.chargesPayer,
+      chargesExchangeRate: tx.chargesExchangeRate,
+      chargesDescription: tx.chargesDescription,
+      description: tx.description,
+      archiveNote: tx.archiveNote,
+      createdAt: tx.createdAt,
+     };
+     if (!(await confirmIfTransactionEditLocked(tx, payload))) {
+      return false;
+     }
+     await accountingApi.updateTransaction(payload);
+    } else {
+     return false;
+    }
+    setError('');
+    await loadData();
+    return true;
+   } catch (e) {
+    setError(e instanceof Error ? e.message : t('error_failed_update'));
+    return false;
+   }
+  },
+  [adjustments, transactions, confirmIfEditLocked, confirmIfTransactionEditLocked, loadData, setError, t],
+ );
 
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
@@ -1694,6 +1764,11 @@ function AuthenticatedHome() {
    title: t('live_rates_title'),
    description: t('live_rates_description'),
    accent: t('nav_live_rates'),
+  },
+  treasury: {
+   title: t('treasury_title'),
+   description: t('treasury_description'),
+   accent: t('coming_soon_badge'),
   },
  };
 
@@ -2149,6 +2224,7 @@ function AuthenticatedHome() {
        ) : null}
 
        {section === 'live-rates' ? <LiveRatesSection /> : null}
+       {section === 'treasury' ? <TreasurySection /> : null}
 
        {section === 'transactions' || section === 'archive' ? (
         <TransactionsSection
@@ -2279,62 +2355,19 @@ function AuthenticatedHome() {
    ) : null}
 
    {/* Org page: "waiting for pricing" entries popup for a client (opened by clicking the count).
-       Mirrors the pending-rate list inside the client ledger: date, counterparty, description, amount. */}
-   {pendingPricingModalClientId != null ? (() => {
-    const modalClient = clients.find((c) => c.id === pendingPricingModalClientId);
-    const entries = clientPendingPricingEntries.get(pendingPricingModalClientId) ?? [];
-    return (
-     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-      onClick={() => setPendingPricingModalClientId(null)}
-     >
-      <div
-       className="flex max-h-[80vh] w-full max-w-md flex-col rounded-xl border border-slate-200 bg-white shadow-xl"
-       onClick={(e) => e.stopPropagation()}
-      >
-       <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
-        <div>
-         <h2 className="text-lg font-semibold text-slate-900">{t('pending_pricing_modal_title')}</h2>
-         {modalClient ? <p className="mt-0.5 text-sm text-slate-500">{modalClient.name}</p> : null}
-        </div>
-        <button
-         type="button"
-         onClick={() => setPendingPricingModalClientId(null)}
-         className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-         aria-label={t('close')}
-        >
-         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M18 6 6 18M6 6l12 12" />
-         </svg>
-        </button>
-       </div>
-       <div className="overflow-y-auto px-5 py-4">
-        {entries.length === 0 ? (
-         <p className="text-sm text-slate-500">{t('client_page_no_transactions')}</p>
-        ) : (
-         <ul className="space-y-1.5 text-sm text-slate-700">
-          {entries.map((entry) => (
-           <li
-            key={entry.key}
-            className="flex items-center gap-2 whitespace-nowrap rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5"
-           >
-            <span className="shrink-0 text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
-            {entry.counterpartyName ? <span className="shrink-0 font-medium">{entry.counterpartyName}</span> : null}
-            <span className="min-w-0 flex-1 truncate italic text-slate-400" title={entry.description}>
-             {entry.description}
-            </span>
-            <span className="shrink-0 font-semibold">
-             {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
-            </span>
-           </li>
-          ))}
-         </ul>
-        )}
-       </div>
-      </div>
-     </div>
-    );
-   })() : null}
+       Lists each pending row (date, counterparty, description, amount) with an inline rate
+       field so the pricing can be done right here, not only in the client ledger. */}
+   {pendingPricingModalClientId != null ? (
+    <PendingPricingModal
+     clientName={clients.find((c) => c.id === pendingPricingModalClientId)?.name ?? null}
+     entries={clientPendingPricingEntries.get(pendingPricingModalClientId) ?? []}
+     numLocale={numLocale}
+     ledgerDecimals={ledgerDecimals}
+     ledgerDateFormat={ledgerDateFormat}
+     onClose={() => setPendingPricingModalClientId(null)}
+     onSaveRate={onSavePendingPricingRate}
+    />
+   ) : null}
   </div>
  );
 }

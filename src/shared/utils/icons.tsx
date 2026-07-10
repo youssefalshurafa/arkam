@@ -116,5 +116,24 @@ export function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="M17 7h4v4" />
     </svg>
    );
+  case 'treasury':
+   return (
+    <svg {...commonProps}>
+     <rect
+      x="3"
+      y="4"
+      width="18"
+      height="16"
+      rx="2"
+     />
+     <circle
+      cx="12"
+      cy="12"
+      r="3.5"
+     />
+     <path d="M12 12h3.5" />
+     <path d="M7 20v1.5M17 20v1.5" />
+    </svg>
+   );
  }
 }

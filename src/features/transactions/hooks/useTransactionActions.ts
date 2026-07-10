@@ -277,6 +277,23 @@ function updateTransactionTableDraft(transactionId: number, nextValues: Partial<
   }
 
   const merged = { ...existingDraft, ...nextValues };
+  // When a side's account or the transaction currency changes, re-derive whether that side
+  // is same- or cross-currency and reset its exchange rate the way the "new transaction"
+  // form's effect does (page.tsx): a same-currency side is forced to 1.00; a side that turns
+  // cross-currency while still holding the default 1.00 is cleared, so the row stays pending
+  // (a dash, excluded from the balance) until a real rate is entered. Without this, adding the
+  // missing counterparty to a one-sided transaction leaves the stale 1.00 in place and it gets
+  // saved as a 1:1 conversion across a currency mismatch.
+  if ('accountFromId' in nextValues || 'accountToId' in nextValues || 'currencyId' in nextValues) {
+   const resetSideRate = (accountId: number | null, currentRate: string) => {
+    const account = accountId != null ? clientAccountMap.get(accountId) : undefined;
+    if (!account || merged.currencyId == null) return currentRate;
+    if (account.currencyId === merged.currencyId) return '1.00';
+    return currentRate === '1.00' ? '' : currentRate;
+   };
+   merged.exchangeRateFrom = resetSideRate(merged.accountFromId, merged.exchangeRateFrom);
+   merged.exchangeRateTo = resetSideRate(merged.accountToId, merged.exchangeRateTo);
+  }
   // If the charge's currency or payer changed such that the charge now matches the
   // payer's own account currency, the stored chargesExchangeRate is stale (it was
   // converting into a currency this charge no longer needs converting into) — reset it
