@@ -110,6 +110,35 @@ export function useLedgerActions({
  const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
 
+function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
+ const account = clientAccounts.find((a) => a.id === accountId);
+ if (existing) {
+  setAdjustmentModal({
+   accountId,
+   editingId: existing.id,
+   amount: String(existing.amount),
+   direction: existing.direction,
+   currencyId: existing.currencyId ?? account?.currencyId ?? null,
+   exchangeRate: existing.exchangeRate && existing.exchangeRate !== 1 ? String(existing.exchangeRate) : '',
+   exchangeRateReversed: !!existing.exchangeRateReversed,
+   description: existing.description,
+   date: existing.createdAt.slice(0, 10),
+  });
+ } else {
+  setAdjustmentModal({
+   accountId,
+   editingId: null,
+   amount: '',
+   direction: 'debit',
+   currencyId: account?.currencyId ?? null,
+   exchangeRate: '',
+   exchangeRateReversed: false,
+   description: '',
+   date: new Date().toISOString().slice(0, 10),
+  });
+ }
+}
+
 function onLedgerColumnDrop(targetColumn: LedgerColumnKey) {
  if (!draggedLedgerColumn || draggedLedgerColumn === targetColumn) {
   setDraggedLedgerColumn(null);
@@ -1072,6 +1101,7 @@ async function onExportLedgerExcel(
 }
 
  return {
+  openAdjustmentModal,
   onLedgerColumnDrop,
   getClientLedgerDraft,
   updateLedgerTransactionDraft,

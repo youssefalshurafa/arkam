@@ -2341,37 +2341,6 @@ function AuthenticatedHome() {
   }
  }
 
- function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
-  const account = clientAccounts.find((a) => a.id === accountId);
-  if (existing) {
-   setAdjustmentModal({
-    accountId,
-    editingId: existing.id,
-    amount: String(existing.amount),
-    direction: existing.direction,
-    currencyId: existing.currencyId ?? account?.currencyId ?? null,
-    exchangeRate: existing.exchangeRate && existing.exchangeRate !== 1 ? String(existing.exchangeRate) : '',
-    exchangeRateReversed: !!existing.exchangeRateReversed,
-    description: existing.description,
-    date: existing.createdAt.slice(0, 10),
-   });
-  } else {
-   setAdjustmentModal({
-    accountId,
-    editingId: null,
-    amount: '',
-    direction: 'debit',
-    currencyId: account?.currencyId ?? null,
-    exchangeRate: '',
-    exchangeRateReversed: false,
-    description: '',
-    date: new Date().toISOString().slice(0, 10),
-   });
-  }
- }
-
-
-
  // Reverses a delete by recreating the row from its captured snapshot, on the exact
  // same createdAt so it lands back in the same spot. New DB id (hard delete leaves
  // nothing to restore by id); a reconciliation mark on the old id would not carry over.
@@ -3271,6 +3240,7 @@ function AuthenticatedHome() {
   .filter((column): column is { key: LedgerColumnKey; label: string } => Boolean(column));
 
   const {
+   openAdjustmentModal,
    onLedgerColumnDrop,
    getClientLedgerDraft,
    updateLedgerTransactionDraft,
