@@ -80,6 +80,7 @@ import { getCommissionAmount } from '@/shared/utils/commission';
 import { renderIcon } from '@/shared/utils/icons';
 import { getSectionFromPath } from '@/shared/utils/section';
 import { getDeviceLabel } from '@/shared/utils/device';
+import { nextCreatedAtForDate, resolveCreatedAt } from '@/shared/utils/createdAt';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import {
  normalizeImportHeader,
@@ -132,6 +133,9 @@ import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import LedgerSection from '@/features/ledger/components/LedgerSection';
 import ImportWizard from '@/features/transactions/components/ImportWizard';
 import CreateOrgDialog from '@/features/organizations/components/CreateOrgDialog';
+import { useOrganizationActions } from '@/features/organizations/hooks/useOrganizationActions';
+import { useBackupActions } from '@/features/settings/hooks/useBackupActions';
+import { useClientActions } from '@/features/clients/hooks/useClientActions';
 import ToastHost from '@/shared/components/ToastHost';
 import Sidebar from '@/shared/components/Sidebar';
 import AppHeader from '@/shared/components/AppHeader';
@@ -1900,200 +1904,23 @@ function AuthenticatedHome() {
   await loadData();
  }
 
- async function onOrganizationSubmit(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
+  const { onOrganizationSubmit, onCreateOrgFromDialog, onDeleteOrganization } = useOrganizationActions({
+   organizationForm,
+   setOrganizationForm,
+   selectedOrganizationForClients,
+   setSelectedOrganizationForClients,
+   navigateToSection,
+   setOrgDialogError,
+   setIsSavingOrg,
+   setShowCreateOrgDialog,
+   orgDialogTargetReviewKey,
+   setOrgDialogTargetReviewKey,
+   updateImportReviewEntry,
+   clientForm,
+   setClientForm,
+  });
 
-  if (!organizationForm.name.trim()) {
-   setError(t('organization_required'));
-   return;
-  }
 
-  try {
-   if (organizationForm.id) {
-    await accountingApi.updateOrganization(organizationForm);
-   } else {
-    await accountingApi.createOrganization(organizationForm);
-   }
-
-   setOrganizationForm(emptyOrganizationForm());
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  }
- }
-
- async function onCreateOrgFromDialog(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  if (!accountingApi || !organizationForm.name.trim()) {
-   setOrgDialogError(t('organization_required'));
-   return;
-  }
-  const newName = organizationForm.name.trim();
-  setIsSavingOrg(true);
-  setOrgDialogError('');
-  try {
-   await accountingApi.createOrganization(organizationForm);
-   await loadData();
-   // Auto-select the newly created org in whichever form opened the dialog.
-   setOrganizations((freshOrgs) => {
-    const newOrg = freshOrgs.find((o) => o.name === newName);
-    if (newOrg) {
-     if (orgDialogTargetReviewKey) {
-      updateImportReviewEntry(orgDialogTargetReviewKey, { organizationId: newOrg.id });
-     } else {
-      setClientForm((current) => ({ ...current, organizationId: newOrg.id }));
-     }
-    }
-    return freshOrgs;
-   });
-   setOrganizationForm(emptyOrganizationForm());
-   setShowCreateOrgDialog(false);
-   setOrgDialogTargetReviewKey(null);
-  } catch (e) {
-   setOrgDialogError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsSavingOrg(false);
-  }
- }
-
- async function onClientSubmit(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  // Guard against a rapid double-submit creating a duplicate (button disabled may not have
-  // re-rendered yet). Cleared in the finally below.
-  if (clientSubmitLock.current) return;
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  if (!clientForm.name.trim()) {
-   setError(t('client_required'));
-   return;
-  }
-
-  // Reject a name already used by another client (case/whitespace-insensitive).
-  const nameKey = clientForm.name.trim().replace(/\s+/g, ' ').toLowerCase();
-  const duplicateName = clients.some((client) => client.id !== clientForm.id && client.name.trim().replace(/\s+/g, ' ').toLowerCase() === nameKey);
-  if (duplicateName) {
-   setError(t('client_name_duplicate'));
-   return;
-  }
-
-  if (!clientForm.id && openAccountOnCreate) {
-   if (!newClientAccountDrafts.length || newClientAccountDrafts.some((draft) => !draft.currencyId)) {
-    setError(t('client_account_currency_placeholder'));
-    return;
-   }
-
-   const selectedCurrencyIds = newClientAccountDrafts.map((draft) => draft.currencyId).filter((currencyId): currencyId is number => Boolean(currencyId));
-   if (new Set(selectedCurrencyIds).size !== selectedCurrencyIds.length) {
-    setError('Choose a different currency for each account.');
-    return;
-   }
-  }
-
-  clientSubmitLock.current = true;
-  setIsSubmittingClient(true);
-  try {
-   if (clientForm.id) {
-    await accountingApi.updateClient(clientForm);
-   } else {
-    const created = await accountingApi.createClient(clientForm);
-    if (openAccountOnCreate) {
-     for (const draft of newClientAccountDrafts) {
-      if (!draft.currencyId) {
-       continue;
-      }
-
-      await accountingApi.createClientAccount({
-       clientId: created.clientId,
-       currencyId: draft.currencyId,
-       startingBalance: (() => {
-        const abs = Math.abs(parseFloat(draft.startingBalance.replace(/,/g, '')) || 0);
-        return draft.balanceType === 'debit' ? -abs : abs;
-       })(),
-      });
-     }
-    }
-   }
-
-   const wasCreate = !clientForm.id;
-   setClientForm(emptyClientForm());
-   setOpenAccountOnCreate(true);
-   setNewClientAccountDrafts([createNewClientAccountDraft()]);
-   setError('');
-   if (wasCreate) showToast(t('toast_client_created'));
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  } finally {
-   clientSubmitLock.current = false;
-   setIsSubmittingClient(false);
-  }
- }
-
- async function onDeleteOrganization(id: number) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  if (!(await confirmDialog({ message: t('organization_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
-   return;
-  }
-
-  try {
-   await accountingApi.deleteOrganization(id);
-   if (organizationForm.id === id) {
-    setOrganizationForm(emptyOrganizationForm());
-   }
-   if (selectedOrganizationForClients?.id === id) {
-    setSelectedOrganizationForClients(null);
-    navigateToSection('organizations');
-   }
-   if (clientForm.organizationId === id) {
-    setClientForm((current) => ({ ...current, organizationId: null }));
-   }
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
-
- async function onDeleteClient(id: number) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  if (!(await confirmDialog({ message: t('client_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
-   return;
-  }
-
-  try {
-   await accountingApi.deleteClient(id);
-   if (clientForm.id === id) {
-    setClientForm(emptyClientForm());
-   }
-   if (selectedClientForAccounts?.id === id) {
-    setSelectedClientForAccounts(null);
-   }
-   if (selectedClientForLedger?.id === id) {
-    setSelectedClientForLedger(null);
-    navigateToSection('clients');
-   }
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
 
  async function onDeleteAllTransactions() {
   if (!accountingApi) {
@@ -2130,170 +1957,20 @@ function AuthenticatedHome() {
   }
  }
 
- async function onDeleteAllClients() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
 
-  if (!clients.length) {
-   setError(t('no_clients'));
-   return;
-  }
-
-  const firstConfirm = await confirmDialog({
-   title: t('danger_action_cannot_undo'),
-   message: t('danger_delete_all_clients_confirm'),
-   confirmText: t('delete'),
-   tone: 'danger',
+  const { onDownloadBackup, onRestoreBackupFile, lastBackupLabel } = useBackupActions({
+   setIsBackingUp,
+   setIsRestoringBackup,
+   lastBackupAt,
+   setLastBackupAt,
+   lastBackupDevice,
+   setLastBackupDevice,
+   backupRestoreInputRef,
+   setImportSummary,
+   setSelectedClientForAccounts,
+   setSelectedClientForLedger,
+   setSelectedLedgerAccountId,
   });
-  if (!firstConfirm) {
-   return;
-  }
-
-  try {
-   await accountingApi.deleteAllClients();
-   setClientForm(emptyClientForm());
-   setSelectedClientForAccounts(null);
-   setSelectedClientForLedger(null);
-   setSelectedLedgerAccountId(null);
-   setSelectedTransactionIds(new Set());
-   setTransactionTableDrafts({});
-   setCommissionExpandedTxns(new Set());
-   setExpensesExpandedTxns(new Set());
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
-
- async function onDownloadBackup() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  setIsBackingUp(true);
-  try {
-   const backup = await accountingApi.exportWorkspaceData();
-   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-   const url = URL.createObjectURL(blob);
-   const link = document.createElement('a');
-   link.href = url;
-   link.download = `arkam_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
-   document.body.appendChild(link);
-   link.click();
-   document.body.removeChild(link);
-   URL.revokeObjectURL(url);
-   // Stamp the backup server-side so the indicator syncs to every device.
-   try {
-    const recorded = await accountingApi.recordBackup(getDeviceLabel());
-    setLastBackupAt(recorded.lastBackupAt);
-    setLastBackupDevice(recorded.lastBackupDevice);
-   } catch {
-    // Download already succeeded; a failed stamp is non-fatal.
-    setLastBackupAt(new Date().toISOString());
-    setLastBackupDevice(getDeviceLabel());
-   }
-   setError('');
-   setImportSummary(t('backup_download_success'));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsBackingUp(false);
-  }
- }
-
- async function onRestoreBackupFile(event: ChangeEvent<HTMLInputElement>) {
-  const file = event.target.files?.[0];
-  if (backupRestoreInputRef.current) backupRestoreInputRef.current.value = '';
-  if (!file) return;
-
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const confirmed = await confirmDialog({
-   title: t('danger_action_cannot_undo'),
-   message: t('backup_restore_confirm'),
-   tone: 'danger',
-  });
-  if (!confirmed) return;
-
-  setIsRestoringBackup(true);
-  try {
-   const text = await file.text();
-   let parsed: unknown;
-   try {
-    parsed = JSON.parse(text);
-   } catch {
-    throw new Error(t('backup_restore_invalid_file'));
-   }
-
-   if (!parsed || typeof parsed !== 'object' || (parsed as { format?: string }).format !== 'arkam-backup') {
-    throw new Error(t('backup_restore_invalid_file'));
-   }
-
-   await accountingApi.importWorkspaceData(parsed as Parameters<typeof accountingApi.importWorkspaceData>[0]);
-   setSelectedTransactionIds(new Set());
-   setTransactionTableDrafts({});
-   setCommissionExpandedTxns(new Set());
-   setExpensesExpandedTxns(new Set());
-   setClientForm(emptyClientForm());
-   setSelectedClientForAccounts(null);
-   setSelectedClientForLedger(null);
-   setSelectedLedgerAccountId(null);
-   setTransactionsPage(99999);
-   setError('');
-   await loadData();
-   setImportSummary(t('backup_restore_success'));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsRestoringBackup(false);
-  }
- }
-
- // Localized "Last backup: 2 days ago" style label, or a "never" message.
- function lastBackupLabel(): string {
-  if (!lastBackupAt) return t('backup_last_never');
-
-  const then = new Date(lastBackupAt).getTime();
-  if (Number.isNaN(then)) return t('backup_last_never');
-
-  const diffMs = Date.now() - then;
-  const minutes = Math.round(diffMs / 60000);
-  const hours = Math.round(diffMs / 3600000);
-  const days = Math.round(diffMs / 86400000);
-
-  const exact = new Date(lastBackupAt).toLocaleString(language, {
-   year: 'numeric',
-   month: 'short',
-   day: 'numeric',
-   hour: '2-digit',
-   minute: '2-digit',
-   second: '2-digit',
-  });
-
-  let relative: string;
-  try {
-   const rtf = new Intl.RelativeTimeFormat(language, { numeric: 'auto' });
-   if (Math.abs(days) >= 1) relative = rtf.format(-days, 'day');
-   else if (Math.abs(hours) >= 1) relative = rtf.format(-hours, 'hour');
-   else if (Math.abs(minutes) >= 1) relative = rtf.format(-minutes, 'minute');
-   else relative = rtf.format(0, 'minute');
-  } catch {
-   relative = exact;
-  }
-
-  const time = `${relative} (${exact})`;
-  if (lastBackupDevice) {
-   return t('backup_last_device').replace('{time}', time).replace('{device}', lastBackupDevice);
-  }
-  return t('backup_last_label').replace('{time}', time);
- }
 
  async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
@@ -2309,7 +1986,7 @@ function AuthenticatedHome() {
   const isArchiveCreate = section === 'archive';
   // A new entry lands at the end of its date's sequence (top of the table / bottom of the
   // ledger), after any same-day rows the user manually reordered.
-  const newTransactionCreatedAt = nextCreatedAtForDate(newTransactionDate);
+  const newTransactionCreatedAt = nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
 
   if (isAdjustmentTransaction && !isArchiveCreate) {
    if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
@@ -3287,7 +2964,7 @@ function AuthenticatedHome() {
   // timestamp (only the date shifts if the user changed it). A brand-new expense lands at
   // the end of its date's sequence, exactly like a newly created transaction.
   const existingAdj = adjustmentModal.editingId ? adjustments.find((a) => a.id === adjustmentModal.editingId) : undefined;
-  const createdAt = existingAdj ? resolveCreatedAt(adjustmentModal.date, existingAdj.createdAt) : nextCreatedAtForDate(adjustmentModal.date);
+  const createdAt = existingAdj ? resolveCreatedAt(adjustmentModal.date, existingAdj.createdAt) : nextCreatedAtForDate(adjustmentModal.date, transactions, adjustments);
 
   const payloadBase = {
    amount,
@@ -3427,49 +3104,6 @@ function AuthenticatedHome() {
  // adjustment for the exact remaining amount, in the account's own currency, so no
  // exchange rate is needed. Direction is the inverse of the balance's sign since a
  // positive balance means the client owes us (needs a debit adjustment to net to 0).
- async function onWriteOffBalance(accountId: number, balance: number) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const amount = Math.abs(balance);
-  if (amount <= 0) return;
-
-  const account = clientAccounts.find((a) => a.id === accountId);
-  const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
-  if (!account || !client) return;
-
-  const confirmed = await confirmDialog({
-   title: t('write_off_confirm_title'),
-   message: t('write_off_confirm_message')
-    .replace('{amount}', amount.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
-    .replace('{currency}', account.currencySymbol || account.currencyCode)
-    .replace('{name}', client.name),
-   confirmText: t('write_off_confirm_button'),
-   tone: 'danger',
-  });
-  if (!confirmed) return;
-
-  try {
-   await accountingApi.createClientAdjustment({
-    accountId,
-    amount,
-    direction: balance > 0 ? 'debit' : 'credit',
-    currencyId: account.currencyId,
-    currencyCode: account.currencyCode,
-    currencySymbol: account.currencySymbol,
-    exchangeRate: 1,
-    exchangeRateReversed: false,
-    description: t('write_off_description'),
-    createdAt: nextCreatedAtForDate(new Date().toISOString().slice(0, 10)),
-   });
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
 
  // Mid-table write-off: zeroes the running balance AT a specific ledger row by inserting a
  // write-off adjustment immediately after it (later rows then continue from zero). Same
@@ -3900,43 +3534,6 @@ function AuthenticatedHome() {
   }
  }
 
- // Places a newly created transaction/adjustment strictly after every existing row on
- // `dateStr`, so it lands at the END of that date's sequence: the top of the descending
- // transactions table and the bottom of the ascending client ledger. This keeps a new
- // entry with today's date at the very top even when other same-day rows were manually
- // drag-reordered (which rewrites their timestamps across the day).
- function nextCreatedAtForDate(dateStr: string): string {
-  const dayStart = Date.parse(`${dateStr}T00:00:00.000Z`);
-  const dayEnd = Date.parse(`${dateStr}T23:59:59.999Z`);
-  let maxEpoch = dayStart;
-  for (const tx of transactions) {
-   if (tx.createdAt.slice(0, 10) === dateStr) {
-    const e = Date.parse(tx.createdAt);
-    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
-   }
-  }
-  for (const adj of adjustments) {
-   if (adj.createdAt.slice(0, 10) === dateStr) {
-    const e = Date.parse(adj.createdAt);
-    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
-   }
-  }
-  const next = Math.min(maxEpoch + 1000, dayEnd);
-  return new Date(next).toISOString();
- }
-
- function resolveCreatedAt(draftDate: string, originalCreatedAt: string): string {
-  const originalDate = originalCreatedAt.slice(0, 10);
-  if (draftDate === originalDate) {
-   // Date unchanged — preserve the exact original timestamp so sort order never changes
-   return originalCreatedAt;
-  }
-  // User changed the date — keep the original time component
-  const sep = originalCreatedAt.includes('T') ? 'T' : ' ';
-  const timePart = originalCreatedAt.includes(sep) ? originalCreatedAt.split(sep)[1] : '00:00:00';
-  return `${draftDate} ${timePart}`;
- }
-
  async function onSaveTransactionTableRow(transactionId: number, { skipReload = false } = {}) {
   if (!accountingApi) {
    setError(t('error_bridge'));
@@ -4122,88 +3719,10 @@ function AuthenticatedHome() {
   void loadData();
  }
 
- async function onAddClientAccount(clientId: number) {
-  if (!accountingApi || !newAccountCurrencyId) return;
-  try {
-   const abs = Math.abs(parseFloat(newAccountStartingBalance.replace(/,/g, '')) || 0);
-   const startingBalance = newAccountBalanceType === 'debit' ? -abs : abs;
-   await accountingApi.createClientAccount({ clientId, currencyId: newAccountCurrencyId, startingBalance });
-   setNewAccountCurrencyId(null);
-   setNewAccountStartingBalance('0');
-   setNewAccountBalanceType('debit');
-   setShowAddAccountForm(false);
-   await loadData();
-   // Re-sync selectedClientForAccounts with updated client data
-   setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
 
- async function onSaveEditAccount() {
-  if (!accountingApi || !editingAccountId || !editingAccountCurrencyId) return;
-  const accountId = editingAccountId;
-  const currencyId = editingAccountCurrencyId;
-  try {
-   const abs = Math.abs(parseFloat(editingAccountBalance.replace(/,/g, '')) || 0);
-   const startingBalance = editingAccountBalanceType === 'debit' ? -abs : abs;
-   await accountingApi.updateClientAccount({ accountId, currencyId, startingBalance });
-   setEditingAccountId(null);
-   const currency = currencyMap.get(currencyId);
-   setClientAccounts((prev) =>
-    prev.map((account) =>
-     account.id === accountId
-      ? { ...account, currencyId, startingBalance, currencyCode: currency?.code ?? account.currencyCode, currencySymbol: currency?.symbol ?? account.currencySymbol }
-      : account,
-    ),
-   );
-   void loadData();
-   setSelectedClientForAccounts((prev) => (prev ? { ...prev } : null));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
 
- async function onDeleteClientAccount(accountId: number) {
-  if (!accountingApi) return;
-  if (!(await confirmDialog({ message: t('client_account_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) return;
-  try {
-   await accountingApi.deleteClientAccount(accountId);
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
 
- async function onMoveAccountTransactions(fromAccountId: number) {
-  if (!accountingApi || !moveTargetAccountId || moveTargetAccountId === fromAccountId) return;
-  const target = clientAccountMap.get(moveTargetAccountId);
-  const targetLabel = target ? `${target.clientName} · ${target.currencyCode}` : '';
-  if (!(await confirmDialog({ message: t('client_account_move_confirm', { target: targetLabel }), confirmText: t('client_account_move_action') }))) return;
-  setIsMovingAccount(true);
-  try {
-   await accountingApi.moveAccountTransactions({ fromAccountId, toAccountId: moveTargetAccountId });
-   setMoveTargetAccountId(null);
-   setEditingAccountId(null);
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsMovingAccount(false);
-  }
- }
 
- async function onUpdateAccountStartingBalance(accountId: number, value: string) {
-  if (!accountingApi) return;
-  const startingBalance = parseFloat(value) || 0;
-  try {
-   await accountingApi.updateClientAccountStartingBalance({ accountId, startingBalance });
-   setClientAccounts((prev) => prev.map((account) => (account.id === accountId ? { ...account, startingBalance } : account)));
-   void loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
 
 
  async function onExportLedgerPdf(
@@ -4371,23 +3890,6 @@ function AuthenticatedHome() {
  const clientsByOrganization = useMemo(() => groupClientsByOrganization({ sortedClients, clientsOrgOrder, language, t }), [sortedClients, language, t, clientsOrgOrder]);
 
  // Drop a dragged organization card before the target card and persist the new order.
- function onClientsOrgDrop(targetKey: string) {
-  const dragged = draggedOrgKey;
-  setDraggedOrgKey(null);
-  setDragOverOrgKey(null);
-  if (!dragged || dragged === targetKey) return;
-  const keys = clientsByOrganization.map((group) => (group.id == null ? '__unassigned__' : String(group.id)));
-  const from = keys.indexOf(dragged);
-  const to = keys.indexOf(targetKey);
-  if (from === -1 || to === -1) return;
-  const next = [...keys];
-  next.splice(from, 1);
-  next.splice(to, 0, dragged);
-  setClientsOrgOrder(next);
-  if (typeof window !== 'undefined') {
-   window.localStorage.setItem(clientsOrgOrderStorageKey, JSON.stringify(next));
-  }
- }
 
  // Jump back to the first page whenever the result set changes (search / sort / page size).
  useEffect(() => {
@@ -4398,6 +3900,33 @@ function AuthenticatedHome() {
  }, []);
  const showToast = useAppStatusStore((s) => s.showToast);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
+
+ const {
+  onClientSubmit,
+  onDeleteClient,
+  onDeleteAllClients,
+  onWriteOffBalance,
+  onAddClientAccount,
+  onSaveEditAccount,
+  onDeleteClientAccount,
+  onMoveAccountTransactions,
+  onClientsOrgDrop,
+ } = useClientActions({
+  clients,
+  clientAccounts,
+  transactions,
+  adjustments,
+  numLocale,
+  selectedClientForAccounts,
+  setSelectedClientForAccounts,
+  selectedClientForLedger,
+  setSelectedClientForLedger,
+  setSelectedLedgerAccountId,
+  navigateToSection,
+  currencyMap,
+  clientAccountMap,
+  clientsByOrganization,
+ });
 
  // Newest reconciliation per client account = the lock line used by the guards below.
  const lockBoundaries = useMemo(() => buildLockBoundaries(reconciliations), [reconciliations]);
