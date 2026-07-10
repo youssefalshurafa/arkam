@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { confirmDialog, alertDialog, promptDialog } from '@/components/ui/AppDialog';
 import { useStableSession } from '@/hooks/useStableSession';
 import LockButton from '@/app/admin/LockButton';
+import { getSubscriptionState } from '@/app/admin/subscription';
 
 type Workspace = {
  id: string;
@@ -63,18 +64,6 @@ function formatDateTime(iso: string) {
   hour: '2-digit',
   minute: '2-digit',
  });
-}
-
-// Computes a subscription state from the end date: how many whole days remain,
-// whether it has lapsed, and whether it's expiring soon (≤7 days).
-function getSubscriptionState(endsAt: string | null) {
- if (!endsAt) return { label: 'No subscription', tone: 'none' as const, daysLeft: null as number | null };
- const end = new Date(endsAt).getTime();
- const now = Date.now();
- const daysLeft = Math.ceil((end - now) / (24 * 60 * 60 * 1000));
- if (daysLeft <= 0) return { label: 'Expired', tone: 'expired' as const, daysLeft };
- if (daysLeft <= 7) return { label: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, tone: 'soon' as const, daysLeft };
- return { label: `${daysLeft} days left`, tone: 'active' as const, daysLeft };
 }
 
 function formatDate(iso: string) {

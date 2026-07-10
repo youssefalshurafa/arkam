@@ -75,7 +75,6 @@ import {
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { HIGHLIGHT_PEN_CURSOR, formatRateValue } from '@/shared/utils/format';
-import { formatDateValue } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { renderIcon } from '@/shared/utils/icons';
 import { getSectionFromPath } from '@/shared/utils/section';
@@ -105,20 +104,25 @@ import { ensureCacheOwner } from '@/shared/lib/cacheOwner';
 import { panelClassName, mutedPanelClassName, tableWrapClassName } from '@/shared/styles';
 import OverviewSection from '@/features/overview/components/OverviewSection';
 import LiveRatesSection from '@/features/live-rates/components/LiveRatesSection';
+import TreasurySection from '@/features/treasury/components/TreasurySection';
 import CurrenciesSection from '@/features/currencies/components/CurrenciesSection';
 import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadOnly';
 import OrganizationsSection from '@/features/organizations/components/OrganizationsSection';
 import OrganizationsReadOnly from '@/features/organizations/components/OrganizationsReadOnly';
+import OrganizationClientsSection from '@/features/organizations/components/OrganizationClientsSection';
+import PendingPricingModal from '@/features/organizations/components/PendingPricingModal';
+import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
 import LanguageSettings from '@/features/settings/components/LanguageSettings';
 import DangerZone from '@/features/settings/components/DangerZone';
 import PdfSettingsTab from '@/features/settings/components/PdfSettings';
 import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
+import SettingsSection from '@/features/settings/components/SettingsSection';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml, generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers, computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
-import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries } from '@/features/clients/utils/clientBalances';
+import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
@@ -136,6 +140,8 @@ import CreateOrgDialog from '@/features/organizations/components/CreateOrgDialog
 import { useOrganizationActions } from '@/features/organizations/hooks/useOrganizationActions';
 import { useBackupActions } from '@/features/settings/hooks/useBackupActions';
 import { useClientActions } from '@/features/clients/hooks/useClientActions';
+import { useLedgerActions } from '@/features/ledger/hooks/useLedgerActions';
+import { useTransactionActions } from '@/features/transactions/hooks/useTransactionActions';
 import ToastHost from '@/shared/components/ToastHost';
 import Sidebar from '@/shared/components/Sidebar';
 import AppHeader from '@/shared/components/AppHeader';
@@ -421,43 +427,9 @@ function AuthenticatedHome() {
  const setNewTransactionDate = useTransactionsStore((s) => s.setNewTransactionDate);
  const copiedTransaction = useTransactionsStore((s) => s.copiedTransaction);
  const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
- const setTxFromQuery = useTransactionsStore((s) => s.setTxFromQuery);
- const setTxFromOpen = useTransactionsStore((s) => s.setTxFromOpen);
- const setTxFromExpandedClient = useTransactionsStore((s) => s.setTxFromExpandedClient);
- const setTxToQuery = useTransactionsStore((s) => s.setTxToQuery);
- const setTxToOpen = useTransactionsStore((s) => s.setTxToOpen);
- const setTxToExpandedClient = useTransactionsStore((s) => s.setTxToExpandedClient);
- const setLedgerCounterpartyOpen = useLedgerStore((s) => s.setLedgerCounterpartyOpen);
- const setLedgerCounterpartyQuery = useLedgerStore((s) => s.setLedgerCounterpartyQuery);
- const setLedgerCounterpartyExpandedClient = useLedgerStore((s) => s.setLedgerCounterpartyExpandedClient);
- const setDescriptionSuggestOpen = useTransactionsStore((s) => s.setDescriptionSuggestOpen);
- const txFromRateReversed = useTransactionsStore((s) => s.txFromRateReversed);
- const setTxFromRateReversed = useTransactionsStore((s) => s.setTxFromRateReversed);
- const txToRateReversed = useTransactionsStore((s) => s.txToRateReversed);
- const setTxToRateReversed = useTransactionsStore((s) => s.setTxToRateReversed);
- const ledgerRateReversed = useLedgerStore((s) => s.ledgerRateReversed);
- const setLedgerRateReversed = useLedgerStore((s) => s.setLedgerRateReversed);
- const setLedgerDisplayRateReversed = useLedgerStore((s) => s.setLedgerDisplayRateReversed);
- const tableRateFromReversed = useTransactionsStore((s) => s.tableRateFromReversed);
- const setTableRateFromReversed = useTransactionsStore((s) => s.setTableRateFromReversed);
- const tableRateToReversed = useTransactionsStore((s) => s.tableRateToReversed);
- const setTableRateToReversed = useTransactionsStore((s) => s.setTableRateToReversed);
  const error = useAppStatusStore((s) => s.error);
  const setError = useAppStatusStore((s) => s.setError);
- const showUndo = useAppStatusStore((s) => s.showUndo);
  const [importSummary, setImportSummary] = useState('');
- const setIsImportingTransactions = useTransactionsStore((s) => s.setIsImportingTransactions);
- const pendingImportData = useTransactionsStore((s) => s.pendingImportData);
- const setPendingImportData = useTransactionsStore((s) => s.setPendingImportData);
- const importMapping = useTransactionsStore((s) => s.importMapping);
- const setImportMapping = useTransactionsStore((s) => s.setImportMapping);
- const importReview = useTransactionsStore((s) => s.importReview);
- const setImportReview = useTransactionsStore((s) => s.setImportReview);
- // The parsed sheet rows backing the current review, plus per-row overrides for
- // rows that involve an expense-marked name (expense vs. real transaction).
- const setImportParsedRows = useTransactionsStore((s) => s.setImportParsedRows);
- const importRowOverrides = useTransactionsStore((s) => s.importRowOverrides);
- const setImportRowOverrides = useTransactionsStore((s) => s.setImportRowOverrides);
  // Currencies the "apply to all clients" control will open for every client.
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
  const [isBackingUp, setIsBackingUp] = useState(false);
@@ -1117,633 +1089,36 @@ function AuthenticatedHome() {
   pushUserTableSettings();
  }
 
- function onLedgerColumnDrop(targetColumn: LedgerColumnKey) {
-  if (!draggedLedgerColumn || draggedLedgerColumn === targetColumn) {
-   setDraggedLedgerColumn(null);
-   return;
-  }
-
-  setLedgerColumnOrder((current) => {
-   const nextOrder = [...current];
-   const draggedIndex = nextOrder.indexOf(draggedLedgerColumn);
-   const targetIndex = nextOrder.indexOf(targetColumn);
-   if (draggedIndex === -1 || targetIndex === -1) return current;
-   nextOrder.splice(draggedIndex, 1);
-   nextOrder.splice(targetIndex, 0, draggedLedgerColumn);
-   // Save per-client so column order is independent for each client.
-   const clientId = selectedClientForLedger?.id;
-   if (clientId && typeof window !== 'undefined') {
-    window.localStorage.setItem(ledgerColumnOrderStorageKeyPrefix + clientId, JSON.stringify(nextOrder));
-   }
-   return nextOrder;
-  });
-
-  setDraggedLedgerColumn(null);
-  pushSharedSettingsIfOwner();
-  pushUserTableSettings();
- }
 
 
- function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: number): LedgerTransactionDraft {
-  const isOutgoing = transaction.accountFromId === ledgerAccountId;
-  const rate = isOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
-  const reversed = isOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed;
-  const ledgerAccountForDraft = clientAccounts.find((a) => a.id === ledgerAccountId);
-  const sameCurrency = ledgerAccountForDraft != null && ledgerAccountForDraft.currencyId === transaction.currencyId;
-  // Always show the stored rate (including 1) so any exchange rate can be entered/edited freely.
-  // Rate 0 on a cross-currency row means "not set yet" (pending): show a blank field so the user enters it.
-  // On a same-currency row, 0 is a value the user deliberately chose, so show it as "0" so it round-trips.
-  const rateStr = rate === 0 ? (sameCurrency ? '0' : '') : reversed ? formatRateValue(1 / rate) : String(rate);
-  return {
-   transactionId: transaction.id,
-   ledgerAccountId,
-   createdDate: transaction.createdAt.slice(0, 10),
-   direction: isOutgoing ? 'outgoing' : 'incoming',
-   counterpartyAccountId: isOutgoing ? transaction.accountToId : transaction.accountFromId,
-   type: transaction.type,
-   currencyId: transaction.currencyId,
-   amount: String(transaction.amount),
-   exchangeRate: rateStr,
-   commission: String(isOutgoing ? transaction.commissionFrom : transaction.commissionTo),
-   description: transaction.description,
-   charges: String(transaction.charges || 0),
-   chargesCurrencyId: transaction.chargesCurrencyId,
-   chargesPayer: transaction.chargesPayer,
-   chargesExchangeRate: String(transaction.chargesExchangeRate || 1),
-   chargesDescription: transaction.chargesDescription,
-  };
- }
-
- function buildLedgerAdjustmentDraft(adj: ClientAdjustment, ledgerAccountId: number): LedgerTransactionDraft {
-  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
-  const rateStr = adj.exchangeRate && adj.exchangeRate !== 1 ? formatRateValue(adj.exchangeRateReversed ? 1 / adj.exchangeRate : adj.exchangeRate) : '';
-  return {
-   transactionId: -adj.id,
-   adjustmentId: adj.id,
-   isAdjustment: true,
-   adjustmentDirection: adj.direction,
-   ledgerAccountId,
-   createdDate: adj.createdAt.slice(0, 10),
-   direction: adj.direction === 'credit' ? 'outgoing' : 'incoming',
-   counterpartyAccountId: null,
-   type: 'adjustment',
-   currencyId: adj.currencyId ?? account?.currencyId ?? null,
-   amount: String(adj.amount),
-   exchangeRate: rateStr,
-   exchangeRateReversed: !!adj.exchangeRateReversed,
-   commission: '0',
-   description: adj.description,
-   charges: '0',
-   chargesCurrencyId: null,
-   chargesPayer: '',
-   chargesExchangeRate: '1',
-   chargesDescription: '',
-  };
- }
-
- function buildTransactionTableDraft(transaction: TransactionTableRow): TransactionTableDraft {
-  const isAdjustment = !!transaction.isAdjustment;
-  const fromReversed = !!transaction.exchangeRateFromReversed;
-  const toReversed = !!transaction.exchangeRateToReversed;
-  return {
-   transactionId: transaction.id,
-   adjustmentId: transaction.adjustmentId,
-   isAdjustment,
-   accountFromId: transaction.accountFromId,
-   accountToId: isAdjustment ? null : transaction.accountToId,
-   currencyId: transaction.currencyId,
-   type: transaction.type,
-   adjustmentDirection: transaction.adjustmentDirection,
-   amount: String(transaction.amount),
-   exchangeRateFrom: fromReversed ? formatRateValue(1 / transaction.exchangeRateFrom) : formatRateValue(transaction.exchangeRateFrom),
-   commissionFrom: formatRateValue(transaction.commissionFrom),
-   exchangeRateTo: isAdjustment ? '1.00' : toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : formatRateValue(transaction.exchangeRateTo),
-   commissionTo: formatRateValue(transaction.commissionTo),
-   charges: String(transaction.charges),
-   chargesCurrencyId: isAdjustment ? null : transaction.chargesCurrencyId,
-   chargesPayer: isAdjustment ? '' : transaction.chargesPayer,
-   chargesExchangeRate: isAdjustment ? '1.00' : formatRateValue(transaction.chargesExchangeRate),
-   chargesDescription: transaction.chargesDescription,
-   description: transaction.description,
-   archiveNote: transaction.archiveNote,
-   createdDate: transaction.createdAt.slice(0, 10),
-  };
- }
 
 
- function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: number, nextValues: Partial<LedgerTransactionDraft>) {
-  ledgerHistory.record();
-  setLedgerTransactionDrafts((current) => {
-   const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
-   const existingDraft = current[draftKey];
-   if (!existingDraft) {
-    return current;
-   }
 
-   const merged = { ...existingDraft, ...nextValues };
-   // Same stale-rate guard as updateTransactionTableDraft: if the charge's currency/payer
-   // now matches the payer's own account currency, the stored chargesExchangeRate no
-   // longer means anything — reset it to 1 rather than let it keep silently applying.
-   if (merged.chargesCurrencyId != null && (merged.chargesPayer === 'from' || merged.chargesPayer === 'to')) {
-    const isThisAccountFrom = merged.direction === 'outgoing';
-    const payerAccountId =
-     merged.chargesPayer === 'from' ? (isThisAccountFrom ? merged.ledgerAccountId : merged.counterpartyAccountId) : isThisAccountFrom ? merged.counterpartyAccountId : merged.ledgerAccountId;
-    const payerAccount = payerAccountId != null ? clientAccountMap.get(payerAccountId) : undefined;
-    if (payerAccount && payerAccount.currencyId === merged.chargesCurrencyId) {
-     merged.chargesExchangeRate = '1.00';
-    }
-   }
 
-   return {
-    ...current,
-    [draftKey]: merged,
-   };
-  });
- }
 
- function beginTransactionsEditMode() {
-  const fromReversed: Record<number, boolean> = {};
-  const toReversed: Record<number, boolean> = {};
-  transactionTableRows.forEach((transaction) => {
-   if (transaction.exchangeRateFromReversed) {
-    fromReversed[transaction.id] = true;
-   }
-   if (!transaction.isAdjustment && transaction.exchangeRateToReversed) {
-    toReversed[transaction.id] = true;
-   }
-  });
 
-  setTransactionTableDrafts({});
-  setSelectedTransactionIds(new Set());
-  setCommissionExpandedTxns(new Set());
-  setExpensesExpandedTxns(new Set());
-  setTableRateFromReversed(fromReversed);
-  setTableRateToReversed(toReversed);
-  setIsTransactionsEditMode(true);
- }
 
- function cancelTransactionsEditMode() {
-  setTransactionTableDrafts({});
-  setSelectedTransactionIds(new Set());
-  setCommissionExpandedTxns(new Set());
-  setExpensesExpandedTxns(new Set());
-  setTableRateFromReversed({});
-  setTableRateToReversed({});
-  setIsTransactionsEditMode(false);
- }
 
- function updateTransactionTableDraft(transactionId: number, nextValues: Partial<TransactionTableDraft>) {
-  txTableHistory.record();
-  setTransactionTableDrafts((current) => {
-   const existingDraft =
-    current[transactionId] ??
-    (() => {
-     const transaction = transactionTableRowMap.get(transactionId);
-     return transaction ? buildTransactionTableDraft(transaction) : null;
-    })();
 
-   if (!existingDraft) {
-    return current;
-   }
 
-   const merged = { ...existingDraft, ...nextValues };
-   // If the charge's currency or payer changed such that the charge now matches the
-   // payer's own account currency, the stored chargesExchangeRate is stale (it was
-   // converting into a currency this charge no longer needs converting into) — reset it
-   // to 1, mirroring the equivalent effect on the "new transaction" form. Otherwise this
-   // rate silently keeps multiplying the charge even though it no longer applies (see
-   // effectiveChargeRate in accountBalances.ts/ledgerBalances.ts for the calculation-side guard).
-   if (merged.chargesCurrencyId != null && (merged.chargesPayer === 'from' || merged.chargesPayer === 'to')) {
-    const payerAccountId = merged.chargesPayer === 'from' ? merged.accountFromId : merged.accountToId;
-    const payerAccount = payerAccountId != null ? clientAccountMap.get(payerAccountId) : undefined;
-    if (payerAccount && payerAccount.currencyId === merged.chargesCurrencyId) {
-     merged.chargesExchangeRate = '1.00';
-    }
-   }
-
-   return {
-    ...current,
-    [transactionId]: merged,
-   };
-  });
- }
-
- function getTransactionTableDraft(transactionId: number) {
-  const existingDraft = transactionTableDrafts[transactionId];
-  if (existingDraft) {
-   return existingDraft;
-  }
-
-  const transaction = transactionTableRowMap.get(transactionId);
-  return transaction ? buildTransactionTableDraft(transaction) : null;
- }
-
- function onCancelTransactionTableRow(transactionId: number) {
-  const transaction = transactionTableRowMap.get(transactionId);
-  if (!transaction) {
-   return;
-  }
-
-  setTransactionTableDrafts((current) => ({
-   ...current,
-   [transactionId]: buildTransactionTableDraft(transaction),
-  }));
- }
-
- function getClientLedgerDraft(transactionId: number, ledgerAccountId: number) {
-  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
-  const existingDraft = ledgerTransactionDrafts[draftKey];
-  if (existingDraft) {
-   return existingDraft;
-  }
-
-  if (transactionId < 0) {
-   const adj = adjustments.find((a) => a.id === -transactionId);
-   return adj ? buildLedgerAdjustmentDraft(adj, ledgerAccountId) : null;
-  }
-  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
-  return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
- }
-
- // Apply a transaction update to local state immediately so edits appear instantly,
- // re-resolving the derived display fields (client names, currency code/symbol) from the
- // current account/currency maps. A background loadData() later reconciles with the server.
- function applyTransactionPatch(input: TransactionUpdateInput) {
-  const fromAccount = input.accountFromId != null ? clientAccountMap.get(input.accountFromId) : undefined;
-  const toAccount = input.accountToId != null ? clientAccountMap.get(input.accountToId) : undefined;
-  const currency = currencyMap.get(input.currencyId);
-  const chargesCurrency = input.chargesCurrencyId != null ? currencyMap.get(input.chargesCurrencyId) : null;
-  setTransactions((prev) =>
-   prev.map((tx) =>
-    tx.id === input.id
-     ? {
-        ...tx,
-        accountFromId: input.accountFromId,
-        accountToId: input.accountToId,
-        clientFromName: fromAccount?.clientName ?? tx.clientFromName,
-        accountFromCurrencyCode: fromAccount?.currencyCode ?? tx.accountFromCurrencyCode,
-        accountFromCurrencySymbol: fromAccount?.currencySymbol ?? tx.accountFromCurrencySymbol,
-        clientToName: toAccount?.clientName ?? tx.clientToName,
-        accountToCurrencyCode: toAccount?.currencyCode ?? tx.accountToCurrencyCode,
-        accountToCurrencySymbol: toAccount?.currencySymbol ?? tx.accountToCurrencySymbol,
-        currencyId: input.currencyId,
-        currencyCode: currency?.code ?? tx.currencyCode,
-        currencySymbol: currency?.symbol ?? tx.currencySymbol,
-        amount: input.amount,
-        type: input.type,
-        exchangeRateFrom: input.exchangeRateFrom,
-        commissionFrom: input.commissionFrom,
-        exchangeRateTo: input.exchangeRateTo,
-        commissionTo: input.commissionTo,
-        exchangeRateFromReversed: input.exchangeRateFromReversed ?? tx.exchangeRateFromReversed,
-        exchangeRateToReversed: input.exchangeRateToReversed ?? tx.exchangeRateToReversed,
-        charges: input.charges,
-        chargesCurrencyId: input.chargesCurrencyId,
-        chargesCurrencyCode: chargesCurrency?.code ?? null,
-        chargesCurrencySymbol: chargesCurrency?.symbol ?? null,
-        chargesPayer: input.chargesPayer,
-        chargesExchangeRate: input.chargesExchangeRate,
-        chargesDescription: input.chargesDescription,
-        description: input.description,
-        archiveNote: input.archiveNote ?? tx.archiveNote,
-        createdAt: input.createdAt,
-       }
-     : tx,
-   ),
-  );
- }
-
- // Same idea for an adjustment row edited from the transaction table.
- function applyAdjustmentPatch(input: ClientAdjustment) {
-  setAdjustments((prev) => prev.map((adjustment) => (adjustment.id === input.id ? { ...adjustment, ...input } : adjustment)));
- }
 
  // Returns whether the save actually succeeded, so callers only exit edit mode /
  // discard the draft on success — otherwise a validation or API failure would be
  // silently swallowed and the row would revert as if nothing had been typed.
- async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}): Promise<boolean> {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return false;
-  }
 
-  const draft = ledgerTransactionDrafts[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
 
-  // ── Adjustment (expense) save path ──────────────────────────────────────────
-  if (draft?.isAdjustment && draft.adjustmentId) {
-   const adj = adjustments.find((a) => a.id === draft.adjustmentId);
-   if (!adj) return false;
-   const amount = parseFloat(draft.amount);
-   if (!Number.isFinite(amount) || amount <= 0) {
-    setError(t('adjustment_amount_required'));
-    return false;
-   }
-   const account = clientAccounts.find((a) => a.id === ledgerAccountId);
-   const selectedCurrency = draft.currencyId ? currencyMap.get(draft.currencyId) : undefined;
-   const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-   const parsedRate = parseFloat(draft.exchangeRate);
-   const adjRateSet = Number.isFinite(parsedRate) && parsedRate > 0;
-   const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && adjRateSet;
-   const effectiveRate = !needsRate ? 1 : adjRateSet ? (rateIsReversed ? 1 / parsedRate : parsedRate) : 0;
-   const updatedAdj: ClientAdjustment = {
-    id: draft.adjustmentId,
-    accountId: ledgerAccountId,
-    amount,
-    direction: draft.adjustmentDirection ?? 'debit',
-    currencyId: draft.currencyId ?? account?.currencyId ?? null,
-    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-    exchangeRate: effectiveRate,
-    exchangeRateReversed: needsRate && adjRateSet ? rateIsReversed : false,
-    description: draft.description,
-    createdAt: resolveCreatedAt(draft.createdDate, adj.createdAt),
-   };
-   // Single-row saves check the lock here; batch saves are checked once up-front in
-   // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
-   if (!skipReload && !(await confirmIfEditLocked([adj.accountId], adj.createdAt, [updatedAdj.accountId], updatedAdj.createdAt, adj.id))) {
-    return false;
-   }
-   try {
-    await accountingApi.updateClientAdjustment(updatedAdj);
-    setError('');
-    applyAdjustmentPatch(updatedAdj);
-    if (!skipReload) void loadData();
-    return true;
-   } catch (e) {
-    setError(e instanceof Error ? e.message : t('error_failed_update'));
-    return false;
-   }
-  }
 
-  // ── Transaction save path ────────────────────────────────────────────────────
-  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
 
-  if (!draft || !transaction) {
-   return false;
-  }
 
-  const amount = parseFloat(draft.amount);
-  // An explicitly-entered rate is stored as given — including 0, so a same-currency row can be
-  // zeroed out (contributing 0 to the balance) instead of being forced to 1. An empty field
-  // falls back to the default: 0 (pending, excluded from balance) cross-currency, 1 same-currency.
-  const ledgerAccount = clientAccounts.find((a) => a.id === ledgerAccountId);
-  const crossCurrency = ledgerAccount != null && ledgerAccount.currencyId !== draft.currencyId;
-  const parsedLedgerRate = parseFloat(draft.exchangeRate);
-  const rateEntered = draft.exchangeRate.trim() !== '' && Number.isFinite(parsedLedgerRate) && parsedLedgerRate >= 0;
-  const rawLedgerRate = rateEntered ? parsedLedgerRate : crossCurrency ? 0 : 1;
-  const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && rawLedgerRate > 0;
-  const exchangeRate = rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
-  const commission = parseFloat(draft.commission) || 0;
-
-  // Senderless/receiverless transactions are a legitimate, permanent shape (no
-  // counterparty on that side) — only require a counterparty here if the
-  // transaction already had one, so editing (e.g. just the exchange rate)
-  // doesn't get blocked by a side that was never meant to be filled in.
-  // Uses the transaction's ORIGINAL side relative to this ledger account (not
-  // draft.direction), since reversing direction in the draft must not reinterpret
-  // which side the original counterparty was already missing from.
-  const originalIsOutgoing = transaction.accountFromId === ledgerAccountId;
-  const originalCounterpartyId = originalIsOutgoing ? transaction.accountToId : transaction.accountFromId;
-  if ((originalCounterpartyId != null && !draft.counterpartyAccountId) || !amount || draft.currencyId == null) {
-   setError(t('transaction_required'));
-   return false;
-  }
-
-  const createdAt = resolveCreatedAt(draft.createdDate, transaction.createdAt);
-  const payload: TransactionUpdateInput = {
-   id: transaction.id,
-   accountFromId: draft.direction === 'outgoing' ? draft.ledgerAccountId : draft.counterpartyAccountId,
-   accountToId: draft.direction === 'outgoing' ? draft.counterpartyAccountId : draft.ledgerAccountId,
-   currencyId: draft.currencyId,
-   amount,
-   type: draft.type,
-   exchangeRateFrom: draft.direction === 'outgoing' ? exchangeRate : transaction.exchangeRateFrom,
-   commissionFrom: draft.direction === 'outgoing' ? commission : transaction.commissionFrom,
-   exchangeRateTo: draft.direction === 'incoming' ? exchangeRate : transaction.exchangeRateTo,
-   commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
-   exchangeRateFromReversed: draft.direction === 'outgoing' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateFromReversed ?? 0),
-   exchangeRateToReversed: draft.direction === 'incoming' ? (rateIsReversed ? 1 : 0) : (transaction.exchangeRateToReversed ?? 0),
-   charges: parseFloat(draft.charges) || 0,
-   chargesCurrencyId: draft.chargesCurrencyId,
-   chargesPayer: draft.chargesPayer,
-   chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
-   chargesDescription: draft.chargesDescription,
-   description: draft.description,
-   createdAt,
-  };
-
-  // Single-row saves check the lock here; batch saves are checked once up-front in
-  // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
-  if (!skipReload && !(await confirmIfTransactionEditLocked(transaction, payload))) {
-   return false;
-  }
-
-  try {
-   await accountingApi.updateTransaction(payload);
-   setError('');
-   // Optimistically reflect the edit so the ledger updates instantly (no page-wide reload,
-   // no account jump). The batch saver passes skipReload and reconciles once at the end.
-   applyTransactionPatch(payload);
-   if (!skipReload) void loadData();
-   return true;
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-   return false;
-  }
- }
-
- function onCancelLedgerTransaction(transactionId: number, ledgerAccountId: number) {
-  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
-  if (!transaction) {
-   return;
-  }
-
-  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
-  setLedgerTransactionDrafts((current) => ({
-   ...current,
-   [draftKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId),
-  }));
- }
-
- function onEditAllLedger(ledger: ClientAccountLedger) {
-  const newDrafts: Record<string, LedgerTransactionDraft> = {};
-  const newRateReversed: Record<string, boolean> = {};
-  const newKeys: string[] = [];
-  for (const entry of ledger.entries) {
-   const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-   if (entry.isAdjustment && entry.adjustmentId) {
-    const adj = adjustments.find((a) => a.id === entry.adjustmentId);
-    if (!adj) continue;
-    if (!ledgerTransactionDrafts[draftKey]) {
-     newDrafts[draftKey] = buildLedgerAdjustmentDraft(adj, ledger.accountId);
-     if (adj.exchangeRateReversed) newRateReversed[draftKey] = true;
-    }
-   } else {
-    const tx = transactions.find((t) => t.id === entry.transactionId);
-    if (!tx) continue;
-    if (!ledgerTransactionDrafts[draftKey]) {
-     newDrafts[draftKey] = buildLedgerTransactionDraft(tx, ledger.accountId);
-     const isOutgoing = tx.accountFromId === ledger.accountId;
-     if (isOutgoing ? tx.exchangeRateFromReversed : tx.exchangeRateToReversed) {
-      newRateReversed[draftKey] = true;
-     }
-    }
-   }
-   newKeys.push(draftKey);
-  }
-  setLedgerTransactionDrafts((prev) => ({ ...prev, ...newDrafts }));
-  setLedgerRateReversed((prev) => ({ ...prev, ...newRateReversed }));
-  setEditingLedgerRowKeys((prev) => new Set([...prev, ...newKeys]));
-  setEditAllLedgerAccountIds((prev) => new Set([...prev, ledger.accountId]));
- }
-
- function onCancelAllLedger(ledger: ClientAccountLedger) {
-  const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
-  setEditingLedgerRowKeys((prev) => {
-   const n = new Set(prev);
-   keys.forEach((k) => n.delete(k));
-   return n;
-  });
-  setLedgerTransactionDrafts((prev) => {
-   const n = { ...prev };
-   keys.forEach((k) => delete n[k]);
-   return n;
-  });
-  setEditAllLedgerAccountIds((prev) => {
-   const n = new Set(prev);
-   n.delete(ledger.accountId);
-   return n;
-  });
- }
-
- async function onSaveAllLedger(ledger: ClientAccountLedger) {
-  const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)).filter((k) => editingLedgerRowKeys.has(k));
-
-  // One up-front lock check for the whole batch (the per-row saves below skipReload, so
-  // they don't each prompt). Warns once if any edited row touches reconciled history.
-  let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
-  for (const key of keys) {
-   const [txIdStr, accIdStr] = key.split(':');
-   const accId = parseInt(accIdStr, 10);
-   const draft = ledgerTransactionDrafts[key];
-   if (!draft) continue;
-   if (draft.isAdjustment && draft.adjustmentId) {
-    const adj = adjustments.find((a) => a.id === draft.adjustmentId);
-    if (!adj) continue;
-    batchLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries) ?? violatedLock([accId], resolveCreatedAt(draft.createdDate, adj.createdAt), adj.id, lockBoundaries);
-   } else {
-    const tx = transactions.find((t) => t.id === parseInt(txIdStr, 10));
-    if (!tx) continue;
-    batchLockHit = violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries) ?? violatedLock([accId, draft.counterpartyAccountId], resolveCreatedAt(draft.createdDate, tx.createdAt), tx.id, lockBoundaries);
-   }
-   if (batchLockHit) break;
-  }
-  if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
-   return;
-  }
-
-  // Fire all saves in parallel so 100+ rows finish in one round-trip batch rather than sequentially.
-  // Each save applies its optimistic patch, so the table is already up to date here.
-  const results = await Promise.all(
-   keys.map(async (key) => {
-    const [txIdStr, accIdStr] = key.split(':');
-    const ok = await onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { skipReload: true });
-    return [key, ok] as const;
-   }),
-  );
-  // Only exit edit mode / discard the draft for rows that actually saved — a
-  // failed row stays open with its typed value intact and the error visible,
-  // instead of silently reverting as if the save had succeeded.
-  const succeededKeys = results.filter(([, ok]) => ok).map(([key]) => key);
-  setEditingLedgerRowKeys((prev) => {
-   const n = new Set(prev);
-   succeededKeys.forEach((k) => n.delete(k));
-   return n;
-  });
-  setLedgerTransactionDrafts((prev) => {
-   const n = { ...prev };
-   succeededKeys.forEach((k) => delete n[k]);
-   return n;
-  });
-  if (succeededKeys.length === keys.length) {
-   setEditAllLedgerAccountIds((prev) => {
-    const n = new Set(prev);
-    n.delete(ledger.accountId);
-    return n;
-   });
-  }
-  void loadData();
- }
-
- async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
-  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
-  if (!ledgerTransactionDrafts[draftKey]) {
-   setEditingLedgerRowKeys((prev) => {
-    const n = new Set(prev);
-    n.delete(draftKey);
-    return n;
-   });
-   return;
-  }
-  const success = await onSaveLedgerTransaction(transactionId, ledgerAccountId);
-  // On failure, keep edit mode and the draft intact so the user sees the error and can retry.
-  if (!success) return;
-  setEditingLedgerRowKeys((prev) => {
-   const n = new Set(prev);
-   n.delete(draftKey);
-   return n;
-  });
-  setLedgerTransactionDrafts((prev) => {
-   const n = { ...prev };
-   delete n[draftKey];
-   return n;
-  });
- }
 
  // Mobile floating save/cancel button: saves or cancels every ledger row currently being
  // edited, across however many accounts' ledgers are open at once (covers both a single
  // pencil-edited row and full "edit all" ledgers).
- async function onSaveAllEditingLedgerRows() {
-  const editingAccountIds = new Set([...editingLedgerRowKeys].map((k) => parseInt(k.split(':')[1], 10)));
-  for (const ledger of selectedClientLedgers) {
-   if (editingAccountIds.has(ledger.accountId)) await onSaveAllLedger(ledger);
-  }
- }
 
- function onCancelAllEditingLedgerRows() {
-  const editingAccountIds = new Set([...editingLedgerRowKeys].map((k) => parseInt(k.split(':')[1], 10)));
-  for (const ledger of selectedClientLedgers) {
-   if (editingAccountIds.has(ledger.accountId)) onCancelAllLedger(ledger);
-  }
- }
 
  // Puts a single ledger row into inline-edit mode (builds its draft + seeds the
  // reversed-rate flag). Shared by the row's Edit (pencil) button and the arrow-key
  // "save and move to next row" flow below.
- function openLedgerRowForEdit(entry: ClientLedgerEntry, ledgerAccountId: number) {
-  const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
-  if (entry.isAdjustment && entry.adjustmentId) {
-   const adjustment = adjustments.find((a) => a.id === entry.adjustmentId);
-   if (adjustment && !ledgerTransactionDrafts[rowKey]) {
-    if (adjustment.exchangeRateReversed) {
-     setLedgerRateReversed((prev) => ({ ...prev, [rowKey]: true }));
-    }
-    setLedgerTransactionDrafts((prev) => ({ ...prev, [rowKey]: buildLedgerAdjustmentDraft(adjustment, ledgerAccountId) }));
-   }
-   setEditingLedgerRowKeys((prev) => new Set([...prev, rowKey]));
-   return;
-  }
-  const transaction = transactions.find((tx) => tx.id === entry.transactionId);
-  if (transaction && !ledgerTransactionDrafts[rowKey]) {
-   const isOutgoing = transaction.accountFromId === ledgerAccountId;
-   setLedgerRateReversed((prev) => ({
-    ...prev,
-    ...(isOutgoing ? (transaction.exchangeRateFromReversed ? { [rowKey]: true } : {}) : transaction.exchangeRateToReversed ? { [rowKey]: true } : {}),
-   }));
-   setLedgerTransactionDrafts((prev) => ({ ...prev, [rowKey]: buildLedgerTransactionDraft(transaction, ledgerAccountId) }));
-  }
-  setEditingLedgerRowKeys((prev) => new Set([...prev, rowKey]));
- }
 
  // Arrow left/right while editing a row's amount / exchange rate / commission: move to the
  // neighbouring editable cell in the same row, in the currently visible column order. Only
@@ -1751,158 +1126,26 @@ function AuthenticatedHome() {
  // moved within the value normally. The fields themselves are always dir="ltr" (numeric), so
  // the caret's start/end doesn't flip in RTL — but the column layout is visually mirrored, so
  // which physical key ("→") maps to "next column" does flip.
- function onLedgerEditFieldSideKey(event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number): boolean {
-  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return false;
-  const input = event.currentTarget;
-  const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
-  const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
-  if ((event.key === 'ArrowLeft' && !atStart) || (event.key === 'ArrowRight' && !atEnd)) return false;
-
-  const editableFieldOrder = orderedLedgerColumnOptions
-   .map((column) => column.key)
-   .filter((key): key is 'amount' | 'exchangeRate' | 'commission' => key === 'amount' || key === 'exchangeRate' || key === 'commission');
-  const currentIdx = editableFieldOrder.indexOf(field);
-  if (currentIdx === -1) return true;
-  const forward = event.key === 'ArrowRight' ? 1 : -1;
-  const step = isRTL ? -forward : forward;
-  const nextField = editableFieldOrder[currentIdx + step];
-  if (!nextField) return true;
-
-  event.preventDefault();
-  const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
-  const target = document.querySelector<HTMLInputElement>(`[data-ledger-field="${nextField}"][data-ledger-key="${rowKey}"]`);
-  if (target) {
-   target.focus();
-   const pos = event.key === 'ArrowRight' ? 0 : target.value.length;
-   target.setSelectionRange(pos, pos);
-  }
-  return true;
- }
 
  // Arrow up/down while editing a row's amount / exchange rate / commission: move to the
  // adjacent row in the same field. If that row isn't being edited yet (single-row edit),
  // save the current row first and open the neighbour for editing; if it's already open
  // (e.g. "edit all" mode) just move the caret. `pagedEntries` is the exact rendered order.
- function onLedgerEditFieldArrowKey(
-  event: ReactKeyboardEvent<HTMLInputElement>,
-  field: 'amount' | 'exchangeRate' | 'commission',
-  entry: ClientLedgerEntry,
-  ledgerAccountId: number,
-  pagedEntries: ClientLedgerEntry[],
-  entryIdx: number,
- ) {
-  if (onLedgerEditFieldSideKey(event, field, entry, ledgerAccountId)) return;
-  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-  event.preventDefault();
-  const neighbor = pagedEntries[entryIdx + (event.key === 'ArrowDown' ? 1 : -1)];
-  if (!neighbor) return;
-  const neighborKey = getLedgerTransactionDraftKey(neighbor.transactionId, ledgerAccountId);
-  const focusNeighborField = () => {
-   const target =
-    document.querySelector<HTMLInputElement>(`[data-ledger-field="${field}"][data-ledger-key="${neighborKey}"]`) ??
-    document.querySelector<HTMLInputElement>(`[data-ledger-key="${neighborKey}"]`);
-   if (target) {
-    target.focus();
-    target.select?.();
-   }
-  };
-  if (editingLedgerRowKeys.has(neighborKey)) {
-   focusNeighborField();
-   return;
-  }
-  openLedgerRowForEdit(neighbor, ledgerAccountId);
-  void onSaveLedgerRow(entry.transactionId, ledgerAccountId);
-  // Wait for the neighbour's inputs to render before focusing.
-  setTimeout(focusNeighborField, 0);
- }
 
- async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
-  const key = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
-  if (entry.isAdjustment && entry.adjustmentId) {
-   await onDeleteAdjustment(entry.adjustmentId);
-  } else {
-   await onDeleteTransaction(entry.transactionId);
-  }
-  setEditingLedgerRowKeys((prev) => {
-   const n = new Set(prev);
-   n.delete(key);
-   return n;
-  });
-  setSelectedLedgerEntryKeys((prev) => {
-   const n = new Set(prev);
-   n.delete(key);
-   return n;
-  });
- }
 
  // Marks one ledger row as reconciled with the client at its running balance. The
  // captured balance + row (createdAt, id) become a lock line protecting earlier rows.
- async function onReconcileLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
-  if (entry.reconciledMark) return; // already reconciled on this exact row
-  const anchorKind: 'transaction' | 'adjustment' = entry.isAdjustment ? 'adjustment' : 'transaction';
-  const anchorRefId = entry.isAdjustment ? entry.adjustmentId ?? 0 : entry.transactionId;
-  try {
-   const created = await accountingApi.createReconciliation({
-    accountId: ledgerAccountId,
-    anchorKind,
-    anchorRefId,
-    anchorCreatedAt: entry.createdAt,
-    balance: entry.runningBalance,
-    note: '',
-   });
-   setReconciliations((prev) => [
-    ...prev,
-    { id: created.id, accountId: ledgerAccountId, anchorKind, anchorRefId, anchorCreatedAt: entry.createdAt, balance: entry.runningBalance, note: '', createdAt: new Date().toISOString() },
-   ]);
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
 
- async function onRemoveReconciliation(entry: ClientLedgerEntry, ledgerAccountId: number) {
-  const markId = entry.reconciledMark?.id;
-  if (!markId) return;
-  if (!(await confirmDialog({ message: t('reconcile_remove_confirm'), confirmText: t('reconcile_remove'), tone: 'danger' }))) return;
-  try {
-   await accountingApi.deleteReconciliation(markId);
-   setReconciliations((prev) => prev.filter((r) => r.id !== markId));
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
-
- function onToggleLedgerEntrySelection(key: string) {
-  setSelectedLedgerEntryKeys((prev) => {
-   const next = new Set(prev);
-   if (next.has(key)) next.delete(key);
-   else next.add(key);
-   return next;
-  });
- }
-
- async function onDeleteSelectedLedgerEntries() {
-  const keys = [...selectedLedgerEntryKeys];
-  for (const key of keys) {
-   const [txIdStr, accIdStr] = key.split(':');
-   const txId = Number(txIdStr);
-   const accId = Number(accIdStr);
-   const ledger = selectedClientLedgers.find((l) => l.accountId === accId);
-   const entry = ledger?.entries.find((e) => e.transactionId === txId);
-   if (!entry) continue;
-   if (entry.isAdjustment && entry.adjustmentId) {
-    await onDeleteAdjustment(entry.adjustmentId, { offerUndo: false });
-   } else {
-    await onDeleteTransaction(entry.transactionId, { offerUndo: false });
-   }
-  }
-  setSelectedLedgerEntryKeys(new Set());
-  setError('');
-  await loadData();
- }
+ // useOrganizationActions and useLedgerActions each need a handler the other produces
+ // (a client-import-created org needs updateImportReviewEntry from useTransactionActions;
+ // a ledger-entry delete needs onDeleteAdjustment from useLedgerActions itself is fine, but
+ // useTransactionActions's row-delete needs onDeleteAdjustment from useLedgerActions, which
+ // is called later). These stable indirections let every hook be called in any order —
+ // each just forwards to whichever real implementation was wired in by the end of render.
+ let updateImportReviewEntryImpl: ((key: string, patch: Partial<ImportClientReview>) => void) | null = null;
+ const updateImportReviewEntry = (key: string, patch: Partial<ImportClientReview>) => updateImportReviewEntryImpl?.(key, patch);
+ let onDeleteAdjustmentImpl: ((id: number, opts?: { offerUndo?: boolean }) => Promise<void>) | null = null;
+ const onDeleteAdjustment = (id: number, opts?: { offerUndo?: boolean }) => onDeleteAdjustmentImpl?.(id, opts) ?? Promise.resolve();
 
   const { onOrganizationSubmit, onCreateOrgFromDialog, onDeleteOrganization } = useOrganizationActions({
    organizationForm,
@@ -1922,40 +1165,6 @@ function AuthenticatedHome() {
 
 
 
- async function onDeleteAllTransactions() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  if (!transactions.length) {
-   setError(t('no_transactions'));
-   return;
-  }
-
-  const firstConfirm = await confirmDialog({
-   title: t('danger_action_cannot_undo'),
-   message: t('danger_delete_all_transactions_confirm'),
-   confirmText: t('delete'),
-   tone: 'danger',
-  });
-  if (!firstConfirm) {
-   return;
-  }
-
-  try {
-   await accountingApi.deleteAllTransactions();
-   setSelectedTransactionIds(new Set());
-   setTransactionTableDrafts({});
-   setCommissionExpandedTxns(new Set());
-   setExpensesExpandedTxns(new Set());
-   setTransactionsPage(99999);
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
 
 
   const { onDownloadBackup, onRestoreBackupFile, lastBackupLabel } = useBackupActions({
@@ -1972,1133 +1181,25 @@ function AuthenticatedHome() {
    setSelectedLedgerAccountId,
   });
 
- async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  // Guard against a rapid double-submit creating a duplicate (button disabled may not have
-  // re-rendered yet). Reset in the finally of whichever create branch runs below.
-  if (transactionSubmitLock.current) return;
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
 
-  const amount = parseFloat(normalizeDecimalInput(transactionForm.amount));
-  const isArchiveCreate = section === 'archive';
-  // A new entry lands at the end of its date's sequence (top of the table / bottom of the
-  // ledger), after any same-day rows the user manually reordered.
-  const newTransactionCreatedAt = nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
-
-  if (isAdjustmentTransaction && !isArchiveCreate) {
-   if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
-    setError(t('adjustment_required'));
-    return;
-   }
-
-   const selectedCurrency = currencyMap.get(transactionForm.currencyId);
-   const account = clientAccountMap.get(transactionForm.accountFromId);
-
-   // Cross-currency adjustment with no rate entered → 0 (pending sentinel, excluded from
-   // balance until the user sets a rate). Same-currency stays 1.
-   const adjCrossCurrency = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-   const adjRawRate = parseFloat(transactionForm.exchangeRateFrom);
-   const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
-   const adjExchangeRate = adjCrossCurrency ? (adjRateSet ? (txFromRateReversed ? 1 / adjRawRate : adjRawRate) : 0) : 1;
-
-   const adjPayload = {
-    accountId: transactionForm.accountFromId,
-    amount,
-    direction: transactionForm.adjustmentDirection,
-    currencyId: transactionForm.currencyId,
-    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-    exchangeRate: adjExchangeRate,
-    exchangeRateReversed: txFromRateReversed && adjRateSet,
-    description: transactionForm.description,
-    createdAt: newTransactionCreatedAt,
-   };
-
-   // Reconciliation guard: a new expense dated at or before the lock line rewrites history.
-   if (!(await confirmIfLocked([adjPayload.accountId], adjPayload.createdAt, NEW_ROW_REF_ID))) {
-    return;
-   }
-
-   transactionSubmitLock.current = true;
-   setIsSubmittingTransaction(true);
-   try {
-    const created = await accountingApi.createClientAdjustment(adjPayload);
-
-    // Optimistically add the new adjustment (the API returns its real id), then reconcile.
-    setAdjustments((prev) => [
-     ...prev,
-     {
-      id: created.id,
-      accountId: adjPayload.accountId,
-      amount: adjPayload.amount,
-      direction: adjPayload.direction,
-      currencyId: adjPayload.currencyId,
-      currencyCode: adjPayload.currencyCode,
-      currencySymbol: adjPayload.currencySymbol,
-      exchangeRate: adjPayload.exchangeRate,
-      exchangeRateReversed: adjPayload.exchangeRateReversed,
-      description: adjPayload.description,
-      createdAt: adjPayload.createdAt,
-     },
-    ]);
-
-    setTxSplitDescription(false);
-    setTransactionForm(emptyTransactionForm());
-    setTxFromQuery('');
-    setTxFromOpen(false);
-    setTxToQuery('');
-    setTxToOpen(false);
-    setTxFromRateReversed(false);
-    setTxToRateReversed(false);
-    // Keep the form open so several entries can be added in a row.
-    setIsNewTransactionExpensesOpen(false);
-    setNewTransactionDate(new Date().toISOString().slice(0, 10));
-    setError('');
-    void loadData();
-   } catch (e) {
-    setError(e instanceof Error ? e.message : t('error_failed_save'));
-   } finally {
-    transactionSubmitLock.current = false;
-    setIsSubmittingTransaction(false);
-   }
-
-   return;
-  }
-
-  if (!transactionForm.currencyId || (!isArchiveCreate && !transactionForm.accountFromId && !transactionForm.accountToId)) {
-   setError(t(isArchiveCreate ? 'archive_create_required' : 'transaction_party_required'));
-   return;
-  }
-
-  const txPayload = {
-   accountFromId: transactionForm.accountFromId,
-   accountToId: transactionForm.accountToId,
-   currencyId: transactionForm.currencyId,
-   amount: amount || 0,
-   type: transactionForm.type,
-   isArchived: isArchiveCreate,
-   // Cross-currency sides with no rate entered are stored as 0 (unset → pending). Same-currency
-   // sides are always 1. An entered rate (including 1) is stored as given.
-   exchangeRateFrom: (() => {
-    if (!showExchangeRateFrom || !transactionAccountFromCurrencyCode) return 1;
-    const raw = parseFloat(transactionForm.exchangeRateFrom);
-    if (!Number.isFinite(raw) || raw <= 0) return 0;
-    return txFromRateReversed ? 1 / raw : raw;
-   })(),
-   commissionFrom: parseFloat(transactionForm.commissionFrom) || 0,
-   exchangeRateTo: (() => {
-    if (!showExchangeRateTo || !transactionAccountToCurrencyCode) return 1;
-    const raw = parseFloat(transactionForm.exchangeRateTo);
-    if (!Number.isFinite(raw) || raw <= 0) return 0;
-    return txToRateReversed ? 1 / raw : raw;
-   })(),
-   commissionTo: parseFloat(transactionForm.commissionTo) || 0,
-   exchangeRateFromReversed: txFromRateReversed && (parseFloat(transactionForm.exchangeRateFrom) || 0) > 0 ? 1 : 0,
-   exchangeRateToReversed: txToRateReversed && (parseFloat(transactionForm.exchangeRateTo) || 0) > 0 ? 1 : 0,
-   charges: parseFloat(transactionForm.charges) || 0,
-   chargesCurrencyId: transactionForm.chargesCurrencyId || null,
-   chargesPayer: transactionForm.chargesPayer,
-   chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
-   chargesDescription: transactionForm.chargesDescription,
-   description: transactionForm.description,
-   descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
-   descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
-   createdAt: newTransactionCreatedAt,
-  };
-
-  // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled
-  // history. Archive-only records never touch any ledger, so they are exempt.
-  if (!isArchiveCreate && !(await confirmIfLocked([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID))) {
-   return;
-  }
-
-  transactionSubmitLock.current = true;
-  setIsSubmittingTransaction(true);
-  try {
-   await accountingApi.createTransaction(txPayload);
-
-   // Optimistically add the new row so the table updates instantly; a background reload
-   // reconciles it with the server (real id + any server-side normalization).
-   const fromAcc = txPayload.accountFromId != null ? clientAccountMap.get(txPayload.accountFromId) : undefined;
-   const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
-   const cur = txPayload.currencyId != null ? currencyMap.get(txPayload.currencyId) : undefined;
-   const chargesCur = txPayload.chargesCurrencyId != null ? currencyMap.get(txPayload.chargesCurrencyId) : null;
-   setTransactions((prev) => [
-    ...prev,
-    {
-     id: -Date.now(),
-     accountFromId: txPayload.accountFromId,
-     clientFromName: fromAcc?.clientName ?? '',
-     accountFromCurrencyCode: fromAcc?.currencyCode ?? '',
-     accountFromCurrencySymbol: fromAcc?.currencySymbol ?? '',
-     accountToId: txPayload.accountToId,
-     clientToName: toAcc?.clientName ?? '',
-     accountToCurrencyCode: toAcc?.currencyCode ?? '',
-     accountToCurrencySymbol: toAcc?.currencySymbol ?? '',
-     currencyId: txPayload.currencyId ?? 0,
-     currencyCode: cur?.code ?? '',
-     currencySymbol: cur?.symbol ?? '',
-     amount: txPayload.amount,
-     type: txPayload.type,
-     exchangeRateFrom: txPayload.exchangeRateFrom,
-     commissionFrom: txPayload.commissionFrom,
-     exchangeRateTo: txPayload.exchangeRateTo,
-     commissionTo: txPayload.commissionTo,
-     exchangeRateFromReversed: txPayload.exchangeRateFromReversed,
-     exchangeRateToReversed: txPayload.exchangeRateToReversed,
-     charges: txPayload.charges,
-     chargesCurrencyId: txPayload.chargesCurrencyId,
-     chargesCurrencyCode: chargesCur?.code ?? null,
-     chargesCurrencySymbol: chargesCur?.symbol ?? null,
-     chargesPayer: txPayload.chargesPayer,
-     chargesExchangeRate: txPayload.chargesExchangeRate,
-     chargesDescription: txPayload.chargesDescription,
-     description: txPayload.description,
-     descriptionFrom: txPayload.descriptionFrom,
-     descriptionTo: txPayload.descriptionTo,
-     archiveNote: '',
-     isArchived: txPayload.isArchived ? 1 : 0,
-     createdAt: txPayload.createdAt,
-    },
-   ]);
-
-   setTxSplitDescription(false);
-   setTransactionForm(emptyTransactionForm());
-   setTxFromQuery('');
-   setTxFromOpen(false);
-   setTxToQuery('');
-   setTxToOpen(false);
-   setTxFromRateReversed(false);
-   setTxToRateReversed(false);
-   // Keep the form open so several entries can be added in a row.
-   setIsNewTransactionExpensesOpen(false);
-   setNewTransactionDate(new Date().toISOString().slice(0, 10));
-   setError('');
-   showToast(t(txPayload.isArchived ? 'toast_archive_transaction_created' : 'toast_transaction_created'));
-   void loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   transactionSubmitLock.current = false;
-   setIsSubmittingTransaction(false);
-  }
- }
-
- async function onImportTransactionsFile(event: ChangeEvent<HTMLInputElement>) {
-  const file = event.target.files?.[0];
-  if (!file) {
-   return;
-  }
-
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  setError('');
-  setImportSummary('');
-
-  try {
-   const xlsxModule = await import('xlsx');
-   const fileBuffer = await file.arrayBuffer();
-   const workbook = xlsxModule.read(fileBuffer, { type: 'array', cellDates: true });
-   const firstSheetName = workbook.SheetNames[0];
-
-   if (!firstSheetName) {
-    throw new Error('The selected file has no sheets.');
-   }
-
-   const sheet = workbook.Sheets[firstSheetName];
-   const rawRows = xlsxModule.utils.sheet_to_json(sheet, {
-    header: 1,
-    raw: true,
-    defval: '',
-   }) as unknown[][];
-
-   const rows = rawRows;
-   const columnOptions = buildImportColumnOptions(rows);
-   if (!columnOptions.length) {
-    throw new Error('The selected sheet has no columns.');
-   }
-
-   const headerAliases = {
-    from: ['عليه', 'from', 'accountfrom', 'sender', 'debtor'],
-    to: ['له', 'to', 'accountto', 'receiver', 'creditor'],
-    amount: ['القيمة', 'المبلغ', 'amount', 'value'],
-    date: ['التاريخ', 'date', 'createdat'],
-    description: ['الوصف', 'البيان', 'ملاحظة', 'description', 'note', 'details'],
-    moreInfo: ['معلومات', 'مزيدمنالمعلومات', 'تفاصيل', 'moreinfo', 'info', 'extra', 'reference', 'ref'],
-   };
-
-   const detectColumnByAliases = (aliases: string[]) => {
-    const normalizedAliasSet = new Set(aliases.map((alias) => normalizeImportHeader(alias)));
-    for (let rowIndex = 0; rowIndex < Math.min(rows.length, 10); rowIndex += 1) {
-     const row = rows[rowIndex];
-     for (let cellIndex = 0; cellIndex < row.length; cellIndex += 1) {
-      const cell = normalizeImportHeader(toImportString(row[cellIndex]));
-      if (normalizedAliasSet.has(cell)) {
-       return cellIndex;
-      }
-     }
-    }
-    return null;
-   };
-
-   const preferredCurrency = enabledCurrencies[0] ?? currencies[0] ?? null;
-
-   setPendingImportData({
-    fileName: file.name,
-    rows,
-    columnOptions,
-   });
-
-   setImportMapping({
-    dateColumn: detectColumnByAliases(headerAliases.date),
-    fromColumn: detectColumnByAliases(headerAliases.from),
-    toColumn: detectColumnByAliases(headerAliases.to),
-    amountColumn: detectColumnByAliases(headerAliases.amount),
-    descriptionColumn: detectColumnByAliases(headerAliases.description),
-    // Archive-only "More info" note column; harmless (unused) for the normal import.
-    moreInfoColumn: section === 'archive' ? detectColumnByAliases(headerAliases.moreInfo) : null,
-    currencyId: preferredCurrency?.id ?? null,
-   });
-
-   // pendingImportData drives the independent import-setup modal (rendered at the
-   // top level), so there's no need to expand the New Transaction side panel.
-  } catch (e) {
-   setError(e instanceof Error ? e.message : 'Failed to read import file.');
-  } finally {
-   if (transactionsImportInputRef.current) {
-    transactionsImportInputRef.current.value = '';
-   }
-  }
- }
 
  // Builds the per-client review list from the mapped sheet so the user can
  // rename clients and assign organizations before anything is created.
- function onPrepareImportReview() {
-  if (!pendingImportData) {
-   setError(t('import_err_no_file'));
-   return;
-  }
 
-  // Archive imports may name only a sender or only a receiver per row, so a single
-  // party column is enough; the normal transactions import still needs both.
-  const isArchiveImport = section === 'archive';
-  const mappingIncomplete = isArchiveImport
-   ? importMapping.amountColumn == null || (importMapping.fromColumn == null && importMapping.toColumn == null)
-   : importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null;
-  if (mappingIncomplete) {
-   setError(t(isArchiveImport ? 'import_err_mapping_archive' : 'import_err_mapping'));
-   return;
-  }
 
-  // The import currency is optional. When chosen it drives every row's currency
-  // (unchanged behaviour); when left blank, each row's currency is derived from
-  // the account the user picks for the client in the review step.
-  const selectedCurrency = importMapping.currencyId ? (currencies.find((currency) => currency.id === importMapping.currencyId) ?? null) : null;
 
-  try {
-   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency, { allowOneSided: isArchiveImport });
-   const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
-   const reviewMap = new Map<string, ImportClientReview>();
 
-   const registerName = (rawName: string) => {
-    const key = normalizeLookup(rawName);
-    if (!key) return;
-    let entry = reviewMap.get(key);
-    if (!entry) {
-     const existing = clients.find((client) => normalizeLookup(client.name) === key) ?? null;
-     // For an auto-matched existing client, preselect the right account. With a
-     // global import currency, only its matching account counts (so we never post
-     // that currency onto a different-currency account). Without one, fall back to
-     // the client's only account so a single-account client still posts.
-     const existingAccounts = existing ? clientAccounts.filter((account) => account.clientId === existing.id) : [];
-     const defaultAccount = selectedCurrency
-      ? (existingAccounts.find((account) => account.currencyId === selectedCurrency.id) ?? null)
-      : existingAccounts.length === 1
-        ? existingAccounts[0]
-        : null;
-     entry = {
-      key,
-      originalName: rawName,
-      isExpense: false,
-      existingClientId: existing?.id ?? null,
-      existingAccountId: defaultAccount?.id ?? null,
-      pendingEntryKey: null,
-      targetCurrencyId: null,
-      name: rawName,
-      organizationId: existing?.organizationId ?? organizations[0]?.id ?? null,
-      accountCurrencyIds: [],
-      currencyId: selectedCurrency?.id ?? null,
-      transactionCount: 0,
-     };
-     reviewMap.set(key, entry);
-    }
-    entry.transactionCount += 1;
-   };
 
-   for (const row of importedRows) {
-    registerName(row.fromName);
-    registerName(row.toName);
-   }
 
-   if (!reviewMap.size) {
-    throw new Error('No clients were found in the selected columns.');
-   }
-
-   setError('');
-   setImportParsedRows(importedRows);
-   setImportRowOverrides({});
-   setImportReview(Array.from(reviewMap.values()));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : 'Failed to read clients from the file.');
-  }
- }
-
- function updateImportReviewEntry(key: string, patch: Partial<ImportClientReview>) {
-  setImportReview((current) => {
-   if (!current) return current;
-   return current.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry));
-  });
- }
-
- function updateImportRowOverride(index: number, patch: Partial<ImportRowOverride>) {
-  setImportRowOverrides((current) => ({
-   ...current,
-   [index]: { ...(current[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE), ...patch },
-  }));
- }
-
- async function onConfirmImportTransactions() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  if (!pendingImportData) {
-   setError(t('import_err_no_file'));
-   return;
-  }
-
-  const isArchiveImport = section === 'archive';
-  const mappingIncomplete = isArchiveImport
-   ? importMapping.amountColumn == null || (importMapping.fromColumn == null && importMapping.toColumn == null)
-   : importMapping.fromColumn == null || importMapping.toColumn == null || importMapping.amountColumn == null;
-  if (mappingIncomplete) {
-   setError(t(isArchiveImport ? 'import_err_mapping_archive' : 'import_err_mapping'));
-   return;
-  }
-
-  const selectedCurrency = importMapping.currencyId ? (currencies.find((currency) => currency.id === importMapping.currencyId) ?? null) : null;
-
-  if (!importReview || !importReview.length) {
-   setError(t('import_err_review_first'));
-   return;
-  }
-
-  // Only names that will create a brand-new client must be filled in.
-  if (importReview.some((entry) => !entry.isExpense && entry.existingClientId == null && !entry.name.trim())) {
-   setError(t('import_err_name_required'));
-   return;
-  }
-
-  // Every new client needs at least one account to post transactions to.
-  const missingAccount = importReview.find((entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length === 0);
-  if (missingAccount) {
-   setError(t('import_err_account_required', { name: missingAccount.originalName }));
-   return;
-  }
-
-  // New clients with 2+ accounts need a target account selected.
-  const missingTarget = importReview.find(
-   (entry) => !entry.isExpense && entry.existingClientId == null && entry.pendingEntryKey == null && entry.accountCurrencyIds.length >= 2 && entry.targetCurrencyId == null,
-  );
-  if (missingTarget) {
-   setError(t('import_err_target_required', { name: missingTarget.originalName }));
-   return;
-  }
-
-  // Pending-entry refs with 2+ accounts need a target chosen.
-  const refAccountCount = (key: string) => importReview.find((e) => e.key === key)?.accountCurrencyIds.length ?? 0;
-  const missingPendingTarget = importReview.find(
-   (entry) => !entry.isExpense && entry.pendingEntryKey != null && entry.targetCurrencyId == null && refAccountCount(entry.pendingEntryKey!) >= 2,
-  );
-  if (missingPendingTarget) {
-   setError(t('import_err_target_required', { name: missingPendingTarget.originalName }));
-   return;
-  }
-
-  // Existing clients with 2+ accounts need a selected account.
-  const missingExistingAccount = importReview.find(
-   (entry) =>
-    !entry.isExpense && entry.existingClientId != null && entry.existingAccountId == null && clientAccounts.filter((a) => a.clientId === entry.existingClientId).length >= 2,
-  );
-  if (missingExistingAccount) {
-   setError(t('import_err_existing_account_required', { name: missingExistingAccount.originalName }));
-   return;
-  }
-
-  const reviewList = importReview;
-
-  setIsImportingTransactions(true);
-  setError('');
-  setImportSummary('');
-
-  try {
-   const importedRows = parseTransactionRowsFromMappedSheet(pendingImportData.rows, importMapping, selectedCurrency, { allowOneSided: isArchiveImport });
-
-   const normalizeLookup = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
-   const reviewByKey = new Map(reviewList.map((entry) => [entry.key, entry] as const));
-
-   let nextClients = [...clients];
-   let nextCurrencies = [...currencies];
-   let nextClientAccounts = [...clientAccounts];
-
-   const stats = {
-    createdClients: 0,
-    enabledCurrencies: 0,
-    createdAccounts: 0,
-    createdTransactions: 0,
-    createdExpenses: 0,
-    skippedRows: 0,
-   };
-
-   const getClientByName = (name: string) => {
-    const needle = normalizeLookup(name);
-    return nextClients.find((client) => normalizeLookup(client.name) === needle) ?? null;
-   };
-
-   const getClientAccount = (clientId: number, currencyId: number) => {
-    return nextClientAccounts.find((account) => account.clientId === clientId && account.currencyId === currencyId) ?? null;
-   };
-
-   // Resolves the client id for a review entry: an explicitly mapped existing
-   // client, the client created by a referenced pending entry, or the one
-   // created/found by this entry's own name.
-   const resolveClientId = (entry: ImportClientReview): number | null => {
-    if (entry.existingClientId != null) return entry.existingClientId;
-    if (entry.pendingEntryKey != null) {
-     const ref = reviewByKey.get(entry.pendingEntryKey);
-     return ref ? (getClientByName(ref.name.trim())?.id ?? null) : null;
-    }
-    return getClientByName(entry.name.trim())?.id ?? null;
-   };
-
-   // Optional: present only when the user picked a single currency for the whole
-   // import. When null, each row's currency comes from the resolved account.
-   let importCurrency = selectedCurrency ? (nextCurrencies.find((currency) => currency.id === selectedCurrency.id) ?? selectedCurrency) : null;
-
-   const ensureCurrencyEnabled = async (currencyId: number) => {
-    const currency = nextCurrencies.find((item) => item.id === currencyId);
-    if (currency && currency.isEnabled !== 1) {
-     await accountingApi.enableCurrency(currencyId);
-     nextCurrencies = nextCurrencies.map((item) => (item.id === currencyId ? { ...item, isEnabled: 1 } : item));
-     if (importCurrency && currencyId === importCurrency.id) importCurrency = { ...importCurrency, isEnabled: 1 };
-     stats.enabledCurrencies += 1;
-    }
-   };
-
-   if (importCurrency) await ensureCurrencyEnabled(importCurrency.id);
-
-   // A row touching an expense-marked name that the user flipped to "transaction"
-   // means that name must act as a real client for those rows.
-   const expenseKeysNeedingClient = new Set<string>();
-   importedRows.forEach((row, index) => {
-    if ((importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE).mode !== 'transaction') return;
-    const fromKey = normalizeLookup(row.fromName);
-    const toKey = normalizeLookup(row.toName);
-    if (reviewByKey.get(fromKey)?.isExpense) expenseKeysNeedingClient.add(fromKey);
-    if (reviewByKey.get(toKey)?.isExpense) expenseKeysNeedingClient.add(toKey);
-   });
-
-   // Create reviewed new clients (existing-client mappings and pending-entry
-   // references are reused). Expense markers are skipped unless a row flips them.
-   for (const review of reviewList) {
-    if (review.existingClientId != null) continue;
-    if (review.pendingEntryKey != null) continue;
-    if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
-    const finalName = review.name.trim();
-    if (!finalName || getClientByName(finalName)) continue;
-    const { clientId: newClientId } = (await accountingApi.createClient({
-     organizationId: review.organizationId ?? null,
-     name: finalName,
-     email: '',
-     phone: '',
-     address: '',
-    })) as { ok: true; clientId: number };
-    nextClients = [
-     ...nextClients,
-     {
-      id: newClientId,
-      name: finalName,
-      organizationId: review.organizationId ?? null,
-      organizationName: null,
-      email: '',
-      phone: '',
-      address: '',
-      excludeFromBalance: false,
-      accountCount: 0,
-      createdAt: '',
-      updatedAt: '',
-     },
-    ];
-    stats.createdClients += 1;
-   }
-
-   // Open accounts only for new clients (the currencies the user picked).
-   // Existing clients are never given new accounts automatically — their rows
-   // post to the account chosen in the review step, or are skipped otherwise.
-   // Pending-entry references piggyback on the referenced entry's accounts.
-   for (const review of reviewList) {
-    if (review.isExpense && !expenseKeysNeedingClient.has(review.key)) continue;
-    if (review.pendingEntryKey != null) continue;
-    if (review.existingClientId != null) continue;
-
-    const clientId = resolveClientId(review);
-    if (clientId == null) continue;
-    for (const currencyId of Array.from(new Set(review.accountCurrencyIds))) {
-     await ensureCurrencyEnabled(currencyId);
-     if (getClientAccount(clientId, currencyId)) continue;
-     await accountingApi.createClientAccount({ clientId, currencyId, startingBalance: 0 });
-     stats.createdAccounts += 1;
-    }
-   }
-   // One reload after all accounts are created so resolveAccount can find them.
-   if (stats.createdAccounts > 0) {
-    nextClientAccounts = (await accountingApi.listAllClientAccounts()) as ClientAccount[];
-   }
-
-   // Resolves the account a review entry's rows should post to.
-   const resolveAccount = (entry: ImportClientReview) => {
-    if (entry.existingClientId != null) {
-     if (entry.existingAccountId != null) {
-      return nextClientAccounts.find((account) => account.id === entry.existingAccountId) ?? null;
-     }
-     return importCurrency ? getClientAccount(entry.existingClientId, importCurrency.id) : null;
-    }
-    const clientId = resolveClientId(entry);
-    if (clientId == null) return null;
-    // Use the user-chosen target currency, or fall back to the import currency.
-    const targetCurrencyId = entry.targetCurrencyId ?? importCurrency?.id ?? null;
-    if (targetCurrencyId == null) return null;
-    return getClientAccount(clientId, targetCurrencyId) ?? null;
-   };
-
-   // The currency a row posts in: the global import currency when chosen,
-   // otherwise the currency of the account the row resolves to.
-   const currencyForAccount = (account: ClientAccount) => importCurrency ?? nextCurrencies.find((currency) => currency.id === account.currencyId) ?? null;
-
-   // Walk the rows, building two accumulator arrays instead of firing one HTTP
-   // request per row. A single bulk call at the end inserts everything at once.
-   const transactionsToCreate: object[] = [];
-   const adjustmentsToCreate: object[] = [];
-
-   for (let index = 0; index < importedRows.length; index += 1) {
-    const row = importedRows[index];
-    const fromEntry = reviewByKey.get(normalizeLookup(row.fromName)) ?? null;
-    const toEntry = reviewByKey.get(normalizeLookup(row.toName)) ?? null;
-    const fromIsExpense = !!fromEntry?.isExpense;
-    const toIsExpense = !!toEntry?.isExpense;
-    const involvesExpense = fromIsExpense || toIsExpense;
-    const override = importRowOverrides[index] ?? DEFAULT_IMPORT_ROW_OVERRIDE;
-    const asExpense = involvesExpense && override.mode !== 'transaction';
-
-    if (asExpense) {
-     if (fromIsExpense && toIsExpense) continue;
-     const realEntry = fromIsExpense ? toEntry : fromEntry;
-     const markerEntry = fromIsExpense ? fromEntry : toEntry;
-     if (!realEntry) continue;
-     const account = resolveAccount(realEntry);
-     if (!account) {
-      stats.skippedRows += 1;
-      continue;
-     }
-     const adjustmentCurrency = currencyForAccount(account);
-     if (!adjustmentCurrency) {
-      stats.skippedRows += 1;
-      continue;
-     }
-     adjustmentsToCreate.push({
-      accountId: account.id,
-      amount: row.amount,
-      direction: override.direction,
-      currencyId: adjustmentCurrency.id,
-      currencyCode: adjustmentCurrency.code,
-      currencySymbol: adjustmentCurrency.symbol,
-      exchangeRate: 1,
-      exchangeRateReversed: false,
-      description: row.description || markerEntry?.originalName || '',
-      createdAt: row.createdAt ?? null,
-     });
-     continue;
-    }
-
-    // Transfer between two parties. An archive import may name only one side, in which
-    // case it posts a single-party archived entry (the missing side stays null); the
-    // normal import still requires both a sender and a receiver.
-    if (!fromEntry && !toEntry) continue;
-    if (!isArchiveImport && (!fromEntry || !toEntry)) continue;
-
-    if (!fromEntry || !toEntry) {
-     // One-sided archive row: post to whichever party is present, on its natural side.
-     const soleEntry = (fromEntry ?? toEntry) as ImportClientReview;
-     const soleAccount = resolveAccount(soleEntry);
-     if (!soleAccount) {
-      stats.skippedRows += 1;
-      continue;
-     }
-     const soleCurrency = importCurrency ?? currencyForAccount(soleAccount);
-     if (!soleCurrency) {
-      stats.skippedRows += 1;
-      continue;
-     }
-     transactionsToCreate.push({
-      accountFromId: fromEntry ? soleAccount.id : null,
-      accountToId: fromEntry ? null : soleAccount.id,
-      currencyId: soleCurrency.id,
-      amount: row.amount,
-      type: 'transfer',
-      exchangeRateFrom: 1,
-      commissionFrom: 0,
-      exchangeRateTo: 1,
-      commissionTo: 0,
-      exchangeRateFromReversed: false,
-      exchangeRateToReversed: false,
-      charges: 0,
-      chargesCurrencyId: null,
-      chargesPayer: '',
-      chargesExchangeRate: 1,
-      chargesDescription: '',
-      description: row.description,
-      archiveNote: row.moreInfo,
-      isArchived: true,
-      createdAt: row.createdAt ?? null,
-     });
-     continue;
-    }
-
-    const sendEntry = override.swap ? toEntry : fromEntry;
-    const receiveEntry = override.swap ? fromEntry : toEntry;
-    const fromAccount = resolveAccount(sendEntry);
-    const toAccount = resolveAccount(receiveEntry);
-    if (!fromAccount || !toAccount) {
-     stats.skippedRows += 1;
-     continue;
-    }
-    // A transfer posts in a single currency. With a global import currency that
-    // is it; without one, both sides must resolve to the same-currency account.
-    const transferCurrency = importCurrency ?? (fromAccount.currencyId === toAccount.currencyId ? currencyForAccount(fromAccount) : null);
-    if (!transferCurrency) {
-     stats.skippedRows += 1;
-     continue;
-    }
-    transactionsToCreate.push({
-     accountFromId: fromAccount.id,
-     accountToId: toAccount.id,
-     currencyId: transferCurrency.id,
-     amount: row.amount,
-     type: 'transfer',
-     exchangeRateFrom: 1,
-     commissionFrom: 0,
-     exchangeRateTo: 1,
-     commissionTo: 0,
-     exchangeRateFromReversed: false,
-     exchangeRateToReversed: false,
-     charges: 0,
-     chargesCurrencyId: null,
-     chargesPayer: '',
-     chargesExchangeRate: 1,
-     chargesDescription: '',
-     description: row.description,
-     archiveNote: isArchiveImport ? row.moreInfo : '',
-     isArchived: isArchiveImport,
-     createdAt: row.createdAt ?? null,
-    });
-   }
-
-   if (transactionsToCreate.length > 0 || adjustmentsToCreate.length > 0) {
-    const bulkResult = await accountingApi.bulkImportTransactions({
-     transactions: transactionsToCreate,
-     adjustments: adjustmentsToCreate,
-    });
-    stats.createdTransactions = bulkResult.createdTransactions;
-    stats.createdExpenses = bulkResult.createdAdjustments;
-   }
-
-   if (!stats.createdTransactions && !stats.createdExpenses) {
-    throw new Error('Nothing was imported. Check the mapping questions, selected currency, and expense markers.');
-   }
-
-   await loadData();
-   setImportSummary(
-    `Imported ${stats.createdTransactions} transactions${stats.createdExpenses ? ` and ${stats.createdExpenses} expenses` : ''} from ${pendingImportData.fileName}. Created ${stats.createdClients} clients and ${stats.createdAccounts} accounts.${
-     stats.skippedRows ? ` Skipped ${stats.skippedRows} rows whose clients had no ${selectedCurrency ? `${selectedCurrency.code} ` : ''}account.` : ''
-    }`,
-   );
-   setPendingImportData(null);
-   setImportReview(null);
-   setImportParsedRows([]);
-   setImportRowOverrides({});
-   setImportMapping({
-    dateColumn: null,
-    fromColumn: null,
-    toColumn: null,
-    amountColumn: null,
-    descriptionColumn: null,
-    moreInfoColumn: null,
-    currencyId: null,
-   });
-  } catch (e) {
-   setError(e instanceof Error ? e.message : 'Failed to import transactions.');
-  } finally {
-   setIsImportingTransactions(false);
-  }
- }
-
- function onCancelImportTransactions() {
-  setPendingImportData(null);
-  setImportReview(null);
-  setImportParsedRows([]);
-  setImportRowOverrides({});
-  setImportMapping({
-   dateColumn: null,
-   fromColumn: null,
-   toColumn: null,
-   amountColumn: null,
-   descriptionColumn: null,
-   moreInfoColumn: null,
-   currencyId: null,
-  });
- }
-
- async function onSaveAllTransactionDrafts() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  // One up-front lock check for the whole batch: warn once if any edited row is dated
-  // on/before, or moves onto, reconciled history.
-  let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
-  for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
-   const draft = transactionTableDrafts[transactionId];
-   const transaction = transactionTableRowMap.get(transactionId);
-   if (!draft || !transaction) continue;
-   if (draft.isAdjustment && draft.adjustmentId) {
-    const adj = adjustments.find((a) => a.id === draft.adjustmentId);
-    if (!adj) continue;
-    batchLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries) ?? violatedLock([adj.accountId], resolveCreatedAt(draft.createdDate, adj.createdAt), adj.id, lockBoundaries);
-   } else {
-    batchLockHit = violatedLock([transaction.accountFromId, transaction.accountToId], transaction.createdAt, transaction.id, lockBoundaries) ?? violatedLock([draft.accountFromId, draft.accountToId], resolveCreatedAt(draft.createdDate, transaction.createdAt), transaction.id, lockBoundaries);
-   }
-   if (batchLockHit) break;
-  }
-  if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
-   return;
-  }
-
-  try {
-   for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
-    const draft = transactionTableDrafts[transactionId];
-    const transaction = transactionTableRowMap.get(transactionId);
-    if (!draft || !transaction) continue;
-    if (draft.isAdjustment && draft.adjustmentId) {
-     const amount = parseFloat(draft.amount);
-     if (!draft.accountFromId || !draft.currencyId || !amount) {
-      setError(t('transaction_required'));
-      return;
-     }
-     const selectedCurrency = currencyMap.get(draft.currencyId);
-     const account = clientAccountMap.get(draft.accountFromId);
-     // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
-     const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-     const adjRawRate = parseFloat(draft.exchangeRateFrom);
-     const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
-     const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
-     await accountingApi.updateClientAdjustment({
-      id: draft.adjustmentId,
-      accountId: draft.accountFromId,
-      amount,
-      direction: draft.adjustmentDirection ?? 'debit',
-      currencyId: draft.currencyId,
-      currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-      currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-      exchangeRate: adjRate,
-      exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
-      description: draft.description,
-      createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-     });
-     continue;
-    }
-    const amount = parseFloat(draft.amount);
-    if ((!draft.accountFromId && !draft.accountToId) || !draft.currencyId) {
-     setError(t('transaction_party_required'));
-     return;
-    }
-    // Preserve the "unset" (0) rate for cross-currency sides so a pending row isn't forced to 1.
-    const fromAcc = draft.accountFromId ? clientAccountMap.get(draft.accountFromId) : null;
-    const toAcc = draft.accountToId ? clientAccountMap.get(draft.accountToId) : null;
-    const fromCross = !!fromAcc && fromAcc.currencyId !== draft.currencyId;
-    const toCross = !!toAcc && toAcc.currencyId !== draft.currencyId;
-    const sideRate = (field: string, cross: boolean, reversed: boolean) => {
-     const r = parseFloat(field);
-     if (Number.isFinite(r) && r > 0) return reversed ? 1 / r : r;
-     return cross ? 0 : 1;
-    };
-    const fromRateVal = sideRate(draft.exchangeRateFrom, fromCross, !!tableRateFromReversed[transactionId]);
-    const toRateVal = sideRate(draft.exchangeRateTo, toCross, !!tableRateToReversed[transactionId]);
-    await accountingApi.updateTransaction({
-     id: transaction.id,
-     accountFromId: draft.accountFromId,
-     accountToId: draft.accountToId,
-     currencyId: draft.currencyId,
-     amount: amount || 0,
-     type: draft.type,
-     exchangeRateFrom: fromRateVal,
-     commissionFrom: parseFloat(draft.commissionFrom) || 0,
-     exchangeRateTo: toRateVal,
-     commissionTo: parseFloat(draft.commissionTo) || 0,
-     exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
-     exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
-     charges: parseFloat(draft.charges) || 0,
-     chargesCurrencyId: draft.chargesCurrencyId || null,
-     chargesPayer: draft.chargesPayer,
-     chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
-     chargesDescription: draft.chargesDescription,
-     description: draft.description,
-     archiveNote: draft.archiveNote,
-     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-    });
-   }
-   setError('');
-   cancelTransactionsEditMode();
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  }
- }
-
- async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {}) {
-  const { offerUndo = true } = opts;
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const tx = transactions.find((t) => t.id === id);
-  if (!(await confirmDeleteWithLock(tx ? [tx.accountFromId, tx.accountToId] : [], tx?.createdAt ?? '', id, 'transaction_delete_confirm'))) {
-   return;
-  }
-
-  try {
-   await accountingApi.deleteTransaction(id);
-   setSelectedTransactionIds((current) => {
-    const next = new Set(current);
-    next.delete(id);
-    return next;
-   });
-   setError('');
-   await loadData();
-   if (offerUndo && tx) {
-    showUndo(t('toast_transaction_deleted'), () => void onUndoDeleteTransaction(tx));
-   }
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
-
- function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
-  const account = clientAccounts.find((a) => a.id === accountId);
-  if (existing) {
-   setAdjustmentModal({
-    accountId,
-    editingId: existing.id,
-    amount: String(existing.amount),
-    direction: existing.direction,
-    currencyId: existing.currencyId ?? account?.currencyId ?? null,
-    exchangeRate: existing.exchangeRate && existing.exchangeRate !== 1 ? String(existing.exchangeRate) : '',
-    exchangeRateReversed: !!existing.exchangeRateReversed,
-    description: existing.description,
-    date: existing.createdAt.slice(0, 10),
-   });
-  } else {
-   setAdjustmentModal({
-    accountId,
-    editingId: null,
-    amount: '',
-    direction: 'debit',
-    currencyId: account?.currencyId ?? null,
-    exchangeRate: '',
-    exchangeRateReversed: false,
-    description: '',
-    date: new Date().toISOString().slice(0, 10),
-   });
-  }
- }
-
- async function onSubmitAdjustment() {
-  if (!accountingApi || !adjustmentModal) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const amount = parseFloat(adjustmentModal.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
-   setError(t('adjustment_amount_required'));
-   return;
-  }
-
-  const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
-  const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
-  const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-  // Cross-currency with no rate entered → 0 (unset → pending, excluded from balance until set).
-  const parsedAdjRate = parseFloat(adjustmentModal.exchangeRate);
-  const adjRateSet = Number.isFinite(parsedAdjRate) && parsedAdjRate > 0;
-  const effectiveRate = !needsRate ? 1 : adjRateSet ? (adjustmentModal.exchangeRateReversed ? 1 / parsedAdjRate : parsedAdjRate) : 0;
-
-  // Editing an existing expense must never change its position: preserve the original
-  // timestamp (only the date shifts if the user changed it). A brand-new expense lands at
-  // the end of its date's sequence, exactly like a newly created transaction.
-  const existingAdj = adjustmentModal.editingId ? adjustments.find((a) => a.id === adjustmentModal.editingId) : undefined;
-  const createdAt = existingAdj ? resolveCreatedAt(adjustmentModal.date, existingAdj.createdAt) : nextCreatedAtForDate(adjustmentModal.date, transactions, adjustments);
-
-  const payloadBase = {
-   amount,
-   direction: adjustmentModal.direction,
-   currencyId: adjustmentModal.currencyId,
-   currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-   currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-   exchangeRate: effectiveRate,
-   exchangeRateReversed: needsRate && adjRateSet ? adjustmentModal.exchangeRateReversed : false,
-   description: adjustmentModal.description.trim(),
-   createdAt,
-  };
-
-  // Reconciliation guard: creating/re-dating an expense on or before the lock line — or
-  // editing one that currently sits there — rewrites reconciled history.
-  const adjRefId = adjustmentModal.editingId ?? NEW_ROW_REF_ID;
-  if (!(await confirmIfEditLocked(existingAdj ? [existingAdj.accountId] : [], existingAdj?.createdAt ?? createdAt, [adjustmentModal.accountId], createdAt, adjRefId))) {
-   return;
-  }
-
-  try {
-   if (adjustmentModal.editingId) {
-    await accountingApi.updateClientAdjustment({
-     id: adjustmentModal.editingId,
-     ...payloadBase,
-    });
-   } else {
-    await accountingApi.createClientAdjustment({
-     accountId: adjustmentModal.accountId,
-     ...payloadBase,
-    });
-   }
-   setAdjustmentModal(null);
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
-
- async function onDeleteAdjustment(id: number, opts: { offerUndo?: boolean } = {}) {
-  const { offerUndo = true } = opts;
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const adj = adjustments.find((a) => a.id === id);
-  if (!(await confirmDeleteWithLock(adj ? [adj.accountId] : [], adj?.createdAt ?? '', id, 'adjustment_delete_confirm'))) {
-   return;
-  }
-
-  try {
-   await accountingApi.deleteClientAdjustment(id);
-   setError('');
-   await loadData();
-   if (offerUndo && adj) {
-    showUndo(t('toast_expense_deleted'), () => void onUndoDeleteAdjustment(adj));
-   }
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
 
  // Reverses a delete by recreating the row from its captured snapshot, on the exact
  // same createdAt so it lands back in the same spot. New DB id (hard delete leaves
  // nothing to restore by id); a reconciliation mark on the old id would not carry over.
- async function onUndoDeleteTransaction(tx: Transaction) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-  try {
-   await accountingApi.createTransaction(buildTransactionCreatePayload(tx, tx.createdAt));
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
 
- async function onUndoDeleteAdjustment(adj: ClientAdjustment) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-  try {
-   await accountingApi.createClientAdjustment({
-    accountId: adj.accountId,
-    amount: adj.amount,
-    direction: adj.direction,
-    currencyId: adj.currencyId,
-    currencyCode: adj.currencyCode,
-    currencySymbol: adj.currencySymbol,
-    exchangeRate: adj.exchangeRate,
-    exchangeRateReversed: !!adj.exchangeRateReversed,
-    description: adj.description,
-    createdAt: adj.createdAt,
-   });
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
 
  // Shared field mapping from a stored transaction/table-row to a createTransaction
  // payload (same shape createTransaction expects) — used by both duplicate and undo,
  // which differ only in which createdAt they pass in.
- function buildTransactionCreatePayload(tx: Transaction, createdAt: string) {
-  return {
-   accountFromId: tx.accountFromId,
-   accountToId: tx.accountToId,
-   currencyId: tx.currencyId,
-   amount: tx.amount,
-   type: tx.type,
-   isArchived: !!tx.isArchived,
-   exchangeRateFrom: tx.exchangeRateFrom,
-   commissionFrom: tx.commissionFrom,
-   exchangeRateTo: tx.exchangeRateTo,
-   commissionTo: tx.commissionTo,
-   exchangeRateFromReversed: tx.exchangeRateFromReversed,
-   exchangeRateToReversed: tx.exchangeRateToReversed,
-   charges: tx.charges,
-   chargesCurrencyId: tx.chargesCurrencyId,
-   chargesPayer: tx.chargesPayer,
-   chargesExchangeRate: tx.chargesExchangeRate,
-   chargesDescription: tx.chargesDescription,
-   description: tx.description,
-   descriptionFrom: tx.descriptionFrom,
-   descriptionTo: tx.descriptionTo,
-   createdAt,
-  };
- }
 
  // One-click zero-out for a small (negligible) account balance: creates a single
  // adjustment for the exact remaining amount, in the account's own currency, so no
@@ -3109,615 +1210,6 @@ function AuthenticatedHome() {
  // write-off adjustment immediately after it (later rows then continue from zero). Same
  // mechanism as onWriteOffBalance, but the amount is this row's running balance and the
  // adjustment is time-placed to land right after the row instead of at the account's end.
- async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: number) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-  const balance = entry.runningBalance;
-  const amount = Math.abs(balance);
-  if (amount <= 0) return;
-
-  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
-  if (!account) return;
-
-  // Time-place the write-off strictly after the target row (and before the next one when
-  // there's room), so it sorts right after this row in the ledger. Must never land on the
-  // exact same createdAt as the target: same-timestamp ties are broken by comparing raw
-  // adjustmentId against transactionId (two independent id sequences), which can easily sort
-  // a new write-off before the row it's meant to follow.
-  const ledger = selectedClientLedgers.find((l) => l.accountId === ledgerAccountId);
-  const entries = ledger?.entries ?? [];
-  const idx = entries.findIndex((e) => e.transactionId === entry.transactionId);
-  const nextEntry = idx >= 0 ? entries[idx + 1] : undefined;
-  const targetMs = Date.parse(entry.createdAt);
-  let createdAtMs = targetMs + 1;
-  if (nextEntry) {
-   const nextMs = Date.parse(nextEntry.createdAt);
-   if (nextMs > createdAtMs) createdAtMs = targetMs + Math.min(1000, Math.floor((nextMs - targetMs) / 2));
-  }
-  const createdAt = new Date(createdAtMs).toISOString();
-
-  const confirmed = await confirmDialog({
-   title: t('write_off_confirm_title'),
-   message: t('write_off_row_confirm_message')
-    .replace('{amount}', amount.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
-    .replace('{currency}', account.currencySymbol || account.currencyCode)
-    .replace('{balance}', balance.toLocaleString(numLocale, { maximumFractionDigits: 2 })),
-   confirmText: t('write_off_confirm_button'),
-   tone: 'danger',
-  });
-  if (!confirmed) return;
-
-  // Reconciliation guard: inserting a row at/before a lock line rewrites reconciled history.
-  if (!(await confirmIfLocked([ledgerAccountId], createdAt, NEW_ROW_REF_ID))) return;
-
-  try {
-   await accountingApi.createClientAdjustment({
-    accountId: ledgerAccountId,
-    amount,
-    direction: balance > 0 ? 'debit' : 'credit',
-    currencyId: account.currencyId,
-    currencyCode: account.currencyCode,
-    currencySymbol: account.currencySymbol,
-    exchangeRate: 1,
-    exchangeRateReversed: false,
-    description: t('write_off_description'),
-    createdAt,
-   });
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
-
- async function onDeleteTransactionTableRow(row: TransactionTableRow) {
-  if (row.isAdjustment && row.adjustmentId) {
-   await onDeleteAdjustment(row.adjustmentId);
-   return;
-  }
-
-  await onDeleteTransaction(row.id);
- }
-
- function onToggleTransactionSelection(transactionId: number) {
-  setSelectedTransactionIds((current) => {
-   const next = new Set(current);
-   if (next.has(transactionId)) {
-    next.delete(transactionId);
-   } else {
-    next.add(transactionId);
-   }
-   return next;
-  });
- }
-
- function onToggleSelectAllTransactions() {
-  setSelectedTransactionIds((current) => {
-   const visibleIds = paginatedTransactions.map((transaction) => transaction.id);
-   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => current.has(id));
-
-   if (allVisibleSelected) {
-    const next = new Set(current);
-    visibleIds.forEach((id) => next.delete(id));
-    return next;
-   }
-
-   const next = new Set(current);
-   visibleIds.forEach((id) => next.add(id));
-   return next;
-  });
- }
-
- function onCopyTransactionRow(row: TransactionTableRow) {
-  setCopiedTransaction(row);
-  showToast(t('toast_copied'));
- }
-
- function onPasteCopiedTransaction() {
-  const row = copiedTransaction;
-  if (!row) return;
-  const fromReversed = !!row.exchangeRateFromReversed;
-  const toReversed = !!row.exchangeRateToReversed;
-  const isAdjustment = !!row.isAdjustment;
-  setTransactionForm({
-   accountFromId: row.accountFromId,
-   accountToId: isAdjustment ? null : row.accountToId,
-   currencyId: row.currencyId,
-   amount: row.amount ? formatAmountInput(String(row.amount)) : '',
-   type: isAdjustment ? 'adjustment' : row.type,
-   adjustmentDirection: row.adjustmentDirection ?? 'debit',
-   exchangeRateFrom: fromReversed ? formatRateValue(1 / row.exchangeRateFrom) : String(row.exchangeRateFrom),
-   commissionFrom: String(row.commissionFrom),
-   exchangeRateTo: isAdjustment ? '1' : toReversed ? formatRateValue(1 / row.exchangeRateTo) : String(row.exchangeRateTo),
-   commissionTo: String(row.commissionTo),
-   charges: row.charges ? String(row.charges) : '',
-   chargesCurrencyId: row.chargesCurrencyId,
-   chargesPayer: row.chargesPayer,
-   chargesExchangeRate: String(row.chargesExchangeRate),
-   chargesDescription: row.chargesDescription,
-   description: row.description,
-   descriptionFrom: row.descriptionFrom ?? '',
-   descriptionTo: row.descriptionTo ?? '',
-  });
-  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
-  setTxFromRateReversed(fromReversed);
-  setTxToRateReversed(toReversed);
-  setTxFromQuery('');
-  setTxToQuery('');
-  setIsNewTransactionExpensesOpen(true);
- }
-
- async function onDeleteSelectedTransactions() {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const idsToDelete = [...selectedTransactionIds];
-  if (!idsToDelete.length) {
-   setError('No transactions selected.');
-   return;
-  }
-
-  // Reconciliation guard: if any selected row sits at or before a lock line, show the
-  // lock warning instead of the plain count confirm (one dialog either way).
-  let bulkLockHit: { accountId: number; boundary: { balance: number } } | null = null;
-  for (const id of idsToDelete) {
-   if (id < 0) {
-    const adj = adjustments.find((a) => a.id === -id);
-    if (adj) bulkLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries);
-   } else {
-    const tx = transactions.find((t) => t.id === id);
-    if (tx) bulkLockHit = violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries);
-   }
-   if (bulkLockHit) break;
-  }
-  const confirmed = bulkLockHit
-   ? await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(bulkLockHit.accountId, bulkLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' })
-   : await confirmDialog({ message: t('transactions_delete_selected_confirm', { count: idsToDelete.length }), confirmText: t('delete'), tone: 'danger' });
-  if (!confirmed) {
-   return;
-  }
-
-  // Negative ids represent adjustments (stored negated in the selection set);
-  // positive ids are real transactions. Send both groups in one bulk request
-  // instead of a request per row.
-  const adjustmentIds = idsToDelete.filter((id) => id < 0).map((id) => -id);
-  const transactionIds = idsToDelete.filter((id) => id > 0);
-
-  try {
-   await accountingApi.deleteTransactionsBulk({ transactionIds, adjustmentIds });
-   setSelectedTransactionIds(new Set());
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
-
- async function onTransactionRowDrop(draggedIds: number[], targetId: number, dropHalf: 'top' | 'bottom') {
-  const dragSet = new Set(draggedIds);
-  if (dragSet.has(targetId)) return;
-
-  const currentOrder = manualRowOrder ?? displayedTransactionRows.map((r) => r.id);
-  if (!currentOrder.includes(targetId)) return;
-
-  // Remove all dragged rows from the order, then insert them as a block at the target position
-  const without = currentOrder.filter((id) => !dragSet.has(id));
-  const insertIdx = without.indexOf(targetId);
-  if (insertIdx === -1) return;
-  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
-  const next = [...without.slice(0, insertAt), ...draggedIds, ...without.slice(insertAt)];
-
-  // Determine date-zone changes for each dragged row
-  const rowMap = new Map(displayedTransactionRows.map((r) => [r.id, r]));
-
-  // Reconciliation guard: a drag that re-dates a row onto (or currently sitting on)
-  // reconciled history must warn before we reorder. Replays the zone logic below.
-  // Also tracks whether the drop silently re-dates any row, so we can confirm that too.
-  let dropLockHit: { accountId: number; boundary: { balance: number } } | null = null;
-  let dateChange: { from: string; to: string } | null = null;
-  for (const draggedId of draggedIds) {
-   const draggedRow = rowMap.get(draggedId);
-   if (!draggedRow) continue;
-   const pos = next.indexOf(draggedId);
-   const neighborAbove = (() => { for (let i = pos - 1; i >= 0; i--) { if (!dragSet.has(next[i])) return rowMap.get(next[i]); } })();
-   const neighborBelow = (() => { for (let i = pos + 1; i < next.length; i++) { if (!dragSet.has(next[i])) return rowMap.get(next[i]); } })();
-   const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
-   const draggedDate = draggedRow.createdAt.slice(0, 10);
-   const newCreatedAt = !zoneDate || zoneDate === draggedDate ? draggedRow.createdAt : zoneDate + draggedRow.createdAt.slice(10);
-   if (zoneDate && zoneDate !== draggedDate && !dateChange) dateChange = { from: draggedDate, to: zoneDate };
-   const accIds = draggedRow.isAdjustment ? [draggedRow.accountFromId] : [draggedRow.accountFromId, draggedRow.accountToId];
-   const refId = draggedRow.isAdjustment ? draggedRow.adjustmentId ?? 0 : draggedRow.id;
-   dropLockHit = violatedLock(accIds, draggedRow.createdAt, refId, lockBoundaries) ?? violatedLock(accIds, newCreatedAt, refId, lockBoundaries);
-   if (dropLockHit && dateChange) break;
-  }
-  if (dropLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(dropLockHit.accountId, dropLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
-   return;
-  }
-  if (dateChange && !(await confirmDialog({ title: t('drag_date_change_title'), message: t('drag_date_change_message', { from: dateChange.from, to: dateChange.to }), confirmText: t('drag_date_change_confirm'), tone: 'danger' }))) {
-   return;
-  }
-
-  setManualRowOrder(next);
-
-  if (!accountingApi) return;
-
-  try {
-   for (const draggedId of draggedIds) {
-    const draggedRow = rowMap.get(draggedId);
-    if (!draggedRow) continue;
-
-    const pos = next.indexOf(draggedId);
-    // Find nearest non-group neighbor to determine the target date zone
-    const neighborAbove = (() => {
-     for (let i = pos - 1; i >= 0; i--) {
-      if (!dragSet.has(next[i])) return rowMap.get(next[i]);
-     }
-    })();
-    const neighborBelow = (() => {
-     for (let i = pos + 1; i < next.length; i++) {
-      if (!dragSet.has(next[i])) return rowMap.get(next[i]);
-     }
-    })();
-    const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
-    const draggedDate = draggedRow.createdAt.slice(0, 10);
-    if (!zoneDate || zoneDate === draggedDate) continue;
-
-    const newCreatedAt = zoneDate + draggedRow.createdAt.slice(10);
-
-    if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
-     const account = clientAccountMap.get(draggedRow.accountFromId ?? -1);
-     const selectedCurrency = currencyMap.get(draggedRow.currencyId);
-     await accountingApi.updateClientAdjustment({
-      id: draggedRow.adjustmentId,
-      accountId: draggedRow.accountFromId,
-      amount: draggedRow.amount,
-      direction: draggedRow.adjustmentDirection ?? 'debit',
-      currencyId: draggedRow.currencyId,
-      currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-      currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-      exchangeRate: draggedRow.exchangeRateFrom,
-      exchangeRateReversed: !!draggedRow.exchangeRateFromReversed,
-      description: draggedRow.description,
-      createdAt: newCreatedAt,
-     });
-    } else {
-     await accountingApi.updateTransaction({
-      id: draggedRow.id,
-      accountFromId: draggedRow.accountFromId,
-      accountToId: draggedRow.accountToId,
-      currencyId: draggedRow.currencyId,
-      amount: draggedRow.amount,
-      type: draggedRow.type,
-      exchangeRateFrom: draggedRow.exchangeRateFrom,
-      commissionFrom: draggedRow.commissionFrom,
-      exchangeRateTo: draggedRow.exchangeRateTo,
-      commissionTo: draggedRow.commissionTo,
-      exchangeRateFromReversed: draggedRow.exchangeRateFromReversed,
-      exchangeRateToReversed: draggedRow.exchangeRateToReversed,
-      charges: draggedRow.charges,
-      chargesCurrencyId: draggedRow.chargesCurrencyId,
-      chargesPayer: draggedRow.chargesPayer,
-      chargesExchangeRate: draggedRow.chargesExchangeRate,
-      chargesDescription: draggedRow.chargesDescription,
-      description: draggedRow.description,
-      createdAt: newCreatedAt,
-     });
-    }
-   }
-   setError('');
-   const orderToKeep = next;
-   await loadData();
-   setManualRowOrder(orderToKeep);
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-   setManualRowOrder(currentOrder);
-  }
- }
-
- async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) {
-  const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
-  if (!ledger || !accountingApi) return;
-  const currentOrder = ledger.entries.map((e) => `${e.transactionId}:${accountId}`);
-  if (!currentOrder.includes(targetKey)) return;
-  const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
-  const dateOf = (key: string) => entryMap.get(key)?.createdAt.slice(0, 10) ?? '';
-
-  // A row's date is only ever changed by an explicit manual edit, never by dragging it —
-  // so only rows that already share the target row's date are eligible to move; any dragged
-  // row from a different date is dropped from this operation and keeps its position untouched.
-  const targetDate = dateOf(targetKey);
-  const dragSet = new Set(draggedKeys.filter((k) => k !== targetKey && dateOf(k) === targetDate));
-  if (dragSet.size === 0) return;
-
-  // The ledger is ordered by createdAt (ascending). Same-date rows often share an
-  // identical timestamp (e.g. expenses at 00:00:00), leaving no room to insert between
-  // them, so we reflow the target date's rows to distinct, evenly-spaced timestamps in
-  // the new order. That makes the reorder durable without touching any row's date.
-  const dateGroup = currentOrder.filter((k) => dateOf(k) === targetDate);
-  const without = dateGroup.filter((k) => !dragSet.has(k));
-  const insertIdx = without.indexOf(targetKey);
-  if (insertIdx === -1) return;
-  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
-  const orderedDragged = dateGroup.filter((k) => dragSet.has(k));
-  const next = [...without.slice(0, insertAt), ...orderedDragged, ...without.slice(insertAt)];
-
-  const newTimes = new Map<string, string>();
-  const dayStart = Date.parse(`${targetDate}T00:00:00.000Z`);
-  const dayEnd = Date.parse(`${targetDate}T23:59:59.999Z`);
-  next.forEach((k, i) => {
-   const ts = dayStart + ((dayEnd - dayStart) * (i + 1)) / (next.length + 1);
-   newTimes.set(k, new Date(ts).toISOString());
-  });
-
-  // Reconciliation guard: only the rows the user actually dragged can move at or before
-  // the lock line — bystander rows on the same date keep their relative order (the reflow
-  // above only spaces out timestamps, it doesn't reorder them), so checking the full
-  // same-day group here would false-positive on the lock's own anchor row.
-  const reorderRows = orderedDragged.flatMap((k) => {
-   const e = entryMap.get(k);
-   if (!e) return [];
-   return [{ createdAt: e.createdAt, refId: e.isAdjustment ? e.adjustmentId ?? 0 : e.transactionId, newCreatedAt: newTimes.get(k) ?? e.createdAt }];
-  });
-  if (!(await confirmIfReorderLocked(accountId, reorderRows))) return;
-
-  // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
-  setTransactions((prev) =>
-   prev.map((tx) => {
-    const nc = newTimes.get(`${tx.id}:${accountId}`);
-    return nc ? { ...tx, createdAt: nc } : tx;
-   }),
-  );
-  setAdjustments((prev) =>
-   prev.map((adj) => {
-    const nc = newTimes.get(`${-adj.id}:${accountId}`);
-    return nc ? { ...adj, createdAt: nc } : adj;
-   }),
-  );
-
-  try {
-   for (const [key, newCreatedAt] of newTimes) {
-    const entry = entryMap.get(key);
-    if (!entry || !newCreatedAt) continue;
-    // Skip rows whose timestamp didn't actually change, to avoid needless writes.
-    if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
-    if (entry.isAdjustment && entry.adjustmentId) {
-     const adj = adjustments.find((a) => a.id === entry.adjustmentId);
-     if (!adj) continue;
-     await accountingApi.updateClientAdjustment({
-      id: adj.id,
-      accountId,
-      amount: adj.amount,
-      direction: adj.direction,
-      currencyId: adj.currencyId ?? clientAccounts.find((a) => a.id === accountId)?.currencyId ?? 0,
-      currencyCode: adj.currencyCode,
-      currencySymbol: adj.currencySymbol,
-      exchangeRate: adj.exchangeRate,
-      exchangeRateReversed: adj.exchangeRateReversed,
-      description: adj.description,
-      createdAt: newCreatedAt,
-     });
-    } else {
-     const tx = transactions.find((t) => t.id === entry.transactionId);
-     if (!tx) continue;
-     await accountingApi.updateTransaction({
-      id: tx.id,
-      accountFromId: tx.accountFromId,
-      accountToId: tx.accountToId,
-      currencyId: tx.currencyId,
-      amount: tx.amount,
-      type: tx.type,
-      exchangeRateFrom: tx.exchangeRateFrom,
-      commissionFrom: tx.commissionFrom,
-      exchangeRateTo: tx.exchangeRateTo,
-      commissionTo: tx.commissionTo,
-      exchangeRateFromReversed: tx.exchangeRateFromReversed,
-      exchangeRateToReversed: tx.exchangeRateToReversed,
-      charges: tx.charges,
-      chargesCurrencyId: tx.chargesCurrencyId,
-      chargesPayer: tx.chargesPayer,
-      chargesExchangeRate: tx.chargesExchangeRate,
-      chargesDescription: tx.chargesDescription,
-      description: tx.description,
-      createdAt: newCreatedAt,
-     });
-    }
-   }
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-   await loadData();
-  }
- }
-
- async function onSaveTransactionTableRow(transactionId: number, { skipReload = false } = {}) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  const draft = transactionTableDrafts[transactionId];
-  const transaction = transactionTableRowMap.get(transactionId);
-
-  if (!transaction) {
-   return;
-  }
-
-  // No changes were made — just exit edit mode like cancel
-  if (!draft) {
-   if (!skipReload) {
-    setEditingRowIds((prev) => {
-     const next = new Set(prev);
-     next.delete(transactionId);
-     return next;
-    });
-   }
-   return;
-  }
-
-  if (draft.isAdjustment && draft.adjustmentId) {
-   const amount = parseFloat(draft.amount);
-
-   if (!draft.accountFromId || !draft.currencyId || !amount) {
-    setError(t('transaction_required'));
-    return;
-   }
-
-   const selectedCurrency = currencyMap.get(draft.currencyId);
-   const account = clientAccountMap.get(draft.accountFromId);
-
-   // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
-   const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-   const adjRawRate = parseFloat(draft.exchangeRateFrom);
-   const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
-   const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
-
-   const adjustmentPayload: ClientAdjustment = {
-    id: draft.adjustmentId,
-    accountId: draft.accountFromId,
-    amount,
-    direction: draft.adjustmentDirection ?? 'debit',
-    currencyId: draft.currencyId,
-    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-    currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-    exchangeRate: adjRate,
-    exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
-    description: draft.description,
-    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-   };
-
-   // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
-   if (!skipReload && !(await confirmIfEditLocked([transaction.accountFromId], transaction.createdAt, [adjustmentPayload.accountId], adjustmentPayload.createdAt, adjustmentPayload.id))) {
-    return;
-   }
-
-   try {
-    await accountingApi.updateClientAdjustment(adjustmentPayload);
-    setError('');
-    applyAdjustmentPatch(adjustmentPayload);
-    if (!skipReload) {
-     setEditingRowIds((prev) => {
-      const next = new Set(prev);
-      next.delete(transactionId);
-      return next;
-     });
-     void loadData();
-    }
-   } catch (e) {
-    setError(e instanceof Error ? e.message : t('error_failed_update'));
-   }
-   return;
-  }
-
-  const amount = parseFloat(draft.amount) || 0;
-
-  // Only the currency is mandatory; a transaction may keep a missing party or a
-  // zero amount (e.g. archived/incomplete rows) and still be edited and saved.
-  if (!draft.currencyId) {
-   setError(t('transaction_currency_required'));
-   return;
-  }
-
-  // Preserve the "unset" (0) rate for cross-currency sides so a pending row isn't forced to 1.
-  const fromAcc = draft.accountFromId ? clientAccountMap.get(draft.accountFromId) : null;
-  const toAcc = draft.accountToId ? clientAccountMap.get(draft.accountToId) : null;
-  const fromCross = !!fromAcc && fromAcc.currencyId !== draft.currencyId;
-  const toCross = !!toAcc && toAcc.currencyId !== draft.currencyId;
-  const sideRate = (field: string, cross: boolean, reversed: boolean) => {
-   const r = parseFloat(field);
-   if (Number.isFinite(r) && r > 0) return reversed ? 1 / r : r;
-   return cross ? 0 : 1;
-  };
-  const fromRateVal = sideRate(draft.exchangeRateFrom, fromCross, !!tableRateFromReversed[transactionId]);
-  const toRateVal = sideRate(draft.exchangeRateTo, toCross, !!tableRateToReversed[transactionId]);
-
-  const transactionPayload: TransactionUpdateInput = {
-   id: transaction.id,
-   accountFromId: draft.accountFromId,
-   accountToId: draft.accountToId,
-   currencyId: draft.currencyId,
-   amount,
-   type: draft.type,
-   exchangeRateFrom: fromRateVal,
-   commissionFrom: parseFloat(draft.commissionFrom) || 0,
-   exchangeRateTo: toRateVal,
-   commissionTo: parseFloat(draft.commissionTo) || 0,
-   exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
-   exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
-   charges: parseFloat(draft.charges) || 0,
-   chargesCurrencyId: draft.chargesCurrencyId || null,
-   chargesPayer: draft.chargesPayer,
-   chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
-   chargesDescription: draft.chargesDescription,
-   description: draft.description,
-   archiveNote: draft.archiveNote,
-   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-  };
-
-  // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
-  if (!skipReload && !(await confirmIfTransactionEditLocked(transaction, transactionPayload))) {
-   return;
-  }
-
-  try {
-   await accountingApi.updateTransaction(transactionPayload);
-   setError('');
-   applyTransactionPatch(transactionPayload);
-   if (!skipReload) {
-    setEditingRowIds((prev) => {
-     const next = new Set(prev);
-     next.delete(transactionId);
-     return next;
-    });
-    void loadData();
-   }
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  }
- }
-
- function onEditAllTransactions() {
-  const newIds = paginatedTransactions.filter((tx) => !editingRowIds.has(tx.id)).map((tx) => tx.id);
-  setEditingRowIds((prev) => new Set([...prev, ...newIds]));
-  setIsEditAllTransactions(true);
- }
-
- function onCancelAllTransactions() {
-  const ids = paginatedTransactions.map((tx) => tx.id);
-  setEditingRowIds((prev) => {
-   const n = new Set(prev);
-   ids.forEach((id) => n.delete(id));
-   return n;
-  });
-  setTransactionTableDrafts((prev) => {
-   const n = { ...prev };
-   ids.forEach((id) => delete n[id]);
-   return n;
-  });
-  setIsEditAllTransactions(false);
- }
-
- async function onSaveAllTransactions() {
-  const ids = paginatedTransactions.map((tx) => tx.id).filter((id) => editingRowIds.has(id));
-  // Each row save applies its optimistic patch; exit edit mode immediately and reconcile in the background.
-  await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true })));
-  setEditingRowIds((prev) => {
-   const n = new Set(prev);
-   ids.forEach((id) => n.delete(id));
-   return n;
-  });
-  setTransactionTableDrafts((prev) => {
-   const n = { ...prev };
-   ids.forEach((id) => delete n[id]);
-   return n;
-  });
-  setIsEditAllTransactions(false);
-  void loadData();
- }
 
 
 
@@ -3725,25 +1217,18 @@ function AuthenticatedHome() {
 
 
 
- async function onExportLedgerPdf(
-  ledger: ClientAccountLedger,
-  fromDate: string,
-  toDate: string,
-  colVisibility: PdfColVisibility,
-  fromEntryKey?: string | null,
-  toEntryKey?: string | null,
- ) {
-  if (!accountingApi) return;
-  try {
-   const html = generateLedgerHtml({ t, numLocale, isRTL, language, pdfSettings }, { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectedClientForLedger, transactions, ledgerColumnOrder });
-   const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
-   const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
-   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
-   if (result.ok) setPdfExportModal(null);
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
  // Excel counterpart to onExportLedgerPdf: same selected-range/column logic, but each
@@ -3751,72 +1236,7 @@ function AuthenticatedHome() {
  // (computeClientLedgers accumulates it across the whole ledger), so no pre-balance
  // recomputation is needed here — unlike the PDF, which recomputes it to show as a
  // separate pre-balance line above the table.
- async function onExportLedgerExcel(
-  ledger: ClientAccountLedger,
-  fromDate: string,
-  toDate: string,
-  colVisibility: PdfColVisibility,
-  fromEntryKey?: string | null,
-  toEntryKey?: string | null,
- ) {
-  try {
-   const candidates = ledger.entries.filter((e) => {
-    const d = e.createdAt.slice(0, 10);
-    return d >= fromDate && d <= toDate;
-   });
-   const startIdx = fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey)) : 0;
-   const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
-   const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
-   const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
 
-   type ExcelColDef = { key: LedgerColumnKey; header: string; cell: (e: ClientLedgerEntry) => string | number };
-   const allCols: ExcelColDef[] = [
-    { key: 'created', header: t('date'), cell: (e) => formatDateValue(e.createdAt, pdfSettings.dateFormat) },
-    { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
-    { key: 'direction', header: t('direction'), cell: (e) => (e.isAdjustment ? t(e.direction === 'outgoing' ? 'adjustment_direction_credit' : 'adjustment_direction_debit') : t(e.direction === 'outgoing' ? 'outgoing' : 'incoming')) },
-    { key: 'type', header: t('transaction_type'), cell: (e) => (e.isAdjustment ? t('adjustment_label') : t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')) },
-    { key: 'amount', header: t('amount'), cell: (e) => e.amount },
-    { key: 'exchangeRate', header: t('exchange_rate'), cell: (e) => (e.pendingRate ? '' : e.isAdjustment ? (e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : e.exchangeRate) },
-    { key: 'commission', header: t('commission'), cell: (e) => (e.isAdjustment ? '' : e.commission) },
-    { key: 'netChange', header: t('net_change'), cell: (e) => (e.pendingRate ? '' : e.netChange) },
-    { key: 'runningBalance', header: t('running_balance'), cell: (e) => e.runningBalance },
-    { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
-    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
-   ];
-   const visibleCols = ledgerColumnOrder
-    .map((key) => allCols.find((col) => col.key === key))
-    .filter((col): col is ExcelColDef => Boolean(col))
-    .filter((col) => col.key === 'runningBalance' || colVisibility[col.key]);
-   if (!visibleCols.some((col) => col.key === 'runningBalance')) {
-    const rbCol = allCols.find((col) => col.key === 'runningBalance');
-    if (rbCol) visibleCols.push(rbCol);
-   }
-
-   const headers = visibleCols.map((col) => col.header);
-   const rows = selected.map((entry) => visibleCols.map((col) => col.cell(entry)));
-   const xlsxModule = await import('xlsx');
-   const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
-   const workbook = xlsxModule.utils.book_new();
-   xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Ledger');
-   const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
-   xlsxModule.writeFile(workbook, `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.xlsx`);
-   setPdfExportModal(null);
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
-
- async function onExportArchivePdf() {
-  if (!accountingApi) return;
-  try {
-   const html = generateArchiveHtml({ t, numLocale, isRTL, language, pdfSettings }, displayedTransactionRows, transactionTableSettings.columns);
-   const exportDate = new Date().toISOString().slice(0, 10);
-   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `archive_${exportDate}.pdf` });
-   if (!result.ok) setError(t('error_failed_save'));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  }
- }
 
  async function onExportOverviewPdf(cards: OverviewPdfCard[], mainCode: string, mainSymbol: string) {
   if (!accountingApi || cards.length === 0) return;
@@ -3838,6 +1258,7 @@ function AuthenticatedHome() {
   { key: 'transactions', label: t('nav_transactions'), icon: 'transactions' },
   { key: 'archive', label: t('nav_archive'), icon: 'archive' },
   { key: 'live-rates', label: t('nav_live_rates'), icon: 'rates' },
+  { key: 'treasury', label: t('nav_treasury'), icon: 'treasury' },
  ];
 
  // Editors (workspace role 'member') don't get destructive/billing controls.
@@ -3898,7 +1319,6 @@ function AuthenticatedHome() {
  const toggleClientSort = useCallback((key: 'name' | 'organization') => {
   setClientSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
  }, []);
- const showToast = useAppStatusStore((s) => s.showToast);
  const clientAccountMap = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
 
  const {
@@ -3928,119 +1348,6 @@ function AuthenticatedHome() {
   clientsByOrganization,
  });
 
- // Newest reconciliation per client account = the lock line used by the guards below.
- const lockBoundaries = useMemo(() => buildLockBoundaries(reconciliations), [reconciliations]);
-
- // Formats a reconciled balance for dialogs, e.g. "$100,553.00".
- function formatLockBalance(accountId: number, balance: number): string {
-  const symbol = clientAccountMap.get(accountId)?.currencySymbol ?? '';
-  return `${symbol}${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
- }
-
- /**
-  * Guard shared by all four dangerous operations. `accountIds` are the accounts a
-  * change touches (a transaction hits both from & to); `createdAt`/`refId` locate
-  * the affected row (pass NEW_ROW_REF_ID for a not-yet-created transaction). Returns
-  * true to proceed — either nothing is locked, or the user confirmed the warning.
-  */
- async function confirmIfLocked(accountIds: Array<number | null | undefined>, createdAt: string, refId: number): Promise<boolean> {
-  const hit = violatedLock(accountIds, createdAt, refId, lockBoundaries);
-  if (!hit) return true;
-  return confirmDialog({
-   title: t('reconcile_warn_title'),
-   message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
-   confirmText: t('reconcile_warn_confirm'),
-   tone: 'danger',
-  });
- }
-
- /**
-  * Reorder variant of the guard: warns if any reflowed row sits at or before an
-  * account's lock line, either at its current timestamp or the one the drag assigns.
-  * Returns true to proceed.
-  */
- async function confirmIfReorderLocked(accountId: number, rows: Array<{ createdAt: string; refId: number; newCreatedAt: string }>): Promise<boolean> {
-  const boundary = lockBoundaries.get(accountId);
-  if (!boundary) return true;
-  const touches = rows.some((r) => isAtOrBeforeBoundary(r.createdAt, r.refId, boundary) || isAtOrBeforeBoundary(r.newCreatedAt, r.refId, boundary));
-  if (!touches) return true;
-  return confirmDialog({
-   title: t('reconcile_warn_title'),
-   message: t('reconcile_warn_message', { balance: formatLockBalance(accountId, boundary.balance) }),
-   confirmText: t('reconcile_warn_confirm'),
-   tone: 'danger',
-  });
- }
-
- /**
-  * Delete confirmation that folds in the reconciliation guard: if the row is at or
-  * before a lock line it shows the lock warning, otherwise the normal delete prompt —
-  * one dialog either way. Returns true to proceed.
-  */
- async function confirmDeleteWithLock(accountIds: Array<number | null | undefined>, createdAt: string, refId: number, fallbackMessageKey: string): Promise<boolean> {
-  const hit = violatedLock(accountIds, createdAt, refId, lockBoundaries);
-  if (hit) {
-   return confirmDialog({
-    title: t('reconcile_warn_title'),
-    message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
-    confirmText: t('reconcile_warn_confirm'),
-    tone: 'danger',
-   });
-  }
-  return confirmDialog({ message: t(fallbackMessageKey), confirmText: t('delete'), tone: 'danger' });
- }
-
- /**
-  * Edit guard: warns if a row is locked either where it is now (old position) or where
-  * the edit would move it (new position) — covers re-dating and amount changes on or
-  * near reconciled history. Returns true to proceed.
-  */
- async function confirmIfEditLocked(oldAccountIds: Array<number | null | undefined>, oldCreatedAt: string, newAccountIds: Array<number | null | undefined>, newCreatedAt: string, refId: number): Promise<boolean> {
-  const hit = violatedLock(oldAccountIds, oldCreatedAt, refId, lockBoundaries) ?? violatedLock(newAccountIds, newCreatedAt, refId, lockBoundaries);
-  if (!hit) return true;
-  return confirmDialog({
-   title: t('reconcile_warn_title'),
-   message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
-   confirmText: t('reconcile_warn_confirm'),
-   tone: 'danger',
-  });
- }
-
- /**
-  * Two-sided edit guard for a transaction (the ledger-row/table-row edit save paths).
-  * Unlike confirmIfEditLocked, this only checks the lock on a SIDE (from/to account) whose
-  * own balance the edit could actually change — e.g. editing only the "from" side's
-  * exchange rate never affects the "to" account's ledger, so the "to" account's lock (even
-  * if reconciled) is not checked and no warning appears. A side counts as affected if its
-  * account changed, the shared date changed (reorders both ledgers), or its computed net
-  * change actually differs. Returns true to proceed.
-  */
- async function confirmIfTransactionEditLocked(oldTx: Transaction, newPayload: TransactionUpdateInput): Promise<boolean> {
-  const dateChanged = new Date(oldTx.createdAt).getTime() !== new Date(newPayload.createdAt).getTime();
-  const accountIdsToCheck: number[] = [];
-  for (const side of ['from', 'to'] as const) {
-   const oldAccountId = side === 'from' ? oldTx.accountFromId : oldTx.accountToId;
-   const newAccountId = side === 'from' ? newPayload.accountFromId : newPayload.accountToId;
-   const oldAccount = oldAccountId != null ? clientAccountMap.get(oldAccountId) : undefined;
-   const newAccount = newAccountId != null ? clientAccountMap.get(newAccountId) : undefined;
-   const oldNetChange = oldAccountId != null && oldAccount ? computeTransactionSideNetChange(oldTx, oldAccount.currencyId, side) : 0;
-   const newNetChange = newAccountId != null && newAccount ? computeTransactionSideNetChange(newPayload, newAccount.currencyId, side) : 0;
-   const affected = oldAccountId !== newAccountId || dateChanged || Math.abs(oldNetChange - newNetChange) > 1e-9;
-   if (!affected) continue;
-   if (oldAccountId != null) accountIdsToCheck.push(oldAccountId);
-   if (newAccountId != null) accountIdsToCheck.push(newAccountId);
-  }
-  if (accountIdsToCheck.length === 0) return true;
-  const hit = violatedLock(accountIdsToCheck, oldTx.createdAt, oldTx.id, lockBoundaries) ?? violatedLock(accountIdsToCheck, newPayload.createdAt, oldTx.id, lockBoundaries);
-  if (!hit) return true;
-  return confirmDialog({
-   title: t('reconcile_warn_title'),
-   message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
-   confirmText: t('reconcile_warn_confirm'),
-   tone: 'danger',
-  });
- }
-
  // Per-client balances for the clients list/group view. Keyed by clientId, each value is
  // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
  const clientPageBalances = useMemo(
@@ -4062,8 +1369,76 @@ function AuthenticatedHome() {
  );
  const [pendingPricingModalClientId, setPendingPricingModalClientId] = useState<number | null>(null);
 
+ // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
+ // account's balance from that date forward, so it must respect reconciliation locks the
+ // same way the ledger/transaction edit paths do.
+ const { confirmIfTransactionEditLocked, confirmIfEditLocked } = useReconciliationLocks({ reconciliations, clientAccountMap });
+
+ // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
+ // reusing the same update endpoints the ledger edit uses. The rate multiplies the entry's
+ // amount into its account currency (1 <entry currency> = rate <account currency>). Only the
+ // pending side's rate is touched; every other field is preserved from the stored record.
+ const onSavePendingPricingRate = useCallback(
+  async (entry: PendingPricingEntry, rateInput: string): Promise<boolean> => {
+   const rate = parseFloat(normalizeDecimalInput(rateInput));
+   if (!Number.isFinite(rate) || rate <= 0) {
+    setError(t('pending_pricing_invalid_rate'));
+    return false;
+   }
+   try {
+    if (entry.kind === 'adjustment' && entry.adjustmentId != null) {
+     const adj = adjustments.find((a) => a.id === entry.adjustmentId);
+     if (!adj) return false;
+     if (!(await confirmIfEditLocked([adj.accountId], adj.createdAt, [adj.accountId], adj.createdAt, adj.id))) {
+      return false;
+     }
+     await accountingApi.updateClientAdjustment({ ...adj, exchangeRate: rate, exchangeRateReversed: false });
+    } else if (entry.kind === 'transaction' && entry.transactionId != null) {
+     const tx = transactions.find((x) => x.id === entry.transactionId);
+     if (!tx) return false;
+     const payload: TransactionUpdateInput = {
+      id: tx.id,
+      accountFromId: tx.accountFromId,
+      accountToId: tx.accountToId,
+      currencyId: tx.currencyId,
+      amount: tx.amount,
+      type: tx.type,
+      exchangeRateFrom: entry.side === 'from' ? rate : tx.exchangeRateFrom,
+      commissionFrom: tx.commissionFrom,
+      exchangeRateTo: entry.side === 'to' ? rate : tx.exchangeRateTo,
+      commissionTo: tx.commissionTo,
+      exchangeRateFromReversed: entry.side === 'from' ? 0 : tx.exchangeRateFromReversed,
+      exchangeRateToReversed: entry.side === 'to' ? 0 : tx.exchangeRateToReversed,
+      charges: tx.charges,
+      chargesCurrencyId: tx.chargesCurrencyId,
+      chargesPayer: tx.chargesPayer,
+      chargesExchangeRate: tx.chargesExchangeRate,
+      chargesDescription: tx.chargesDescription,
+      description: tx.description,
+      archiveNote: tx.archiveNote,
+      createdAt: tx.createdAt,
+     };
+     if (!(await confirmIfTransactionEditLocked(tx, payload))) {
+      return false;
+     }
+     await accountingApi.updateTransaction(payload);
+    } else {
+     return false;
+    }
+    setError('');
+    await loadData();
+    return true;
+   } catch (e) {
+    setError(e instanceof Error ? e.message : t('error_failed_update'));
+    return false;
+   }
+  },
+  [adjustments, transactions, confirmIfEditLocked, confirmIfTransactionEditLocked, loadData, setError, t],
+ );
+
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
+
 
  // Sum of the checkbox-selected transaction-table rows, grouped per currency so mixed-currency
  // selections show one total each. Shown next to the bulk actions when 2+ rows are selected.
@@ -4110,166 +1485,88 @@ function AuthenticatedHome() {
  const transactionAccountToCurrencyCode = transactionForm.accountToId ? clientAccountMap.get(transactionForm.accountToId)?.currencyCode : undefined;
  const showExchangeRateFrom = !(transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode && transactionSelectedCurrencyCode === transactionAccountFromCurrencyCode);
  const showExchangeRateTo = !(transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode === transactionAccountToCurrencyCode);
+  const {
+   getTransactionTableDraft,
+   updateTransactionTableDraft,
+   onDeleteAllTransactions,
+   onTransactionSubmit,
+   onImportTransactionsFile,
+   onPrepareImportReview,
+   updateImportReviewEntry: updateImportReviewEntryFromTx,
+   updateImportRowOverride,
+   onConfirmImportTransactions,
+   onCancelImportTransactions,
+   onDeleteTransaction,
+   onDeleteTransactionTableRow,
+   onToggleTransactionSelection,
+   onToggleSelectAllTransactions,
+   onCopyTransactionRow,
+   onPasteCopiedTransaction,
+   onDeleteSelectedTransactions,
+   onTransactionRowDrop,
+   onSaveTransactionTableRow,
+   onEditAllTransactions,
+   onCancelAllTransactions,
+   onSaveAllTransactions,
+   onExportArchivePdf,
+   openTransactionTableSettingsModal,
+   closeTransactionTableSettingsModal,
+   saveTransactionTableSettingsModal,
+   openTransactionExportModal,
+   closeTransactionExportModal,
+   buildTransactionExportData,
+   onExportTransactionsPdf,
+   onExportTransactionsExcel,
+  } = useTransactionActions({
+   clients,
+   clientAccounts,
+   transactions,
+   adjustments,
+   currencies,
+   enabledCurrencies,
+   organizations,
+   reconciliations,
+   currencyMap,
+   clientAccountMap,
+   displayedTransactionRows,
+   paginatedTransactions,
+   transactionTableRowMap,
+   transactionTableRows,
+   setImportSummary,
+   section,
+   numLocale,
+   isRTL,
+   isAdjustmentTransaction,
+   showExchangeRateFrom,
+   showExchangeRateTo,
+   transactionAccountFromCurrencyCode,
+   transactionAccountToCurrencyCode,
+   transactionsImportInputRef,
+   txTableHistory,
+   onDeleteAdjustment,
+   pushSharedSettingsIfOwner,
+   pushUserTableSettings,
+  });
+ updateImportReviewEntryImpl = updateImportReviewEntryFromTx;
+
 
  const chargesCurrencyCode = transactionForm.chargesCurrencyId ? currencyMap.get(transactionForm.chargesCurrencyId)?.code : undefined;
  const chargesPayerAccountCurrencyCode =
   transactionForm.chargesPayer === 'from' ? transactionAccountFromCurrencyCode : transactionForm.chargesPayer === 'to' ? transactionAccountToCurrencyCode : undefined;
  const showChargesExchangeRate = !!(chargesCurrencyCode && chargesPayerAccountCurrencyCode && chargesCurrencyCode !== chargesPayerAccountCurrencyCode);
 
- const updateTransactionTableSettings = (updater: (current: TransactionTableSettings) => TransactionTableSettings) => {
-  setTransactionTableSettings((current) => {
-   const next = updater(current);
-   (section === 'archive' ? saveArchiveTableSettings : saveTransactionTableSettings)(next);
-   return next;
-  });
-  pushSharedSettingsIfOwner();
-  pushUserTableSettings();
- };
 
- const openTransactionTableSettingsModal = () => {
-  setTransactionTableSettingsDraft(transactionTableSettings);
-  setShowTransactionTableSettingsModal(true);
- };
 
- const closeTransactionTableSettingsModal = () => {
-  setTransactionTableSettingsDraft(transactionTableSettings);
-  setShowTransactionTableSettingsModal(false);
- };
 
- const saveTransactionTableSettingsModal = () => {
-  setTransactionTableSettings(transactionTableSettingsDraft);
-  (section === 'archive' ? saveArchiveTableSettings : saveTransactionTableSettings)(transactionTableSettingsDraft);
-  setShowTransactionTableSettingsModal(false);
-  pushSharedSettingsIfOwner();
-  pushUserTableSettings();
- };
 
- const openTransactionExportModal = () => {
-  // Default the range to span all currently shown transactions (earliest → latest).
-  let earliest = '';
-  let latest = '';
-  for (const row of displayedTransactionRows) {
-   const day = row.createdAt.slice(0, 10);
-   if (!day) continue;
-   if (!earliest || day < earliest) earliest = day;
-   if (!latest || day > latest) latest = day;
-  }
-  setTransactionExportFrom(earliest);
-  setTransactionExportTo(latest);
-  setShowTransactionExportModal(true);
- };
 
- const closeTransactionExportModal = () => {
-  if (isExportingTransactions) return;
-  setShowTransactionExportModal(false);
- };
 
  // Builds the rows/headers for the transactions export, honouring the date range
  // and the currently visible columns so the export matches what the user sees.
- const buildTransactionExportData = (fromDate: string, toDate: string) => {
-  const columns = transactionTableSettings.columns;
-  const rows = displayedTransactionRows.filter((row) => {
-   const day = row.createdAt.slice(0, 10);
-   if (fromDate && day < fromDate) return false;
-   if (toDate && day > toDate) return false;
-   return true;
-  });
-
-  const headers: string[] = [];
-  if (columns.created) headers.push(t('date'));
-  if (columns.description) headers.push(t('transaction_description'));
-  if (columns.accountFrom) headers.push(t('transaction_account_from'));
-  if (columns.accountTo) headers.push(t('transaction_account_to'));
-  if (columns.amount) headers.push(t('transaction_amount'));
-  if (columns.charges) headers.push(t('charges'));
-  if (columns.commission) headers.push(t('commission'));
-
-  const partyLabel = (name: string, symbol: string, code: string, fallback: string) => (name ? `${name}${symbol || code ? ` (${symbol || code})` : ''}` : fallback);
-
-  const dataRows = rows.map((txn) => {
-   const cells: string[] = [];
-   if (columns.created) cells.push(formatDateValue(txn.createdAt, transactionTableSettings.dateFormat));
-   if (columns.description) cells.push(txn.description || '');
-   if (columns.accountFrom) {
-    cells.push(txn.accountFromId ? partyLabel(txn.clientFromName, txn.accountFromCurrencySymbol, txn.accountFromCurrencyCode, '') : t('archive_no_sender'));
-   }
-   if (columns.accountTo) {
-    cells.push(
-     txn.isAdjustment
-      ? t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')
-      : txn.accountToId
-        ? partyLabel(txn.clientToName, txn.accountToCurrencySymbol, txn.accountToCurrencyCode, '')
-        : t('archive_no_receiver'),
-    );
-   }
-   if (columns.amount) {
-    cells.push(txn.amount ? `${txn.amount.toLocaleString(numLocale)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
-   }
-   if (columns.charges) {
-    if (txn.isAdjustment || !txn.charges) {
-     cells.push('-');
-    } else {
-     const parts = [`${txn.charges.toLocaleString(numLocale)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
-     if (txn.chargesPayer) parts.push(txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : '');
-     if (txn.chargesDescription) parts.push(txn.chargesDescription);
-     cells.push(parts.filter(Boolean).join(' — '));
-    }
-   }
-   if (columns.commission) {
-    if (txn.isAdjustment) {
-     cells.push('-');
-    } else {
-     const parts: string[] = [];
-     if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
-     if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
-     cells.push(parts.length ? parts.join(' — ') : '-');
-    }
-   }
-   return cells;
-  });
-
-  return { headers, rows: dataRows, count: dataRows.length };
- };
-
- const transactionExportFileBase = () => {
-  const range = [transactionExportFrom, transactionExportTo].filter(Boolean).join('_');
-  const sectionLabel = section === 'archive' ? 'archive' : 'transactions';
-  return range ? `${sectionLabel}_${range}` : `${sectionLabel}_${new Date().toISOString().slice(0, 10)}`;
- };
 
 
- async function onExportTransactionsPdf() {
-  if (!accountingApi) return;
-  setIsExportingTransactions(true);
-  try {
-   const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo);
-   const html = generateTransactionsExportHtml({ t, numLocale, isRTL, language, pdfSettings }, { section, transactionExportFrom, transactionExportTo, headers, rows });
-   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `${transactionExportFileBase()}.pdf` });
-   if (result.ok) setShowTransactionExportModal(false);
-   else setError(t('error_failed_save'));
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsExportingTransactions(false);
-  }
- }
 
- async function onExportTransactionsExcel() {
-  setIsExportingTransactions(true);
-  try {
-   const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo);
-   const xlsxModule = await import('xlsx');
-   const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
-   const workbook = xlsxModule.utils.book_new();
-   xlsxModule.utils.book_append_sheet(workbook, worksheet, section === 'archive' ? 'Archive' : 'Transactions');
-   xlsxModule.writeFile(workbook, `${transactionExportFileBase()}.xlsx`);
-   setShowTransactionExportModal(false);
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsExportingTransactions(false);
-  }
- }
+
 
  const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 2; // +1 actions col, +1 checkbox col
 
@@ -4304,6 +1601,49 @@ function AuthenticatedHome() {
  const orderedLedgerColumnOptions = ledgerColumnOrder
   .map((key) => ledgerColumnOptions.find((column) => column.key === key))
   .filter((column): column is { key: LedgerColumnKey; label: string } => Boolean(column));
+
+  const {
+   openAdjustmentModal,
+   onLedgerColumnDrop,
+   getClientLedgerDraft,
+   updateLedgerTransactionDraft,
+   onEditAllLedger,
+   onCancelAllLedger,
+   onSaveAllLedger,
+   onSaveLedgerRow,
+   onSaveAllEditingLedgerRows,
+   onCancelAllEditingLedgerRows,
+   openLedgerRowForEdit,
+   onLedgerEditFieldArrowKey,
+   onDeleteLedgerEntry,
+   onReconcileLedgerEntry,
+   onRemoveReconciliation,
+   onToggleLedgerEntrySelection,
+   onDeleteSelectedLedgerEntries,
+   onSubmitAdjustment,
+   onDeleteAdjustment: onDeleteAdjustmentFromLedger,
+   onWriteOffLedgerRow,
+   onLedgerRowDrop,
+   onExportLedgerPdf,
+   onExportLedgerExcel,
+  } = useLedgerActions({
+   clientAccounts,
+   transactions,
+   adjustments,
+   reconciliations,
+   currencyMap,
+   clientAccountMap,
+   selectedClientForLedger,
+   selectedClientLedgers,
+   orderedLedgerColumnOptions,
+   numLocale,
+   isRTL,
+   onDeleteTransaction,
+   pushSharedSettingsIfOwner,
+   pushUserTableSettings,
+   ledgerHistory,
+  });
+  onDeleteAdjustmentImpl = onDeleteAdjustmentFromLedger;
 
  const transactionsPager = (() => {
   if (transactionTableRows.length === 0) return null;
@@ -4425,6 +1765,11 @@ function AuthenticatedHome() {
    description: t('live_rates_description'),
    accent: t('nav_live_rates'),
   },
+  treasury: {
+   title: t('treasury_title'),
+   description: t('treasury_description'),
+   accent: t('coming_soon_badge'),
+  },
  };
 
  const activeSectionMeta = sectionMeta[section];
@@ -4514,156 +1859,53 @@ function AuthenticatedHome() {
 
 
  const settingsSection = (
-  <section className="flex flex-col gap-0">
-   {/* Settings section header */}
-   <div className="border-b-2 border-blue-800 bg-white px-5 py-4">
-    <div className="flex items-center gap-3">
-     <span className="inline-flex h-8 w-8 items-center justify-center rounded bg-blue-800 text-white">{renderIcon('settings', 'h-4 w-4')}</span>
-     <div>
-      <h2 className="text-base font-bold text-gray-900">{t('settings_title')}</h2>
-      <p className="text-xs text-gray-500">{t('settings_description')}</p>
-     </div>
-    </div>
-    {/* Tab strip */}
-    <div className="mt-4 flex flex-wrap gap-0 border-b border-gray-200 -mb-px">
-     {settingsTabs.map((tab) => {
-      const isActive = settingsTab === tab.key;
-      return (
-       <button
-        key={tab.key}
-        type="button"
-        onClick={() => setSettingsTab(tab.key)}
-        className={`inline-flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition ${
-         isActive ? 'border-blue-700 text-blue-700' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-        }`}
-       >
-        {renderIcon(tab.icon, 'h-4 w-4')}
-        {tab.label}
-       </button>
-      );
-     })}
-    </div>
-   </div>
-   {/* Active tab content */}
-   <div className="flex flex-col gap-4 p-4">
-    {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
-    {importSummary ? (
-     <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
-      <span>{importSummary}</span>
-      <button
-       type="button"
-       onClick={() => setImportSummary('')}
-       aria-label={t('close')}
-       title={t('close')}
-       className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
-      >
-       <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-       >
-        <path d="M18 6 6 18M6 6l12 12" />
-       </svg>
-      </button>
-     </div>
-    ) : null}
-    {settingsTab === 'account' ? <AccountSettings hideSubscription={isEditorRole} /> : null}
-    {settingsTab === 'team' ? (
-     <div className="flex flex-col gap-6">
-      <TeamSettings />
-      {isWorkspaceOwner ? (
-       <div className={panelClassName}>
-        <div className="flex items-start justify-between gap-4">
-         <div>
-          <h3 className="text-lg font-semibold">{t('shared_settings_title')}</h3>
-          <p className="mt-1 text-sm text-slate-600">{t('shared_settings_description')}</p>
-         </div>
-         <button
-          type="button"
-          role="switch"
-          aria-checked={sharedSettingsEnabled}
-          onClick={() => setWorkspaceSharedSettingsEnabled(!sharedSettingsEnabled)}
-          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${sharedSettingsEnabled ? 'bg-blue-600' : 'bg-slate-300'}`}
-         >
-          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${sharedSettingsEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-         </button>
-        </div>
-        {sharedSettingsEnabled ? <p className="mt-3 text-xs text-slate-500">{t('shared_settings_active_hint')}</p> : null}
-       </div>
-      ) : null}
-     </div>
-    ) : null}
-    {settingsTab === 'database' ? (
-     <DatabaseSettings
-      isBackingUp={isBackingUp}
-      isRestoringBackup={isRestoringBackup}
-      backupRestoreInputRef={backupRestoreInputRef}
-      lastBackupAt={lastBackupAt}
-      lastBackupLabel={lastBackupLabel}
-      onDownloadBackup={onDownloadBackup}
-      onRestoreBackupFile={onRestoreBackupFile}
-     />
-    ) : null}
-    {settingsTab === 'language' ? <LanguageSettings /> : null}
-    {settingsTab === 'pdf' ? <PdfSettingsTab /> : null}
-    {settingsTab === 'danger' && !isEditorRole ? (
-     <DangerZone
-      transactionCount={transactions.length}
-      clientCount={clients.length}
-      onDeleteAllTransactions={onDeleteAllTransactions}
-      onDeleteAllClients={onDeleteAllClients}
-     />
-    ) : null}
-    {settingsTab === 'clients' ? (
-     <ClientsSection
-      clients={clients}
-      organizations={organizations}
-      clientAccounts={clientAccounts}
-      enabledCurrencies={enabledCurrencies}
-      sortedClients={sortedClients}
-      paginatedClients={paginatedClients}
-      clampedClientsPage={clampedClientsPage}
-      totalClientPages={totalClientPages}
-      accountsClient={accountsClient}
-      clientSortHeader={clientSortHeader}
-      onClientSubmit={onClientSubmit}
-      isSubmittingClient={isSubmittingClient}
-      onDeleteClient={onDeleteClient}
-      onAddClientAccount={onAddClientAccount}
-      onDeleteClientAccount={onDeleteClientAccount}
-      onMoveAccountTransactions={onMoveAccountTransactions}
-      onSaveEditAccount={onSaveEditAccount}
-      openClientLedger={openClientLedger}
-      setShowCreateOrgDialog={setShowCreateOrgDialog}
-      setOrganizationForm={setOrganizationForm}
-     />
-    ) : null}
-    {settingsTab === 'organizations' ? (
-     <OrganizationsSection
-      organizations={organizations}
-      organizationForm={organizationForm}
-      setOrganizationForm={setOrganizationForm}
-      onOrganizationSubmit={onOrganizationSubmit}
-      onDeleteOrganization={onDeleteOrganization}
-      openOrganizationClientsPage={openOrganizationClientsPage}
-     />
-    ) : null}
-    {settingsTab === 'currencies' ? (
-     <CurrenciesSection
-      localizedCurrencies={localizedCurrencies}
-      enabledCurrencies={enabledCurrencies}
-      clientAccounts={clientAccounts}
-      transactions={transactions}
-     />
-    ) : null}
-   </div>
-  </section>
+  <SettingsSection
+   settingsTabs={settingsTabs}
+   settingsTab={settingsTab}
+   setSettingsTab={setSettingsTab}
+   error={error}
+   importSummary={importSummary}
+   setImportSummary={setImportSummary}
+   isEditorRole={isEditorRole}
+   isWorkspaceOwner={isWorkspaceOwner}
+   sharedSettingsEnabled={sharedSettingsEnabled}
+   setWorkspaceSharedSettingsEnabled={setWorkspaceSharedSettingsEnabled}
+   isBackingUp={isBackingUp}
+   isRestoringBackup={isRestoringBackup}
+   backupRestoreInputRef={backupRestoreInputRef}
+   lastBackupAt={lastBackupAt}
+   lastBackupLabel={lastBackupLabel}
+   onDownloadBackup={onDownloadBackup}
+   onRestoreBackupFile={onRestoreBackupFile}
+   transactions={transactions}
+   clients={clients}
+   onDeleteAllTransactions={onDeleteAllTransactions}
+   onDeleteAllClients={onDeleteAllClients}
+   organizations={organizations}
+   clientAccounts={clientAccounts}
+   enabledCurrencies={enabledCurrencies}
+   sortedClients={sortedClients}
+   paginatedClients={paginatedClients}
+   clampedClientsPage={clampedClientsPage}
+   totalClientPages={totalClientPages}
+   accountsClient={accountsClient}
+   clientSortHeader={clientSortHeader}
+   onClientSubmit={onClientSubmit}
+   isSubmittingClient={isSubmittingClient}
+   onDeleteClient={onDeleteClient}
+   onAddClientAccount={onAddClientAccount}
+   onDeleteClientAccount={onDeleteClientAccount}
+   onMoveAccountTransactions={onMoveAccountTransactions}
+   onSaveEditAccount={onSaveEditAccount}
+   openClientLedger={openClientLedger}
+   setShowCreateOrgDialog={setShowCreateOrgDialog}
+   setOrganizationForm={setOrganizationForm}
+   organizationForm={organizationForm}
+   onOrganizationSubmit={onOrganizationSubmit}
+   onDeleteOrganization={onDeleteOrganization}
+   openOrganizationClientsPage={openOrganizationClientsPage}
+   localizedCurrencies={localizedCurrencies}
+  />
  );
 
  return (
@@ -4874,146 +2116,20 @@ function AuthenticatedHome() {
         />
        ) : null}
 
-       {section === 'organization-clients' && isLoading ? (
-        <div className={panelClassName}>
-         <div className="mb-4 flex items-center justify-between gap-4">
-          <SkBar
-           w="w-52"
-           h="h-6"
-          />
-          <SkBar
-           w="w-28"
-           h="h-8"
-          />
-         </div>
-         <SkTablePanel
-          panelClassName=""
-          tableWrapClassName="border border-gray-200"
-          cols={SK_CLIENTS}
-          rows={6}
-         />
-        </div>
-       ) : null}
-       {section === 'organization-clients' && !isLoading ? (
-        <section className="flex flex-col gap-6">
-         <div className={panelClassName}>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-           <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">{t('organization_page_title')}</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-900">{selectedOrganizationForClients?.name ?? t('organizations_title')}</h2>
-            <p className="mt-2 text-sm text-slate-600">{selectedOrganizationForClients ? t('organization_page_description') : t('organization_page_no_organization')}</p>
-           </div>
-
-           <div className="flex shrink-0 gap-2">
-            {selectedOrganizationForClients ? (
-             <button
-              type="button"
-              onClick={() => openAddClientForOrganization(selectedOrganizationForClients)}
-              className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-             >
-              {t('organization_add_client')}
-             </button>
-            ) : null}
-            <button
-             type="button"
-             onClick={() => navigateToSection('organizations')}
-             className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-             {t('organization_page_back')}
-            </button>
-           </div>
-          </div>
-
-          {selectedOrganizationForClients ? (
-           <div className="mt-6 grid gap-4 md:grid-cols-3">
-            <div className={mutedPanelClassName}>
-             <p className="text-sm text-slate-500">{t('organizations_title')}</p>
-             <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationForClients.name}</p>
-            </div>
-            <div className={mutedPanelClassName}>
-             <p className="text-sm text-slate-500">{t('overview_clients')}</p>
-             <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationClients.length}</p>
-            </div>
-            <div className={mutedPanelClassName}>
-             <p className="text-sm text-slate-500">{t('client_accounts')}</p>
-             <p className="mt-2 text-lg font-semibold text-slate-900">{selectedOrganizationClients.reduce((sum, client) => sum + client.accountCount, 0)}</p>
-            </div>
-           </div>
-          ) : null}
-         </div>
-
-         {!selectedOrganizationForClients ? (
-          <div className={`${panelClassName} text-sm text-slate-600`}>{t('organization_page_no_organization')}</div>
-         ) : selectedOrganizationClients.length === 0 ? (
-          <div className={`${panelClassName} text-sm text-slate-600`}>{t('organization_page_no_clients')}</div>
-         ) : (
-          <div className={panelClassName}>
-           <h3 className="text-xl font-semibold text-slate-900">{t('organization_clients_title')}</h3>
-           <div className={tableWrapClassName}>
-            <table className="w-full text-sm">
-             <thead className="bg-slate-100 text-slate-700">
-              <tr>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('balance')}</th>
-               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('organization_pending_pricing')}</th>
-              </tr>
-             </thead>
-             <tbody>
-              {selectedOrganizationClients.map((client) => (
-               <tr
-                key={client.id}
-                className="border-t border-slate-200 align-top"
-               >
-                <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
-                 <a
-                  href={`/clients/${client.id}`}
-                  onClick={(e) => {
-                   if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-                   e.preventDefault();
-                   openClientLedger(client, 'organization-clients');
-                  }}
-                  className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
-                 >
-                  {client.name}
-                 </a>
-                </td>
-                <td className="px-4 py-3">
-                 <div className="flex flex-wrap gap-1">
-                  {(clientPageBalances.get(client.id) ?? []).map((entry) => (
-                   <span
-                    key={entry.accountId}
-                    className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${entry.balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
-                   >
-                    {entry.currencySymbol || entry.currencyCode} {entry.balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
-                   </span>
-                  ))}
-                 </div>
-                </td>
-                <td className="px-4 py-3">
-                 {(() => {
-                  const pendingCount = clientPendingPricingCounts.get(client.id) ?? 0;
-                  if (pendingCount === 0) return <span className="text-slate-400">—</span>;
-                  return (
-                   <button
-                    type="button"
-                    onClick={() => setPendingPricingModalClientId(client.id)}
-                    title={t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
-                    className="cursor-pointer rounded bg-amber-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
-                   >
-                    {pendingCount}
-                   </button>
-                  );
-                 })()}
-                </td>
-               </tr>
-              ))}
-             </tbody>
-            </table>
-           </div>
-          </div>
-         )}
-        </section>
-       ) : null}
+      <OrganizationClientsSection
+       section={section}
+       isLoading={isLoading}
+       selectedOrganizationForClients={selectedOrganizationForClients}
+       selectedOrganizationClients={selectedOrganizationClients}
+       clientPageBalances={clientPageBalances}
+       clientPendingPricingCounts={clientPendingPricingCounts}
+       numLocale={numLocale}
+       isRTL={isRTL}
+       openAddClientForOrganization={openAddClientForOrganization}
+       navigateToSection={navigateToSection}
+       openClientLedger={openClientLedger}
+       setPendingPricingModalClientId={setPendingPricingModalClientId}
+      />
 
        {section === 'clients' && isLoading ? (
         <SkTablePanel
@@ -5108,6 +2224,7 @@ function AuthenticatedHome() {
        ) : null}
 
        {section === 'live-rates' ? <LiveRatesSection /> : null}
+       {section === 'treasury' ? <TreasurySection /> : null}
 
        {section === 'transactions' || section === 'archive' ? (
         <TransactionsSection
@@ -5238,62 +2355,19 @@ function AuthenticatedHome() {
    ) : null}
 
    {/* Org page: "waiting for pricing" entries popup for a client (opened by clicking the count).
-       Mirrors the pending-rate list inside the client ledger: date, counterparty, description, amount. */}
-   {pendingPricingModalClientId != null ? (() => {
-    const modalClient = clients.find((c) => c.id === pendingPricingModalClientId);
-    const entries = clientPendingPricingEntries.get(pendingPricingModalClientId) ?? [];
-    return (
-     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-      onClick={() => setPendingPricingModalClientId(null)}
-     >
-      <div
-       className="flex max-h-[80vh] w-full max-w-md flex-col rounded-xl border border-slate-200 bg-white shadow-xl"
-       onClick={(e) => e.stopPropagation()}
-      >
-       <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
-        <div>
-         <h2 className="text-lg font-semibold text-slate-900">{t('pending_pricing_modal_title')}</h2>
-         {modalClient ? <p className="mt-0.5 text-sm text-slate-500">{modalClient.name}</p> : null}
-        </div>
-        <button
-         type="button"
-         onClick={() => setPendingPricingModalClientId(null)}
-         className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-         aria-label={t('close')}
-        >
-         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M18 6 6 18M6 6l12 12" />
-         </svg>
-        </button>
-       </div>
-       <div className="overflow-y-auto px-5 py-4">
-        {entries.length === 0 ? (
-         <p className="text-sm text-slate-500">{t('client_page_no_transactions')}</p>
-        ) : (
-         <ul className="space-y-1.5 text-sm text-slate-700">
-          {entries.map((entry) => (
-           <li
-            key={entry.key}
-            className="flex items-center gap-2 whitespace-nowrap rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5"
-           >
-            <span className="shrink-0 text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
-            {entry.counterpartyName ? <span className="shrink-0 font-medium">{entry.counterpartyName}</span> : null}
-            <span className="min-w-0 flex-1 truncate italic text-slate-400" title={entry.description}>
-             {entry.description}
-            </span>
-            <span className="shrink-0 font-semibold">
-             {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
-            </span>
-           </li>
-          ))}
-         </ul>
-        )}
-       </div>
-      </div>
-     </div>
-    );
-   })() : null}
+       Lists each pending row (date, counterparty, description, amount) with an inline rate
+       field so the pricing can be done right here, not only in the client ledger. */}
+   {pendingPricingModalClientId != null ? (
+    <PendingPricingModal
+     clientName={clients.find((c) => c.id === pendingPricingModalClientId)?.name ?? null}
+     entries={clientPendingPricingEntries.get(pendingPricingModalClientId) ?? []}
+     numLocale={numLocale}
+     ledgerDecimals={ledgerDecimals}
+     ledgerDateFormat={ledgerDateFormat}
+     onClose={() => setPendingPricingModalClientId(null)}
+     onSaveRate={onSavePendingPricingRate}
+    />
+   ) : null}
   </div>
  );
 }

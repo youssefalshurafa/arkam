@@ -406,8 +406,8 @@ export type PdfSettings = {
 };
 export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
-export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates';
-export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates';
+export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury';
+export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury';
 
 // A normalized live FX/gold quote, as returned by the /api/live-rates proxy.
 export type LiveRate = {

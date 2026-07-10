@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useStableSession } from '@/hooks/useStableSession';
 import LockButton from '@/app/admin/LockButton';
+import { getSubscriptionState } from '@/app/admin/subscription';
 
 type WorkspaceStats = {
  organizationCount: number;
@@ -61,14 +62,6 @@ function formatDate(iso: string | null) {
 function formatDateTime(iso: string | null) {
  if (!iso) return 'Never';
  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-function getSubscriptionState(endsAt: string | null) {
- if (!endsAt) return { label: 'No subscription', tone: 'none' as const, daysLeft: null as number | null };
- const daysLeft = Math.ceil((new Date(endsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
- if (daysLeft <= 0) return { label: 'Expired', tone: 'expired' as const, daysLeft };
- if (daysLeft <= 7) return { label: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`, tone: 'soon' as const, daysLeft };
- return { label: `${daysLeft} days left`, tone: 'active' as const, daysLeft };
 }
 
 // Mirrors the paid-plan durations in src/config/plan.ts, so an admin's manual "renew"

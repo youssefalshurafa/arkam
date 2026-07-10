@@ -61,6 +61,14 @@ export type PendingPricingEntry = {
  currencyCode: string;
  currencySymbol: string;
  description: string;
+ // Identity + target-currency detail so the org-page popup can price the row in place:
+ // which record and side still needs a rate, and the account currency the amount converts
+ // into (the rate means "1 <currencyCode> = rate <accountCurrencyCode>").
+ kind: 'transaction' | 'adjustment';
+ transactionId?: number;
+ adjustmentId?: number;
+ side?: 'from' | 'to';
+ accountCurrencyCode: string;
 };
 
 // Like computeClientPendingPricingCounts, but returns the actual pending rows per client
@@ -90,6 +98,10 @@ export function computeClientPendingPricingEntries({ clientAccounts, transaction
     currencyCode: transaction.currencyCode,
     currencySymbol: transaction.currencySymbol,
     description: transaction.description,
+    kind: 'transaction',
+    transactionId: transaction.id,
+    side: 'from',
+    accountCurrencyCode: fromAccount.currencyCode,
    });
   }
   const toAccount = transaction.accountToId != null ? accountMap.get(transaction.accountToId) : undefined;
@@ -102,6 +114,10 @@ export function computeClientPendingPricingEntries({ clientAccounts, transaction
     currencyCode: transaction.currencyCode,
     currencySymbol: transaction.currencySymbol,
     description: transaction.description,
+    kind: 'transaction',
+    transactionId: transaction.id,
+    side: 'to',
+    accountCurrencyCode: toAccount.currencyCode,
    });
   }
  }
@@ -117,6 +133,9 @@ export function computeClientPendingPricingEntries({ clientAccounts, transaction
     currencyCode: adj.currencyCode,
     currencySymbol: adj.currencySymbol,
     description: adj.description,
+    kind: 'adjustment',
+    adjustmentId: adj.id,
+    accountCurrencyCode: account.currencyCode,
    });
   }
  }
