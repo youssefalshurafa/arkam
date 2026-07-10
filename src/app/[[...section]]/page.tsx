@@ -5428,7 +5428,7 @@ function AuthenticatedHome() {
                 key={client.id}
                 className="border-t border-slate-200 align-top"
                >
-                <td className="px-4 py-3 font-medium text-slate-900">
+                <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
                  <a
                   href={`/clients/${client.id}`}
                   onClick={(e) => {
@@ -5446,7 +5446,7 @@ function AuthenticatedHome() {
                   {(clientPageBalances.get(client.id) ?? []).map((entry) => (
                    <span
                     key={entry.accountId}
-                    className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${entry.balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+                    className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${entry.balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
                    >
                     {entry.currencySymbol || entry.currencyCode} {entry.balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
                    </span>

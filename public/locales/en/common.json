@@ -129,6 +129,7 @@
  "confirm": "Confirm",
  "ok": "OK",
  "close": "Close",
+ "name": "Name",
  "actions": "Actions",
  "no_organizations": "No organizations yet. Add your first organization from the form.",
  "organization_required": "Organization name is required.",

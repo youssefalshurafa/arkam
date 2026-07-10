@@ -647,11 +647,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      {pendingEntries.map((entry) => (
                       <li
                        key={`${entry.transactionId}-${entry.direction}`}
-                       className="flex items-center justify-between gap-2 whitespace-nowrap"
+                       className="flex items-center gap-2 whitespace-nowrap"
                       >
-                       <span className="text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
-                       <span className="truncate font-medium">{entry.counterpartyName}</span>
-                       <span>
+                       <span className="shrink-0 text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
+                       <span className="shrink-0 font-medium">{entry.counterpartyName}</span>
+                       <span className="min-w-0 flex-1 truncate italic text-slate-400" title={entry.description}>
+                        {entry.description}
+                       </span>
+                       <span className="shrink-0">
                         {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
                        </span>
                       </li>

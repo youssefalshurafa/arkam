@@ -128,6 +128,7 @@
  "confirm": "Confirmer",
  "ok": "OK",
  "close": "Fermer",
+ "name": "Nom",
  "actions": "Actions",
  "no_organizations": "Aucune organisation pour le moment. Ajoutez votre première organisation depuis le formulaire.",
  "organization_required": "Le nom de l'organisation est requis.",
