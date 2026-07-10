@@ -80,6 +80,7 @@ import { getCommissionAmount } from '@/shared/utils/commission';
 import { renderIcon } from '@/shared/utils/icons';
 import { getSectionFromPath } from '@/shared/utils/section';
 import { getDeviceLabel } from '@/shared/utils/device';
+import { nextCreatedAtForDate, resolveCreatedAt } from '@/shared/utils/createdAt';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import {
  normalizeImportHeader,
@@ -2126,7 +2127,7 @@ function AuthenticatedHome() {
   const isArchiveCreate = section === 'archive';
   // A new entry lands at the end of its date's sequence (top of the table / bottom of the
   // ledger), after any same-day rows the user manually reordered.
-  const newTransactionCreatedAt = nextCreatedAtForDate(newTransactionDate);
+  const newTransactionCreatedAt = nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
 
   if (isAdjustmentTransaction && !isArchiveCreate) {
    if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
@@ -3104,7 +3105,7 @@ function AuthenticatedHome() {
   // timestamp (only the date shifts if the user changed it). A brand-new expense lands at
   // the end of its date's sequence, exactly like a newly created transaction.
   const existingAdj = adjustmentModal.editingId ? adjustments.find((a) => a.id === adjustmentModal.editingId) : undefined;
-  const createdAt = existingAdj ? resolveCreatedAt(adjustmentModal.date, existingAdj.createdAt) : nextCreatedAtForDate(adjustmentModal.date);
+  const createdAt = existingAdj ? resolveCreatedAt(adjustmentModal.date, existingAdj.createdAt) : nextCreatedAtForDate(adjustmentModal.date, transactions, adjustments);
 
   const payloadBase = {
    amount,
@@ -3279,7 +3280,7 @@ function AuthenticatedHome() {
     exchangeRate: 1,
     exchangeRateReversed: false,
     description: t('write_off_description'),
-    createdAt: nextCreatedAtForDate(new Date().toISOString().slice(0, 10)),
+    createdAt: nextCreatedAtForDate(new Date().toISOString().slice(0, 10), transactions, adjustments),
    });
    setError('');
    await loadData();
@@ -3715,43 +3716,6 @@ function AuthenticatedHome() {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
    await loadData();
   }
- }
-
- // Places a newly created transaction/adjustment strictly after every existing row on
- // `dateStr`, so it lands at the END of that date's sequence: the top of the descending
- // transactions table and the bottom of the ascending client ledger. This keeps a new
- // entry with today's date at the very top even when other same-day rows were manually
- // drag-reordered (which rewrites their timestamps across the day).
- function nextCreatedAtForDate(dateStr: string): string {
-  const dayStart = Date.parse(`${dateStr}T00:00:00.000Z`);
-  const dayEnd = Date.parse(`${dateStr}T23:59:59.999Z`);
-  let maxEpoch = dayStart;
-  for (const tx of transactions) {
-   if (tx.createdAt.slice(0, 10) === dateStr) {
-    const e = Date.parse(tx.createdAt);
-    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
-   }
-  }
-  for (const adj of adjustments) {
-   if (adj.createdAt.slice(0, 10) === dateStr) {
-    const e = Date.parse(adj.createdAt);
-    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
-   }
-  }
-  const next = Math.min(maxEpoch + 1000, dayEnd);
-  return new Date(next).toISOString();
- }
-
- function resolveCreatedAt(draftDate: string, originalCreatedAt: string): string {
-  const originalDate = originalCreatedAt.slice(0, 10);
-  if (draftDate === originalDate) {
-   // Date unchanged — preserve the exact original timestamp so sort order never changes
-   return originalCreatedAt;
-  }
-  // User changed the date — keep the original time component
-  const sep = originalCreatedAt.includes('T') ? 'T' : ' ';
-  const timePart = originalCreatedAt.includes(sep) ? originalCreatedAt.split(sep)[1] : '00:00:00';
-  return `${draftDate} ${timePart}`;
  }
 
  async function onSaveTransactionTableRow(transactionId: number, { skipReload = false } = {}) {
