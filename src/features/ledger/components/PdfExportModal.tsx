@@ -68,9 +68,10 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
             />
            </div>
 
-           {/* Shortcut: derive the range from the highlighted rows. The first highlighted row is
-               the pre-balance boundary (excluded; its accumulated balance becomes the pre-balance),
-               the last highlighted row is the final row shown. */}
+           {/* Shortcut: derive the range from the highlighted rows. Both boundaries are
+               inclusive — the first highlighted row is the first row shown, the last
+               highlighted row is the final row shown. Everything before the first highlight
+               is rolled into the opening (pre-)balance. */}
            {(() => {
             const highlightedEntries = ledger.entries.filter((e) => highlightedLedgerRows.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)));
             if (highlightedEntries.length < 2) return null;
@@ -81,15 +82,13 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
                onClick={() => {
                 const first = highlightedEntries[highlightedEntries.length - 2];
                 const last = highlightedEntries[highlightedEntries.length - 1];
-                const firstIdx = ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(first));
-                // Start one row after the first highlight so that row is excluded but its
-                // accumulated balance is rolled into the pre-balance.
-                const afterFirst = ledger.entries[firstIdx + 1] ?? last;
-                const newFrom = afterFirst.createdAt.slice(0, 10);
+                // Both highlighted rows are included in the export: start AT the first
+                // highlight (not the row after it), end AT the last highlight.
+                const newFrom = first.createdAt.slice(0, 10);
                 const newTo = last.createdAt.slice(0, 10);
                 savePdfDateRange(pdfExportModal.accountId, newFrom, newTo);
                 setPdfExportModal((prev) =>
-                 prev ? { ...prev, fromDate: newFrom, toDate: newTo, fromEntryKey: ledgerEntryKey(afterFirst), toEntryKey: ledgerEntryKey(last) } : prev,
+                 prev ? { ...prev, fromDate: newFrom, toDate: newTo, fromEntryKey: ledgerEntryKey(first), toEntryKey: ledgerEntryKey(last) } : prev,
                 );
                }}
                className="cursor-pointer rounded border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"

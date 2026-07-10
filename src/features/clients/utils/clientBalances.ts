@@ -49,3 +49,81 @@ export function computeClientPendingPricingCounts({ clientAccounts, transactions
 
  return countByClient;
 }
+
+// One "waiting for pricing" row surfaced for the organization page's popup: enough
+// detail (date, the other party, amount, description) to identify which transaction
+// still needs an exchange rate, mirroring the pending list inside the client ledger.
+export type PendingPricingEntry = {
+ key: string;
+ createdAt: string;
+ counterpartyName: string;
+ amount: number;
+ currencyCode: string;
+ currencySymbol: string;
+ description: string;
+};
+
+// Like computeClientPendingPricingCounts, but returns the actual pending rows per client
+// (newest first) so the org page can list them in a popup rather than just count them.
+export function computeClientPendingPricingEntries({ clientAccounts, transactions, adjustments }: {
+ clientAccounts: ClientAccount[];
+ transactions: Transaction[];
+ adjustments: ClientAdjustment[];
+}): Map<number, PendingPricingEntry[]> {
+ const accountMap = new Map(clientAccounts.map((account) => [account.id, account]));
+ const byClient = new Map<number, PendingPricingEntry[]>();
+ const push = (clientId: number, entry: PendingPricingEntry) => {
+  const arr = byClient.get(clientId) ?? [];
+  arr.push(entry);
+  byClient.set(clientId, arr);
+ };
+
+ for (const transaction of transactions) {
+  if (transaction.isArchived) continue;
+  const fromAccount = transaction.accountFromId != null ? accountMap.get(transaction.accountFromId) : undefined;
+  if (fromAccount && isPendingTransactionFrom(transaction, fromAccount.currencyId)) {
+   push(fromAccount.clientId, {
+    key: `t${transaction.id}-from`,
+    createdAt: transaction.createdAt,
+    counterpartyName: transaction.clientToName,
+    amount: transaction.amount,
+    currencyCode: transaction.currencyCode,
+    currencySymbol: transaction.currencySymbol,
+    description: transaction.description,
+   });
+  }
+  const toAccount = transaction.accountToId != null ? accountMap.get(transaction.accountToId) : undefined;
+  if (toAccount && isPendingTransactionTo(transaction, toAccount.currencyId)) {
+   push(toAccount.clientId, {
+    key: `t${transaction.id}-to`,
+    createdAt: transaction.createdAt,
+    counterpartyName: transaction.clientFromName,
+    amount: transaction.amount,
+    currencyCode: transaction.currencyCode,
+    currencySymbol: transaction.currencySymbol,
+    description: transaction.description,
+   });
+  }
+ }
+
+ for (const adj of adjustments) {
+  const account = accountMap.get(adj.accountId);
+  if (account && isPendingAdjustment(adj, account.currencyId)) {
+   push(account.clientId, {
+    key: `a${adj.id}`,
+    createdAt: adj.createdAt,
+    counterpartyName: '',
+    amount: adj.amount,
+    currencyCode: adj.currencyCode,
+    currencySymbol: adj.currencySymbol,
+    description: adj.description,
+   });
+  }
+ }
+
+ // Newest first, to match the ledger's ordering intuition.
+ for (const arr of byClient.values()) {
+  arr.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+ }
+ return byClient;
+}
