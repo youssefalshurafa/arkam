@@ -117,7 +117,7 @@ import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml, generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers, computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
-import { computeClientPageBalances, computeClientPendingPricingCounts } from '@/features/clients/utils/clientBalances';
+import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
@@ -4525,6 +4525,13 @@ function AuthenticatedHome() {
   () => computeClientPendingPricingCounts({ clientAccounts, transactions, adjustments }),
   [clientAccounts, transactions, adjustments],
  );
+ // The actual pending rows behind those counts, keyed by client — drives the
+ // org page's "waiting for pricing" popup (opened by clicking the count).
+ const clientPendingPricingEntries = useMemo(
+  () => computeClientPendingPricingEntries({ clientAccounts, transactions, adjustments }),
+  [clientAccounts, transactions, adjustments],
+ );
+ const [pendingPricingModalClientId, setPendingPricingModalClientId] = useState<number | null>(null);
 
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
@@ -5458,12 +5465,14 @@ function AuthenticatedHome() {
                   const pendingCount = clientPendingPricingCounts.get(client.id) ?? 0;
                   if (pendingCount === 0) return <span className="text-slate-400">—</span>;
                   return (
-                   <span
+                   <button
+                    type="button"
+                    onClick={() => setPendingPricingModalClientId(client.id)}
                     title={t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
-                    className="rounded bg-amber-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-amber-700"
+                    className="cursor-pointer rounded bg-amber-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-amber-700 transition hover:bg-amber-100"
                    >
                     {pendingCount}
-                   </span>
+                   </button>
                   );
                  })()}
                 </td>
@@ -5698,6 +5707,64 @@ function AuthenticatedHome() {
      setOrgDialogTargetReviewKey={setOrgDialogTargetReviewKey}
     />
    ) : null}
+
+   {/* Org page: "waiting for pricing" entries popup for a client (opened by clicking the count).
+       Mirrors the pending-rate list inside the client ledger: date, counterparty, description, amount. */}
+   {pendingPricingModalClientId != null ? (() => {
+    const modalClient = clients.find((c) => c.id === pendingPricingModalClientId);
+    const entries = clientPendingPricingEntries.get(pendingPricingModalClientId) ?? [];
+    return (
+     <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      onClick={() => setPendingPricingModalClientId(null)}
+     >
+      <div
+       className="flex max-h-[80vh] w-full max-w-md flex-col rounded-xl border border-slate-200 bg-white shadow-xl"
+       onClick={(e) => e.stopPropagation()}
+      >
+       <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div>
+         <h2 className="text-lg font-semibold text-slate-900">{t('pending_pricing_modal_title')}</h2>
+         {modalClient ? <p className="mt-0.5 text-sm text-slate-500">{modalClient.name}</p> : null}
+        </div>
+        <button
+         type="button"
+         onClick={() => setPendingPricingModalClientId(null)}
+         className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+         aria-label={t('close')}
+        >
+         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M18 6 6 18M6 6l12 12" />
+         </svg>
+        </button>
+       </div>
+       <div className="overflow-y-auto px-5 py-4">
+        {entries.length === 0 ? (
+         <p className="text-sm text-slate-500">{t('client_page_no_transactions')}</p>
+        ) : (
+         <ul className="space-y-1.5 text-sm text-slate-700">
+          {entries.map((entry) => (
+           <li
+            key={entry.key}
+            className="flex items-center gap-2 whitespace-nowrap rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5"
+           >
+            <span className="shrink-0 text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
+            {entry.counterpartyName ? <span className="shrink-0 font-medium">{entry.counterpartyName}</span> : null}
+            <span className="min-w-0 flex-1 truncate italic text-slate-400" title={entry.description}>
+             {entry.description}
+            </span>
+            <span className="shrink-0 font-semibold">
+             {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
+            </span>
+           </li>
+          ))}
+         </ul>
+        )}
+       </div>
+      </div>
+     </div>
+    );
+   })() : null}
   </div>
  );
 }

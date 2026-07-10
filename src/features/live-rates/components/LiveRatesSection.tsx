@@ -91,7 +91,7 @@ export default function LiveRatesSection() {
  };
 
  return (
-  <section className="mx-auto max-w-[430px] overflow-hidden rounded-lg border border-slate-200 shadow-sm">
+  <section className="mx-auto w-[92%] max-w-[430px] overflow-hidden rounded-lg border border-slate-200 shadow-sm sm:w-full">
    {/* Header — royal-blue gradient with brand title and the featured strip */}
    <div
     className="text-white"
@@ -145,26 +145,26 @@ export default function LiveRatesSection() {
    ) : (
     <div dir="ltr" className="bg-white text-left">
      {/* Column header */}
-     <div className="flex items-center gap-4 bg-[#eef1f5] px-4 py-3 text-sm font-medium text-slate-500">
+     <div className="flex items-center gap-3 bg-[#eef1f5] px-4 py-3 text-sm font-medium text-slate-500">
       <span className="flex flex-1 items-center gap-1">
        {t('live_rates_currency')}
        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M7 4v16M7 4 4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3" />
        </svg>
       </span>
-      <span className="w-24 text-end">{t('live_rates_buy')}</span>
-      <span className="w-24 text-end">{t('live_rates_sell')}</span>
+      <span className="w-20 text-end">{t('live_rates_buy')}</span>
+      <span className="w-20 text-end">{t('live_rates_sell')}</span>
      </div>
 
      {/* Rows */}
      {rates.map((rate) => (
-      <div key={rate.code} className="flex items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0">
+      <div key={rate.code} className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
        <div className="min-w-0 flex-1">
         <div className="text-[15px] font-bold text-slate-800">{rate.code}</div>
-        <div className="truncate text-xs text-slate-400">{pairName(rate.code)}</div>
+        <div dir="auto" className="truncate text-xs text-slate-400">{pairName(rate.code)}</div>
        </div>
-       <div className="w-24 text-end text-[17px] tabular-nums text-slate-700">{fmtVal(rate.buy)}</div>
-       <div className="w-24 text-end text-[17px] tabular-nums text-slate-700">{fmtVal(rate.sell)}</div>
+       <div className="w-20 text-end text-[17px] tabular-nums text-slate-700">{fmtVal(rate.buy)}</div>
+       <div className="w-20 text-end text-[17px] tabular-nums text-slate-700">{fmtVal(rate.sell)}</div>
       </div>
      ))}
 
