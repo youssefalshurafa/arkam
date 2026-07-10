@@ -120,6 +120,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
   setContextMenuRowKey(null);
  };
 
+ // Selection mode: the per-row select checkboxes stay hidden until the user opts in via
+ // the toolbar "Select" toggle. Turning it off also clears any current selection so a
+ // stale set doesn't linger (and keep the bulk-delete button showing) after exiting.
+ const [selectionMode, setSelectionMode] = useState(false);
+ const toggleSelectionMode = () => {
+  setSelectionMode((on) => {
+   if (on) setSelectedLedgerEntryKeys(new Set());
+   return !on;
+  });
+ };
+
  // Row drag-to-reorder via pointer events (not native HTML5 drag-and-drop, which never fires
  // from a touch gesture — the reason this was unusable on mobile). See usePointerDrag for why.
  // One instance handles every account's ledger table on the page — the row key already encodes
@@ -351,7 +362,30 @@ export default function LedgerSection(props: LedgerSectionProps) {
           {selectedClientForLedger && (
            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
             <>
-             {selectedLedgerEntryKeys.size > 0 ? (
+             <button
+              type="button"
+              onClick={toggleSelectionMode}
+              title={t('bulk_select')}
+              aria-pressed={selectionMode}
+              className={`inline-flex cursor-pointer items-center gap-1.5 rounded border px-3 py-2 text-sm font-semibold transition ${selectionMode ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+             >
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M9 11l3 3L22 4" />
+               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
+              {t('bulk_select')}
+             </button>
+             {selectionMode && selectedLedgerEntryKeys.size > 0 ? (
               <button
                type="button"
                onClick={() => void onDeleteSelectedLedgerEntries()}
@@ -1095,20 +1129,22 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      </button>
                     )}
                    </th>
-                   <th className="w-8 px-2 py-3">
-                    <input
-                     type="checkbox"
-                     checked={
-                      ledger.entries.length > 0 && ledger.entries.every((e) => selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)))
-                     }
-                     onChange={() => {
-                      const allKeys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
-                      const allSelected = allKeys.every((k) => selectedLedgerEntryKeys.has(k));
-                      setSelectedLedgerEntryKeys(allSelected ? new Set() : new Set(allKeys));
-                     }}
-                     className="cursor-pointer"
-                    />
-                   </th>
+                   {selectionMode ? (
+                    <th className="w-8 px-2 py-3">
+                     <input
+                      type="checkbox"
+                      checked={
+                       ledger.entries.length > 0 && ledger.entries.every((e) => selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)))
+                      }
+                      onChange={() => {
+                       const allKeys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+                       const allSelected = allKeys.every((k) => selectedLedgerEntryKeys.has(k));
+                       setSelectedLedgerEntryKeys(allSelected ? new Set() : new Set(allKeys));
+                      }}
+                      className="cursor-pointer"
+                     />
+                    </th>
+                   ) : null}
                    {orderedLedgerColumnOptions.map((column) => {
                     if (!ledgerColumnVisibility[column.key]) {
                      return null;
@@ -1285,6 +1321,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       );
                     }
                    })}
+                   {/* Trailing column header for the row-end delete action cell. */}
+                   <th className="w-10 px-2 py-3" />
                   </tr>
                  </thead>
                  <tbody>
@@ -1337,7 +1375,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        }
                        // Copy mode: copy the clicked cell's value (strip trailing currency code/symbol).
                        const td = (e.target as HTMLElement).closest('td');
-                       if (!td || (td as HTMLTableCellElement).cellIndex < 2) return;
+                       // Skip the leading non-data columns (actions, plus the checkbox column
+                       // when selection mode is on) so only real cell text is copied.
+                       if (!td || (td as HTMLTableCellElement).cellIndex < (selectionMode ? 2 : 1)) return;
                        const raw = (td as HTMLElement).innerText.trim();
                        const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
                        if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
@@ -1374,7 +1414,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                          {/* actions */}
                          <td className="px-2 py-3 align-top w-10">
                           {isEditingRow ? (
-                           <div className="flex flex-col items-center gap-1">
+                           <div className="flex items-center gap-1">
                             <button
                              type="button"
                              title={t('save_changes')}
@@ -1435,29 +1475,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                x2="18"
                                y2="18"
                               />
-                             </svg>
-                            </button>
-                            <button
-                             type="button"
-                             title={t('delete')}
-                             onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
-                             className="rounded p-1 text-red-500 hover:bg-red-50"
-                            >
-                             <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden
-                             >
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6l-1 14H6L5 6" />
-                              <path d="M10 11v6M14 11v6" />
-                              <path d="M9 6V4h6v2" />
                              </svg>
                             </button>
                            </div>
@@ -1534,14 +1551,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                           )}
                          </td>
                          {/* checkbox */}
-                         <td className="px-2 py-3 align-middle w-8">
-                          <input
-                           type="checkbox"
-                           checked={selectedLedgerEntryKeys.has(rowKey)}
-                           onChange={() => onToggleLedgerEntrySelection(rowKey)}
-                           className="cursor-pointer"
-                          />
-                         </td>
+                         {selectionMode ? (
+                          <td className="px-2 py-3 align-middle w-8">
+                           <input
+                            type="checkbox"
+                            checked={selectedLedgerEntryKeys.has(rowKey)}
+                            onChange={() => onToggleLedgerEntrySelection(rowKey)}
+                            className="cursor-pointer"
+                           />
+                          </td>
+                         ) : null}
                          {orderedLedgerColumnOptions.map((column) => {
                           if (!ledgerColumnVisibility[column.key]) {
                            return null;
@@ -2423,6 +2442,35 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             );
                           }
                          })}
+                         {/* Trailing delete cell at the far end of the row (only while editing);
+                             empty otherwise so every row keeps the same column count. */}
+                         <td className="w-10 px-2 py-3 align-top">
+                          {isEditingRow ? (
+                           <button
+                            type="button"
+                            title={t('delete')}
+                            onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
+                            className="rounded p-1 text-red-500 hover:bg-red-50"
+                           >
+                            <svg
+                             width="14"
+                             height="14"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             strokeWidth="1.8"
+                             strokeLinecap="round"
+                             strokeLinejoin="round"
+                             aria-hidden
+                            >
+                             <polyline points="3 6 5 6 21 6" />
+                             <path d="M19 6l-1 14H6L5 6" />
+                             <path d="M10 11v6M14 11v6" />
+                             <path d="M9 6V4h6v2" />
+                            </svg>
+                           </button>
+                          ) : null}
+                         </td>
                         </>
                        );
                       })()}
@@ -2431,7 +2479,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       const chargesRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                       const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
                       const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
-                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3;
+                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 3 : 2);
                       // An org-settled charge only affects the one named client, so it is editable
                       // from that client's ledger but not the other side's. Everything else is
                       // editable here — including a charge still being added (charges <= 0) with no
@@ -2520,7 +2568,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            />
                            {showRate && (
                             <div className="flex items-center gap-1">
-                             <span className="text-xs text-slate-500">
+                             <span dir="ltr" className="text-xs text-slate-500">
                               {draftChargesCurrencyCode} → {ledger.currencyCode}
                              </span>
                              <input
@@ -2569,7 +2617,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     return (
                      <tr>
                       <td
-                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + 3}
+                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 3 : 2)}
                        className="px-4 py-6 text-sm text-slate-500"
                       >
                        {t('no_search_results')}

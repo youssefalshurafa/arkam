@@ -26,6 +26,15 @@ export function ledgerSelectWidth(text: string, floor: number, pad = 2) {
  return `calc(${Math.max(floor, [...text].length + pad)}ch + 1.5rem)`;
 }
 
+// Wraps a left-to-right expression in Unicode LTR-isolate marks (U+2066 … U+2069) so it
+// renders in the correct order inside an RTL (Arabic) layout instead of being visually
+// reordered — e.g. an exchange-rate relation like "1 USD = 3.60 AED" would otherwise show
+// as "USD = 3.60 AED 1". The isolate is self-contained, so it doesn't disturb any
+// surrounding text (a label prefix, etc.).
+export function ltrIsolate(text: string): string {
+ return `⁦${text}⁩`;
+}
+
 // Formats an exchange-rate number with at least 2 decimals (up to 6), no trailing noise.
 export function formatRateValue(value: number): string {
  if (!Number.isFinite(value)) {

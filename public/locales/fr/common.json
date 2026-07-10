@@ -130,6 +130,7 @@
  "close": "Fermer",
  "name": "Nom",
  "actions": "Actions",
+ "bulk_select": "Sélectionner",
  "no_organizations": "Aucune organisation pour le moment. Ajoutez votre première organisation depuis le formulaire.",
  "organization_required": "Le nom de l'organisation est requis.",
  "organization_delete_confirm": "Supprimer cette organisation ? Les clients associés resteront mais seront non attribués.",

@@ -131,6 +131,7 @@
  "close": "Close",
  "name": "Name",
  "actions": "Actions",
+ "bulk_select": "Select",
  "no_organizations": "No organizations yet. Add your first organization from the form.",
  "organization_required": "Organization name is required.",
  "organization_delete_confirm": "Delete this organization? Related clients will remain but become unassigned.",

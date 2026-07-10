@@ -119,7 +119,7 @@ export default function SettingsSection({
  openOrganizationClientsPage,
  localizedCurrencies,
 }: SettingsSectionProps) {
- const { language } = useLanguage();
+ const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
 
  return (
@@ -200,7 +200,13 @@ export default function SettingsSection({
          onClick={() => setWorkspaceSharedSettingsEnabled(!sharedSettingsEnabled)}
          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${sharedSettingsEnabled ? 'bg-blue-600' : 'bg-slate-300'}`}
         >
-         <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${sharedSettingsEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+         {/* translate-x is physical, so in RTL the knob must move the opposite way or it
+             slides off the track — flip the sign when the layout is right-to-left. */}
+         <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+           sharedSettingsEnabled ? (isRTL ? '-translate-x-5' : 'translate-x-5') : isRTL ? '-translate-x-0.5' : 'translate-x-0.5'
+          }`}
+         />
         </button>
        </div>
        {sharedSettingsEnabled ? <p className="mt-3 text-xs text-slate-500">{t('shared_settings_active_hint')}</p> : null}

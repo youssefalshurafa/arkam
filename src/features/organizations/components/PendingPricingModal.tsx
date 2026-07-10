@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { formatDateValue } from '@/shared/utils/date';
+import { ltrIsolate } from '@/shared/utils/format';
 import type { PdfSettings } from '@/shared/types';
 import type { PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 
@@ -105,7 +106,7 @@ export default function PendingPricingModal({
            </span>
           </div>
           <div className="mt-2 flex items-center gap-2">
-           <span className="shrink-0 text-xs text-slate-500">{t('pending_pricing_rate_hint', { from: entry.currencyCode, to: entry.accountCurrencyCode })}</span>
+           <span className="shrink-0 text-xs text-slate-500">{ltrIsolate(t('pending_pricing_rate_hint', { from: entry.currencyCode, to: entry.accountCurrencyCode }))}</span>
            <input
             type="text"
             inputMode="decimal"

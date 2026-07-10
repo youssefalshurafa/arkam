@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
+import { ltrIsolate } from '@/shared/utils/format';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import type { Client, ClientAccount, ClientAccountLedger, ClientAdjustment, Currency } from '@/shared/types';
 
@@ -181,8 +182,8 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
              </div>
              <span className="text-xs text-slate-400">
               {adjustmentModal.exchangeRateReversed
-               ? `1 ${accountCurrencyCode} = ? ${selectedCurrency?.code ?? ''}`
-               : `1 ${selectedCurrency?.code ?? ''} = ? ${accountCurrencyCode}`}
+               ? ltrIsolate(`1 ${accountCurrencyCode} = ? ${selectedCurrency?.code ?? ''}`)
+               : ltrIsolate(`1 ${selectedCurrency?.code ?? ''} = ? ${accountCurrencyCode}`)}
              </span>
              <input
               type="text"
