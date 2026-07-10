@@ -1474,7 +1474,11 @@ function AuthenticatedHome() {
   // counterparty on that side) — only require a counterparty here if the
   // transaction already had one, so editing (e.g. just the exchange rate)
   // doesn't get blocked by a side that was never meant to be filled in.
-  const originalCounterpartyId = draft.direction === 'outgoing' ? transaction.accountToId : transaction.accountFromId;
+  // Uses the transaction's ORIGINAL side relative to this ledger account (not
+  // draft.direction), since reversing direction in the draft must not reinterpret
+  // which side the original counterparty was already missing from.
+  const originalIsOutgoing = transaction.accountFromId === ledgerAccountId;
+  const originalCounterpartyId = originalIsOutgoing ? transaction.accountToId : transaction.accountFromId;
   if ((originalCounterpartyId != null && !draft.counterpartyAccountId) || !amount || draft.currencyId == null) {
    setError(t('transaction_required'));
    return false;

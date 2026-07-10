@@ -221,7 +221,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
   const sumLedger = selectedClientLedgers.find((l) => l.accountId === accountId);
   const sumEntry = sumLedger?.entries.find((e) => e.transactionId === transactionId);
   if (!sumLedger || !sumEntry) continue;
-  const { value, code } = field === 'netChange' ? { value: sumEntry.netChange, code: sumLedger.currencyCode } : { value: sumEntry.amount, code: sumEntry.currencyCode };
+  const { value, code } =
+   field === 'netChange'
+    ? { value: sumEntry.netChange, code: sumLedger.currencyCode }
+    : field === 'runningBalance'
+     ? { value: sumEntry.runningBalance, code: sumLedger.currencyCode }
+     : { value: sumEntry.amount, code: sumEntry.currencyCode };
   const bucket = ledgerSumByCurrency.get(code || '') ?? { total: 0, count: 0 };
   bucket.total += value;
   bucket.count += 1;
@@ -2331,8 +2336,27 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                              >
-                              {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                              {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                              {ledgerSumMode && !draft ? (
+                               (() => {
+                                const sumKey = `${rowKey}:runningBalance`;
+                                const inSum = ledgerSumSelection.has(sumKey);
+                                return (
+                                 <button
+                                  type="button"
+                                  onClick={() => toggleLedgerSumEntry(sumKey)}
+                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                                 >
+                                  {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                  {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                 </button>
+                                );
+                               })()
+                              ) : (
+                               <>
+                                {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                               </>
+                              )}
                               {entry.reconciledMark ? (
                                <span
                                 title={entry.reconciledMark.note || undefined}
