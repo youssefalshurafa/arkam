@@ -1,7 +1,5 @@
-1.in the overview when selecting cards to print i want the print selected button to be floating with me as a scroll the page.
+1. organisation table head transalation.
 
-2.when dragging a transaction past an older date please produce a popup to tell the user if he wants to change its date.
+2.organisation page and organisations page client name and the amount should never break make it white-space: nowrap.
 
-3. the reconciled warning sometimes appear if i change or move a transaction after the reconciled transaction which wont affect it.
-
-4.the write off when done it goes above the transaction that is selected to write off , it should come after it
+3.in client ledger entries waiting exchange rate warning when clicked it shows entries add also the description column with date , amount and counterparty

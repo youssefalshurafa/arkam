@@ -3,6 +3,9 @@ const crypto = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const { getPool, ensurePublicSchema, withTransaction } = require('@/server/postgres');
 
+// Keep in sync with TRIAL_DURATION_DAYS in src/config/plan.ts.
+const TRIAL_DURATION_DAYS = 14;
+
 async function runQuery(text, params = [], executor = getPool()) {
     return executor.query(text, params);
 }
@@ -87,19 +90,22 @@ async function createCredentialsUser({ name, email, password, workspaceName }) {
     await ensurePublicSchema();
 
     const normalizedEmail = String(email || '').trim().toLowerCase();
-    const displayName = String(name || '').trim();
-
-    if (!displayName) {
-        throw new Error('Name is required.');
-    }
 
     if (!normalizedEmail) {
-        throw new Error('Email is required.');
+        throw new Error('Username or email is required.');
     }
 
     if (!password || String(password).length < 8) {
         throw new Error('Password must be at least 8 characters.');
     }
+
+    if (!/[a-zA-Z]/.test(String(password)) || !/[0-9]/.test(String(password))) {
+        throw new Error('Password must contain both letters and numbers.');
+    }
+
+    // Full name is optional — fall back to the identifier (the part before any @)
+    // so the user still has a sensible display name and default workspace name.
+    const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || normalizedEmail;
 
     const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
     if (existing) {
@@ -108,11 +114,14 @@ async function createCredentialsUser({ name, email, password, workspaceName }) {
 
     const userId = generateId();
     const hash = bcrypt.hashSync(String(password), 10);
+    const trialStartedAt = new Date();
+    const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
     await withTransaction(async (client) => {
         await runQuery(
-            'INSERT INTO users (id, email, name, password_hash) VALUES ($1, $2, $3, $4)',
-            [userId, normalizedEmail, displayName, hash],
+            `INSERT INTO users (id, email, name, password_hash, subscription_started_at, subscription_ends_at)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [userId, normalizedEmail, displayName, hash, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
             client,
         );
         await createWorkspaceForUserWithExecutor(client, userId, String(workspaceName || `${displayName} Workspace`).trim());
@@ -129,27 +138,48 @@ async function upsertOAuthUser({ email, name, image }) {
         throw new Error('Google account email is missing.');
     }
 
-    const existing = await fetchOne('SELECT id, email, name, image FROM users WHERE email = $1', [normalizedEmail]);
+    const existing = await fetchOne(
+        'SELECT id, email, name, image, status, subscription_ends_at AS "subscriptionEndsAt" FROM users WHERE email = $1',
+        [normalizedEmail],
+    );
 
     if (existing) {
         await runQuery('UPDATE users SET name = $1, image = $2 WHERE id = $3', [String(name || existing.name || 'User').trim(), image || null, existing.id]);
         await ensureUserHasWorkspace(existing.id, `${existing.name || 'My'} Workspace`);
-        return fetchOne('SELECT id, email, name, image FROM users WHERE id = $1', [existing.id]);
+        return {
+            id: existing.id,
+            email: existing.email,
+            name: existing.name,
+            image: existing.image,
+            status: existing.status || 'approved',
+            subscriptionEndsAt: existing.subscriptionEndsAt,
+        };
     }
 
     const userId = generateId();
     const displayName = String(name || normalizedEmail.split('@')[0] || 'User').trim();
+    // Brand-new Google sign-ups get the same free trial window as a direct signup.
+    const trialStartedAt = new Date();
+    const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
     await withTransaction(async (client) => {
         await runQuery(
-            'INSERT INTO users (id, email, name, image) VALUES ($1, $2, $3, $4)',
-            [userId, normalizedEmail, displayName, image || null],
+            `INSERT INTO users (id, email, name, image, subscription_started_at, subscription_ends_at)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [userId, normalizedEmail, displayName, image || null, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
             client,
         );
         await createWorkspaceForUserWithExecutor(client, userId, `${displayName} Workspace`);
     });
 
-    return fetchOne('SELECT id, email, name, image FROM users WHERE id = $1', [userId]);
+    return {
+        id: userId,
+        email: normalizedEmail,
+        name: displayName,
+        image: image || null,
+        status: 'approved',
+        subscriptionEndsAt: trialEndsAt.toISOString(),
+    };
 }
 
 async function verifyCredentials({ email, password }) {
@@ -161,7 +191,7 @@ async function verifyCredentials({ email, password }) {
     }
 
     const user = await fetchOne(
-        'SELECT id, email, name, image, status, password_hash AS "passwordHash" FROM users WHERE email = $1',
+        'SELECT id, email, name, image, status, subscription_ends_at AS "subscriptionEndsAt", password_hash AS "passwordHash" FROM users WHERE email = $1',
         [normalizedEmail],
     );
 
@@ -179,6 +209,7 @@ async function verifyCredentials({ email, password }) {
         name: user.name,
         image: user.image,
         status: user.status || 'approved',
+        subscriptionEndsAt: user.subscriptionEndsAt,
     };
 }
 
@@ -587,177 +618,6 @@ async function getUserByEmail(email) {
     return fetchOne('SELECT id, email, name, image FROM users WHERE email = $1', [normalizedEmail]);
 }
 
-async function createEmailVerificationToken({ email, name, phone, company, country }) {
-    await ensurePublicSchema();
-
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    const displayName = String(name || '').trim();
-
-    // Delete any prior unused tokens for this email
-    await runQuery('DELETE FROM email_verification_tokens WHERE email = $1', [normalizedEmail]);
-
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-    await runQuery(
-        `INSERT INTO email_verification_tokens (id, email, name, phone, company, country, token_hash, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-            generateId(),
-            normalizedEmail,
-            displayName,
-            String(phone || '').trim(),
-            String(company || '').trim(),
-            String(country || '').trim(),
-            tokenHash,
-            expiresAt,
-        ],
-    );
-
-    return { rawToken, expiresAt };
-}
-
-async function getEmailVerificationToken(rawToken) {
-    await ensurePublicSchema();
-
-    const tokenHash = crypto.createHash('sha256').update(String(rawToken)).digest('hex');
-    return fetchOne(
-        `SELECT id, email, name FROM email_verification_tokens
-         WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
-         LIMIT 1`,
-        [tokenHash],
-    );
-}
-
-async function consumeEmailVerificationAndCreateUser({ rawToken, password }) {
-    await ensurePublicSchema();
-
-    const tokenHash = crypto.createHash('sha256').update(String(rawToken)).digest('hex');
-
-    return withTransaction(async (client) => {
-        const record = await fetchOne(
-            `SELECT id, email, name FROM email_verification_tokens
-             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
-             LIMIT 1`,
-            [tokenHash],
-            client,
-        );
-
-        if (!record) {
-            throw new Error('Verification link is invalid or has expired.');
-        }
-
-        const rawPassword = String(password || '');
-        if (rawPassword.length < 8) {
-            throw new Error('Password must be at least 8 characters.');
-        }
-
-        const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [record.email], client);
-        if (existing) {
-            throw new Error('An account with this email already exists.');
-        }
-
-        const userId = generateId();
-        const passwordHash = bcrypt.hashSync(rawPassword, 10);
-
-        await runQuery(
-            'INSERT INTO users (id, email, name, password_hash) VALUES ($1, $2, $3, $4)',
-            [userId, record.email, record.name, passwordHash],
-            client,
-        );
-        await createWorkspaceForUserWithExecutor(client, userId, `${record.name} Workspace`);
-
-        // Mark token as used
-        await runQuery(
-            'UPDATE email_verification_tokens SET used_at = NOW() WHERE id = $1',
-            [record.id],
-            client,
-        );
-
-        return fetchOne('SELECT id, email, name, image FROM users WHERE id = $1', [userId], client);
-    });
-}
-
-// Like consumeEmailVerificationAndCreateUser, but creates the user as 'pending'
-// (login blocked until approved) and records the payment/approval request,
-// including the uploaded screenshot bytes. All in one transaction.
-async function consumeEmailVerificationAndCreatePendingUser({
-    rawToken,
-    password,
-    plan,
-    amount,
-    network,
-    durationDays,
-    txReference,
-    proofMime,
-    proofBuffer,
-}) {
-    await ensurePublicSchema();
-
-    const tokenHash = crypto.createHash('sha256').update(String(rawToken)).digest('hex');
-
-    return withTransaction(async (client) => {
-        const record = await fetchOne(
-            `SELECT id, email, name, phone, company, country FROM email_verification_tokens
-             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
-             LIMIT 1`,
-            [tokenHash],
-            client,
-        );
-
-        if (!record) {
-            throw new Error('Verification link is invalid or has expired.');
-        }
-
-        const rawPassword = String(password || '');
-        if (rawPassword.length < 8) {
-            throw new Error('Password must be at least 8 characters.');
-        }
-
-        const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [record.email], client);
-        if (existing) {
-            throw new Error('An account with this email already exists.');
-        }
-
-        const userId = generateId();
-        const passwordHash = bcrypt.hashSync(rawPassword, 10);
-
-        await runQuery(
-            `INSERT INTO users (id, email, name, password_hash, status, phone, company, country)
-             VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)`,
-            [userId, record.email, record.name, passwordHash, record.phone || '', record.company || '', record.country || ''],
-            client,
-        );
-        await createWorkspaceForUserWithExecutor(client, userId, `${record.name} Workspace`);
-
-        await runQuery(
-            `INSERT INTO access_requests
-                (id, user_id, plan, amount, network, duration_days, tx_reference, proof_mime, proof_data, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')`,
-            [
-                generateId(),
-                userId,
-                String(plan || ''),
-                String(amount || ''),
-                String(network || ''),
-                Number(durationDays) > 0 ? Number(durationDays) : 30,
-                String(txReference || ''),
-                String(proofMime || ''),
-                proofBuffer || null,
-            ],
-            client,
-        );
-
-        await runQuery(
-            'UPDATE email_verification_tokens SET used_at = NOW() WHERE id = $1',
-            [record.id],
-            client,
-        );
-
-        return fetchOne('SELECT id, email, name FROM users WHERE id = $1', [userId], client);
-    });
-}
 
 // Lists access requests joined with the requester's user info. Never selects the
 // (potentially large) proof_data blob — that's fetched separately on demand.
@@ -1290,10 +1150,6 @@ module.exports = {
     deleteUser,
     createUserBySuperAdmin,
     setInitialPassword,
-    createEmailVerificationToken,
-    getEmailVerificationToken,
-    consumeEmailVerificationAndCreateUser,
-    consumeEmailVerificationAndCreatePendingUser,
     listAccessRequests,
     getAccessRequestProof,
     reviewAccessRequest,

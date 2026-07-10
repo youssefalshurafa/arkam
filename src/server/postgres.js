@@ -195,16 +195,20 @@ async function ensurePublicSchema() {
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
                     CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
 
-                    -- Access-approval gate: new signups are 'pending' until the super admin approves
-                    -- their payment. Existing users default to 'approved' so nobody is locked out.
+                    -- Access-approval gate. Self-service signups (credentials or Google) are
+                    -- 'approved' immediately with a free trial window (see subscription_ends_at
+                    -- below); 'pending'/'rejected' are only used for accounts a super admin
+                    -- creates/reviews by hand. Existing users default to 'approved' so nobody is
+                    -- locked out by this column's addition.
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
 
-                    -- Subscription window, set when the super admin approves/renews a payment.
+                    -- Subscription window. Set to a free trial on signup, then extended by a paid
+                    -- renewal (self-service or admin-approved). A user is signed out and blocked
+                    -- from logging back in once subscription_ends_at passes (see auth-options.ts).
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_started_at TIMESTAMPTZ;
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_ends_at TIMESTAMPTZ;
 
-                    -- Extra profile details collected at signup (carried through the
-                    -- verification token, then persisted on the user).
+                    -- Extra profile details, settable from account settings after signup.
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
@@ -218,8 +222,10 @@ async function ensurePublicSchema() {
                     ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_backup_at TIMESTAMPTZ;
                     ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS last_backup_device TEXT;
 
-                    -- One payment/approval request per signup. The payment screenshot is stored
-                    -- inline as bytea and only served through the super-admin-gated proof endpoint.
+                    -- One renewal-payment request per submission (self-service, or from the
+                    -- logged-out /renew page once a trial/subscription has lapsed). The payment
+                    -- screenshot is stored inline as bytea and only served through the
+                    -- super-admin-gated proof endpoint.
                     CREATE TABLE IF NOT EXISTS access_requests (
                         id TEXT PRIMARY KEY,
                         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

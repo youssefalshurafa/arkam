@@ -533,25 +533,46 @@ function AuthenticatedHome() {
 
  // Fetch the signed-in user's own subscription window (null for invited teammates,
  // who don't carry a subscription of their own) to drive the expiry banner below.
+ // Polled periodically (not just on mount) so a tab left open across the expiry
+ // moment still gets signed out instead of only catching it on the next reload.
  useEffect(() => {
   if (!sessionUserId) return;
   let mounted = true;
-  fetch('/api/account/subscription')
-   .then((res) => (res.ok ? (res.json() as Promise<{ subscriptionEndsAt: string | null }>) : null))
-   .then((data) => {
-    if (mounted && data) setSubscriptionEndsAt(data.subscriptionEndsAt ?? null);
-   })
-   .catch(() => {
-    /* non-fatal */
-   });
+  const check = () => {
+   fetch('/api/account/subscription')
+    .then((res) => (res.ok ? (res.json() as Promise<{ subscriptionEndsAt: string | null }>) : null))
+    .then((data) => {
+     if (mounted && data) setSubscriptionEndsAt(data.subscriptionEndsAt ?? null);
+    })
+    .catch(() => {
+     /* non-fatal */
+    });
+  };
+  check();
+  const interval = setInterval(check, 5 * 60 * 1000);
   return () => {
    mounted = false;
+   clearInterval(interval);
   };
  }, [sessionUserId]);
 
  const subscriptionDaysLeft = subscriptionEndsAt ? Math.ceil((new Date(subscriptionEndsAt).getTime() - Date.now()) / 86_400_000) : null;
- const subscriptionBannerDismissKey = subscriptionEndsAt ? `arkam:subscription-banner-dismissed:${subscriptionEndsAt}` : '';
- const showSubscriptionBanner = subscriptionDaysLeft !== null && subscriptionDaysLeft <= 5 && !subscriptionBannerDismissed;
+ // Keyed by the day count (not just the end date) so dismissing today's "5 days
+ // left" warning doesn't suppress tomorrow's "4 days left" one — each day's
+ // warning has to be dismissed on its own.
+ const subscriptionBannerDismissKey = subscriptionEndsAt ? `arkam:subscription-banner-dismissed:${subscriptionEndsAt}:${subscriptionDaysLeft}` : '';
+ const showSubscriptionBanner = subscriptionDaysLeft !== null && subscriptionDaysLeft <= 5 && subscriptionDaysLeft > 0 && !subscriptionBannerDismissed;
+
+ // Once the subscription/trial has actually lapsed, force a sign-out instead of just
+ // warning — the user lands back on /login, whose SUBSCRIPTION_EXPIRED gate (checked
+ // again server-side on the next login attempt) explains why and offers to renew.
+ useEffect(() => {
+  if (subscriptionDaysLeft === null || subscriptionDaysLeft > 0) return;
+  const email = authSession?.user?.email;
+  void signOut({ redirect: false }).then(() => {
+   window.location.href = `/login?authError=SUBSCRIPTION_EXPIRED${email ? `&authEmail=${encodeURIComponent(email)}` : ''}`;
+  });
+ }, [subscriptionDaysLeft, authSession]);
 
  // Re-check dismissal (keyed by the current end date, so renewing resets it) whenever
  // the subscription window changes.
@@ -5132,11 +5153,10 @@ function AuthenticatedHome() {
 
      {showSubscriptionBanner ? (
       <div className="flex items-center justify-between gap-3 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
-       <span>
-        {subscriptionDaysLeft !== null && subscriptionDaysLeft <= 0
-         ? t('subscription_banner_expired')
-         : t('subscription_banner_expiring', { days: subscriptionDaysLeft ?? 0 })}
-       </span>
+       {/* subscriptionDaysLeft is guaranteed 1-5 here — showSubscriptionBanner excludes
+           <= 0, since an actually-expired subscription now force-signs the user out
+           (see the effect above) instead of just showing a dismissible warning. */}
+       <span>{t('subscription_banner_expiring', { days: subscriptionDaysLeft ?? 0 })}</span>
        <div className="flex shrink-0 items-center gap-3">
         <button
          type="button"
