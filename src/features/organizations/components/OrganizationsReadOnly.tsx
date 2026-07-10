@@ -66,7 +66,7 @@ export default function OrganizationsReadOnly({
          key={organization.id}
          className="border-t border-slate-200 align-top"
         >
-         <td className="px-4 py-3 font-medium text-slate-900">
+         <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
           <a
            href={`/organizations/${organization.id}`}
            onClick={(e) => {
@@ -88,7 +88,7 @@ export default function OrganizationsReadOnly({
             {orgBalances.map((group) => (
              <span
               key={group.key}
-              className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${group.total >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+              className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${group.total >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
              >
               {group.currencySymbol || group.currencyCode} {group.total.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
              </span>

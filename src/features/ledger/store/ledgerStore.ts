@@ -59,6 +59,8 @@ type LedgerStore = {
  setLedgerFilterOpen: Dispatch<SetStateAction<boolean>>;
  ledgerFilterSearch: string;
  setLedgerFilterSearch: Dispatch<SetStateAction<string>>;
+ ledgerFilterWholeWord: boolean;
+ setLedgerFilterWholeWord: Dispatch<SetStateAction<boolean>>;
  ledgerFilterCounterparty: string;
  setLedgerFilterCounterparty: Dispatch<SetStateAction<string>>;
  ledgerFilterDateFrom: string;
@@ -150,6 +152,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setLedgerFilterOpen: setter('ledgerFilterOpen'),
   ledgerFilterSearch: '',
   setLedgerFilterSearch: setter('ledgerFilterSearch'),
+  ledgerFilterWholeWord: false,
+  setLedgerFilterWholeWord: setter('ledgerFilterWholeWord'),
   ledgerFilterCounterparty: '',
   setLedgerFilterCounterparty: setter('ledgerFilterCounterparty'),
   ledgerFilterDateFrom: '',

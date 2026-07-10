@@ -1,3 +1,7 @@
+// Length of the free trial granted automatically on signup (credentials or Google),
+// before a subscription window has ever been paid for.
+export const TRIAL_DURATION_DAYS = 14;
+
 // Subscription pricing tiers shown on the homepage and during signup.
 // Edit these freely — they are display + payment-record only (no feature
 // enforcement). The user picks a tier at the payment step; the chosen tier's

@@ -24,6 +24,10 @@ function getLoginErrorMessage(message: string, t: (key: string) => string) {
   return t('login_access_rejected');
  }
 
+ if (message === 'SUBSCRIPTION_EXPIRED') {
+  return t('login_subscription_expired');
+ }
+
  return message;
 }
 
@@ -38,6 +42,7 @@ export default function LoginPage() {
  const [rememberMe, setRememberMe] = useState(false);
  const [showPassword, setShowPassword] = useState(false);
  const [error, setError] = useState('');
+ const [errorCode, setErrorCode] = useState('');
  const [isSubmitting, setIsSubmitting] = useState(false);
  const [isGoogleEnabled, setIsGoogleEnabled] = useState(false);
 
@@ -46,6 +51,22 @@ export default function LoginPage() {
    router.replace('/');
   }
  }, [router, status]);
+
+ // Google sign-in can't surface an error inline (it's a full redirect), so a blocked
+ // OAuth login lands back here with ?authError=...&authEmail=... from the signIn
+ // callback in auth-options.ts instead.
+ useEffect(() => {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search);
+  const authError = params.get('authError');
+  if (!authError) return;
+  // Store only the code — the human-readable message is resolved at render time
+  // (see displayedError below) so it follows the current language even if the
+  // translations finish loading after this effect runs.
+  setErrorCode(authError);
+  const authEmail = params.get('authEmail');
+  if (authEmail) setEmail(authEmail);
+ }, []);
 
  useEffect(() => {
   if (typeof window === 'undefined') {
@@ -93,6 +114,7 @@ export default function LoginPage() {
  const onLogin = async (event: FormEvent<HTMLFormElement>) => {
   event.preventDefault();
   setError('');
+  setErrorCode('');
   setIsSubmitting(true);
 
   try {
@@ -113,6 +135,7 @@ export default function LoginPage() {
    });
 
    if (!result || result.error) {
+    setErrorCode(result?.error || '');
     throw new Error(getLoginErrorMessage(result?.error || t('login_failed'), t));
    }
 
@@ -130,6 +153,10 @@ export default function LoginPage() {
    setIsSubmitting(false);
   }
  };
+
+ // Prefer resolving from the error code at render time (so it tracks the current
+ // language); fall back to a raw message string for errors that have no code.
+ const displayedError = errorCode ? getLoginErrorMessage(errorCode, t) : error;
 
  if (status === 'loading') {
   return (
@@ -309,7 +336,20 @@ export default function LoginPage() {
         {t('login_set_password_prompt')}
        </button>
 
-       {error ? <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+       {displayedError ? (
+        <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+         <p>{displayedError}</p>
+         {errorCode === 'SUBSCRIPTION_EXPIRED' ? (
+          <button
+           type="button"
+           onClick={() => router.push(`/renew${email ? `?email=${encodeURIComponent(email)}` : ''}`)}
+           className="mt-2 inline-flex rounded border border-red-700 bg-red-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-800"
+          >
+           {t('subscription_banner_renew')}
+          </button>
+         ) : null}
+        </div>
+       ) : null}
 
        <button
         type="submit"

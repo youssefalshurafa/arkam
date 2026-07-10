@@ -229,6 +229,7 @@ function AuthenticatedHome() {
  const setShowLedgerSettingsModal = useLedgerStore((s) => s.setShowLedgerSettingsModal);
  const setLedgerFilterOpen = useLedgerStore((s) => s.setLedgerFilterOpen);
  const ledgerFilterSearch = useLedgerStore((s) => s.ledgerFilterSearch);
+ const ledgerFilterWholeWord = useLedgerStore((s) => s.ledgerFilterWholeWord);
  const setLedgerFilterSearch = useLedgerStore((s) => s.setLedgerFilterSearch);
  const ledgerFilterCounterparty = useLedgerStore((s) => s.ledgerFilterCounterparty);
  const setLedgerFilterCounterparty = useLedgerStore((s) => s.setLedgerFilterCounterparty);
@@ -314,6 +315,7 @@ function AuthenticatedHome() {
  const setTxFilterOpen = useTransactionsStore((s) => s.setTxFilterOpen);
  const txFilterSearch = useTransactionsStore((s) => s.txFilterSearch);
  const setTxFilterSearch = useTransactionsStore((s) => s.setTxFilterSearch);
+ const txFilterWholeWord = useTransactionsStore((s) => s.txFilterWholeWord);
  const txFilterClient = useTransactionsStore((s) => s.txFilterClient);
  const setTxFilterClient = useTransactionsStore((s) => s.setTxFilterClient);
  const txFilterDateFrom = useTransactionsStore((s) => s.txFilterDateFrom);
@@ -531,25 +533,46 @@ function AuthenticatedHome() {
 
  // Fetch the signed-in user's own subscription window (null for invited teammates,
  // who don't carry a subscription of their own) to drive the expiry banner below.
+ // Polled periodically (not just on mount) so a tab left open across the expiry
+ // moment still gets signed out instead of only catching it on the next reload.
  useEffect(() => {
   if (!sessionUserId) return;
   let mounted = true;
-  fetch('/api/account/subscription')
-   .then((res) => (res.ok ? (res.json() as Promise<{ subscriptionEndsAt: string | null }>) : null))
-   .then((data) => {
-    if (mounted && data) setSubscriptionEndsAt(data.subscriptionEndsAt ?? null);
-   })
-   .catch(() => {
-    /* non-fatal */
-   });
+  const check = () => {
+   fetch('/api/account/subscription')
+    .then((res) => (res.ok ? (res.json() as Promise<{ subscriptionEndsAt: string | null }>) : null))
+    .then((data) => {
+     if (mounted && data) setSubscriptionEndsAt(data.subscriptionEndsAt ?? null);
+    })
+    .catch(() => {
+     /* non-fatal */
+    });
+  };
+  check();
+  const interval = setInterval(check, 5 * 60 * 1000);
   return () => {
    mounted = false;
+   clearInterval(interval);
   };
  }, [sessionUserId]);
 
  const subscriptionDaysLeft = subscriptionEndsAt ? Math.ceil((new Date(subscriptionEndsAt).getTime() - Date.now()) / 86_400_000) : null;
- const subscriptionBannerDismissKey = subscriptionEndsAt ? `arkam:subscription-banner-dismissed:${subscriptionEndsAt}` : '';
- const showSubscriptionBanner = subscriptionDaysLeft !== null && subscriptionDaysLeft <= 5 && !subscriptionBannerDismissed;
+ // Keyed by the day count (not just the end date) so dismissing today's "5 days
+ // left" warning doesn't suppress tomorrow's "4 days left" one — each day's
+ // warning has to be dismissed on its own.
+ const subscriptionBannerDismissKey = subscriptionEndsAt ? `arkam:subscription-banner-dismissed:${subscriptionEndsAt}:${subscriptionDaysLeft}` : '';
+ const showSubscriptionBanner = subscriptionDaysLeft !== null && subscriptionDaysLeft <= 5 && subscriptionDaysLeft > 0 && !subscriptionBannerDismissed;
+
+ // Once the subscription/trial has actually lapsed, force a sign-out instead of just
+ // warning — the user lands back on /login, whose SUBSCRIPTION_EXPIRED gate (checked
+ // again server-side on the next login attempt) explains why and offers to renew.
+ useEffect(() => {
+  if (subscriptionDaysLeft === null || subscriptionDaysLeft > 0) return;
+  const email = authSession?.user?.email;
+  void signOut({ redirect: false }).then(() => {
+   window.location.href = `/login?authError=SUBSCRIPTION_EXPIRED${email ? `&authEmail=${encodeURIComponent(email)}` : ''}`;
+  });
+ }, [subscriptionDaysLeft, authSession]);
 
  // Re-check dismissal (keyed by the current end date, so renewing resets it) whenever
  // the subscription window changes.
@@ -803,8 +826,8 @@ function AuthenticatedHome() {
  // The Archive section shows only transactions missing a party; the main
  // Transactions section shows everything (including those archived rows).
  const displayedTransactionRows = useMemo<TransactionTableRow[]>(
-  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }),
-  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses],
+  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }),
+  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses],
  );
 
  const txFilterClientOptions = useMemo(() => {
@@ -845,11 +868,11 @@ function AuthenticatedHome() {
 
  useEffect(() => {
   setTransactionsPage(99999);
- }, [txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses]);
+ }, [txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses]);
 
  useEffect(() => {
   setLedgerPageState({});
- }, [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
+ }, [ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;
@@ -1472,7 +1495,11 @@ function AuthenticatedHome() {
   // counterparty on that side) — only require a counterparty here if the
   // transaction already had one, so editing (e.g. just the exchange rate)
   // doesn't get blocked by a side that was never meant to be filled in.
-  const originalCounterpartyId = draft.direction === 'outgoing' ? transaction.accountToId : transaction.accountFromId;
+  // Uses the transaction's ORIGINAL side relative to this ledger account (not
+  // draft.direction), since reversing direction in the draft must not reinterpret
+  // which side the original counterparty was already missing from.
+  const originalIsOutgoing = transaction.accountFromId === ledgerAccountId;
+  const originalCounterpartyId = originalIsOutgoing ? transaction.accountToId : transaction.accountFromId;
   if ((originalCounterpartyId != null && !draft.counterpartyAccountId) || !amount || draft.currencyId == null) {
    setError(t('transaction_required'));
    return false;
@@ -5126,11 +5153,10 @@ function AuthenticatedHome() {
 
      {showSubscriptionBanner ? (
       <div className="flex items-center justify-between gap-3 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
-       <span>
-        {subscriptionDaysLeft !== null && subscriptionDaysLeft <= 0
-         ? t('subscription_banner_expired')
-         : t('subscription_banner_expiring', { days: subscriptionDaysLeft ?? 0 })}
-       </span>
+       {/* subscriptionDaysLeft is guaranteed 1-5 here — showSubscriptionBanner excludes
+           <= 0, since an actually-expired subscription now force-signs the user out
+           (see the effect above) instead of just showing a dismissible warning. */}
+       <span>{t('subscription_banner_expiring', { days: subscriptionDaysLeft ?? 0 })}</span>
        <div className="flex shrink-0 items-center gap-3">
         <button
          type="button"
@@ -5402,7 +5428,7 @@ function AuthenticatedHome() {
                 key={client.id}
                 className="border-t border-slate-200 align-top"
                >
-                <td className="px-4 py-3 font-medium text-slate-900">
+                <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
                  <a
                   href={`/clients/${client.id}`}
                   onClick={(e) => {
@@ -5420,7 +5446,7 @@ function AuthenticatedHome() {
                   {(clientPageBalances.get(client.id) ?? []).map((entry) => (
                    <span
                     key={entry.accountId}
-                    className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${entry.balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+                    className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${entry.balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
                    >
                     {entry.currencySymbol || entry.currencyCode} {entry.balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
                    </span>

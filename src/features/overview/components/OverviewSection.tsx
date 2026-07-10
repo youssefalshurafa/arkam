@@ -634,52 +634,57 @@ export default function OverviewSection({ organizations, clients, clientAccounts
             )}
            </div>
 
-           <div className={panelClassName}>
-            <h2 className="text-xl font-semibold">{t('overview_general_balance')}</h2>
+           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="flex flex-col rounded border border-slate-200 bg-white">
+             <div className="border-b border-slate-100 bg-slate-50 px-3 py-2">
+              <span className="text-sm font-semibold text-slate-700">{t('overview_general_balance')}</span>
+             </div>
 
-            <div className="mt-4 overflow-hidden rounded border border-slate-200">
-             {orgEntries.map(([orgKey, orgGroups], orgIndex) => {
-              const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
-              // This org's balance in the main currency: sum of its currency groups
-              // converted at their rates. Groups with a missing rate are skipped.
-              let orgTotal = 0;
-              let orgRateMissing = false;
-              for (const group of orgGroups) {
-               const rate = rateOf(group);
-               if (Number.isNaN(rate)) {
-                orgRateMissing = true;
-                continue;
+             <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+              {orgEntries.map(([orgKey, orgGroups]) => {
+               const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
+               // This org's balance in the main currency: sum of its currency groups
+               // converted at their rates. Groups with a missing rate are skipped.
+               let orgTotal = 0;
+               let orgRateMissing = false;
+               for (const group of orgGroups) {
+                const rate = rateOf(group);
+                if (Number.isNaN(rate)) {
+                 orgRateMissing = true;
+                 continue;
+                }
+                orgTotal += group.total * rate;
                }
-               orgTotal += group.total * rate;
-              }
-              return (
-               <div
-                key={orgKey}
-                className={`flex items-center justify-between gap-3 px-4 py-2.5 text-sm ${orgIndex % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
-               >
-                <span className="truncate font-medium text-slate-700">{orgName}</span>
-                <span
-                 className={`shrink-0 font-semibold ${balanceColor(orgTotal)}`}
-                 dir="ltr"
+               return (
+                <div
+                 key={orgKey}
+                 className="flex items-center justify-between gap-3 py-1.5 text-sm"
                 >
-                 {fmt(orgTotal)} {mainSymbol}
-                 {orgRateMissing ? <span className="ml-1 text-amber-500">*</span> : null}
-                </span>
-               </div>
-              );
-             })}
-             <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-100 px-4 py-3">
-              <span className="text-sm font-bold uppercase tracking-wide text-slate-600">{t('overview_grand_total')}</span>
+                 <span className="truncate text-slate-700">{orgName}</span>
+                 <span
+                  className={`shrink-0 font-medium ${balanceColor(orgTotal)}`}
+                  dir="ltr"
+                 >
+                  {fmt(orgTotal)} {mainSymbol}
+                  {orgRateMissing ? <span className="ml-1 text-amber-500">*</span> : null}
+                 </span>
+                </div>
+               );
+              })}
+             </div>
+
+             <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_grand_total')}</span>
               <span
-               className={`text-lg font-bold ${balanceColor(grandTotal)}`}
+               className={`font-bold ${balanceColor(grandTotal)}`}
                dir="ltr"
               >
                {fmt(grandTotal)} {mainSymbol}
               </span>
              </div>
-            </div>
 
-            {anyRateMissing ? <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
+             {anyRateMissing ? <p className="px-3 pb-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
+            </div>
            </div>
 
            {selectedShownCount > 0 ? (

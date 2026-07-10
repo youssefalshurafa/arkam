@@ -169,7 +169,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // single context menu when not editing.
  const rowContextMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
+ const { selectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -1550,42 +1550,56 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 value={txFilterSearch}
                 onChange={(e) => setTxFilterSearch(e.target.value)}
                 placeholder={t('tx_filter_search_placeholder')}
-                className={`w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-7' : 'pr-7'}`}
+                className={`w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
                />
-               {txFilterSearch ? (
+               <div className={`absolute inset-y-0 flex items-center gap-0.5 ${isRTL ? 'left-1' : 'right-1'}`}>
                 <button
                  type="button"
-                 onClick={() => setTxFilterSearch('')}
-                 title={t('clear_selection')}
-                 aria-label={t('clear_selection')}
-                 className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
+                 onClick={() => setTxFilterWholeWord((w) => !w)}
+                 title={t('tx_filter_whole_word')}
+                 aria-label={t('tx_filter_whole_word')}
+                 aria-pressed={txFilterWholeWord}
+                 className={`flex h-5 w-6 items-center justify-center rounded text-[11px] font-semibold transition ${
+                  txFilterWholeWord ? 'bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-400' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
+                 }`}
                 >
-                 <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                 >
-                  <line
-                   x1="18"
-                   y1="6"
-                   x2="6"
-                   y2="18"
-                  />
-                  <line
-                   x1="6"
-                   y1="6"
-                   x2="18"
-                   y2="18"
-                  />
-                 </svg>
+                 <span className="border-b border-current leading-none">ab</span>
                 </button>
-               ) : null}
+                {txFilterSearch ? (
+                 <button
+                  type="button"
+                  onClick={() => setTxFilterSearch('')}
+                  title={t('clear_selection')}
+                  aria-label={t('clear_selection')}
+                  className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                 >
+                  <svg
+                   width="12"
+                   height="12"
+                   viewBox="0 0 24 24"
+                   fill="none"
+                   stroke="currentColor"
+                   strokeWidth="2"
+                   strokeLinecap="round"
+                   strokeLinejoin="round"
+                   aria-hidden
+                  >
+                   <line
+                    x1="18"
+                    y1="6"
+                    x2="6"
+                    y2="18"
+                   />
+                   <line
+                    x1="6"
+                    y1="6"
+                    x2="18"
+                    y2="18"
+                   />
+                  </svg>
+                 </button>
+                ) : null}
+               </div>
               </div>
              </div>
              <div className="flex min-w-36 flex-1 flex-col gap-1">
@@ -1638,6 +1652,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                type="button"
                onClick={() => {
                 setTxFilterSearch('');
+                setTxFilterWholeWord(false);
                 setTxFilterClient('');
                 setTxFilterDateFrom('');
                 setTxFilterDateTo('');

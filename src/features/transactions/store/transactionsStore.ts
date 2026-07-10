@@ -69,6 +69,8 @@ type TransactionsStore = {
  setTxFilterOpen: Dispatch<SetStateAction<boolean>>;
  txFilterSearch: string;
  setTxFilterSearch: Dispatch<SetStateAction<string>>;
+ txFilterWholeWord: boolean;
+ setTxFilterWholeWord: Dispatch<SetStateAction<boolean>>;
  txFilterClient: string;
  setTxFilterClient: Dispatch<SetStateAction<string>>;
  txFilterDateFrom: string;
@@ -184,6 +186,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTxFilterOpen: setter('txFilterOpen'),
   txFilterSearch: '',
   setTxFilterSearch: setter('txFilterSearch'),
+  txFilterWholeWord: false,
+  setTxFilterWholeWord: setter('txFilterWholeWord'),
   txFilterClient: '',
   setTxFilterClient: setter('txFilterClient'),
   txFilterDateFrom: '',

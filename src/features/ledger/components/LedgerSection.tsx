@@ -18,7 +18,7 @@ import { getCommissionAmount } from '@/shared/utils/commission';
 import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
-import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
+import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch } from '@/features/ledger/utils/ledgerEntries';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
@@ -97,7 +97,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const numLocale = language === 'fr' ? 'en-US' : language;
  const showToast = useAppStatusStore((s) => s.showToast);
  const setError = useAppStatusStore((s) => s.setError);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
  // sit at the bottom of the scrollable table. Jump there on open (and whenever the
@@ -221,7 +221,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
   const sumLedger = selectedClientLedgers.find((l) => l.accountId === accountId);
   const sumEntry = sumLedger?.entries.find((e) => e.transactionId === transactionId);
   if (!sumLedger || !sumEntry) continue;
-  const { value, code } = field === 'netChange' ? { value: sumEntry.netChange, code: sumLedger.currencyCode } : { value: sumEntry.amount, code: sumEntry.currencyCode };
+  const { value, code } =
+   field === 'netChange'
+    ? { value: sumEntry.netChange, code: sumLedger.currencyCode }
+    : field === 'runningBalance'
+     ? { value: sumEntry.runningBalance, code: sumLedger.currencyCode }
+     : { value: sumEntry.amount, code: sumEntry.currencyCode };
   const bucket = ledgerSumByCurrency.get(code || '') ?? { total: 0, count: 0 };
   bucket.total += value;
   bucket.count += 1;
@@ -642,11 +647,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      {pendingEntries.map((entry) => (
                       <li
                        key={`${entry.transactionId}-${entry.direction}`}
-                       className="flex items-center justify-between gap-2 whitespace-nowrap"
+                       className="flex items-center gap-2 whitespace-nowrap"
                       >
-                       <span className="text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
-                       <span className="truncate font-medium">{entry.counterpartyName}</span>
-                       <span>
+                       <span className="shrink-0 text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
+                       <span className="shrink-0 font-medium">{entry.counterpartyName}</span>
+                       <span className="min-w-0 flex-1 truncate italic text-slate-400" title={entry.description}>
+                        {entry.description}
+                       </span>
+                       <span className="shrink-0">
                         {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
                        </span>
                       </li>
@@ -720,42 +728,56 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        value={ledgerFilterSearch}
                        onChange={(e) => setLedgerFilterSearch(e.target.value)}
                        placeholder={t('tx_filter_search_placeholder')}
-                       className={`w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-7' : 'pr-7'}`}
+                       className={`w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
                       />
-                      {ledgerFilterSearch ? (
+                      <div className={`absolute inset-y-0 flex items-center gap-0.5 ${isRTL ? 'left-1' : 'right-1'}`}>
                        <button
                         type="button"
-                        onClick={() => setLedgerFilterSearch('')}
-                        title={t('clear_selection')}
-                        aria-label={t('clear_selection')}
-                        className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
+                        onClick={() => setLedgerFilterWholeWord((w) => !w)}
+                        title={t('tx_filter_whole_word')}
+                        aria-label={t('tx_filter_whole_word')}
+                        aria-pressed={ledgerFilterWholeWord}
+                        className={`flex h-5 w-6 items-center justify-center rounded text-[11px] font-semibold transition ${
+                         ledgerFilterWholeWord ? 'bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-400' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
+                        }`}
                        >
-                        <svg
-                         width="12"
-                         height="12"
-                         viewBox="0 0 24 24"
-                         fill="none"
-                         stroke="currentColor"
-                         strokeWidth="2"
-                         strokeLinecap="round"
-                         strokeLinejoin="round"
-                         aria-hidden
-                        >
-                         <line
-                          x1="18"
-                          y1="6"
-                          x2="6"
-                          y2="18"
-                         />
-                         <line
-                          x1="6"
-                          y1="6"
-                          x2="18"
-                          y2="18"
-                         />
-                        </svg>
+                        <span className="border-b border-current leading-none">ab</span>
                        </button>
-                      ) : null}
+                       {ledgerFilterSearch ? (
+                        <button
+                         type="button"
+                         onClick={() => setLedgerFilterSearch('')}
+                         title={t('clear_selection')}
+                         aria-label={t('clear_selection')}
+                         className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        >
+                         <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                         >
+                          <line
+                           x1="18"
+                           y1="6"
+                           x2="6"
+                           y2="18"
+                          />
+                          <line
+                           x1="6"
+                           y1="6"
+                           x2="18"
+                           y2="18"
+                          />
+                         </svg>
+                        </button>
+                       ) : null}
+                      </div>
                      </div>
                     </div>
                     {counterpartyOptions.length > 0 && (
@@ -801,6 +823,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       type="button"
                       onClick={() => {
                        setLedgerFilterSearch('');
+                       setLedgerFilterWholeWord(false);
                        setLedgerFilterCounterparty('');
                        setLedgerFilterDateFrom('');
                        setLedgerFilterDateTo('');
@@ -911,12 +934,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
 
                {(() => {
                 const ordered = ledger.entries;
-                const q = ledgerFilterSearch.trim().toLowerCase();
                 const visibleCount = ordered.filter((e) => {
                  if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                  if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                  if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                 if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                 if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
                  return true;
                 }).length;
                 const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
@@ -1269,17 +1291,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                   {(() => {
                    // ledger.entries is already in the user's manual order (applied in the memo).
                    const ordered = ledger.entries;
-                   const q = ledgerFilterSearch.trim().toLowerCase();
                    const visible = ordered.filter((e) => {
                     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                     if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                     if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                    if (q) {
-                     const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
-                     const inDescription = (e.description ?? '').toLowerCase().includes(q);
-                     const inAmount = String(e.amount).includes(q);
-                     if (!inCounterparty && !inDescription && !inAmount) return false;
-                    }
+                    if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
                     return true;
                    });
                    // Pagination: entries sorted oldest→newest; page N = newest (last chunk).
@@ -1998,17 +2014,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       // can map row positions to transaction drafts. ledger.entries is
                                       // already in the user's manual order (applied in the memo).
                                       const ordered = ledger.entries;
-                                      const q = ledgerFilterSearch.trim().toLowerCase();
                                       const visible = ordered.filter((e) => {
                                        if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                                        if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                                        if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                                       if (q) {
-                                        const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
-                                        const inDescription = (e.description ?? '').toLowerCase().includes(q);
-                                        const inAmount = String(e.amount).includes(q);
-                                        if (!inCounterparty && !inDescription && !inAmount) return false;
-                                       }
+                                       if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
                                        return true;
                                       });
 
@@ -2173,17 +2183,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     // values map to the right rows, then spread them down consecutive
                                     // editable commission inputs starting at the row that received the paste.
                                     const ordered = ledger.entries;
-                                    const q = ledgerFilterSearch.trim().toLowerCase();
                                     const visible = ordered.filter((e) => {
                                      if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                                      if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                                      if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                                     if (q) {
-                                      const inCounterparty = e.counterpartyName.toLowerCase().includes(q);
-                                      const inDescription = (e.description ?? '').toLowerCase().includes(q);
-                                      const inAmount = String(e.amount).includes(q);
-                                      if (!inCounterparty && !inDescription && !inAmount) return false;
-                                     }
+                                     if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
                                      return true;
                                     });
                                     const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -2335,8 +2339,27 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
                              >
-                              {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                              {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                              {ledgerSumMode && !draft ? (
+                               (() => {
+                                const sumKey = `${rowKey}:runningBalance`;
+                                const inSum = ledgerSumSelection.has(sumKey);
+                                return (
+                                 <button
+                                  type="button"
+                                  onClick={() => toggleLedgerSumEntry(sumKey)}
+                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                                 >
+                                  {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                  {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                 </button>
+                                );
+                               })()
+                              ) : (
+                               <>
+                                {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                               </>
+                              )}
                               {entry.reconciledMark ? (
                                <span
                                 title={entry.reconciledMark.note || undefined}
@@ -2535,12 +2558,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                   {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) &&
                    ledger.entries.length > 0 &&
                    (() => {
-                    const q = ledgerFilterSearch.trim().toLowerCase();
                     const visibleCount = ledger.entries.filter((e) => {
                      if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                      if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                      if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                     if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                     if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
                      return true;
                     }).length;
                     if (visibleCount > 0) return null;
@@ -2560,12 +2582,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                </div>
                {(() => {
                 const ordered = ledger.entries;
-                const q = ledgerFilterSearch.trim().toLowerCase();
                 const visibleCount = ordered.filter((e) => {
                  if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                  if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                  if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                 if (q && !e.counterpartyName.toLowerCase().includes(q) && !(e.description ?? '').toLowerCase().includes(q) && !String(e.amount).includes(q)) return false;
+                 if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
                  return true;
                 }).length;
                 if (visibleCount === 0) return null;
