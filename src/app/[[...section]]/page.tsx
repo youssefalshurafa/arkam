@@ -132,6 +132,7 @@ import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import LedgerSection from '@/features/ledger/components/LedgerSection';
 import ImportWizard from '@/features/transactions/components/ImportWizard';
 import CreateOrgDialog from '@/features/organizations/components/CreateOrgDialog';
+import { useOrganizationActions } from '@/features/organizations/hooks/useOrganizationActions';
 import ToastHost from '@/shared/components/ToastHost';
 import Sidebar from '@/shared/components/Sidebar';
 import AppHeader from '@/shared/components/AppHeader';
@@ -1900,66 +1901,22 @@ function AuthenticatedHome() {
   await loadData();
  }
 
- async function onOrganizationSubmit(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
+  const { onOrganizationSubmit, onCreateOrgFromDialog, onDeleteOrganization } = useOrganizationActions({
+   organizationForm,
+   setOrganizationForm,
+   selectedOrganizationForClients,
+   setSelectedOrganizationForClients,
+   navigateToSection,
+   setOrgDialogError,
+   setIsSavingOrg,
+   setShowCreateOrgDialog,
+   orgDialogTargetReviewKey,
+   setOrgDialogTargetReviewKey,
+   updateImportReviewEntry,
+   clientForm,
+   setClientForm,
+  });
 
-  if (!organizationForm.name.trim()) {
-   setError(t('organization_required'));
-   return;
-  }
-
-  try {
-   if (organizationForm.id) {
-    await accountingApi.updateOrganization(organizationForm);
-   } else {
-    await accountingApi.createOrganization(organizationForm);
-   }
-
-   setOrganizationForm(emptyOrganizationForm());
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  }
- }
-
- async function onCreateOrgFromDialog(event: FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  if (!accountingApi || !organizationForm.name.trim()) {
-   setOrgDialogError(t('organization_required'));
-   return;
-  }
-  const newName = organizationForm.name.trim();
-  setIsSavingOrg(true);
-  setOrgDialogError('');
-  try {
-   await accountingApi.createOrganization(organizationForm);
-   await loadData();
-   // Auto-select the newly created org in whichever form opened the dialog.
-   setOrganizations((freshOrgs) => {
-    const newOrg = freshOrgs.find((o) => o.name === newName);
-    if (newOrg) {
-     if (orgDialogTargetReviewKey) {
-      updateImportReviewEntry(orgDialogTargetReviewKey, { organizationId: newOrg.id });
-     } else {
-      setClientForm((current) => ({ ...current, organizationId: newOrg.id }));
-     }
-    }
-    return freshOrgs;
-   });
-   setOrganizationForm(emptyOrganizationForm());
-   setShowCreateOrgDialog(false);
-   setOrgDialogTargetReviewKey(null);
-  } catch (e) {
-   setOrgDialogError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   setIsSavingOrg(false);
-  }
- }
 
  async function onClientSubmit(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
@@ -2037,34 +1994,6 @@ function AuthenticatedHome() {
   }
  }
 
- async function onDeleteOrganization(id: number) {
-  if (!accountingApi) {
-   setError(t('error_bridge'));
-   return;
-  }
-
-  if (!(await confirmDialog({ message: t('organization_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) {
-   return;
-  }
-
-  try {
-   await accountingApi.deleteOrganization(id);
-   if (organizationForm.id === id) {
-    setOrganizationForm(emptyOrganizationForm());
-   }
-   if (selectedOrganizationForClients?.id === id) {
-    setSelectedOrganizationForClients(null);
-    navigateToSection('organizations');
-   }
-   if (clientForm.organizationId === id) {
-    setClientForm((current) => ({ ...current, organizationId: null }));
-   }
-   setError('');
-   await loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_delete'));
-  }
- }
 
  async function onDeleteClient(id: number) {
   if (!accountingApi) {
