@@ -13,16 +13,16 @@ import type {
 // browser's native right-to-left table rendering, so no separate order is needed per language.
 export const defaultLedgerColumnOrder: LedgerColumnKey[] = [
  'created',
+ 'description',
  'amount',
  'commission',
  'exchangeRate',
- 'counterparty',
  'direction',
  'type',
  'currency',
  'netChange',
  'runningBalance',
- 'description',
+ 'counterparty',
 ];
 export const ledgerColumnOrderStorageKeyPrefix = 'arkam:ledger-col-order:';
 // Legacy global key — read once during migration so existing orders aren't lost.
