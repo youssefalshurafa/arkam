@@ -1321,8 +1321,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       );
                     }
                    })}
-                   {/* Trailing column header for the row-end delete action cell. */}
-                   <th className="w-10 px-2 py-3" />
                   </tr>
                  </thead>
                  <tbody>
@@ -2442,35 +2440,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             );
                           }
                          })}
-                         {/* Trailing delete cell at the far end of the row (only while editing);
-                             empty otherwise so every row keeps the same column count. */}
-                         <td className="w-10 px-2 py-3 align-top">
-                          {isEditingRow ? (
-                           <button
-                            type="button"
-                            title={t('delete')}
-                            onClick={() => void onDeleteLedgerEntry(entry, ledger.accountId)}
-                            className="rounded p-1 text-red-500 hover:bg-red-50"
-                           >
-                            <svg
-                             width="14"
-                             height="14"
-                             viewBox="0 0 24 24"
-                             fill="none"
-                             stroke="currentColor"
-                             strokeWidth="1.8"
-                             strokeLinecap="round"
-                             strokeLinejoin="round"
-                             aria-hidden
-                            >
-                             <polyline points="3 6 5 6 21 6" />
-                             <path d="M19 6l-1 14H6L5 6" />
-                             <path d="M10 11v6M14 11v6" />
-                             <path d="M9 6V4h6v2" />
-                            </svg>
-                           </button>
-                          ) : null}
-                         </td>
                         </>
                        );
                       })()}
@@ -2479,7 +2448,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       const chargesRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                       const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
                       const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
-                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 3 : 2);
+                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 2 : 1);
                       // An org-settled charge only affects the one named client, so it is editable
                       // from that client's ledger but not the other side's. Everything else is
                       // editable here — including a charge still being added (charges <= 0) with no
@@ -2617,7 +2586,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     return (
                      <tr>
                       <td
-                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 3 : 2)}
+                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 2 : 1)}
                        className="px-4 py-6 text-sm text-slate-500"
                       >
                        {t('no_search_results')}
