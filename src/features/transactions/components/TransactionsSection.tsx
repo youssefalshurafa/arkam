@@ -10,7 +10,7 @@ import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
-import { formatRateValue, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
+import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ltrIsolate } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
@@ -169,7 +169,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // single context menu when not editing.
  const rowContextMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -181,6 +181,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // border on whichever row the open menu belongs to, so it's clear which row the menu's
  // actions apply to; closeRowMenu clears it alongside the menu itself.
  const [contextMenuRowId, setContextMenuRowId] = useState<number | null>(null);
+
+ // Selection mode: the per-row select checkboxes stay hidden until the user opts in via
+ // the toolbar "Select" toggle. Turning it off also clears any current selection so a
+ // stale set doesn't linger (and keep the bulk-delete button showing) after exiting.
+ const [selectionMode, setSelectionMode] = useState(false);
+ const toggleSelectionMode = () => {
+  setSelectionMode((on) => {
+   if (on) setSelectedTransactionIds(new Set());
+   return !on;
+  });
+ };
 
  // Descriptions dismissed from the autocomplete dropdown via its per-suggestion "x".
  // Persisted so a removed suggestion stays gone across reloads, even though the
@@ -821,8 +832,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  <label className="block text-xs font-medium text-slate-500">
                   {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode
                    ? txFromRateReversed
-                     ? `1 ${transactionAccountFromCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
-                     : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountFromCurrencyCode}`
+                     ? ltrIsolate(`1 ${transactionAccountFromCurrencyCode} = ? ${transactionSelectedCurrencyCode}`)
+                     : ltrIsolate(`1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountFromCurrencyCode}`)
                    : t('transaction_exchange_rate_from')}
                  </label>
                  {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountFromCurrencyCode && (
@@ -894,8 +905,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   <label className="block text-xs font-medium text-slate-500">
                    {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
                     ? txToRateReversed
-                      ? `1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`
-                      : `1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`
+                      ? ltrIsolate(`1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`)
+                      : ltrIsolate(`1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`)
                     : t('transaction_exchange_rate_to')}
                   </label>
                   {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
@@ -1007,7 +1018,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 {showChargesExchangeRate && (
                  <div className="mt-2">
                   <label className="block text-xs font-medium text-slate-500">
-                   {t('charges_exchange_rate')} ({chargesCurrencyCode} → {chargesPayerAccountCurrencyCode})
+                   {t('charges_exchange_rate')} <span dir="ltr">({chargesCurrencyCode} → {chargesPayerAccountCurrencyCode})</span>
                   </label>
                   <input
                    type="text"
@@ -1266,6 +1277,28 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                x2="12"
                y2="3"
               />
+             </svg>
+            </button>
+            <button
+             type="button"
+             onClick={toggleSelectionMode}
+             title={t('bulk_select')}
+             aria-pressed={selectionMode}
+             className={`cursor-pointer rounded border p-2 transition ${selectionMode ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+            >
+             <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <path d="M9 11l3 3L22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
              </svg>
             </button>
             <button
@@ -1769,15 +1802,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 </button>
                )}
               </th>
-              <th className="w-px whitespace-nowrap px-2 py-3">
-               <input
-                type="checkbox"
-                checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
-                onChange={onToggleSelectAllTransactions}
-                aria-label="Select all"
-                className="h-4 w-4 cursor-pointer rounded border-slate-300"
-               />
-              </th>
+              {selectionMode ? (
+               <th className="w-px whitespace-nowrap px-2 py-3">
+                <input
+                 type="checkbox"
+                 checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
+                 onChange={onToggleSelectAllTransactions}
+                 aria-label="Select all"
+                 className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                />
+               </th>
+              ) : null}
               {transactionTableSettings.columns.created ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
                 <button
@@ -1871,7 +1906,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  return;
                 }
                 const td = (e.target as HTMLElement).closest('td');
-                if (!td || (td as HTMLTableCellElement).cellIndex < 2) return;
+                // Skip the leading non-data columns (actions, plus the checkbox column when
+                // selection mode is on) so only real cell text is copied.
+                if (!td || (td as HTMLTableCellElement).cellIndex < (selectionMode ? 2 : 1)) return;
                 const raw = (td as HTMLElement).innerText.trim();
                 const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
                 if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
@@ -1928,6 +1965,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        />
                       </svg>
                      </span>
+                     {/* 2×2 grid: save/cancel on the top row, delete/reverse on the bottom row. */}
+                     <div className="grid grid-cols-2 gap-1">
                      <button
                       type="button"
                       title={t('save_changes')}
@@ -2038,6 +2077,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        </svg>
                       </button>
                      )}
+                     </div>
                     </div>
                    ) : (
                     // Row actions (edit/delete) live in the right-click context menu (desktop,
@@ -2110,15 +2150,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     </div>
                    )}
                   </td>
-                  <td className="w-px whitespace-nowrap px-2 py-3 align-middle">
-                   <input
-                    type="checkbox"
-                    checked={selectedTransactionIds.has(txn.id)}
-                    onChange={() => onToggleTransactionSelection(txn.id)}
-                    aria-label={`Select transaction ${txn.id}`}
-                    className="h-4 w-4 cursor-pointer rounded border-slate-300"
-                   />
-                  </td>
+                  {selectionMode ? (
+                   <td className="w-px whitespace-nowrap px-2 py-3 align-middle">
+                    <input
+                     type="checkbox"
+                     checked={selectedTransactionIds.has(txn.id)}
+                     onChange={() => onToggleTransactionSelection(txn.id)}
+                     aria-label={`Select transaction ${txn.id}`}
+                     className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                    />
+                   </td>
+                  ) : null}
                   {transactionTableSettings.columns.created ? (
                    <td className="px-4 py-3 text-slate-500">
                     {isEditingRow && draft ? (
@@ -2165,7 +2207,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
                        <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-400">
-                         {tableRateFromReversed[txn.id] ? `1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`}
+                         {tableRateFromReversed[txn.id] ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}`) : ltrIsolate(`1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`)}
                         </span>
                         <button
                          type="button"
@@ -2237,8 +2279,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        <div className="text-xs text-slate-500">
                         {t('transaction_exchange_rate')}:{' '}
                         {txn.exchangeRateFromReversed
-                         ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
-                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
+                         ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
+                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`)}
                        </div>
                       ) : null}
                      </>
@@ -2272,8 +2314,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        <div className="text-xs text-slate-500">
                         {t('transaction_exchange_rate')}:{' '}
                         {txn.exchangeRateFromReversed
-                         ? `1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`
-                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`}
+                         ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
+                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`)}
                        </div>
                       ) : null}
                      </>
@@ -2316,7 +2358,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
                        <div className="flex items-center justify-between">
                         <span className="text-xs text-slate-400">
-                         {tableRateToReversed[txn.id] ? `1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}` : `1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`}
+                         {tableRateToReversed[txn.id] ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}`) : ltrIsolate(`1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`)}
                         </span>
                         <button
                          type="button"
@@ -2392,8 +2434,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        <div className="text-xs text-slate-500">
                         {t('transaction_exchange_rate')}:{' '}
                         {txn.exchangeRateToReversed
-                         ? `1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`
-                         : `1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`}
+                         ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`)
+                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`)}
                        </div>
                       ) : null}
                      </>
@@ -2510,7 +2552,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
                          return (
                           <div>
-                           <span className="text-xs text-slate-500">
+                           <span dir="ltr" className="text-xs text-slate-500">
                             {draftChargesCurrencyCode} → {draftPayerAccountCurrencyCode}
                            </span>
                            <input
@@ -2693,7 +2735,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <tr>
                <td
                 className="px-4 py-6 text-slate-500"
-                colSpan={visibleTransactionColumnCount + (section === 'archive' ? 1 : 0)}
+                colSpan={visibleTransactionColumnCount - (selectionMode ? 0 : 1) + (section === 'archive' ? 1 : 0)}
                >
                 {section === 'archive' ? t('archive_empty') : t('no_transactions')}
                </td>
@@ -2704,7 +2746,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <tfoot>
               <tr className="border-t-2 border-slate-300 bg-slate-50">
                <td
-                colSpan={visibleTransactionColumnCount + 1}
+                colSpan={visibleTransactionColumnCount - (selectionMode ? 0 : 1) + 1}
                 className="px-4 py-3"
                >
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
