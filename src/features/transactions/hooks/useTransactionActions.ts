@@ -6,7 +6,7 @@ import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
-import { NEW_ROW_REF_ID, violatedLock } from '@/features/ledger/utils/reconciliation';
+import { NEW_ROW_REF_ID, violatedLock, isAtOrBeforeBoundary } from '@/features/ledger/utils/reconciliation';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
@@ -1510,7 +1510,22 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
   if (zoneDate && zoneDate !== draggedDate && !dateChange) dateChange = { from: draggedDate, to: zoneDate };
   const accIds = draggedRow.isAdjustment ? [draggedRow.accountFromId] : [draggedRow.accountFromId, draggedRow.accountToId];
   const refId = draggedRow.isAdjustment ? draggedRow.adjustmentId ?? 0 : draggedRow.id;
-  dropLockHit = violatedLock(accIds, draggedRow.createdAt, refId, lockBoundaries) ?? violatedLock(accIds, newCreatedAt, refId, lockBoundaries);
+  // Only an actual RE-DATE can change a reconciled balance; a pure same-date reorder just
+  // reshuffles the display order (manualRowOrder) and never persists a timestamp, so it must
+  // not warn. Even a re-date only matters if it moves the row ACROSS a lock's anchor (its
+  // at-or-before-anchor membership flips); staying on the same side leaves the reconciled
+  // balance unchanged.
+  if (newCreatedAt !== draggedRow.createdAt) {
+   for (const accId of accIds) {
+    if (accId == null) continue;
+    const boundary = lockBoundaries.get(accId);
+    if (!boundary) continue;
+    if (isAtOrBeforeBoundary(draggedRow.createdAt, refId, boundary) !== isAtOrBeforeBoundary(newCreatedAt, refId, boundary)) {
+     dropLockHit = { accountId: accId, boundary };
+     break;
+    }
+   }
+  }
   if (dropLockHit && dateChange) break;
  }
  if (dropLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(dropLockHit.accountId, dropLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {

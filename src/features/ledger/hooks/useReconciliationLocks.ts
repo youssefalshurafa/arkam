@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { buildLockBoundaries, violatedLock, isAtOrBeforeBoundary } from '@/features/ledger/utils/reconciliation';
+import { buildLockBoundaries, violatedLock } from '@/features/ledger/utils/reconciliation';
 import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import type { ClientAccount, Reconciliation, Transaction, TransactionUpdateInput } from '@/shared/types';
 
@@ -44,24 +44,6 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap }: Us
   return confirmDialog({
    title: t('reconcile_warn_title'),
    message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
-   confirmText: t('reconcile_warn_confirm'),
-   tone: 'danger',
-  });
- }
-
- /**
-  * Reorder variant of the guard: warns if any reflowed row sits at or before an
-  * account's lock line, either at its current timestamp or the one the drag assigns.
-  * Returns true to proceed.
-  */
- async function confirmIfReorderLocked(accountId: number, rows: Array<{ createdAt: string; refId: number; newCreatedAt: string }>): Promise<boolean> {
-  const boundary = lockBoundaries.get(accountId);
-  if (!boundary) return true;
-  const touches = rows.some((r) => isAtOrBeforeBoundary(r.createdAt, r.refId, boundary) || isAtOrBeforeBoundary(r.newCreatedAt, r.refId, boundary));
-  if (!touches) return true;
-  return confirmDialog({
-   title: t('reconcile_warn_title'),
-   message: t('reconcile_warn_message', { balance: formatLockBalance(accountId, boundary.balance) }),
    confirmText: t('reconcile_warn_confirm'),
    tone: 'danger',
   });
@@ -140,7 +122,6 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap }: Us
   lockBoundaries,
   formatLockBalance,
   confirmIfLocked,
-  confirmIfReorderLocked,
   confirmDeleteWithLock,
   confirmIfEditLocked,
   confirmIfTransactionEditLocked,
