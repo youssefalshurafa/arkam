@@ -330,12 +330,10 @@ export function generateLedgerHtml(
      if (e.pendingRate) {
       return '-';
      }
-     if (e.isAdjustment) {
-      // Show the actual rate (including 1), matching the on-screen ledger. Only a genuinely
-      // unset cross-currency rate (pendingRate, handled above) renders as a dash.
-      return formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate);
-     }
-     return formatRateValue(e.exchangeRate);
+     // Show the actual rate (including 1), matching the on-screen ledger — which renders a
+     // reversed (divided) rate as 1/rate. Applies to both transactions and adjustments; only a
+     // genuinely unset cross-currency rate (pendingRate, handled above) renders as a dash.
+     return formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate);
     },
    },
    { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '-' : formatRateValue(e.commission)) },
