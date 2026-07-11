@@ -6,6 +6,7 @@ import {
  transactionTableSettingsStorageKey,
  archiveTableSettingsStorageKey,
  txRowSettingsStorageKey,
+ txHighlightsStorageKey,
 } from '@/shared/lib/localStorage';
 
 // The localStorage entries that make up the shareable "table settings": the ledger's
@@ -17,6 +18,16 @@ const SHARED_EXACT_KEYS = [legacyLedgerColumnOrderStorageKey, transactionTableSe
 
 function isSharedKey(key: string): boolean {
  return SHARED_EXACT_KEYS.includes(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+// Per-user-only keys: the user's private row highlights. These ride along with the
+// always-on per-user settings sync (so a user's highlights follow them to another
+// device) but are deliberately kept OUT of isSharedKey — the owner's workspace-wide
+// shared snapshot must never carry one user's personal highlights to everyone else.
+const USER_ONLY_EXACT_KEYS = [txHighlightsStorageKey];
+
+function isUserOnlyKey(key: string): boolean {
+ return USER_ONLY_EXACT_KEYS.includes(key);
 }
 
 // Reads the current shareable settings out of localStorage into a plain map. This is
@@ -44,6 +55,36 @@ export function applySharedSettings(settings: Record<string, string>) {
  try {
   for (const [key, value] of Object.entries(settings)) {
    if (isSharedKey(key) && typeof value === 'string') window.localStorage.setItem(key, value);
+  }
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+
+// Per-user snapshot = the shareable layout settings PLUS this user's private highlights.
+// Used only by the always-on per-user sync, so highlights persist across a user's own
+// devices without ever entering the owner's shared workspace snapshot.
+export function snapshotUserSettings(): Record<string, string> {
+ const out = snapshotSharedSettings();
+ if (typeof window === 'undefined') return out;
+ try {
+  for (const key of USER_ONLY_EXACT_KEYS) {
+   const value = window.localStorage.getItem(key);
+   if (value != null) out[key] = value;
+  }
+ } catch {
+  /* ignore */
+ }
+ return out;
+}
+
+// Applies a per-user snapshot: the shared layout keys plus this user's private highlights.
+export function applyUserSettings(settings: Record<string, string>) {
+ applySharedSettings(settings);
+ if (typeof window === 'undefined' || !settings) return;
+ try {
+  for (const [key, value] of Object.entries(settings)) {
+   if (isUserOnlyKey(key) && typeof value === 'string') window.localStorage.setItem(key, value);
   }
  } catch {
   /* ignore quota / privacy-mode errors */

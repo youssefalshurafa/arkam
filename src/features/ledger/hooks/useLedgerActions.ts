@@ -754,6 +754,19 @@ async function onDeleteSelectedLedgerEntries() {
  await loadData();
 }
 
+// Bulk "Edit" from the selection context menu: drop every selected entry into edit mode
+// at once, reusing the same per-row draft initialisation as opening a single row for edit.
+function onEditSelectedLedgerEntries() {
+ for (const key of selectedLedgerEntryKeys) {
+  const [txIdStr, accIdStr] = key.split(':');
+  const txId = Number(txIdStr);
+  const accId = Number(accIdStr);
+  const ledger = selectedClientLedgers.find((l) => l.accountId === accId);
+  const entry = ledger?.entries.find((e) => e.transactionId === txId);
+  if (entry) openLedgerRowForEdit(entry, accId);
+ }
+}
+
 async function onSubmitAdjustment() {
  if (!accountingApi || !adjustmentModal) {
   setError(t('error_bridge'));
@@ -1153,6 +1166,7 @@ async function onExportLedgerExcel(
   onRemoveReconciliation,
   onToggleLedgerEntrySelection,
   onDeleteSelectedLedgerEntries,
+  onEditSelectedLedgerEntries,
   onSubmitAdjustment,
   onDeleteAdjustment,
   onWriteOffLedgerRow,

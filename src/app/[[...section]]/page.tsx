@@ -55,6 +55,8 @@ import { queryKeys } from '@/lib/queryClient';
 import {
  snapshotSharedSettings,
  applySharedSettings,
+ snapshotUserSettings,
+ applyUserSettings,
  serializeSnapshot,
  getAppliedSharedVersion,
  setAppliedSharedVersion,
@@ -701,12 +703,15 @@ function AuthenticatedHome() {
   if (!settings) return;
   appliedUserSettingsOnce.current = true;
   if (Object.keys(settings).length > 0) {
-   applySharedSettings(settings);
+   applyUserSettings(settings);
    hydrateLedgerPrefsFromStorage();
    setTransactionTableSettingsStore(getStoredTransactionTableSettings());
    setArchiveTableSettings(getStoredArchiveTableSettings());
+   // Re-hydrate this user's private row highlights from the just-applied storage so a
+   // fresh device shows the entries they highlighted elsewhere.
+   setHighlightedTxRows(getStoredTxHighlights());
   }
-  lastPushedUserSnapshot.current = serializeSnapshot(snapshotSharedSettings());
+  lastPushedUserSnapshot.current = serializeSnapshot(snapshotUserSettings());
  }, [userTableSettingsQuery.data, hydrateLedgerPrefsFromStorage, setTransactionTableSettingsStore, setArchiveTableSettings]);
 
  // Debounced push of this user's current settings snapshot — always on (unlike the
@@ -715,7 +720,7 @@ function AuthenticatedHome() {
   if (!activeWorkspaceId || !sessionUserId) return;
   if (userTableSettingsPushTimer.current) clearTimeout(userTableSettingsPushTimer.current);
   userTableSettingsPushTimer.current = setTimeout(() => {
-   const snapshot = snapshotSharedSettings();
+   const snapshot = snapshotUserSettings();
    const serialized = serializeSnapshot(snapshot);
    if (serialized === lastPushedUserSnapshot.current) return;
    lastPushedUserSnapshot.current = serialized;
@@ -1026,6 +1031,8 @@ function AuthenticatedHome() {
    }
    return next;
   });
+  // Persist to this user's server-side settings so the highlight follows them across devices.
+  pushUserTableSettings();
  }
 
  function updateTxRowHighlightColor(next: string) {
@@ -1572,6 +1579,7 @@ function AuthenticatedHome() {
    onRemoveReconciliation,
    onToggleLedgerEntrySelection,
    onDeleteSelectedLedgerEntries,
+   onEditSelectedLedgerEntries,
    onSubmitAdjustment,
    onDeleteAdjustment: onDeleteAdjustmentFromLedger,
    onWriteOffLedgerRow,
@@ -2134,6 +2142,7 @@ function AuthenticatedHome() {
          onRemoveReconciliation={onRemoveReconciliation}
          onWriteOffLedgerRow={onWriteOffLedgerRow}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
+         onEditSelectedLedgerEntries={onEditSelectedLedgerEntries}
          onEditAllLedger={onEditAllLedger}
          onLedgerColumnDrop={onLedgerColumnDrop}
          onLedgerEditFieldArrowKey={onLedgerEditFieldArrowKey}
