@@ -21,7 +21,8 @@ import {
 import { generateArchiveHtml, generateTransactionsExportHtml } from '@/features/pdf/pdfExport';
 import { saveArchiveTableSettings, saveTransactionTableSettings } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
-import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
+import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
+import { selectArchiveExportRows } from '@/features/transactions/utils/archiveExport';
 import { emptyTransactionForm } from '@/features/transactions/forms';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
@@ -187,6 +188,7 @@ export function useTransactionActions({
  const transactionExportTo = useTransactionsStore((s) => s.transactionExportTo);
  const setTransactionExportTo = useTransactionsStore((s) => s.setTransactionExportTo);
  const setShowTransactionExportModal = useTransactionsStore((s) => s.setShowTransactionExportModal);
+ const setArchiveExportModal = useTransactionsStore((s) => s.setArchiveExportModal);
  const setShowTransactionTableSettingsModal = useTransactionsStore((s) => s.setShowTransactionTableSettingsModal);
 
  const transactionTableSettingsStore = useTransactionsStore((s) => s.transactionTableSettings);
@@ -1780,13 +1782,31 @@ async function onSaveAllTransactions() {
  void loadData();
 }
 
-async function onExportArchivePdf() {
+// Opens the archive export dialog, defaulting the date window to the full span of the
+// currently-displayed archive rows so "export everything" needs no extra clicks.
+function openArchiveExportModal() {
+ const dates = displayedTransactionRows.map((row) => row.createdAt.slice(0, 10)).filter(Boolean).sort();
+ setArchiveExportModal({
+  fromDate: dates[0] ?? new Date().toISOString().slice(0, 10),
+  toDate: dates[dates.length - 1] ?? new Date().toISOString().slice(0, 10),
+  fromRowId: null,
+  toRowId: null,
+ });
+}
+
+// Exports the archive as PDF. With no range it exports the whole displayed table (kept for
+// any direct callers); with a range it narrows to the inclusive date window and, when row
+// boundaries are set (e.g. from the highlighted-range shortcut), to just the rows between
+// them — matching what the dialog previews.
+async function onExportArchivePdf(range?: ArchiveExportModalState) {
  if (!accountingApi) return;
  try {
-  const html = generateArchiveHtml({ t, numLocale, isRTL, language, pdfSettings }, displayedTransactionRows, transactionTableSettings.columns);
+  const rows = range ? selectArchiveExportRows(displayedTransactionRows, range) : displayedTransactionRows;
+  const html = generateArchiveHtml({ t, numLocale, isRTL, language, pdfSettings }, rows, transactionTableSettings.columns);
   const exportDate = new Date().toISOString().slice(0, 10);
   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `archive_${exportDate}.pdf` });
   if (!result.ok) setError(t('error_failed_save'));
+  else setArchiveExportModal(null);
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_save'));
  }
@@ -1968,6 +1988,7 @@ async function onExportTransactionsExcel() {
   onCancelAllTransactions,
   onSaveAllTransactions,
   onExportArchivePdf,
+  openArchiveExportModal,
   openTransactionTableSettingsModal,
   closeTransactionTableSettingsModal,
   saveTransactionTableSettingsModal,

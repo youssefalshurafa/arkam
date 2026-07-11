@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -16,8 +16,9 @@ import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
-import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
+import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
+import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
 import type {
  Client,
@@ -127,7 +128,8 @@ type TransactionsSectionProps = {
  onDeleteSelectedTransactions: () => void;
  onDeleteTransactionTableRow: (row: TransactionTableRow) => void;
  onEditAllTransactions: () => void;
- onExportArchivePdf: () => void;
+ onExportArchivePdf: (range?: ArchiveExportModalState) => void;
+ openArchiveExportModal: () => void;
  onImportTransactionsFile: (event: ChangeEvent<HTMLInputElement>) => void;
  onPasteCopiedTransaction: () => void;
  onSaveAllTransactions: () => void;
@@ -154,7 +156,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
   txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopyTransactionRow, onDeleteSelectedTransactions,
-  onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, onImportTransactionsFile, onPasteCopiedTransaction,
+  onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
   setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry,
@@ -221,9 +223,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
  // Row drag-to-reorder via pointer events (not native HTML5 drag-and-drop, which never fires
  // from a touch gesture — the reason this was unusable on mobile). See usePointerDrag for why.
+ // The drag handle sits inside the row, so a drag gesture ends with a browser-synthesized
+ // `click` that bubbles to the row's onClick and would toggle the highlight/copy. This flag,
+ // set while a drag is in flight, lets that onClick swallow the stray post-drag click so
+ // reordering a row never also highlights it.
+ const justDraggedRef = useRef(false);
  const transactionRowDrag = usePointerDrag<number>({
   parseKey: (raw) => Number(raw),
-  onDragStart: (id) => setDragRowId(id),
+  onDragStart: (id) => {
+   justDraggedRef.current = true;
+   setDragRowId(id);
+  },
   onHoverChange: (overId, half) => {
    setDragOverRowId(overId);
    if (half) setDragOverHalf(half);
@@ -236,6 +246,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
    }
    setDragRowId(null);
    setDragOverRowId(null);
+   // Clear after the synthetic click has had its chance to fire (and be swallowed). If the
+   // drop landed on a different row the click never reaches a row's onClick, so this timeout
+   // is what resets the flag in that case.
+   setTimeout(() => {
+    justDraggedRef.current = false;
+   }, 0);
   },
   // Short "what am I dragging" label for the floating ghost badge (see usePointerDrag).
   renderGhost: (id) => {
@@ -1199,7 +1215,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             {section === 'archive' ? (
              <button
               type="button"
-              onClick={() => void onExportArchivePdf()}
+              onClick={openArchiveExportModal}
               className="cursor-pointer rounded border border-blue-600 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
              >
               {t('archive_export_pdf')}
@@ -1894,6 +1910,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                onClick={(e) => {
                 const isEditingRow = editingRowIds.has(txn.id);
                 if (isEditingRow) return;
+                // Swallow the click synthesized at the end of a drag so reordering a row
+                // doesn't also highlight/copy it.
+                if (justDraggedRef.current) {
+                 justDraggedRef.current = false;
+                 return;
+                }
                 if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
                 // Sum mode owns clicks exclusively via the amount cell's own button (excluded
                 // above); a click elsewhere in the row is a no-op instead of falling through to
@@ -2815,6 +2837,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
      </button>
     </div>
    ) : null}
+
+   <ArchiveExportModal
+    displayedTransactionRows={displayedTransactionRows}
+    highlightedTxRows={highlightedTxRows}
+    onExport={onExportArchivePdf}
+   />
   </>
  );
 }

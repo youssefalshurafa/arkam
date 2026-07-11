@@ -148,9 +148,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
   return who ? `${who} · ${amount} ${ledgerForRow.currencyCode}` : `${amount} ${ledgerForRow.currencyCode}`;
  };
 
+ // The drag handle sits inside the row, so a drag gesture ends with a browser-synthesized
+ // `click` that bubbles to the row's onClick and would toggle highlight/copy. This flag, set
+ // while a drag is in flight, lets that onClick swallow the stray post-drag click so
+ // reordering a row never also highlights it.
+ const justDraggedLedgerRowRef = useRef(false);
  const ledgerRowDrag = usePointerDrag<string>({
   parseKey: (raw) => raw,
-  onDragStart: (key) => setDragLedgerRowKey(key),
+  onDragStart: (key) => {
+   justDraggedLedgerRowRef.current = true;
+   setDragLedgerRowKey(key);
+  },
   onHoverChange: (overKey, half) => {
    setDragOverLedgerRowKey(overKey);
    if (half) setDragOverLedgerHalf(half);
@@ -166,6 +174,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
    }
    setDragLedgerRowKey(null);
    setDragOverLedgerRowKey(null);
+   // Clear after the synthetic click has had its chance to fire (and be swallowed); if the
+   // drop landed on a different row the click never reaches a row's onClick, so this resets it.
+   setTimeout(() => {
+    justDraggedLedgerRowRef.current = false;
+   }, 0);
   },
   renderGhost: ledgerRowGhostLabel,
  });
@@ -1364,6 +1377,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       onClick={(e) => {
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                        if (editingLedgerRowKeys.has(rowKey)) return;
+                       // Swallow the click synthesized at the end of a drag so reordering a row
+                       // doesn't also highlight/copy it.
+                       if (justDraggedLedgerRowRef.current) {
+                        justDraggedLedgerRowRef.current = false;
+                        return;
+                       }
                        if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
                        // Neutral pointer: no click mode engaged, so a row click does nothing.
                        if (!ledgerRowClickActive) return;
