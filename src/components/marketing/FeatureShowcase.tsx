@@ -11,6 +11,7 @@ import {
  ExportsMockup,
  TeamMockup,
  RatesMockup,
+ MobileMockup,
 } from '@/components/marketing/Mockups';
 
 type Row = {
@@ -22,6 +23,13 @@ type Row = {
 };
 
 const ROWS: Row[] = [
+ {
+  slot: 'mobile',
+  mockup: <MobileMockup />,
+  titleKey: 'home_show_mobile_title',
+  bodyKey: 'home_show_mobile_body',
+  bulletKeys: ['home_show_mobile_b1', 'home_show_mobile_b2', 'home_show_mobile_b3'],
+ },
  {
   slot: 'ledgers',
   mockup: <LedgerMockup />,

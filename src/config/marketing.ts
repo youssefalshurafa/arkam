@@ -24,6 +24,7 @@ export const MARKETING_SLOTS: MarketingSlot[] = [
  { slot: 'exports', label: 'Exports & PDF', hint: 'Branded PDF / Excel / archive export feature section.' },
  { slot: 'workspaces', label: 'Workspaces & team', hint: 'Multi-workspace & team roles feature section.' },
  { slot: 'liverates', label: 'Live rates', hint: 'Live gold & currency rates feature section.' },
+ { slot: 'mobile', label: 'Phone & tablet', hint: 'Works-on-every-device feature section.' },
 ];
 
 /** Set of valid slot keys, for validating upload/serve requests. */

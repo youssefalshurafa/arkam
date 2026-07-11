@@ -215,6 +215,65 @@ export function RatesMockup() {
  );
 }
 
+// --- Phone + tablet (works on every device) ---------------------------------
+export function MobileMockup() {
+ const rows = [
+  { c: 'Ahmed Traders', amt: '+ 12,400', up: true },
+  { c: 'Cairo Exchange', amt: '− 3,250', up: false },
+  { c: 'Nour Holdings', amt: '+ 8,000', up: true },
+  { c: 'Delta Money', amt: '− 1,120', up: false },
+ ];
+ return (
+  <div aria-hidden className="relative mx-auto flex items-end justify-center gap-4">
+   {/* Tablet */}
+   <div className="hidden w-56 shrink-0 rounded-2xl border border-gray-300 bg-gray-900 p-1.5 shadow-xl sm:block">
+    <div className="overflow-hidden rounded-xl bg-white">
+     <div className="flex items-center justify-between bg-blue-700 px-3 py-2">
+      <span className="text-[10px] font-bold text-white">ARKAM</span>
+      <span className="text-[9px] text-blue-100">Overview</span>
+     </div>
+     <div className="grid grid-cols-2 gap-1.5 p-2">
+      {['USD', 'EGP', 'EUR', 'AED'].map((cur, i) => (
+       <div key={cur} className="rounded-lg border border-gray-100 p-1.5">
+        <span className="text-[8px] font-bold text-blue-700">{cur}</span>
+        <p className={`text-[10px] font-bold tabular-nums ${i === 2 ? 'text-red-500' : 'text-green-600'}`}>
+         {i === 2 ? '−2,150' : '48,300'}
+        </p>
+       </div>
+      ))}
+     </div>
+    </div>
+   </div>
+
+   {/* Phone */}
+   <div className="relative w-36 rounded-[2rem] border-[6px] border-gray-900 bg-gray-900 shadow-2xl">
+    <div className="absolute left-1/2 top-2 z-10 h-1.5 w-10 -translate-x-1/2 rounded-full bg-gray-700" />
+    <div className="overflow-hidden rounded-[1.5rem] bg-white pt-5">
+     <div className="flex items-center justify-between bg-blue-700 px-3 py-2.5">
+      <span className="text-[10px] font-bold text-white">ARKAM</span>
+      <span className="h-4 w-4 rounded-full bg-blue-500/60" />
+     </div>
+     <div className="p-2.5 pb-4">
+      <div className="rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 p-3.5 text-white">
+       <p className="text-[8px] font-medium text-blue-100">Total balance</p>
+       <p className="mt-0.5 text-sm font-bold tabular-nums">92,480.00</p>
+       <p className="text-[8px] text-blue-100">▲ 4.2% this week</p>
+      </div>
+      <div className="mt-2.5 space-y-2">
+       {rows.map((r) => (
+        <div key={r.c} className="flex items-center justify-between rounded-lg border border-gray-100 px-2 py-1.5">
+         <span className="text-[8px] font-medium text-gray-700">{r.c}</span>
+         <span className={`text-[8px] font-semibold ${r.up ? 'text-green-600' : 'text-red-500'}`}>{r.amt}</span>
+        </div>
+       ))}
+      </div>
+     </div>
+    </div>
+   </div>
+  </div>
+ );
+}
+
 // --- Hero composite (stacked ledger + balance) ------------------------------
 export function HeroMockup() {
  return (
