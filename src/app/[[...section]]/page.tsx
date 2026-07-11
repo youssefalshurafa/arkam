@@ -1,19 +1,13 @@
 ﻿'use client';
 
-import { ChangeEvent, Fragment, FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import Image from 'next/image';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useLanguage } from '@/contexts/LanguageContext';
 import HomePage from '@/components/marketing/HomePage';
-import AccountSettings from '@/components/account/AccountSettings';
-import TeamSettings from '@/components/account/TeamSettings';
 import { useTranslation } from '@/hooks/useTranslation';
-import { confirmDialog } from '@/components/ui/AppDialog';
-import { buildLockBoundaries, violatedLock, isAtOrBeforeBoundary, NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
-import { Spinner } from '@/components/ui/Spinner';
-import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
+import { accountingApi } from '@/lib/accountingApi';
 
 import type {
  Organization,
@@ -23,24 +17,13 @@ import type {
  Currency,
  Transaction,
  TransactionTableRow,
- TransactionForm,
  TransactionUpdateInput,
- TransactionTableDraft,
- LedgerTransactionDraft,
- ClientLedgerEntry,
  ClientAdjustment,
  ClientAccountLedger,
  Reconciliation,
- ImportedTransactionRow,
- ImportMappingState,
- PendingImportData,
  ImportClientReview,
- ImportRowOverride,
  LedgerColumnKey,
- TransactionColumnKey,
- PdfColVisibility,
  StoredLedgerSettings,
- TransactionTableSettings,
  PdfSettings,
  SettingsTab,
  Section,
@@ -54,42 +37,18 @@ import {
  getStoredTxHighlights,
  getStoredTxRowSettings,
  getStoredLedgerHighlights,
- getStoredPdfCols,
- savePdfCols,
- getStoredPdfDateRange,
- savePdfDateRange,
  getStoredTransactionTableSettings,
- saveTransactionTableSettings,
  getStoredArchiveTableSettings,
- saveArchiveTableSettings,
  getStoredLedgerColumnOrder,
- defaultLedgerColumnVisibility,
- defaultLedgerColumnOrder,
- clientsOrgOrderStorageKey,
- ledgerColumnOrderStorageKeyPrefix,
  ledgerColumnVisibilityStorageKeyPrefix,
  ledgerSettingsStorageKeyPrefix,
  ledgerHighlightsStorageKeyPrefix,
  txHighlightsStorageKey,
  txRowSettingsStorageKey,
 } from '@/shared/lib/localStorage';
-import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
-import { HIGHLIGHT_PEN_CURSOR, formatRateValue } from '@/shared/utils/format';
-import { getCommissionAmount } from '@/shared/utils/commission';
-import { renderIcon } from '@/shared/utils/icons';
+import { normalizeDecimalInput } from '@/shared/utils/decimal';
 import { getSectionFromPath } from '@/shared/utils/section';
-import { getDeviceLabel } from '@/shared/utils/device';
-import { nextCreatedAtForDate, resolveCreatedAt } from '@/shared/utils/createdAt';
-import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
-import {
- normalizeImportHeader,
- toImportString,
- buildImportColumnOptions,
- importNameKey,
- parseTransactionRowsFromMappedSheet,
- DEFAULT_IMPORT_ROW_OVERRIDE,
-} from '@/features/transactions/utils/import';
-import { SkBar, SkTablePanel, SK_TX, SK_LEDGER, SK_CLIENTS, SK_CURRENCIES } from '@/shared/components/skeletons/Skeletons';
+import { SkBar, SkTablePanel, SK_CLIENTS, SK_CURRENCIES } from '@/shared/components/skeletons/Skeletons';
 import { useWorkspaceData, useWorkspaceCache } from '@/features/workspace/hooks/useWorkspaceData';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryClient';
@@ -101,36 +60,28 @@ import {
  setAppliedSharedVersion,
 } from '@/features/settings/lib/sharedTableSettings';
 import { ensureCacheOwner } from '@/shared/lib/cacheOwner';
-import { panelClassName, mutedPanelClassName, tableWrapClassName } from '@/shared/styles';
+import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import OverviewSection from '@/features/overview/components/OverviewSection';
 import LiveRatesSection from '@/features/live-rates/components/LiveRatesSection';
 import TreasurySection from '@/features/treasury/components/TreasurySection';
-import CurrenciesSection from '@/features/currencies/components/CurrenciesSection';
 import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadOnly';
-import OrganizationsSection from '@/features/organizations/components/OrganizationsSection';
 import OrganizationsReadOnly from '@/features/organizations/components/OrganizationsReadOnly';
 import OrganizationClientsSection from '@/features/organizations/components/OrganizationClientsSection';
 import PendingPricingModal from '@/features/organizations/components/PendingPricingModal';
 import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
-import LanguageSettings from '@/features/settings/components/LanguageSettings';
-import DangerZone from '@/features/settings/components/DangerZone';
-import PdfSettingsTab from '@/features/settings/components/PdfSettings';
-import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import SettingsSection from '@/features/settings/components/SettingsSection';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
-import { generateArchiveHtml, generateLedgerHtml, generateTransactionsExportHtml, generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
-import { computeClientLedgers, computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
+import { generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
+import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
 import { emptyOrganizationForm } from '@/features/organizations/forms';
-import ClientsSection from '@/features/clients/components/ClientsSection';
 import ClientsReadOnly from '@/features/clients/components/ClientsReadOnly';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
-import { emptyTransactionForm } from '@/features/transactions/forms';
 import { useDraftHistory } from '@/shared/hooks/useDraftHistory';
 import TransactionsSection from '@/features/transactions/components/TransactionsSection';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
