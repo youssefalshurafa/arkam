@@ -87,7 +87,7 @@ export function useLedgerActions({
  const setReconciliations = setters.setReconciliations;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
- const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmIfReorderLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked } = useReconciliationLocks({
+ const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked } = useReconciliationLocks({
   reconciliations,
   clientAccountMap,
  });
@@ -966,16 +966,29 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   newTimes.set(k, new Date(ts).toISOString());
  });
 
- // Reconciliation guard: only the rows the user actually dragged can move at or before
- // the lock line — bystander rows on the same date keep their relative order (the reflow
- // above only spaces out timestamps, it doesn't reorder them), so checking the full
- // same-day group here would false-positive on the lock's own anchor row.
- const reorderRows = orderedDragged.flatMap((k) => {
-  const e = entryMap.get(k);
-  if (!e) return [];
-  return [{ createdAt: e.createdAt, refId: e.isAdjustment ? e.adjustmentId ?? 0 : e.transactionId, newCreatedAt: newTimes.get(k) ?? e.createdAt }];
- });
- if (!(await confirmIfReorderLocked(accountId, reorderRows))) return;
+ // Reconciliation guard: reordering only changes the reconciled balance if a dragged row
+ // CROSSES the lock's anchor row — moving from before it to after it, or vice versa. The
+ // reconciled balance is the running balance at the anchor (the sum of every entry up to and
+ // including it), so shuffling rows that all stay on the same side of the anchor leaves it
+ // untouched and must NOT warn (e.g. reordering two old rows both before the reconciliation).
+ // A reorder can only cross the anchor when the anchor sits on the same date being reflowed;
+ // if it's on another date, no same-date reorder can reach it. Compared by ORDER INDEX (not
+ // timestamp), since the reflow re-times the anchor too.
+ const boundary = lockBoundaries.get(accountId);
+ if (boundary && targetDate === boundary.anchorCreatedAt.slice(0, 10)) {
+  const refOf = (k: string) => {
+   const e = entryMap.get(k);
+   return e ? (e.isAdjustment ? e.adjustmentId ?? 0 : e.transactionId) : null;
+  };
+  const oldAnchorIdx = dateGroup.findIndex((k) => refOf(k) === boundary.anchorRefId);
+  const newAnchorIdx = next.findIndex((k) => refOf(k) === boundary.anchorRefId);
+  const anchorMoved = orderedDragged.some((k) => refOf(k) === boundary.anchorRefId);
+  const crosses =
+   oldAnchorIdx !== -1 &&
+   newAnchorIdx !== -1 &&
+   orderedDragged.some((k) => (dateGroup.indexOf(k) <= oldAnchorIdx) !== (next.indexOf(k) <= newAnchorIdx));
+  if ((anchorMoved || crosses) && !(await confirmIfLocked([accountId], boundary.anchorCreatedAt, boundary.anchorRefId))) return;
+ }
 
  // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
  setTransactions((prev) =>

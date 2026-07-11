@@ -1509,6 +1509,7 @@ function AuthenticatedHome() {
    onCancelAllTransactions,
    onSaveAllTransactions,
    onExportArchivePdf,
+   openArchiveExportModal,
    openTransactionTableSettingsModal,
    closeTransactionTableSettingsModal,
    saveTransactionTableSettingsModal,
@@ -2265,6 +2266,7 @@ function AuthenticatedHome() {
          onDeleteTransactionTableRow={onDeleteTransactionTableRow}
          onEditAllTransactions={onEditAllTransactions}
          onExportArchivePdf={onExportArchivePdf}
+         openArchiveExportModal={openArchiveExportModal}
          onImportTransactionsFile={onImportTransactionsFile}
          onPasteCopiedTransaction={onPasteCopiedTransaction}
          onSaveAllTransactions={onSaveAllTransactions}

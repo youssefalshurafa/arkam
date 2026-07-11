@@ -14,6 +14,16 @@ import type {
  TransactionTableSettings,
 } from '@/shared/types';
 
+// State for the archive PDF-export dialog: an inclusive date window, plus optional precise
+// row boundaries (transaction ids) used to export only the range between two highlighted
+// rows. Null row boundaries mean "the whole date window".
+export type ArchiveExportModalState = {
+ fromDate: string;
+ toDate: string;
+ fromRowId: number | null;
+ toRowId: number | null;
+};
+
 /**
  * UI state for the Transactions/Archive feature (per browser): the new-transaction
  * form + comboboxes, the editable table (edit mode, selection, drafts, drag order,
@@ -57,6 +67,8 @@ type TransactionsStore = {
  setArchiveTableSettingsDraft: Dispatch<SetStateAction<TransactionTableSettings>>;
  showTransactionExportModal: boolean;
  setShowTransactionExportModal: Dispatch<SetStateAction<boolean>>;
+ archiveExportModal: ArchiveExportModalState | null;
+ setArchiveExportModal: Dispatch<SetStateAction<ArchiveExportModalState | null>>;
  transactionExportFrom: string;
  setTransactionExportFrom: Dispatch<SetStateAction<string>>;
  transactionExportTo: string;
@@ -174,6 +186,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setArchiveTableSettingsDraft: setter('archiveTableSettingsDraft'),
   showTransactionExportModal: false,
   setShowTransactionExportModal: setter('showTransactionExportModal'),
+  archiveExportModal: null,
+  setArchiveExportModal: setter('archiveExportModal'),
   transactionExportFrom: '',
   setTransactionExportFrom: setter('transactionExportFrom'),
   transactionExportTo: '',
