@@ -434,6 +434,7 @@ export function generateLedgerHtml(
  .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
+ .header-left .brand-url { font-size: calc(${pdfSettings.fontSize}px - 3px); color: #94a3b8; margin-top: 1px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
  .meta { display: grid; grid-template-columns: repeat(${metaColCount || 1}, 1fr); gap: 12px; margin-bottom: 20px; }
  .meta-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 14px; background: #f8fafc; }
@@ -468,6 +469,7 @@ export function generateLedgerHtml(
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
    <p>${t('client_ledger_statement')}</p>
+   <p class="brand-url">www.arkam.app</p>
   </div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
