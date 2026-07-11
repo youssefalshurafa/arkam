@@ -24,7 +24,7 @@ export default function RootLayout({
  children: React.ReactNode;
 }>) {
  return (
-  <html className={`${cairo.variable} h-full antialiased`}>
+  <html lang="ar" dir="rtl" className={`${cairo.variable} h-full antialiased`}>
    <body className="min-h-full flex flex-col">
     <AuthSessionProvider>
      <QueryProvider>

@@ -248,6 +248,19 @@ async function ensurePublicSchema() {
                     -- Length (in days) of the plan tier the user paid for; drives the
                     -- subscription window on approval and the extension on renewal.
                     ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS duration_days INTEGER NOT NULL DEFAULT 30;
+
+                    -- Global marketing images. One row per homepage "mockup slot"
+                    -- (see src/config/marketing.ts). The super admin uploads a real
+                    -- screenshot to replace the built-in CSS mockup; the bytes are
+                    -- stored inline as bytea and served publicly through the
+                    -- /api/marketing-image/[slot] route. An absent row means the
+                    -- homepage falls back to its default CSS mockup.
+                    CREATE TABLE IF NOT EXISTS marketing_assets (
+                        slot TEXT PRIMARY KEY,
+                        mime TEXT NOT NULL DEFAULT '',
+                        data BYTEA,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
                 `);
             });
         })().catch((error) => {

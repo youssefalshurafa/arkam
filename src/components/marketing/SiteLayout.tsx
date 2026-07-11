@@ -32,6 +32,13 @@ export default function SiteLayout({ children, hideSignIn = false }: { children:
      <Image src="/logo/arkam-logo.png" alt="Arkam" width={720} height={876} priority className="h-11 w-auto" />
     </button>
     <div className="flex items-center gap-3">
+     <button
+      type="button"
+      onClick={() => router.push('/pricing')}
+      className="hidden rounded px-2 py-1 text-sm font-semibold text-gray-600 transition hover:text-blue-700 sm:inline-block"
+     >
+      {t('nav_pricing')}
+     </button>
      <div className="flex items-center gap-1 rounded border border-gray-200 p-0.5">
       {languageOptions.map((option) => (
        <button
@@ -73,6 +80,9 @@ export default function SiteLayout({ children, hideSignIn = false }: { children:
       <span className="mb-0.5 font-semibold uppercase tracking-wide text-gray-400">{t('home_footer_links')}</span>
       <button type="button" onClick={() => router.push('/')} className="text-left text-gray-500 transition hover:text-blue-700 hover:underline">
        {t('nav_home')}
+      </button>
+      <button type="button" onClick={() => router.push('/pricing')} className="text-left text-gray-500 transition hover:text-blue-700 hover:underline">
+       {t('nav_pricing')}
       </button>
       <button type="button" onClick={() => router.push('/login')} className="text-left text-gray-500 transition hover:text-blue-700 hover:underline">
        {t('home_sign_in')}

@@ -6,6 +6,7 @@ import { confirmDialog, alertDialog, promptDialog } from '@/components/ui/AppDia
 import { useStableSession } from '@/hooks/useStableSession';
 import LockButton from '@/app/admin/LockButton';
 import { getSubscriptionState } from '@/app/admin/subscription';
+import MarketingImagesPanel from '@/components/admin/MarketingImagesPanel';
 
 type Workspace = {
  id: string;
@@ -631,7 +632,7 @@ export default function AdminPage() {
  const { data: session, status } = useStableSession();
  const router = useRouter();
 
- const [tab, setTab] = useState<'users' | 'requests'>('requests');
+ const [tab, setTab] = useState<'users' | 'requests' | 'marketing'>('requests');
  const [users, setUsers] = useState<AdminUser[]>([]);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
@@ -901,6 +902,7 @@ export default function AdminPage() {
      {([
       { key: 'requests' as const, label: 'Access Requests' },
       { key: 'users' as const, label: 'Users' },
+      { key: 'marketing' as const, label: 'Homepage Images' },
      ]).map((item) => {
       const pendingCount = item.key === 'requests' ? requests.filter((r) => r.status === 'pending').length : 0;
       return (
@@ -1026,6 +1028,8 @@ export default function AdminPage() {
     </div>
      </>
     )}
+
+    {tab === 'marketing' && <MarketingImagesPanel />}
    </div>
 
    {pendingDelete && (

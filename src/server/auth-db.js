@@ -1123,8 +1123,56 @@ async function deleteUser(userId) {
     return { deletedWorkspaceIds: owned.rows.map((r) => r.id) };
 }
 
+// --- Marketing images (global, super-admin managed) -----------------------
+
+// Upserts the screenshot for one homepage mockup slot.
+async function saveMarketingAsset({ slot, mime, buffer }) {
+    await ensurePublicSchema();
+    if (!slot) {
+        throw new Error('Slot is required.');
+    }
+    await runQuery(
+        `INSERT INTO marketing_assets (slot, mime, data, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (slot) DO UPDATE
+            SET mime = EXCLUDED.mime, data = EXCLUDED.data, updated_at = NOW()`,
+        [String(slot), String(mime || ''), buffer || null],
+    );
+    return { ok: true };
+}
+
+// Returns { mime, data } for one slot, or null when no image is set.
+async function getMarketingAsset(slot) {
+    await ensurePublicSchema();
+    return fetchOne(
+        'SELECT mime, data FROM marketing_assets WHERE slot = $1 AND data IS NOT NULL',
+        [String(slot)],
+    );
+}
+
+// Lists which slots currently have an uploaded image (never selects the bytes).
+// updatedAt is returned so the homepage can cache-bust the image URL.
+async function listMarketingAssets() {
+    await ensurePublicSchema();
+    const result = await runQuery(
+        'SELECT slot, updated_at AS "updatedAt" FROM marketing_assets WHERE data IS NOT NULL',
+    );
+    return result.rows;
+}
+
+// Removes the image for one slot, reverting the homepage to its CSS mockup.
+async function deleteMarketingAsset(slot) {
+    await ensurePublicSchema();
+    await runQuery('DELETE FROM marketing_assets WHERE slot = $1', [String(slot)]);
+    return { ok: true };
+}
+
 module.exports = {
     openAuthDb,
+    saveMarketingAsset,
+    getMarketingAsset,
+    listMarketingAssets,
+    deleteMarketingAsset,
     createCredentialsUser,
     upsertOAuthUser,
     verifyCredentials,
