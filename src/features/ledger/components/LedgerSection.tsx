@@ -59,6 +59,7 @@ type LedgerSectionProps = {
  onCancelAllLedger: (ledger: ClientAccountLedger) => void;
  onDeleteLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onDeleteSelectedLedgerEntries: () => void;
+ onEditSelectedLedgerEntries: () => void;
  onReconcileLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onWriteOffLedgerRow: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
@@ -84,7 +85,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   isLoading, clients, clientAccounts, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
-  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
+  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openAdjustmentModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight,
@@ -375,38 +376,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
           {selectedClientForLedger && (
            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
             <>
-             <button
-              type="button"
-              onClick={toggleSelectionMode}
-              title={t('bulk_select')}
-              aria-pressed={selectionMode}
-              className={`inline-flex cursor-pointer items-center gap-1.5 rounded border px-3 py-2 text-sm font-semibold transition ${selectionMode ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
-             >
-              <svg
-               width="16"
-               height="16"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="1.8"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               aria-hidden
-              >
-               <path d="M9 11l3 3L22 4" />
-               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-              </svg>
-              {t('bulk_select')}
-             </button>
-             {selectionMode && selectedLedgerEntryKeys.size > 0 ? (
-              <button
-               type="button"
-               onClick={() => void onDeleteSelectedLedgerEntries()}
-               className="cursor-pointer rounded border border-red-500 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
-              >
-               {t('delete')} ({selectedLedgerEntryKeys.size})
-              </button>
-             ) : null}
              <button
               type="button"
               onClick={() => {
@@ -1266,6 +1235,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      const rowKeyForMenu = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                      if (editingLedgerRowKeys.has(rowKeyForMenu)) return;
                      setContextMenuRowKey(rowKeyForMenu);
+                     // Right-clicking a row that's part of a multi-selection offers bulk actions
+                     // (edit / delete) that apply to every selected entry at once; otherwise the
+                     // menu targets just this row.
+                     if (selectedLedgerEntryKeys.size > 1 && selectedLedgerEntryKeys.has(rowKeyForMenu)) {
+                      rowContextMenu.open(event, [
+                       { key: 'edit-selected', label: `${t('edit')} (${selectedLedgerEntryKeys.size})`, onSelect: () => onEditSelectedLedgerEntries() },
+                       { key: 'delete-selected', label: `${t('delete')} (${selectedLedgerEntryKeys.size})`, onSelect: () => void onDeleteSelectedLedgerEntries(), tone: 'danger' as const },
+                      ]);
+                      return;
+                     }
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId) },
                       entry.reconciledMark
@@ -2617,6 +2596,57 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      <path d="M18 6H7l5 6-5 6h11" />
                     </svg>
                    </button>
+                   {/* Select mode: reveals a checkbox per row so several entries can be picked
+                       for a bulk drag or a right-click bulk action (edit / delete). */}
+                   <button
+                    type="button"
+                    title={t('bulk_select')}
+                    onClick={toggleSelectionMode}
+                    aria-pressed={selectionMode}
+                    className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                     selectionMode ? 'border-blue-500 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                    }`}
+                   >
+                    <svg
+                     width="16"
+                     height="16"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="1.8"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="M9 11l3 3L22 4" />
+                     <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                    </svg>
+                   </button>
+                   {selectionMode && selectedLedgerEntryKeys.size > 0 ? (
+                    <button
+                     type="button"
+                     onClick={() => void onDeleteSelectedLedgerEntries()}
+                     className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-red-500 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+                    >
+                     <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                     >
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                     </svg>
+                     {selectedLedgerEntryKeys.size}
+                    </button>
+                   ) : null}
                    {[...ledgerSumByCurrency.entries()].map(([code, bucket]) => (
                     <span
                      key={code || 'none'}
