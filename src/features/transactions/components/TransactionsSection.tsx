@@ -1715,11 +1715,14 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </div>
            )}
           </div>
-          {transactionsPager}
-          <TableZoomControl
-           zoom={tableZoom}
-           onZoomChange={changeTableZoom}
-          />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+           {transactionsPager}
+           <TableZoomControl
+            zoom={tableZoom}
+            onZoomChange={changeTableZoom}
+            className=""
+           />
+          </div>
           <div className={`${tableWrapClassName} max-h-[70vh] overflow-y-auto`}>
            <table
             className="w-full text-sm"
@@ -1727,7 +1730,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
            >
             <colgroup>
              <col className="w-10" />
-             <col className="w-12" />
+             {selectionMode ? <col className="w-12" /> : null}
              {transactionTableSettings.columns.created ? <col style={{ width: colWidthPercent(10) }} /> : null}
              {transactionTableSettings.columns.description ? <col style={{ width: colWidthPercent(15) }} /> : null}
              {transactionTableSettings.columns.accountFrom ? <col style={{ width: colWidthPercent(17) }} /> : null}

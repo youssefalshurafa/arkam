@@ -1659,7 +1659,7 @@ function AuthenticatedHome() {
   const fromRow = totalRows - chunkEnd + 1;
   const toRow = totalRows - chunkStart;
   return (
-   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+   <div className="flex flex-1 flex-wrap items-center justify-between gap-2">
     <div className="text-xs text-slate-600">
      {fromRow}–{toRow} {t('pagination_of')} {totalRows}
     </div>
