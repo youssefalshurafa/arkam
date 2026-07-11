@@ -886,99 +886,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 );
                })()}
 
-               {/* Row-click mode: highlight rows, click cells to copy their value, or sum clicked amounts. */}
-               <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                <button
-                 type="button"
-                 title={t('ledger_click_highlight_mode')}
-                 onClick={() => setLedgerRowClickMode(ledgerRowClickActive && ledgerRowClickHighlight ? 'none' : 'highlight')}
-                 aria-pressed={ledgerRowClickActive && ledgerRowClickHighlight}
-                 className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                  ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
-                 }`}
-                >
-                 <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                 >
-                  <path d="m9 11-6 6v3h9l3-3" />
-                  <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
-                 </svg>
-                </button>
-                <button
-                 type="button"
-                 title={t('ledger_click_copy_mode')}
-                 onClick={() => setLedgerRowClickMode(ledgerRowClickActive && !ledgerRowClickHighlight ? 'none' : 'copy')}
-                 aria-pressed={ledgerRowClickActive && !ledgerRowClickHighlight}
-                 className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                  ledgerRowClickActive && !ledgerRowClickHighlight ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
-                 }`}
-                >
-                 <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                 >
-                  <rect
-                   x="9"
-                   y="9"
-                   width="13"
-                   height="13"
-                   rx="2"
-                   ry="2"
-                  />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                 </svg>
-                </button>
-                <button
-                 type="button"
-                 title={t('ledger_sum_mode_hint')}
-                 onClick={toggleLedgerSumMode}
-                 aria-pressed={ledgerSumMode}
-                 className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                  ledgerSumMode ? 'border-purple-400 bg-purple-50 text-purple-600 hover:bg-purple-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
-                 }`}
-                >
-                 <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                 >
-                  <path d="M18 6H7l5 6-5 6h11" />
-                 </svg>
-                </button>
-                {[...ledgerSumByCurrency.entries()].map(([code, bucket]) => (
-                 <span
-                  key={code || 'none'}
-                  className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm text-slate-600"
-                 >
-                  <span className="font-medium text-slate-500">
-                   {code || t('amount')} ({bucket.count})
-                  </span>
-                  <span className="font-semibold text-slate-800">{bucket.total.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}</span>
-                 </span>
-                ))}
-               </div>
-
                {(() => {
                 const ordered = ledger.entries;
                 const visibleCount = ordered.filter((e) => {
@@ -2630,8 +2537,100 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
                 return (
                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs text-slate-600">
-                   {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                  {/* Row-click mode (highlight / copy / sum) + live sum totals, at the foot opposite the pager. */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                   <button
+                    type="button"
+                    title={t('ledger_click_highlight_mode')}
+                    onClick={() => setLedgerRowClickMode(ledgerRowClickActive && ledgerRowClickHighlight ? 'none' : 'highlight')}
+                    aria-pressed={ledgerRowClickActive && ledgerRowClickHighlight}
+                    className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                     ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                    }`}
+                   >
+                    <svg
+                     width="16"
+                     height="16"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="1.8"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="m9 11-6 6v3h9l3-3" />
+                     <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+                    </svg>
+                   </button>
+                   <button
+                    type="button"
+                    title={t('ledger_click_copy_mode')}
+                    onClick={() => setLedgerRowClickMode(ledgerRowClickActive && !ledgerRowClickHighlight ? 'none' : 'copy')}
+                    aria-pressed={ledgerRowClickActive && !ledgerRowClickHighlight}
+                    className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                     ledgerRowClickActive && !ledgerRowClickHighlight ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                    }`}
+                   >
+                    <svg
+                     width="16"
+                     height="16"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="1.8"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <rect
+                      x="9"
+                      y="9"
+                      width="13"
+                      height="13"
+                      rx="2"
+                      ry="2"
+                     />
+                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                   </button>
+                   <button
+                    type="button"
+                    title={t('ledger_sum_mode_hint')}
+                    onClick={toggleLedgerSumMode}
+                    aria-pressed={ledgerSumMode}
+                    className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                     ledgerSumMode ? 'border-purple-400 bg-purple-50 text-purple-600 hover:bg-purple-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                    }`}
+                   >
+                    <svg
+                     width="16"
+                     height="16"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="1.8"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="M18 6H7l5 6-5 6h11" />
+                    </svg>
+                   </button>
+                   {[...ledgerSumByCurrency.entries()].map(([code, bucket]) => (
+                    <span
+                     key={code || 'none'}
+                     className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm text-slate-600"
+                    >
+                     <span className="font-medium text-slate-500">
+                      {code || t('amount')} ({bucket.count})
+                     </span>
+                     <span className="font-semibold text-slate-800">{bucket.total.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}</span>
+                    </span>
+                   ))}
+                   <span className="text-xs text-slate-600">
+                    {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
+                   </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                    <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
