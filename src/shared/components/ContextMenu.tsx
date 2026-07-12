@@ -60,11 +60,16 @@ export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<type
   const node = ref.current;
   if (!menu || !node) return;
   const rect = node.getBoundingClientRect();
+  // menu.x/menu.y are real viewport coordinates (from the pointer), but CSS `zoom` on this
+  // node also scales its `left`/`top` offsets — the rendered position ends up at
+  // left*zoom / top*zoom. Divide by zoom so the menu's top-left lands exactly on the touch
+  // point. rect.width/height are already the on-screen (post-zoom) size, so the viewport
+  // clamp below is computed in real px, then converted back to the pre-zoom style value.
   const left = Math.max(4, Math.min(menu.x, window.innerWidth - rect.width - 4));
   const top = Math.max(4, Math.min(menu.y, window.innerHeight - rect.height - 4));
-  node.style.left = `${left}px`;
-  node.style.top = `${top}px`;
- }, [menu]);
+  node.style.left = `${left / zoom}px`;
+  node.style.top = `${top / zoom}px`;
+ }, [menu, zoom]);
 
  useEffect(() => {
   if (!menu) return;
@@ -92,7 +97,7 @@ export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<type
  return (
   <div
    ref={ref}
-   style={{ position: 'fixed', top: menu.y, left: menu.x, zIndex: 200, zoom }}
+   style={{ position: 'fixed', top: menu.y / zoom, left: menu.x / zoom, zIndex: 200, zoom }}
    role="menu"
    className="min-w-[11rem] overflow-hidden rounded border border-slate-200 bg-white py-1 shadow-xl"
   >
