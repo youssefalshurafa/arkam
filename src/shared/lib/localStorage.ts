@@ -368,6 +368,8 @@ export const defaultPdfSettings: PdfSettings = {
  fontFamily: 'Arial, Helvetica, sans-serif',
  fontSize: 12,
  headFontSize: 13,
+ companyName: '',
+ showCompanyName: false,
  dateFormat: 'full',
  showPreBalance: true,
  showMetaClient: true,

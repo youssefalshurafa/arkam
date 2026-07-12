@@ -106,6 +106,7 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
   const dir = isRTL ? 'rtl' : 'ltr';
   const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const exportDate = new Date().toLocaleDateString(language);
+  const companyNameHtml = pdfSettings.showCompanyName && pdfSettings.companyName.trim() ? `<p class="company-name">${esc(pdfSettings.companyName)}</p>` : '';
 
   return `<!DOCTYPE html>
 <html lang="${language}" dir="${dir}">
@@ -124,6 +125,7 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
  .header-left { display: flex; align-items: center; gap: 14px; }
  .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left .company-name { font-size: calc(${pdfSettings.fontSize}px + 6px); font-weight: bold; color: #1e293b; margin-bottom: 2px; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
@@ -146,6 +148,7 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
+   ${companyNameHtml}
    <p>${esc(t('archive_title'))}</p>
   </div>
  </div>
@@ -180,6 +183,7 @@ export function generateTransactionsExportHtml(
   const dir = isRTL ? 'rtl' : 'ltr';
   const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const exportDate = new Date().toLocaleDateString(language);
+  const companyNameHtml = pdfSettings.showCompanyName && pdfSettings.companyName.trim() ? `<p class="company-name">${esc(pdfSettings.companyName)}</p>` : '';
   const rangeLabel = [transactionExportFrom, transactionExportTo].filter(Boolean).join(' → ');
   const headerCells = headers.map((header) => `<th>${esc(header)}</th>`).join('');
   const bodyRows = rows.map((cells) => `<tr>${cells.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`).join('');
@@ -201,6 +205,7 @@ export function generateTransactionsExportHtml(
  .header-left { display: flex; align-items: center; gap: 14px; }
  .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left .company-name { font-size: calc(${pdfSettings.fontSize}px + 6px); font-weight: bold; color: #1e293b; margin-bottom: 2px; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
@@ -218,6 +223,7 @@ export function generateTransactionsExportHtml(
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
+   ${companyNameHtml}
    <p>${esc(section === 'archive' ? t('archive_title') : t('transactions_title'))}${rangeLabel ? ` — ${esc(rangeLabel)}` : ''}</p>
   </div>
  </div>
@@ -404,6 +410,7 @@ export function generateLedgerHtml(
   const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
   const clientName = selectedClientForLedger?.name ?? '';
   const exportDate = new Date().toLocaleDateString(language);
+  const companyNameHtml = pdfSettings.showCompanyName && pdfSettings.companyName.trim() ? `<p class="company-name">${esc(pdfSettings.companyName)}</p>` : '';
 
   const metaCards = [
    pdfSettings.showMetaClient ? `<div class="meta-card"><div class="label">${t('client')}</div><div class="value">${clientName}</div></div>` : '',
@@ -433,6 +440,7 @@ export function generateLedgerHtml(
  .header-left { display: flex; align-items: center; gap: 14px; }
  .brand-logo { height: 54px; width: auto; }
  .header-left h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); font-weight: bold; }
+ .header-left .company-name { font-size: calc(${pdfSettings.fontSize}px + 6px); font-weight: bold; color: #1e293b; margin-bottom: 2px; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; margin-top: 2px; }
  .header-left .brand-url { font-size: calc(${pdfSettings.fontSize}px - 3px); color: #94a3b8; margin-top: 1px; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
@@ -468,6 +476,7 @@ export function generateLedgerHtml(
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
+   ${companyNameHtml}
    <p>${t('client_ledger_statement')}</p>
    <p class="brand-url">www.arkam.app</p>
   </div>
@@ -520,6 +529,7 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  const dir = isRTL ? 'rtl' : 'ltr';
  const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
  const exportDate = new Date().toLocaleDateString(language);
+ const companyNameHtml = pdfSettings.showCompanyName && pdfSettings.companyName.trim() ? `<p class="company-name">${esc(pdfSettings.companyName)}</p>` : '';
 
  const cardHtml = cards
   .map((card) => {
@@ -578,6 +588,7 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px; }
  .header-left { display: flex; align-items: center; gap: 14px; }
  .brand-logo { height: 54px; width: auto; }
+ .header-left .company-name { font-size: calc(${pdfSettings.fontSize}px + 6px); font-weight: bold; color: #1e293b; margin-bottom: 2px; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
@@ -607,7 +618,7 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
 <div class="header">
  <div class="header-left">
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
-  <div><p>${esc(t('overview_balances_title'))}</p></div>
+  <div>${companyNameHtml}<p>${esc(t('overview_balances_title'))}</p></div>
  </div>
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
