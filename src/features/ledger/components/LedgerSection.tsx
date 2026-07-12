@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useRouter } from 'next/navigation';
@@ -2726,7 +2727,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
          )}
         </section>
    <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
-   {editingLedgerRowKeys.size > 0 ? (
+   {editingLedgerRowKeys.size > 0 && typeof document !== 'undefined' ? createPortal(
     <div className={`fixed bottom-6 z-30 flex flex-col gap-3 sm:hidden ${isRTL ? 'left-6' : 'right-6'}`}>
      <button
       type="button"
@@ -2769,7 +2770,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
        <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
      </button>
-    </div>
+    </div>,
+    document.body,
    ) : null}
   </>
  );

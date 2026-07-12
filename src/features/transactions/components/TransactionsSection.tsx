@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -2795,7 +2796,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
          </div>
         </section>
    <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
-   {editingRowIds.size > 0 ? (
+   {editingRowIds.size > 0 && typeof document !== 'undefined' ? createPortal(
     <div className={`fixed bottom-6 z-30 flex flex-col gap-3 sm:hidden ${isRTL ? 'left-6' : 'right-6'}`}>
      <button
       type="button"
@@ -2838,7 +2839,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
        <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
      </button>
-    </div>
+    </div>,
+    document.body,
    ) : null}
 
    <ArchiveExportModal
