@@ -44,6 +44,30 @@ export default function PdfSettingsTab() {
     <h2 className="text-2xl font-semibold">{t('settings_pdf_title')}</h2>
     <p className="mt-2 text-sm text-slate-600">{t('settings_pdf_description')}</p>
 
+    {/* Company name */}
+    <div className="mt-6">
+     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_company_name_label')}</h3>
+     <p className="mt-1 text-xs text-slate-500">{t('pdf_company_name_hint')}</p>
+     <div className="mt-3 flex items-center gap-3">
+      <input
+       type="text"
+       value={pdfSettings.companyName}
+       onChange={(e) => updatePdfSettings({ companyName: e.target.value })}
+       placeholder={t('pdf_company_name_placeholder')}
+       className="w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      />
+      <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm font-medium text-slate-700">
+       <input
+        type="checkbox"
+        checked={pdfSettings.showCompanyName}
+        onChange={(e) => updatePdfSettings({ showCompanyName: e.target.checked })}
+        className="h-4 w-4 rounded border-slate-300 text-blue-600 accent-blue-600"
+       />
+       {t('pdf_company_name_toggle')}
+      </label>
+     </div>
+    </div>
+
     {/* Font */}
     <div className="mt-6 grid gap-4 sm:grid-cols-2">
      <div>

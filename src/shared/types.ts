@@ -394,6 +394,8 @@ export type PdfSettings = {
  fontFamily: string;
  fontSize: number;
  headFontSize: number;
+ companyName: string;
+ showCompanyName: boolean;
  dateFormat: 'full' | 'day-month' | 'month-year' | 'day-month-year-2' | 'month-day';
  showPreBalance: boolean;
  showMetaClient: boolean;
