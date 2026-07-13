@@ -618,6 +618,28 @@ async function getUserByEmail(email) {
     return fetchOne('SELECT id, email, name, image FROM users WHERE email = $1', [normalizedEmail]);
 }
 
+const EMAILABLE_IDENTIFIER_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Looks up an account by its login identifier for the forgot-password flow. The identifier can be
+// an email OR a username — both live in the `email` column. Returns whether an account exists and
+// whether it has a real, deliverable email address: username-only accounts don't, so they can't be
+// reached by the email reset link and must use the support-approval /reset-request flow instead.
+async function lookupResetTarget(identifier) {
+    await ensurePublicSchema();
+
+    const normalized = String(identifier || '').trim().toLowerCase();
+    if (!normalized) {
+        return { exists: false, emailable: false };
+    }
+
+    const user = await fetchOne('SELECT email FROM users WHERE email = $1', [normalized]);
+    if (!user) {
+        return { exists: false, emailable: false };
+    }
+
+    return { exists: true, emailable: EMAILABLE_IDENTIFIER_RE.test(user.email || '') };
+}
+
 
 // Lists access requests joined with the requester's user info. Never selects the
 // (potentially large) proof_data blob — that's fetched separately on demand.
@@ -803,12 +825,13 @@ async function renewSubscription({ userId, durationDays }) {
 // hand the user a plain username instead of a real address. The account has no password yet;
 // no email is sent — the user sets their own password later via setInitialPassword() (the
 // sign-in page links to a "set your password" screen for first-time logins like this).
-async function createUserBySuperAdmin({ name, email, durationDays }) {
+async function createUserBySuperAdmin({ name, email, durationDays, phone }) {
     await ensurePublicSchema();
 
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const displayName = String(name || '').trim() || normalizedEmail;
     const days = Number(durationDays) > 0 ? Number(durationDays) : 30;
+    const trustedContact = String(phone || '').trim();
 
     if (!normalizedEmail) {
         throw new Error('Email or username is required.');
@@ -825,9 +848,9 @@ async function createUserBySuperAdmin({ name, email, durationDays }) {
 
     await withTransaction(async (client) => {
         await runQuery(
-            `INSERT INTO users (id, email, name, status, subscription_started_at, subscription_ends_at)
-             VALUES ($1, $2, $3, 'approved', $4, $5)`,
-            [userId, normalizedEmail, displayName, now.toISOString(), endsAt.toISOString()],
+            `INSERT INTO users (id, email, name, status, phone, subscription_started_at, subscription_ends_at)
+             VALUES ($1, $2, $3, 'approved', $4, $5, $6)`,
+            [userId, normalizedEmail, displayName, trustedContact, now.toISOString(), endsAt.toISOString()],
             client,
         );
         await createWorkspaceForUserWithExecutor(client, userId, `${displayName} Workspace`);
@@ -867,6 +890,150 @@ async function setInitialPassword({ email, password }) {
     await runQuery('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, user.id]);
 
     return { ok: true };
+}
+
+// Super-admin password recovery for accounts that can't be reached by email (username-only
+// users have no real address, so the /forgot-password email flow can't help them). Clears
+// password_hash back to NULL, which lets the user set a new password via setInitialPassword()
+// (/set-password) using their username. Note: while cleared, anyone who knows the username
+// could set the password first — the admin should reset then immediately tell the user to
+// set their new password.
+async function clearUserPassword({ userId }) {
+    await ensurePublicSchema();
+
+    const user = await fetchOne('SELECT id, email, name FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    await runQuery('UPDATE users SET password_hash = NULL WHERE id = $1', [userId]);
+
+    return { ok: true, email: user.email || '', name: user.name || '' };
+}
+
+// Sets/changes the trusted contact (phone/WhatsApp) a super admin uses to verify a user's
+// identity out-of-band before approving a password reset request.
+async function updateUserContact({ userId, phone }) {
+    await ensurePublicSchema();
+
+    const user = await fetchOne('SELECT id FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    await runQuery('UPDATE users SET phone = $1 WHERE id = $2', [String(phone || '').trim(), userId]);
+    return { ok: true };
+}
+
+// Files a user-initiated password reset request (for username-only accounts the email-based
+// /forgot-password flow can't reach). Anti-enumeration: if no account matches the identifier we
+// silently return `created: false` so the caller can show the same confirmation either way. A
+// pending request already on file is not duplicated. A pending row changes nothing about the
+// account — only an admin approval (reviewPasswordResetRequest) mints a reset link.
+async function createPasswordResetRequest({ email, note }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+        return { ok: true, created: false };
+    }
+
+    const user = await fetchOne('SELECT id, name FROM users WHERE email = $1', [normalizedEmail]);
+    if (!user?.id) {
+        return { ok: true, created: false };
+    }
+
+    const existing = await fetchOne(
+        `SELECT id FROM password_reset_requests WHERE user_id = $1 AND status = 'pending' LIMIT 1`,
+        [user.id],
+    );
+    if (existing?.id) {
+        return { ok: true, created: false, userId: user.id, name: user.name || '' };
+    }
+
+    await runQuery(
+        `INSERT INTO password_reset_requests (id, user_id, note, status)
+         VALUES ($1, $2, $3, 'pending')`,
+        [generateId(), user.id, String(note || '').trim()],
+    );
+
+    return { ok: true, created: true, userId: user.id, name: user.name || '' };
+}
+
+// Lists password reset requests joined with the requester's user info. `phone` is the trusted
+// contact the admin calls to verify identity before approving.
+async function listPasswordResetRequests({ status } = {}) {
+    await ensurePublicSchema();
+
+    const conditions = [];
+    const params = [];
+    if (status) {
+        params.push(status);
+        conditions.push(`pr.status = $${params.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const result = await runQuery(
+        `SELECT
+            pr.id,
+            pr.user_id AS "userId",
+            u.email,
+            u.name,
+            u.phone,
+            pr.note,
+            pr.status,
+            pr.created_at AS "createdAt",
+            pr.reviewed_at AS "reviewedAt"
+         FROM password_reset_requests pr
+         JOIN users u ON u.id = pr.user_id
+         ${where}
+         ORDER BY pr.created_at DESC`,
+        params,
+    );
+
+    return result.rows;
+}
+
+// Approves or rejects a password reset request. On approval it mints a one-time, 1-hour reset
+// token (via requestPasswordReset) and returns the raw token so the caller can build the
+// /reset-password/{token} link — the admin then hands that link to the user through the trusted
+// channel. Nothing about the account changes on reject.
+async function reviewPasswordResetRequest({ id, action, reviewerUserId }) {
+    await ensurePublicSchema();
+
+    if (action !== 'approve' && action !== 'reject') {
+        throw new Error('Action must be approve or reject.');
+    }
+
+    const request = await fetchOne(
+        'SELECT id, user_id AS "userId", status FROM password_reset_requests WHERE id = $1',
+        [id],
+    );
+    if (!request) {
+        throw new Error('Password reset request not found.');
+    }
+
+    const user = await fetchOne('SELECT email, name FROM users WHERE id = $1', [request.userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    const requestStatus = action === 'approve' ? 'approved' : 'rejected';
+    await runQuery(
+        `UPDATE password_reset_requests
+         SET status = $1, reviewed_at = NOW(), reviewed_by = $2
+         WHERE id = $3`,
+        [requestStatus, reviewerUserId || null, id],
+    );
+
+    if (action === 'reject') {
+        return { ok: true, email: user.email || '', name: user.name || '', resetToken: null };
+    }
+
+    // Reuse the existing token machinery (SHA-256 hashed, 1-hour expiry, single-use, prior
+    // tokens purged). Works for username-only accounts since it never sends email itself.
+    const { resetToken } = await requestPasswordReset(user.email);
+    return { ok: true, email: user.email || '', name: user.name || '', resetToken };
 }
 
 // Super-admin override: sets a user's subscription to expire in exactly `days` days from now
@@ -1075,6 +1242,7 @@ async function getUserDetailForAdmin(userId) {
             CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' ELSE 'oauth' END AS "authProvider",
             u.created_at AS "createdAt",
             u.status,
+            u.phone,
             u.subscription_started_at AS "subscriptionStartedAt",
             u.subscription_ends_at AS "subscriptionEndsAt"
          FROM users u
@@ -1101,6 +1269,61 @@ async function getUserDetailForAdmin(userId) {
     );
 
     return { ...user, workspaces: workspaces.rows };
+}
+
+const ACTIVITY_EVENT_TYPES = ['app_open', 'section_visit', 'login'];
+
+// Records one behavioral telemetry event (login / app open / section visit). Best-effort:
+// callers invoke this fire-and-forget and must not let a failure here break their flow.
+async function recordActivityEvent({ userId, workspaceId, eventType, section } = {}) {
+    if (!userId || !ACTIVITY_EVENT_TYPES.includes(eventType)) {
+        return;
+    }
+    await ensurePublicSchema();
+    await runQuery(
+        `INSERT INTO user_activity_events (user_id, workspace_id, event_type, section)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, workspaceId || null, eventType, section || null],
+    );
+}
+
+// Aggregates a user's activity events for the super-admin detail page: login/app-open
+// counts with last-seen timestamps, per-section visit counts, and overall last-active time.
+async function getUserActivitySummary(userId) {
+    await ensurePublicSchema();
+
+    const totals = await fetchOne(
+        `SELECT
+            COUNT(*) FILTER (WHERE event_type = 'app_open')::int AS "appOpenCount",
+            MAX(created_at) FILTER (WHERE event_type = 'app_open') AS "lastAppOpenAt",
+            COUNT(*) FILTER (WHERE event_type = 'login')::int AS "loginCount",
+            MAX(created_at) FILTER (WHERE event_type = 'login') AS "lastLoginAt",
+            MAX(created_at) AS "lastActiveAt"
+         FROM user_activity_events
+         WHERE user_id = $1`,
+        [userId],
+    );
+
+    const sectionVisits = await runQuery(
+        `SELECT
+            COALESCE(section, '') AS section,
+            COUNT(*)::int AS count,
+            MAX(created_at) AS "lastVisitAt"
+         FROM user_activity_events
+         WHERE user_id = $1 AND event_type = 'section_visit'
+         GROUP BY section
+         ORDER BY count DESC, "lastVisitAt" DESC`,
+        [userId],
+    );
+
+    return {
+        appOpenCount: totals?.appOpenCount ?? 0,
+        lastAppOpenAt: totals?.lastAppOpenAt ?? null,
+        loginCount: totals?.loginCount ?? 0,
+        lastLoginAt: totals?.lastLoginAt ?? null,
+        lastActiveAt: totals?.lastActiveAt ?? null,
+        sectionVisits: sectionVisits.rows,
+    };
 }
 
 async function deleteUser(userId) {
@@ -1195,9 +1418,16 @@ module.exports = {
     resetPasswordWithToken,
     listAllUsers,
     getUserDetailForAdmin,
+    recordActivityEvent,
+    getUserActivitySummary,
     deleteUser,
     createUserBySuperAdmin,
     setInitialPassword,
+    clearUserPassword,
+    updateUserContact,
+    createPasswordResetRequest,
+    listPasswordResetRequests,
+    reviewPasswordResetRequest,
     listAccessRequests,
     getAccessRequestProof,
     reviewAccessRequest,
@@ -1208,4 +1438,5 @@ module.exports = {
     getUserAccountInfo,
     createRenewalRequest,
     getUserByEmail,
+    lookupResetTarget,
 };

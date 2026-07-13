@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 // Password prompt shown by the /admin layout when the signed-in super-admin hasn't
@@ -13,6 +13,12 @@ export default function AdminUnlockGate() {
  const [password, setPassword] = useState('');
  const [error, setError] = useState<string | null>(null);
  const [isSubmitting, setIsSubmitting] = useState(false);
+
+ // Render the form only after mount. The gate is entirely client-driven, so SSR of it
+ // adds no value, and skipping it avoids hydration mismatches caused by password-manager
+ // extensions that mutate the password field/form before React hydrates.
+ const [mounted, setMounted] = useState(false);
+ useEffect(() => setMounted(true), []);
 
  const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
@@ -37,6 +43,10 @@ export default function AdminUnlockGate() {
    setIsSubmitting(false);
   }
  };
+
+ if (!mounted) {
+  return <div dir="ltr" className="min-h-screen bg-gray-50" />;
+ }
 
  return (
   <div dir="ltr" className="min-h-screen flex items-center justify-center bg-gray-50">

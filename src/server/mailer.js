@@ -131,6 +131,22 @@ async function sendWorkspaceInviteEmail({ to, name, inviterName, workspaceName, 
     await sendEmail({ to, subject, html, text, logLabel: 'WORKSPACE INVITE' });
 }
 
+// Sent to the super admin when a user files a password reset request. Username-only accounts
+// have no email of their own, so the admin must verify identity out-of-band before approving.
+async function sendPasswordResetRequestNotification({ to, requesterName, requesterUsername, reviewUrl }) {
+    const subject = 'New password reset request — Arkam';
+    const text = `${requesterName || requesterUsername} (${requesterUsername}) requested a password reset.\n\nVerify their identity via the trusted contact on file, then review it here: ${reviewUrl}`;
+    const html = buildBrandedHtml({
+        heading: 'New password reset request',
+        bodyHtml: `
+            <p style="margin:0 0 8px;font-size:14px;color:#374151;"><strong>${requesterName || requesterUsername}</strong> (${requesterUsername}) requested a password reset.</p>
+            <p style="margin:0 0 24px;font-size:14px;color:#6b7280;">Verify their identity by calling the trusted contact on file before approving.</p>
+            <a href="${reviewUrl}" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;">Review request</a>
+        `,
+    });
+    await sendEmail({ to, subject, html, text, logLabel: 'PASSWORD RESET REQUEST NOTIFICATION' });
+}
+
 // Sent to the user when the super admin rejects their request.
 async function sendAccessRejectedEmail({ to, name, note }) {
     const subject = 'Update on your Arkam access request';
@@ -150,6 +166,7 @@ async function sendAccessRejectedEmail({ to, name, note }) {
 module.exports = {
     sendPasswordResetEmail,
     sendAccessRequestNotification,
+    sendPasswordResetRequestNotification,
     sendAccessApprovedEmail,
     sendAccessRejectedEmail,
     sendWorkspaceInviteEmail,

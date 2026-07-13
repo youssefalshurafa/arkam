@@ -120,4 +120,16 @@ export const authOptions: NextAuthOptions = {
    return session;
   },
  },
+ events: {
+  // Records a login event for the super-admin activity view. Fires after a successful
+  // sign-in for both Credentials and Google. Best-effort — a telemetry failure must never
+  // block or break the login itself.
+  async signIn({ user }) {
+   if (user?.id) {
+    try {
+     await authDb.recordActivityEvent({ userId: user.id, eventType: 'login' });
+    } catch {}
+   }
+  },
+ },
 };

@@ -249,6 +249,24 @@ async function ensurePublicSchema() {
                     -- subscription window on approval and the extension on renewal.
                     ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS duration_days INTEGER NOT NULL DEFAULT 30;
 
+                    -- User-initiated password reset requests for username-only accounts that the
+                    -- email-based /forgot-password flow can't reach. The user files a request; the
+                    -- super admin verifies identity out-of-band (calling users.phone, the trusted
+                    -- contact on file) and on approval mints a one-time reset link. A pending row
+                    -- changes nothing about the account, so filing one can never lock a user out.
+                    CREATE TABLE IF NOT EXISTS password_reset_requests (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        note TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        reviewed_at TIMESTAMPTZ,
+                        reviewed_by TEXT
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_password_reset_requests_status ON password_reset_requests(status);
+                    CREATE INDEX IF NOT EXISTS idx_password_reset_requests_user_id ON password_reset_requests(user_id);
+
                     -- Global marketing images. One row per homepage "mockup slot"
                     -- (see src/config/marketing.ts). The super admin uploads a real
                     -- screenshot to replace the built-in CSS mockup; the bytes are
@@ -261,6 +279,22 @@ async function ensurePublicSchema() {
                         data BYTEA,
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
+
+                    -- Behavioral usage telemetry, surfaced only in the super-admin per-user
+                    -- detail page (logins, app opens, and per-section page visits). One raw row
+                    -- per event; the admin view aggregates them. workspace_id is nullable since
+                    -- an app-open/login isn't tied to a specific workspace. No financial data.
+                    CREATE TABLE IF NOT EXISTS user_activity_events (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+                        event_type TEXT NOT NULL CHECK (event_type IN ('app_open', 'section_visit', 'login')),
+                        section TEXT,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_user_activity_events_user ON user_activity_events(user_id, created_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_user_activity_events_user_type ON user_activity_events(user_id, event_type);
                 `);
             });
         })().catch((error) => {

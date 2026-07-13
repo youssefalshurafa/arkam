@@ -137,6 +137,26 @@ export const accountingApi = {
   window.localStorage.removeItem(activeWorkspaceStorageKey);
  },
  getActiveWorkspaceId,
+ // Fire-and-forget usage telemetry (app opens + section visits) for the super-admin
+ // activity view. Deliberately bypasses request(): it must be silent (no global loading
+ // spinner) and must never throw into the caller — a dropped beacon is fine. keepalive
+ // lets it survive an unload if the tab is closing.
+ recordActivity: (eventType: 'app_open' | 'section_visit', section?: string) => {
+  if (typeof window === 'undefined') {
+   return;
+  }
+  const workspaceId = getActiveWorkspaceId();
+  void fetch('/api/activity', {
+   method: 'POST',
+   credentials: 'include',
+   keepalive: true,
+   headers: {
+    'Content-Type': 'application/json',
+    ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
+   },
+   body: JSON.stringify({ eventType, section }),
+  }).catch(() => {});
+ },
  getDbInfo: () =>
   request<{ provider: string; host: string; port: string; database: string; schema: string; dbPath: string; dbDirectory: string; supportsDirectoryChange: boolean }>({
    action: 'getDbInfo',

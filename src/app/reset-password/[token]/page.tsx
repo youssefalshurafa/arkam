@@ -2,14 +2,21 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useTranslation } from '@/hooks/useTranslation';
+import PasswordVisibilityToggle from '@/components/auth/PasswordVisibilityToggle';
 
 export default function ResetPasswordPage() {
  const router = useRouter();
+ const { language } = useLanguage();
+ const { t } = useTranslation(language);
  const params = useParams<{ token: string }>();
  const token = params?.token || '';
 
  const [password, setPassword] = useState('');
  const [confirmPassword, setConfirmPassword] = useState('');
+ const [showPassword, setShowPassword] = useState(false);
+ const [showConfirmPassword, setShowConfirmPassword] = useState(false);
  const [error, setError] = useState('');
  const [success, setSuccess] = useState('');
  const [isTokenValid, setIsTokenValid] = useState(true);
@@ -61,12 +68,12 @@ export default function ResetPasswordPage() {
   setSuccess('');
 
   if (password.length < 8) {
-   setError('Password must be at least 8 characters.');
+   setError(t('account_password_too_short'));
    return;
   }
 
   if (password !== confirmPassword) {
-   setError('Passwords do not match.');
+   setError(t('account_password_mismatch'));
    return;
   }
 
@@ -84,14 +91,14 @@ export default function ResetPasswordPage() {
    const payload = (await response.json()) as { ok?: boolean; error?: string };
 
    if (!response.ok || !payload.ok) {
-    throw new Error(payload.error || 'Failed to reset password.');
+    throw new Error(payload.error || t('reset_password_failed'));
    }
 
-   setSuccess('Password reset successful. Redirecting to sign in...');
+   setSuccess(t('reset_password_success'));
    router.replace('/login');
    return;
   } catch (resetError) {
-   setError(resetError instanceof Error ? resetError.message : 'Failed to reset password.');
+   setError(resetError instanceof Error ? resetError.message : t('reset_password_failed'));
   } finally {
    setIsSubmitting(false);
   }
@@ -107,13 +114,13 @@ export default function ResetPasswordPage() {
     </div>
     <section className="rounded border border-gray-300 bg-white shadow-md">
      <div className="border-b border-gray-200 bg-gray-50 px-5 py-3">
-      <h2 className="text-sm font-semibold text-gray-700">Set a New Password</h2>
+      <h2 className="text-sm font-semibold text-gray-700">{t('reset_password_title')}</h2>
      </div>
      <div className="p-5">
-      {isValidating ? <p className="text-sm text-gray-500">Validating reset link...</p> : null}
+      {isValidating ? <p className="text-sm text-gray-500">{t('reset_password_validating')}</p> : null}
 
       {!isValidating && !isTokenValid ? (
-       <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">This reset link is invalid or has expired.</div>
+       <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{t('reset_password_invalid')}</div>
       ) : null}
 
       {!isValidating && isTokenValid ? (
@@ -122,28 +129,44 @@ export default function ResetPasswordPage() {
         onSubmit={(event) => void onSubmit(event)}
        >
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">New password</label>
-         <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder="New password"
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          minLength={8}
-          required
-         />
+         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('set_password_new_label')}</label>
+         <div className="relative">
+          <input
+           type={showPassword ? 'text' : 'password'}
+           value={password}
+           onChange={(event) => setPassword(event.target.value)}
+           placeholder={t('set_password_new_label')}
+           className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           minLength={8}
+           required
+          />
+          <PasswordVisibilityToggle
+           shown={showPassword}
+           onToggle={() => setShowPassword((current) => !current)}
+           showLabel={t('password_show')}
+           hideLabel={t('password_hide')}
+          />
+         </div>
         </div>
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">Confirm password</label>
-         <input
-          type="password"
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          placeholder="Confirm password"
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          minLength={8}
-          required
-         />
+         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('set_password_confirm_label')}</label>
+         <div className="relative">
+          <input
+           type={showConfirmPassword ? 'text' : 'password'}
+           value={confirmPassword}
+           onChange={(event) => setConfirmPassword(event.target.value)}
+           placeholder={t('set_password_confirm_label')}
+           className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           minLength={8}
+           required
+          />
+          <PasswordVisibilityToggle
+           shown={showConfirmPassword}
+           onToggle={() => setShowConfirmPassword((current) => !current)}
+           showLabel={t('password_show')}
+           hideLabel={t('password_hide')}
+          />
+         </div>
         </div>
 
         {error ? <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
@@ -154,7 +177,7 @@ export default function ResetPasswordPage() {
          disabled={isSubmitting}
          className="w-full rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-         {isSubmitting ? 'Resetting...' : 'Reset password'}
+         {isSubmitting ? t('reset_password_submitting') : t('reset_password_submit')}
         </button>
        </form>
       ) : null}
@@ -165,7 +188,7 @@ export default function ResetPasswordPage() {
         onClick={() => router.push('/login')}
         className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
        >
-        Back to sign in
+        {t('set_password_back_to_sign_in')}
        </button>
       </div>
      </div>
