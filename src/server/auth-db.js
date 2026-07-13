@@ -1232,6 +1232,10 @@ async function listAllUsers() {
             u.image,
             CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' ELSE 'oauth' END AS "authProvider",
             u.created_at AS "createdAt",
+            u.status,
+            u.phone,
+            u.subscription_started_at AS "subscriptionStartedAt",
+            u.subscription_ends_at AS "subscriptionEndsAt",
             COUNT(DISTINCT wm.workspace_id)::int AS "workspaceCount",
             COALESCE(
                 json_agg(

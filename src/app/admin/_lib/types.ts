@@ -16,6 +16,10 @@ export type AdminUser = {
  image: string | null;
  authProvider: 'credentials' | 'oauth';
  createdAt: string;
+ status: 'pending' | 'approved' | 'rejected' | null;
+ phone: string | null;
+ subscriptionStartedAt: string | null;
+ subscriptionEndsAt: string | null;
  workspaceCount: number;
  workspaces: Workspace[];
 };

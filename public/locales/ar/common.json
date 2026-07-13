@@ -1104,5 +1104,21 @@
  "admin_ud_joined": "انضم في {date}",
  "admin_ud_renew_30": "+30 يومًا",
  "admin_ud_renew_180": "+6 أشهر",
- "admin_ud_renew_365": "+سنة واحدة"
+ "admin_ud_renew_365": "+سنة واحدة",
+ "admin_filter_all": "الكل",
+ "admin_filter_active": "نشط",
+ "admin_filter_expiring": "تنتهي قريبًا",
+ "admin_filter_expired": "منتهية",
+ "admin_filter_none": "بلا اشتراك",
+ "admin_col_days_left": "الأيام المتبقية",
+ "admin_subs_no_results": "لا توجد اشتراكات مطابقة لهذا التصفية.",
+ "admin_selected": "{count} محدد",
+ "admin_clear": "مسح",
+ "admin_bulk_delete_confirm": "حذف {count} من المستخدمين المحددين؟ سيؤدي هذا إلى إزالة حساباتهم وجميع مساحات عملهم نهائيًا.",
+ "admin_bulk_reset_confirm": "إعادة تعيين كلمة المرور لـ {count} من المستخدمين المحددين؟ ستتوقف كلمات مرورهم الحالية عن العمل.",
+ "admin_bulk_extend_confirm": "إضافة {label} إلى {count} من الاشتراكات المحددة؟",
+ "admin_bulk_done": "{done} من {total} تم.",
+ "admin_search_global_ph": "ابحث عن المستخدمين…",
+ "admin_search_none": "لا نتائج",
+ "admin_search_see_all": "عرض الكل في المستخدمين"
 }

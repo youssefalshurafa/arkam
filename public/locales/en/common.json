@@ -1104,5 +1104,21 @@
  "admin_ud_joined": "Joined {date}",
  "admin_ud_renew_30": "+30 days",
  "admin_ud_renew_180": "+6 months",
- "admin_ud_renew_365": "+1 year"
+ "admin_ud_renew_365": "+1 year",
+ "admin_filter_all": "All",
+ "admin_filter_active": "Active",
+ "admin_filter_expiring": "Expiring",
+ "admin_filter_expired": "Expired",
+ "admin_filter_none": "No subscription",
+ "admin_col_days_left": "Days left",
+ "admin_subs_no_results": "No subscriptions match this filter.",
+ "admin_selected": "{count} selected",
+ "admin_clear": "Clear",
+ "admin_bulk_delete_confirm": "Delete {count} selected user(s)? This permanently removes their accounts and all their workspaces.",
+ "admin_bulk_reset_confirm": "Reset the password for {count} selected user(s)? Their current passwords will stop working.",
+ "admin_bulk_extend_confirm": "Add {label} to {count} selected subscription(s)?",
+ "admin_bulk_done": "{done} of {total} done.",
+ "admin_search_global_ph": "Search users…",
+ "admin_search_none": "No matches",
+ "admin_search_see_all": "See all in Users"
 }

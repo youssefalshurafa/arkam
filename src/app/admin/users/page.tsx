@@ -6,7 +6,7 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { alertDialog, confirmDialog } from '@/components/ui/AppDialog';
 import { useAdminI18n } from '../_ui/useAdminI18n';
 import { Icon } from '../_ui/icons';
-import { Avatar, AuthBadge, RoleBadge, RowMenu, Modal, StateBlock } from '../_ui/primitives';
+import { Avatar, AuthBadge, RoleBadge, RowMenu, Modal, StateBlock, SubscriptionBadge, Check } from '../_ui/primitives';
 import { formatDate, ROLE_RANK } from '../_lib/format';
 import type { AdminUser } from '../_lib/types';
 
@@ -138,19 +138,26 @@ function UserRow({
  user,
  nested,
  roleInTeam,
+ selected,
+ onToggleSelect,
  onDelete,
  onResetPassword,
 }: {
  user: AdminUser;
  nested: boolean;
  roleInTeam?: string;
+ selected: boolean;
+ onToggleSelect: (id: string) => void;
  onDelete: (u: AdminUser) => void;
  onResetPassword: (u: AdminUser) => void;
 }) {
  const router = useRouter();
  const { t, language } = useAdminI18n();
  return (
-  <tr className="clickable" onClick={() => router.push(`/admin/users/${user.id}`)}>
+  <tr className={`clickable ${selected ? 'selected' : ''}`} onClick={() => router.push(`/admin/users/${user.id}`)}>
+   <td onClick={(e) => e.stopPropagation()}>
+    <Check on={selected} onClick={() => onToggleSelect(user.id)} />
+   </td>
    <td>
     <div className="ad-u-cell" style={nested ? { paddingInlineStart: 26 } : undefined}>
      {nested && <span className="ad-faint">↳</span>}
@@ -166,6 +173,9 @@ function UserRow({
    </td>
    <td>
     <AuthBadge provider={user.authProvider} t={t} />
+   </td>
+   <td>
+    <SubscriptionBadge endsAt={user.subscriptionEndsAt} />
    </td>
    <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>
     {formatDate(user.createdAt, language)}
@@ -199,6 +209,8 @@ export default function AdminUsersPage() {
  const [pendingDelete, setPendingDelete] = useState<AdminUser | null>(null);
  const [isDeleting, setIsDeleting] = useState(false);
  const [showAddUser, setShowAddUser] = useState(false);
+ const [sel, setSel] = useState<Set<string>>(new Set());
+ const [bulkBusy, setBulkBusy] = useState(false);
 
  const fetchUsers = useCallback(async () => {
   setLoading(true);
@@ -273,7 +285,7 @@ export default function AdminUsersPage() {
 
  // Nest teammates (who own no workspace of their own) under the owner of the
  // workspace they belong to, ranked by role. Mirrors the original grouping.
- const { userGroups, visibleUserCount } = useMemo(() => {
+ const { userGroups, visibleUserCount, visibleIds } = useMemo(() => {
   const workspaceOwnerId = new Map<string, string>();
   for (const u of users) for (const ws of u.workspaces) if (ws.isOwner) workspaceOwnerId.set(ws.id, u.id);
 
@@ -307,8 +319,66 @@ export default function AdminUsersPage() {
    })
    .filter((g) => g.include);
 
-  return { userGroups: groups, visibleUserCount: groups.reduce((sum, g) => sum + 1 + g.children.length, 0) };
+  return {
+   userGroups: groups,
+   visibleUserCount: groups.reduce((sum, g) => sum + 1 + g.children.length, 0),
+   visibleIds: groups.flatMap((g) => [g.user.id, ...g.children.map((c) => c.user.id)]),
+  };
  }, [users, search]);
+
+ const selectedVisible = visibleIds.filter((id) => sel.has(id));
+ const toggleSelect = (id: string) =>
+  setSel((prev) => {
+   const n = new Set(prev);
+   if (n.has(id)) n.delete(id);
+   else n.add(id);
+   return n;
+  });
+ const toggleAll = () => setSel(selectedVisible.length === visibleIds.length && visibleIds.length > 0 ? new Set() : new Set(visibleIds));
+ const clearSel = () => setSel(new Set());
+
+ const bulkReport = async (titleKey: string, done: number, total: number) =>
+  alertDialog({ title: t(titleKey), message: t('admin_bulk_done').replace('{done}', String(done)).replace('{total}', String(total)) });
+
+ const bulkDelete = async () => {
+  const ids = selectedVisible;
+  if (ids.length === 0) return;
+  if (!(await confirmDialog({ title: t('admin_del_title'), message: t('admin_bulk_delete_confirm').replace('{count}', String(ids.length)) }))) return;
+  setBulkBusy(true);
+  let done = 0;
+  for (const id of ids) {
+   try {
+    const res = await fetch('/api/admin/users', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: id }) });
+    if (res.ok) done += 1;
+   } catch {
+    /* counted as not-done */
+   }
+  }
+  setBulkBusy(false);
+  clearSel();
+  await bulkReport('admin_delete', done, ids.length);
+  void fetchUsers();
+ };
+
+ const bulkReset = async () => {
+  const ids = selectedVisible;
+  if (ids.length === 0) return;
+  if (!(await confirmDialog({ title: t('admin_rp_title'), message: t('admin_bulk_reset_confirm').replace('{count}', String(ids.length)) }))) return;
+  setBulkBusy(true);
+  let done = 0;
+  for (const id of ids) {
+   try {
+    const res = await fetch(`/api/admin/users/${id}`, { method: 'POST' });
+    const d = (await res.json()) as { ok?: boolean };
+    if (res.ok && d.ok) done += 1;
+   } catch {
+    /* counted as not-done */
+   }
+  }
+  setBulkBusy(false);
+  clearSel();
+  await bulkReport('admin_reset_password', done, ids.length);
+ };
 
  const exportCsv = () => {
   const rows = [['Name', 'Email', 'Auth', 'Joined', 'Workspaces']];
@@ -349,6 +419,24 @@ export default function AdminUsersPage() {
     </button>
    </div>
 
+   {selectedVisible.length > 0 && (
+    <div className="ad-bulk-bar">
+     <span className="cnt ad-num">{t('admin_selected').replace('{count}', String(selectedVisible.length))}</span>
+     <span className="sep" />
+     <button className="bbtn" disabled={bulkBusy} onClick={() => void bulkReset()}>
+      <Icon name="key" />
+      {t('admin_reset_password')}
+     </button>
+     <button className="bbtn danger" disabled={bulkBusy} onClick={() => void bulkDelete()}>
+      <Icon name="trash" />
+      {t('admin_delete')}
+     </button>
+     <button className="bbtn close" onClick={clearSel} aria-label={t('admin_clear')}>
+      <Icon name="x" strokeWidth={2} />
+     </button>
+    </div>
+   )}
+
    <div className="ad-card ad-table-wrap">
     {loading ? (
      <StateBlock>{t('admin_loading')}</StateBlock>
@@ -362,8 +450,12 @@ export default function AdminUsersPage() {
      <table className="ad-table hover">
       <thead>
        <tr>
+        <th style={{ width: 20 }}>
+         <Check on={selectedVisible.length === visibleIds.length && visibleIds.length > 0} onClick={toggleAll} />
+        </th>
         <th>{t('admin_col_user')}</th>
         <th>{t('admin_col_auth')}</th>
+        <th>{t('admin_col_sub')}</th>
         <th>{t('admin_col_joined')}</th>
         <th className="center">{t('admin_col_ws')}</th>
         <th />
@@ -372,9 +464,25 @@ export default function AdminUsersPage() {
       <tbody>
        {userGroups.map(({ user, children }) => (
         <React.Fragment key={user.id}>
-         <UserRow user={user} nested={false} onDelete={setPendingDelete} onResetPassword={(u) => void handleResetPassword(u)} />
+         <UserRow
+          user={user}
+          nested={false}
+          selected={sel.has(user.id)}
+          onToggleSelect={toggleSelect}
+          onDelete={setPendingDelete}
+          onResetPassword={(u) => void handleResetPassword(u)}
+         />
          {children.map(({ user: child, role }) => (
-          <UserRow key={child.id} user={child} nested roleInTeam={role} onDelete={setPendingDelete} onResetPassword={(u) => void handleResetPassword(u)} />
+          <UserRow
+           key={child.id}
+           user={child}
+           nested
+           roleInTeam={role}
+           selected={sel.has(child.id)}
+           onToggleSelect={toggleSelect}
+           onDelete={setPendingDelete}
+           onResetPassword={(u) => void handleResetPassword(u)}
+          />
          ))}
         </React.Fragment>
        ))}

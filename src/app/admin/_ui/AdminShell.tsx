@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import './admin.css';
 import { Icon } from './icons';
+import { GlobalSearch } from './GlobalSearch';
 import { NAV_GROUPS, PAGE_META } from './nav';
 import { useAdminI18n } from './useAdminI18n';
 import { useLanguage, type Language } from '@/contexts/LanguageContext';
@@ -169,6 +170,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
        <div className="ad-page-sub">{t(meta.sub)}</div>
       </div>
       <div className="ad-spacer" />
+      <GlobalSearch />
       <div className="ad-seg" role="group" aria-label="Language">
        {langs.map((l) => (
         <button key={l.code} type="button" className={language === l.code ? 'active' : ''} onClick={() => setLanguage(l.code)}>

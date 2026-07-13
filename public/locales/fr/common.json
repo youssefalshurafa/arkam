@@ -1103,5 +1103,21 @@
  "admin_ud_joined": "Inscrit le {date}",
  "admin_ud_renew_30": "+30 jours",
  "admin_ud_renew_180": "+6 mois",
- "admin_ud_renew_365": "+1 an"
+ "admin_ud_renew_365": "+1 an",
+ "admin_filter_all": "Tout",
+ "admin_filter_active": "Actifs",
+ "admin_filter_expiring": "Expirent",
+ "admin_filter_expired": "Expirés",
+ "admin_filter_none": "Sans abonnement",
+ "admin_col_days_left": "Jours restants",
+ "admin_subs_no_results": "Aucun abonnement ne correspond à ce filtre.",
+ "admin_selected": "{count} sélectionné(s)",
+ "admin_clear": "Effacer",
+ "admin_bulk_delete_confirm": "Supprimer {count} utilisateur(s) sélectionné(s) ? Cela supprime définitivement leurs comptes et tous leurs espaces de travail.",
+ "admin_bulk_reset_confirm": "Réinitialiser le mot de passe de {count} utilisateur(s) sélectionné(s) ? Leurs mots de passe actuels cesseront de fonctionner.",
+ "admin_bulk_extend_confirm": "Ajouter {label} à {count} abonnement(s) sélectionné(s) ?",
+ "admin_bulk_done": "{done} sur {total} effectué(s).",
+ "admin_search_global_ph": "Rechercher des utilisateurs…",
+ "admin_search_none": "Aucun résultat",
+ "admin_search_see_all": "Voir tout dans Utilisateurs"
 }
