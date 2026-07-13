@@ -47,6 +47,14 @@ export async function POST(request: NextRequest) {
 
  try {
   const result = await authDb.createUserBySuperAdmin({ name, email, durationDays, phone });
+  await authDb.logAdminAction({
+   actorEmail: session?.user?.email,
+   action: 'create_user',
+   targetUserId: result.id,
+   targetEmail: result.email,
+   targetName: result.name,
+   meta: { durationDays: durationDays ?? null },
+  });
   return NextResponse.json({
    ok: true,
    user: { id: result.id, email: result.email, name: result.name, subscriptionEndsAt: result.subscriptionEndsAt },
@@ -76,6 +84,10 @@ export async function DELETE(request: NextRequest) {
  }
 
  try {
+  // Snapshot the user's identity into the audit trail BEFORE the row is gone, so the
+  // "deleted user" entry still shows who was removed.
+  await authDb.logAdminAction({ actorEmail: session?.user?.email, action: 'delete_user', targetUserId: userId });
+
   const { deletedWorkspaceIds } = await authDb.deleteUser(userId);
 
   // Drop the workspace schemas (accounting data) for each owned workspace

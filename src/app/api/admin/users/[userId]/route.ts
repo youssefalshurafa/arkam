@@ -89,6 +89,7 @@ export async function POST(request: NextRequest, context: Context) {
 
  try {
   const { email } = await authDb.clearUserPassword({ userId });
+  await authDb.logAdminAction({ actorEmail: session?.user?.email, action: 'reset_password', targetUserId: userId, targetEmail: email });
   return NextResponse.json({ ok: true, email });
  } catch (error) {
   const message = error instanceof Error ? error.message : 'Failed to reset password.';

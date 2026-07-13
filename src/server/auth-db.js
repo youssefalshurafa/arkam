@@ -1423,8 +1423,74 @@ async function deleteMarketingAsset(slot) {
     return { ok: true };
 }
 
+// --- Admin audit log -------------------------------------------------------
+
+// Records one super-admin action. Best-effort: audit logging must never break the
+// primary action, so failures are swallowed. When target_email/name aren't supplied
+// but a targetUserId is, we snapshot them from the users table so the audit row stays
+// meaningful even after the user is later deleted.
+async function logAdminAction({ actorEmail, action, targetUserId, targetEmail, targetName, meta } = {}) {
+    if (!action) return;
+    try {
+        await ensurePublicSchema();
+        let email = targetEmail || null;
+        let name = targetName || null;
+        if (targetUserId && (!email || !name)) {
+            const u = await fetchOne('SELECT email, name FROM users WHERE id = $1', [targetUserId]);
+            if (u) {
+                email = email || u.email || null;
+                name = name || u.name || null;
+            }
+        }
+        await runQuery(
+            `INSERT INTO admin_audit (actor_email, action, target_user_id, target_email, target_name, meta)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [actorEmail || null, String(action), targetUserId || null, email, name, meta ? JSON.stringify(meta) : null],
+        );
+    } catch (error) {
+        console.error('[admin audit] failed to log action:', error);
+    }
+}
+
+// Returns a merged, newest-first feed of super-admin actions (from admin_audit) and
+// recent user login events (from user_activity_events) — the two halves the audit
+// screen shows. Login rows join to users for a display name; deleted users are dropped.
+async function listAdminAudit({ limit = 100 } = {}) {
+    await ensurePublicSchema();
+    const cap = Math.min(Math.max(Number(limit) || 100, 1), 500);
+
+    const admin = await runQuery(
+        `SELECT 'admin' AS kind, id, actor_email AS "actorEmail", action,
+                target_user_id AS "targetUserId", target_email AS "targetEmail",
+                target_name AS "targetName", meta, created_at AS "createdAt"
+         FROM admin_audit
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [cap],
+    );
+
+    const logins = await runQuery(
+        `SELECT 'login' AS kind, e.id, NULL AS "actorEmail", 'login' AS action,
+                u.id AS "targetUserId", u.email AS "targetEmail", u.name AS "targetName",
+                NULL::jsonb AS meta, e.created_at AS "createdAt"
+         FROM user_activity_events e
+         JOIN users u ON u.id = e.user_id
+         WHERE e.event_type = 'login'
+         ORDER BY e.created_at DESC
+         LIMIT $1`,
+        [cap],
+    );
+
+    return [...admin.rows, ...logins.rows]
+        .map((r) => ({ ...r, id: `${r.kind}-${r.id}` }))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, cap);
+}
+
 module.exports = {
     openAuthDb,
+    logAdminAction,
+    listAdminAudit,
     saveMarketingAsset,
     getMarketingAsset,
     listMarketingAssets,

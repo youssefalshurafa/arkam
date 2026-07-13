@@ -44,6 +44,13 @@ export async function POST(request: NextRequest) {
    reviewerUserId: session?.user?.id,
   });
 
+  await authDb.logAdminAction({
+   actorEmail: session?.user?.email,
+   action: action === 'approve' ? 'approve_reset' : 'reject_reset',
+   targetEmail: result.email,
+   targetName: result.name,
+  });
+
   const resetLink = result.resetToken ? `${request.nextUrl.origin}/reset-password/${result.resetToken}` : null;
   return NextResponse.json({ ok: true, resetLink });
  } catch (error) {

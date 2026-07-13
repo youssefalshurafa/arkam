@@ -47,6 +47,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'userId is required to renew.' }, { status: 400 });
    }
    const result = await authDb.renewSubscription({ userId, durationDays });
+   await authDb.logAdminAction({
+    actorEmail: session?.user?.email,
+    action: 'renew_subscription',
+    targetUserId: userId,
+    targetEmail: result.email,
+    targetName: result.name,
+    meta: { durationDays: durationDays ?? null },
+   });
    try {
     if (result.email) {
      await sendAccessApprovedEmail({
@@ -67,6 +75,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'userId and days are required.' }, { status: 400 });
    }
    const result = await authDb.setSubscriptionDays({ userId, days });
+   await authDb.logAdminAction({
+    actorEmail: session?.user?.email,
+    action: 'set_days',
+    targetUserId: userId,
+    targetEmail: result.email,
+    targetName: result.name,
+    meta: { days },
+   });
    return NextResponse.json({ ok: true, status: 'approved', subscriptionEndsAt: result.endsAt });
   }
 
@@ -79,6 +95,15 @@ export async function POST(request: NextRequest) {
    action,
    reviewerUserId: session?.user?.id,
    note,
+  });
+
+  await authDb.logAdminAction({
+   actorEmail: session?.user?.email,
+   action: action === 'approve' ? 'approve_request' : 'reject_request',
+   targetUserId: userId,
+   targetEmail: result.email,
+   targetName: result.name,
+   meta: note ? { note } : null,
   });
 
   // Notify the requester (best-effort).
