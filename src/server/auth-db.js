@@ -86,10 +86,14 @@ async function ensureUserHasWorkspace(userId, preferredName) {
     return workspace.id;
 }
 
-async function createCredentialsUser({ name, email, password, workspaceName }) {
+async function createCredentialsUser({ name, email, password, phone, workspaceName }) {
     await ensurePublicSchema();
 
     const normalizedEmail = String(email || '').trim().toLowerCase();
+    // WhatsApp/phone doubles as the trusted contact used to verify identity before approving a
+    // password reset (see reviewPasswordResetRequest). Store as '+<digits>' (E.164-style).
+    const phoneDigits = String(phone || '').replace(/\D/g, '');
+    const normalizedPhone = phoneDigits ? `+${phoneDigits}` : '';
 
     if (!normalizedEmail) {
         throw new Error('Username or email is required.');
@@ -119,9 +123,9 @@ async function createCredentialsUser({ name, email, password, workspaceName }) {
 
     await withTransaction(async (client) => {
         await runQuery(
-            `INSERT INTO users (id, email, name, password_hash, subscription_started_at, subscription_ends_at)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [userId, normalizedEmail, displayName, hash, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
+            `INSERT INTO users (id, email, name, password_hash, phone, subscription_started_at, subscription_ends_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [userId, normalizedEmail, displayName, hash, normalizedPhone, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
             client,
         );
         await createWorkspaceForUserWithExecutor(client, userId, String(workspaceName || `${displayName} Workspace`).trim());

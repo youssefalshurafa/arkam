@@ -7,6 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useStableSession } from '@/hooks/useStableSession';
 import SiteLayout from '@/components/marketing/SiteLayout';
+import { COUNTRY_DIAL_CODES, DEFAULT_DIAL_CODE } from '@/shared/constants/countryDialCodes';
 
 export default function SignupPage() {
  const router = useRouter();
@@ -16,6 +17,8 @@ export default function SignupPage() {
 
  const [fullName, setFullName] = useState('');
  const [email, setEmail] = useState('');
+ const [dialCode, setDialCode] = useState(DEFAULT_DIAL_CODE);
+ const [phone, setPhone] = useState('');
  const [password, setPassword] = useState('');
  const [confirmPassword, setConfirmPassword] = useState('');
  const [error, setError] = useState('');
@@ -82,6 +85,13 @@ export default function SignupPage() {
    setError(t('signup_username_taken'));
    return;
   }
+  // Digits-only national number; drop a leading trunk '0' so we don't double it after the dial code.
+  const nationalNumber = phone.replace(/\D/g, '').replace(/^0+/, '');
+  if (nationalNumber.length < 6) {
+   setError(t('signup_phone_invalid'));
+   return;
+  }
+  const fullPhone = `${dialCode}${nationalNumber}`;
   if (password.length < 8) {
    setError(t('signup_password_too_short'));
    return;
@@ -100,7 +110,7 @@ export default function SignupPage() {
    const res = await fetch('/api/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: fullName, email, password }),
+    body: JSON.stringify({ name: fullName, email, password, phone: fullPhone }),
    });
    const payload = (await res.json()) as { ok?: boolean; error?: string };
    if (!res.ok || !payload.ok) {
@@ -228,6 +238,35 @@ export default function SignupPage() {
          ) : usernameStatus === 'taken' ? (
           <p className="mt-1 text-xs font-medium text-red-600">✕ {t('signup_username_taken')}</p>
          ) : null}
+        </div>
+        <div>
+         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('signup_whatsapp_label')}</label>
+         <div className="flex gap-2">
+          <select
+           value={dialCode}
+           onChange={(e) => setDialCode(e.target.value)}
+           className="w-28 shrink-0 rounded border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           aria-label={t('signup_whatsapp_country')}
+          >
+           {COUNTRY_DIAL_CODES.map((c) => (
+            <option key={c.code} value={c.dial}>
+             {c.flag} {c.dial}
+            </option>
+           ))}
+          </select>
+          <input
+           type="tel"
+           value={phone}
+           onChange={(e) => setPhone(e.target.value)}
+           placeholder={t('signup_whatsapp_placeholder')}
+           className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           autoComplete="tel-national"
+           inputMode="tel"
+           dir="ltr"
+           required
+          />
+         </div>
+         <p className="mt-1 text-xs text-gray-400">{t('signup_whatsapp_hint')}</p>
         </div>
         <div>
          <label className="mb-1 block text-xs font-semibold text-gray-600">{t('signup_password_label')}</label>
