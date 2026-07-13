@@ -336,6 +336,16 @@ export default function LoginPage() {
         {t('login_set_password_prompt')}
        </button>
 
+       {/* Username-only accounts have no email, so the reset link can't be emailed —
+           they ask support to verify them and send a reset link instead. */}
+       <button
+        type="button"
+        onClick={() => router.push('/reset-request')}
+        className="block text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+       >
+        {t('login_request_reset')}
+       </button>
+
        {displayedError ? (
         <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
          <p>{displayedError}</p>

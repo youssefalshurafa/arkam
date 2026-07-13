@@ -33,6 +33,7 @@ type UserDetail = {
  authProvider: 'credentials' | 'oauth';
  createdAt: string;
  status: 'pending' | 'approved' | 'rejected';
+ phone: string;
  subscriptionStartedAt: string | null;
  subscriptionEndsAt: string | null;
 };
@@ -47,12 +48,48 @@ type PendingAccessRequest = {
  createdAt: string;
 };
 
+type SectionVisit = {
+ section: string;
+ count: number;
+ lastVisitAt: string | null;
+};
+
+type ActivitySummary = {
+ appOpenCount: number;
+ lastAppOpenAt: string | null;
+ loginCount: number;
+ lastLoginAt: string | null;
+ lastActiveAt: string | null;
+ sectionVisits: SectionVisit[];
+};
+
 type DetailResponse = {
  user: UserDetail;
  workspaces: Workspace[];
  totals: WorkspaceStats;
  pendingAccessRequest: PendingAccessRequest | null;
+ activity: ActivitySummary;
 };
+
+// Friendly names for the section keys recorded by the client activity beacon
+// (see Section union in src/shared/types). Falls back to the raw key if unmapped.
+const SECTION_LABELS: Record<string, string> = {
+ overview: 'Overview',
+ organizations: 'Organizations',
+ 'organization-clients': 'Organization clients',
+ clients: 'Clients',
+ 'client-ledger': 'Client ledger',
+ currencies: 'Currencies',
+ transactions: 'Transactions',
+ archive: 'Archive',
+ 'live-rates': 'Live rates',
+ treasury: 'Treasury',
+ settings: 'Settings',
+};
+
+function sectionLabel(section: string) {
+ return SECTION_LABELS[section] || section || '—';
+}
 
 function formatDate(iso: string | null) {
  if (!iso) return '—';
@@ -123,10 +160,43 @@ export default function AdminUserDetailPage() {
  const [subMutating, setSubMutating] = useState(false);
  const [subError, setSubError] = useState('');
 
+ // Trusted contact (phone/WhatsApp) — the number the admin calls to verify identity before
+ // approving a password reset. Editable here so existing accounts (whose phone is empty) get one.
+ const [phoneInput, setPhoneInput] = useState('');
+ const [phoneMutating, setPhoneMutating] = useState(false);
+ const [phoneError, setPhoneError] = useState('');
+ const [phoneSaved, setPhoneSaved] = useState(false);
+
  useEffect(() => {
   const daysLeft = data ? getSubscriptionState(data.user.subscriptionEndsAt).daysLeft : null;
   setDaysInput(daysLeft != null && daysLeft > 0 ? String(daysLeft) : '0');
+  setPhoneInput(data?.user.phone || '');
  }, [data]);
+
+ const onSavePhone = async () => {
+  setPhoneMutating(true);
+  setPhoneError('');
+  setPhoneSaved(false);
+  try {
+   const res = await fetch(`/api/admin/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: phoneInput.trim() }),
+   });
+   const result = (await res.json()) as { ok?: boolean; phone?: string; error?: string };
+   if (!res.ok || !result.ok) {
+    setPhoneError(result.error || 'Failed to save contact.');
+    return;
+   }
+   setData((prev) => (prev ? { ...prev, user: { ...prev.user, phone: result.phone ?? phoneInput.trim() } } : prev));
+   setPhoneSaved(true);
+   setTimeout(() => setPhoneSaved(false), 2000);
+  } catch {
+   setPhoneError('Failed to save contact.');
+  } finally {
+   setPhoneMutating(false);
+  }
+ };
 
  const applySubscriptionResult = (endsAt: string) => {
   setData((prev) => (prev ? { ...prev, user: { ...prev.user, status: 'approved', subscriptionEndsAt: endsAt } } : prev));
@@ -251,7 +321,7 @@ export default function AdminUserDetailPage() {
   );
  }
 
- const { user, workspaces, totals, pendingAccessRequest } = data;
+ const { user, workspaces, totals, pendingAccessRequest, activity } = data;
  const sub = getSubscriptionState(user.subscriptionEndsAt);
  const subTone =
   sub.tone === 'expired' ? 'bg-red-50 text-red-700' : sub.tone === 'soon' ? 'bg-amber-50 text-amber-800' : sub.tone === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500';
@@ -318,6 +388,31 @@ export default function AdminUserDetailPage() {
        {user.subscriptionStartedAt ? ` · Subscription started ${formatDate(user.subscriptionStartedAt)}` : ''}
        {user.subscriptionEndsAt ? ` · Ends ${formatDate(user.subscriptionEndsAt)}` : ''}
       </p>
+     </div>
+    </div>
+
+    {/* Trusted contact — the number the admin calls to verify identity before approving a
+        password reset request (see the Password Resets tab). */}
+    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+     <h3 className="text-sm font-semibold text-gray-700 mb-1">Trusted contact</h3>
+     <p className="text-xs text-gray-400 mb-4">Phone / WhatsApp used to verify this user out-of-band before approving a password reset.</p>
+     {phoneError && <p className="mb-3 text-sm text-red-600">{phoneError}</p>}
+     <div className="flex items-center gap-2">
+      <input
+       type="text"
+       value={phoneInput}
+       onChange={(e) => setPhoneInput(e.target.value)}
+       disabled={phoneMutating}
+       placeholder="e.g. +20 100 000 0000"
+       className="w-64 max-w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+      />
+      <button
+       onClick={() => void onSavePhone()}
+       disabled={phoneMutating || phoneInput.trim() === (user.phone || '')}
+       className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
+      >
+       {phoneSaved ? 'Saved' : 'Save'}
+      </button>
      </div>
     </div>
 
@@ -435,6 +530,53 @@ export default function AdminUserDetailPage() {
       value={totals.lastTransactionAt ? formatDate(totals.lastTransactionAt) : '—'}
       sub={totals.lastTransactionAt ? formatDateTime(totals.lastTransactionAt) : 'No transactions yet'}
      />
+    </div>
+
+    {/* App activity — behavioral usage (logins, app opens, page visits) */}
+    <h3 className="text-sm font-semibold text-gray-700 mb-3">App activity</h3>
+    <div className="grid grid-cols-2 gap-4 mb-4 sm:grid-cols-3">
+     <StatCard
+      label="App opens"
+      value={activity.appOpenCount}
+      sub={activity.lastAppOpenAt ? `Last ${formatDateTime(activity.lastAppOpenAt)}` : 'Never'}
+     />
+     <StatCard
+      label="Logins"
+      value={activity.loginCount}
+      sub={activity.lastLoginAt ? `Last ${formatDateTime(activity.lastLoginAt)}` : 'Never'}
+     />
+     <StatCard
+      label="Last active"
+      value={activity.lastActiveAt ? formatDate(activity.lastActiveAt) : '—'}
+      sub={activity.lastActiveAt ? formatDateTime(activity.lastActiveAt) : 'No activity yet'}
+     />
+    </div>
+    <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-8">
+     {activity.sectionVisits.length === 0 ? (
+      <div className="py-10 text-center text-sm text-gray-400">No page visits recorded yet.</div>
+     ) : (
+      <table className="w-full text-sm">
+       <thead>
+        <tr className="bg-gray-50 border-b border-gray-200">
+         <th className="text-left px-4 py-3 font-medium text-gray-500">Section</th>
+         <th className="text-center px-4 py-3 font-medium text-gray-500">Visits</th>
+         <th className="text-left px-4 py-3 font-medium text-gray-500 whitespace-nowrap">Last visited</th>
+        </tr>
+       </thead>
+       <tbody className="divide-y divide-gray-100">
+        {activity.sectionVisits.map((visit) => (
+         <tr
+          key={visit.section || '(none)'}
+          className="hover:bg-gray-50"
+         >
+          <td className="px-4 py-3 font-medium text-gray-900">{sectionLabel(visit.section)}</td>
+          <td className="px-4 py-3 text-center text-gray-700">{visit.count}</td>
+          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateTime(visit.lastVisitAt)}</td>
+         </tr>
+        ))}
+       </tbody>
+      </table>
+     )}
     </div>
 
     {/* Per-workspace breakdown */}

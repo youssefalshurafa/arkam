@@ -57,6 +57,18 @@ type AccessRequest = {
  subscriptionEndsAt: string | null;
 };
 
+type PasswordResetRequest = {
+ id: string;
+ userId: string;
+ email: string;
+ name: string;
+ phone: string;
+ note: string;
+ status: 'pending' | 'approved' | 'rejected';
+ createdAt: string;
+ reviewedAt: string | null;
+};
+
 function formatDateTime(iso: string) {
  return new Date(iso).toLocaleString('en-GB', {
   day: '2-digit',
@@ -119,6 +131,7 @@ function UserRow({
  expandedUser,
  setExpandedUser,
  setPendingDelete,
+ onResetPassword,
 }: {
  user: AdminUser;
  nested: boolean;
@@ -126,6 +139,7 @@ function UserRow({
  expandedUser: string | null;
  setExpandedUser: React.Dispatch<React.SetStateAction<string | null>>;
  setPendingDelete: (user: AdminUser) => void;
+ onResetPassword: (user: AdminUser) => void;
 }) {
  const router = useRouter();
  return (
@@ -188,16 +202,28 @@ function UserRow({
       <span className="text-gray-300">—</span>
      )}
     </td>
-    <td className="px-4 py-3 text-right">
-     <button
-      onClick={(e) => {
-       e.stopPropagation();
-       setPendingDelete(user);
-      }}
-      className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
-     >
-      Delete
-     </button>
+    <td className="px-4 py-3 text-right whitespace-nowrap">
+     <div className="inline-flex gap-2">
+      <button
+       onClick={(e) => {
+        e.stopPropagation();
+        onResetPassword(user);
+       }}
+       title="Clear this user's password so they can set a new one from the sign-in page"
+       className="text-xs px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
+      >
+       Reset password
+      </button>
+      <button
+       onClick={(e) => {
+        e.stopPropagation();
+        setPendingDelete(user);
+       }}
+       className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+      >
+       Delete
+      </button>
+     </div>
     </td>
    </tr>
    {expandedUser === user.id && (
@@ -296,6 +322,7 @@ type AddUserModalProps = {
 function AddUserModal({ onCancel, onCreated }: AddUserModalProps) {
  const [name, setName] = useState('');
  const [email, setEmail] = useState('');
+ const [phone, setPhone] = useState('');
  const [durationDays, setDurationDays] = useState('30');
  const [isSubmitting, setIsSubmitting] = useState(false);
  const [error, setError] = useState<string | null>(null);
@@ -320,7 +347,7 @@ function AddUserModal({ onCancel, onCreated }: AddUserModalProps) {
    const res = await fetch('/api/admin/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name.trim(), email: trimmedEmail, durationDays: days }),
+    body: JSON.stringify({ name: name.trim(), email: trimmedEmail, durationDays: days, phone: phone.trim() }),
    });
    const data = (await res.json()) as { error?: string };
    if (!res.ok) {
@@ -374,6 +401,16 @@ function AddUserModal({ onCancel, onCreated }: AddUserModalProps) {
      placeholder="user@example.com or a username"
      className="w-full mb-3 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
     />
+
+    <label className="block text-xs font-medium text-gray-600 mb-1">Phone / WhatsApp (trusted contact)</label>
+    <input
+     type="text"
+     value={phone}
+     onChange={(e) => setPhone(e.target.value)}
+     placeholder="e.g. +20 100 000 0000"
+     className="w-full mb-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+    />
+    <p className="text-xs text-gray-400 mb-3">Used to verify the user&apos;s identity if they ever request a password reset. Recommended for username-only accounts.</p>
 
     <label className="block text-xs font-medium text-gray-600 mb-1">Subscription duration (days)</label>
     <input
@@ -628,11 +665,162 @@ function AccessRequestsPanel({ requests, loading, reviewingId, onRefresh, onRevi
  );
 }
 
+type PasswordResetsPanelProps = {
+ requests: PasswordResetRequest[];
+ loading: boolean;
+ reviewingId: string | null;
+ onRefresh: () => void;
+ onReview: (request: PasswordResetRequest, action: 'approve' | 'reject') => void;
+};
+
+// Review queue for user-initiated password resets. The critical column is the trusted contact:
+// the admin must call that number (stored on the account, not supplied in the request) to confirm
+// identity out-of-band before approving. Approving returns a one-time reset link to hand over.
+function PasswordResetsPanel({ requests, loading, reviewingId, onRefresh, onReview }: PasswordResetsPanelProps) {
+ const pending = requests.filter((r) => r.status === 'pending');
+
+ return (
+  <>
+   <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+    <span className="font-semibold">Verify before approving.</span> These accounts have no email to send a link to. Call the trusted contact
+    on file to confirm the requester is the real owner, then approve to generate a one-time reset link to send them.
+   </div>
+
+   <div className="flex items-center gap-3 mb-4">
+    <h2 className="text-sm font-semibold text-gray-700">Password reset requests</h2>
+    <button
+     onClick={onRefresh}
+     className="px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+    >
+     Refresh
+    </button>
+    <span className="text-xs text-gray-400 ml-auto">{pending.length} pending</span>
+   </div>
+
+   <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+    {loading ? (
+     <div className="py-16 text-center text-sm text-gray-400">Loading requests…</div>
+    ) : requests.length === 0 ? (
+     <div className="py-16 text-center text-sm text-gray-400">No password reset requests.</div>
+    ) : (
+     <table className="w-full text-sm">
+      <thead>
+       <tr className="bg-gray-50 border-b border-gray-200">
+        <th className="text-left px-4 py-3 font-medium text-gray-500">User</th>
+        <th className="text-left px-4 py-3 font-medium text-gray-500">Trusted contact</th>
+        <th className="text-left px-4 py-3 font-medium text-gray-500 hidden md:table-cell">Note</th>
+        <th className="text-left px-4 py-3 font-medium text-gray-500 hidden sm:table-cell">Requested</th>
+        <th className="text-center px-4 py-3 font-medium text-gray-500">Status</th>
+        <th className="px-4 py-3" />
+       </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-100">
+       {requests.map((request) => (
+        <tr key={request.id} className="align-top hover:bg-gray-50">
+         <td className="px-4 py-3">
+          <div className="font-medium text-gray-900">{request.name}</div>
+          <div className="text-xs text-gray-400">{request.email}</div>
+         </td>
+         <td className="px-4 py-3">
+          {request.phone ? (
+           <span className="font-medium text-gray-900">{request.phone}</span>
+          ) : (
+           <span className="text-xs text-amber-600">
+            No contact on file —{' '}
+            <a href={`/admin/users/${request.userId}`} className="underline hover:text-amber-800">
+             add one
+            </a>{' '}
+            to verify.
+           </span>
+          )}
+         </td>
+         <td className="px-4 py-3 text-gray-600 hidden md:table-cell">{request.note || <span className="text-gray-300">—</span>}</td>
+         <td className="px-4 py-3 text-gray-500 hidden sm:table-cell whitespace-nowrap">{formatDateTime(request.createdAt)}</td>
+         <td className="px-4 py-3 text-center">
+          <StatusBadge status={request.status} />
+         </td>
+         <td className="px-4 py-3 text-right whitespace-nowrap">
+          {request.status === 'pending' ? (
+           <div className="inline-flex gap-2">
+            <button
+             onClick={() => onReview(request, 'approve')}
+             disabled={reviewingId === request.id}
+             className="text-xs px-3 py-1.5 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50"
+            >
+             Approve
+            </button>
+            <button
+             onClick={() => onReview(request, 'reject')}
+             disabled={reviewingId === request.id}
+             className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+             Reject
+            </button>
+           </div>
+          ) : (
+           <span className="text-xs text-gray-400">Reviewed {request.reviewedAt ? formatDate(request.reviewedAt) : ''}</span>
+          )}
+         </td>
+        </tr>
+       ))}
+      </tbody>
+     </table>
+    )}
+   </div>
+  </>
+ );
+}
+
+// Shown after approving a reset request: the one-time link the admin copies and sends to the
+// user through the trusted channel. Kept as its own modal so the link is easy to select/copy.
+function ResetLinkDialog({ link, onClose }: { link: string; onClose: () => void }) {
+ const [copied, setCopied] = useState(false);
+ const copy = async () => {
+  try {
+   await navigator.clipboard.writeText(link);
+   setCopied(true);
+   setTimeout(() => setCopied(false), 2000);
+  } catch {
+   // Clipboard may be unavailable; the user can still select the text manually.
+  }
+ };
+ return (
+  <div className="fixed inset-0 z-50 flex items-center justify-center">
+   <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+   <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg mx-4">
+    <h2 className="text-lg font-semibold text-gray-900 mb-1">Reset link ready</h2>
+    <p className="text-sm text-gray-600 mb-4">
+     Send this link to the user through their trusted contact. It can be used once and expires in 1 hour.
+    </p>
+    <div className="flex items-center gap-2 mb-4">
+     <input
+      readOnly
+      value={link}
+      onFocus={(e) => e.currentTarget.select()}
+      className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-800"
+     />
+     <button
+      onClick={() => void copy()}
+      className="text-xs px-3 py-2 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 whitespace-nowrap"
+     >
+      {copied ? 'Copied!' : 'Copy'}
+     </button>
+    </div>
+    <div className="flex justify-end">
+     <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
+      Done
+     </button>
+    </div>
+   </div>
+  </div>
+ );
+}
+
 export default function AdminPage() {
  const { data: session, status } = useStableSession();
  const router = useRouter();
 
- const [tab, setTab] = useState<'users' | 'requests' | 'marketing'>('requests');
+ const [tab, setTab] = useState<'users' | 'requests' | 'resets' | 'marketing'>('requests');
  const [users, setUsers] = useState<AdminUser[]>([]);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
@@ -645,6 +833,66 @@ export default function AdminPage() {
  const [requests, setRequests] = useState<AccessRequest[]>([]);
  const [requestsLoading, setRequestsLoading] = useState(true);
  const [reviewingId, setReviewingId] = useState<string | null>(null);
+
+ const [resetRequests, setResetRequests] = useState<PasswordResetRequest[]>([]);
+ const [resetRequestsLoading, setResetRequestsLoading] = useState(true);
+ const [resetReviewingId, setResetReviewingId] = useState<string | null>(null);
+ const [resetLink, setResetLink] = useState<string | null>(null);
+
+ const fetchResetRequests = useCallback(async () => {
+  setResetRequestsLoading(true);
+  try {
+   const res = await fetch('/api/admin/password-reset-requests?status=pending');
+   if (res.status === 403) {
+    setError('forbidden');
+    return;
+   }
+   if (!res.ok) throw new Error('Failed to load reset requests.');
+   const data = (await res.json()) as { requests: PasswordResetRequest[] };
+   setResetRequests(data.requests);
+  } catch {
+   // surfaced via the empty state
+  } finally {
+   setResetRequestsLoading(false);
+  }
+ }, []);
+
+ const reviewResetRequest = async (request: PasswordResetRequest, action: 'approve' | 'reject') => {
+  if (action === 'approve') {
+   const confirmed = await confirmDialog({
+    title: 'Approve password reset?',
+    message: `Only after you've verified ${request.name} (${request.email}) via their trusted contact${
+     request.phone ? ` (${request.phone})` : ''
+    }. This generates a one-time reset link to send them.`,
+   });
+   if (!confirmed) return;
+  } else {
+   if (!(await confirmDialog({ message: `Reject the password reset request from ${request.name} (${request.email})?` }))) return;
+  }
+
+  setResetReviewingId(request.id);
+  try {
+   const res = await fetch('/api/admin/password-reset-requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: request.id, action }),
+   });
+   const data = (await res.json()) as { ok?: boolean; resetLink?: string | null; error?: string };
+   if (!res.ok || !data.ok) {
+    await alertDialog({ title: 'Error', message: data.error || 'Failed to review request.' });
+    return;
+   }
+   // Drop the reviewed row from the pending list, then surface the link on approve.
+   setResetRequests((prev) => prev.filter((r) => r.id !== request.id));
+   if (action === 'approve' && data.resetLink) {
+    setResetLink(data.resetLink);
+   }
+  } catch {
+   await alertDialog({ title: 'Error', message: 'Network error. Please try again.' });
+  } finally {
+   setResetReviewingId(null);
+  }
+ };
 
  const fetchRequests = useCallback(async () => {
   setRequestsLoading(true);
@@ -756,8 +1004,9 @@ export default function AdminPage() {
   if (status === 'authenticated') {
    void fetchUsers();
    void fetchRequests();
+   void fetchResetRequests();
   }
- }, [status, fetchUsers, fetchRequests]);
+ }, [status, fetchUsers, fetchRequests, fetchResetRequests]);
 
  const handleDelete = async () => {
   if (!pendingDelete) return;
@@ -779,6 +1028,33 @@ export default function AdminPage() {
    await alertDialog({ title: 'Error', message: 'Network error. Please try again.' });
   } finally {
    setIsDeleting(false);
+  }
+ };
+
+ // Clears a user's password (via the admin API) so they can set a new one from the sign-in
+ // page's "Set your password" link. This is the recovery path for username-only accounts that
+ // the email-based /forgot-password flow can't reach.
+ const handleResetPassword = async (user: AdminUser) => {
+  const confirmed = await confirmDialog({
+   title: 'Reset password?',
+   message: `Reset the password for ${user.name} (${user.email})? Their current password will stop working. They set a new one from the sign-in page's "Set your password" link using "${user.email}".`,
+  });
+  if (!confirmed) return;
+
+  try {
+   const res = await fetch(`/api/admin/users/${user.id}`, { method: 'POST' });
+   const data = (await res.json()) as { ok?: boolean; error?: string };
+   if (!res.ok || !data.ok) {
+    await alertDialog({ title: 'Error', message: data.error || 'Failed to reset password.' });
+    return;
+   }
+   await alertDialog({
+    title: 'Password reset',
+    message: `Done. Tell ${user.name} to open the sign-in page, click "Set your password", enter "${user.email}", and choose a new password.`,
+   });
+   void fetchUsers();
+  } catch {
+   await alertDialog({ title: 'Error', message: 'Network error. Please try again.' });
   }
  };
 
@@ -901,10 +1177,16 @@ export default function AdminPage() {
     <div className="mb-6 flex gap-1 border-b border-gray-200">
      {([
       { key: 'requests' as const, label: 'Access Requests' },
+      { key: 'resets' as const, label: 'Password Resets' },
       { key: 'users' as const, label: 'Users' },
       { key: 'marketing' as const, label: 'Homepage Images' },
      ]).map((item) => {
-      const pendingCount = item.key === 'requests' ? requests.filter((r) => r.status === 'pending').length : 0;
+      const pendingCount =
+       item.key === 'requests'
+        ? requests.filter((r) => r.status === 'pending').length
+        : item.key === 'resets'
+         ? resetRequests.filter((r) => r.status === 'pending').length
+         : 0;
       return (
        <button
         key={item.key}
@@ -929,6 +1211,16 @@ export default function AdminPage() {
       reviewingId={reviewingId}
       onRefresh={() => void fetchRequests()}
       onReview={(req, action) => void reviewRequest(req, action)}
+     />
+    )}
+
+    {tab === 'resets' && (
+     <PasswordResetsPanel
+      requests={resetRequests}
+      loading={resetRequestsLoading}
+      reviewingId={resetReviewingId}
+      onRefresh={() => void fetchResetRequests()}
+      onReview={(req, action) => void reviewResetRequest(req, action)}
      />
     )}
 
@@ -1008,6 +1300,7 @@ export default function AdminPage() {
            expandedUser={expandedUser}
            setExpandedUser={setExpandedUser}
            setPendingDelete={setPendingDelete}
+           onResetPassword={(u) => void handleResetPassword(u)}
           />
           {children.map(({ user: child, role }) => (
            <UserRow
@@ -1018,6 +1311,7 @@ export default function AdminPage() {
             expandedUser={expandedUser}
             setExpandedUser={setExpandedUser}
             setPendingDelete={setPendingDelete}
+            onResetPassword={(u) => void handleResetPassword(u)}
            />
           ))}
          </React.Fragment>
@@ -1050,6 +1344,8 @@ export default function AdminPage() {
      }}
     />
    )}
+
+   {resetLink && <ResetLinkDialog link={resetLink} onClose={() => setResetLink(null)} />}
   </div>
  );
 }

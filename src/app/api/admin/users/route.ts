@@ -25,6 +25,7 @@ type CreateUserBody = {
  name?: string;
  email?: string;
  durationDays?: number;
+ phone?: string;
 };
 
 // Super admin creates a user directly: account is active immediately with the given
@@ -38,14 +39,14 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
- const { name, email, durationDays } = (await request.json()) as CreateUserBody;
+ const { name, email, durationDays, phone } = (await request.json()) as CreateUserBody;
 
  if (!email || typeof email !== 'string') {
   return NextResponse.json({ error: 'Email or username is required.' }, { status: 400 });
  }
 
  try {
-  const result = await authDb.createUserBySuperAdmin({ name, email, durationDays });
+  const result = await authDb.createUserBySuperAdmin({ name, email, durationDays, phone });
   return NextResponse.json({
    ok: true,
    user: { id: result.id, email: result.email, name: result.name, subscriptionEndsAt: result.subscriptionEndsAt },
