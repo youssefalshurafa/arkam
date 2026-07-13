@@ -618,6 +618,28 @@ async function getUserByEmail(email) {
     return fetchOne('SELECT id, email, name, image FROM users WHERE email = $1', [normalizedEmail]);
 }
 
+const EMAILABLE_IDENTIFIER_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Looks up an account by its login identifier for the forgot-password flow. The identifier can be
+// an email OR a username — both live in the `email` column. Returns whether an account exists and
+// whether it has a real, deliverable email address: username-only accounts don't, so they can't be
+// reached by the email reset link and must use the support-approval /reset-request flow instead.
+async function lookupResetTarget(identifier) {
+    await ensurePublicSchema();
+
+    const normalized = String(identifier || '').trim().toLowerCase();
+    if (!normalized) {
+        return { exists: false, emailable: false };
+    }
+
+    const user = await fetchOne('SELECT email FROM users WHERE email = $1', [normalized]);
+    if (!user) {
+        return { exists: false, emailable: false };
+    }
+
+    return { exists: true, emailable: EMAILABLE_IDENTIFIER_RE.test(user.email || '') };
+}
+
 
 // Lists access requests joined with the requester's user info. Never selects the
 // (potentially large) proof_data blob — that's fetched separately on demand.
@@ -1416,4 +1438,5 @@ module.exports = {
     getUserAccountInfo,
     createRenewalRequest,
     getUserByEmail,
+    lookupResetTarget,
 };

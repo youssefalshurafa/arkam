@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -17,6 +17,15 @@ export default function ResetRequestPage() {
  const [error, setError] = useState('');
  const [sent, setSent] = useState(false);
  const [isSubmitting, setIsSubmitting] = useState(false);
+
+ // Prefill the username when the user was forwarded here from /forgot-password (a username-only
+ // account with no deliverable email). Read from the URL directly to avoid a Suspense boundary.
+ useEffect(() => {
+  const prefill = new URLSearchParams(window.location.search).get('username');
+  if (prefill) {
+   setUsername(prefill);
+  }
+ }, []);
 
  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
   event.preventDefault();
