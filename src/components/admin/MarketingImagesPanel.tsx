@@ -3,12 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { alertDialog, confirmDialog } from '@/components/ui/AppDialog';
 import { MARKETING_SLOTS } from '@/config/marketing';
+import { useAdminI18n } from '@/app/admin/_ui/useAdminI18n';
+import { Icon } from '@/app/admin/_ui/icons';
+import { StateBlock } from '@/app/admin/_ui/primitives';
 
 type SlotsMap = Record<string, number>;
 
 // Super-admin panel to upload / replace / remove the real screenshots shown on
 // the public homepage. An empty slot falls back to the built-in CSS mockup.
 export default function MarketingImagesPanel() {
+ const { t } = useAdminI18n();
  const [slots, setSlots] = useState<SlotsMap>({});
  const [loading, setLoading] = useState(true);
  const [busySlot, setBusySlot] = useState<string | null>(null);
@@ -39,113 +43,87 @@ export default function MarketingImagesPanel() {
    body.append('file', file);
    const res = await fetch('/api/admin/marketing-images', { method: 'POST', body });
    const data = (await res.json()) as { ok?: boolean; error?: string };
-   if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed.');
+   if (!res.ok || !data.ok) throw new Error(data.error || t('admin_img_upload_failed'));
    await refresh();
   } catch (err) {
-   await alertDialog({ title: 'Upload failed', message: err instanceof Error ? err.message : 'Upload failed.' });
+   await alertDialog({ title: t('admin_img_upload_failed_title'), message: err instanceof Error ? err.message : t('admin_img_upload_failed') });
   } finally {
    setBusySlot(null);
   }
  };
 
  const remove = async (slot: string, label: string) => {
-  if (!(await confirmDialog({ message: `Remove the image for "${label}"? The homepage will show its default mockup again.` }))) return;
+  if (!(await confirmDialog({ message: t('admin_img_remove_confirm').replace('{label}', label) }))) return;
   setBusySlot(slot);
   try {
    const res = await fetch(`/api/admin/marketing-images?slot=${encodeURIComponent(slot)}`, { method: 'DELETE' });
    const data = (await res.json()) as { ok?: boolean; error?: string };
-   if (!res.ok || !data.ok) throw new Error(data.error || 'Remove failed.');
+   if (!res.ok || !data.ok) throw new Error(data.error || t('admin_img_remove_failed'));
    await refresh();
   } catch (err) {
-   await alertDialog({ title: 'Remove failed', message: err instanceof Error ? err.message : 'Remove failed.' });
+   await alertDialog({ title: t('admin_img_remove_failed_title'), message: err instanceof Error ? err.message : t('admin_img_remove_failed') });
   } finally {
    setBusySlot(null);
   }
  };
 
  return (
-  <div>
-   <div className="mb-6 flex items-start justify-between gap-4">
-    <div>
-     <h2 className="text-base font-semibold text-gray-900">Homepage images</h2>
-     <p className="mt-1 max-w-2xl text-sm text-gray-500">
-      Upload a real screenshot for any section of the public homepage. Empty slots show a built-in mockup instead.
-      PNG, JPG, or WEBP up to 5MB. Wide images (roughly 4:3) look best.
-     </p>
-    </div>
-    <button
-     onClick={() => void refresh()}
-     className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
-    >
-     Refresh
-    </button>
+  <>
+   <div className="ad-note info">
+    <Icon name="info" />
+    {t('admin_img_intro')}
    </div>
 
    {loading ? (
-    <div className="py-16 text-center text-sm text-gray-400">Loading…</div>
+    <StateBlock>{t('admin_loading')}</StateBlock>
    ) : (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="ad-grid-2">
      {MARKETING_SLOTS.map((s) => {
       const updatedAt = slots[s.slot];
       const hasImage = Boolean(updatedAt);
       const busy = busySlot === s.slot;
       return (
-       <div key={s.slot} className="rounded-xl border border-gray-200 bg-white p-4">
-        <div className="flex items-center justify-between gap-3">
+       <div key={s.slot} className="ad-card ad-card-pad">
+        <div className="ad-row" style={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
          <div>
-          <p className="text-sm font-semibold text-gray-900">{s.label}</p>
-          <p className="mt-0.5 text-xs text-gray-400">{s.hint}</p>
+          <p className="ad-u-name">{s.label}</p>
+          <p className="ad-faint" style={{ fontSize: 12, marginTop: 2 }}>{s.hint}</p>
          </div>
-         <span
-          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-           hasImage ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
-          }`}
-         >
-          {hasImage ? 'Custom image' : 'Default mockup'}
-         </span>
+         <span className={`ad-badge ${hasImage ? 'good' : 'neutral'}`}>{hasImage ? t('admin_img_custom') : t('admin_img_default')}</span>
         </div>
 
-        <div className="mt-3 overflow-hidden rounded-lg border border-gray-100 bg-gray-50">
+        <div style={{ marginTop: 12, overflow: 'hidden', borderRadius: 10, border: '1px solid var(--ad-border)', background: 'var(--ad-surface-2)' }}>
          {hasImage ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-           src={`/api/marketing-image/${s.slot}?v=${updatedAt}`}
-           alt={s.label}
-           className="max-h-44 w-full object-contain"
-          />
+          <img src={`/api/marketing-image/${s.slot}?v=${updatedAt}`} alt={s.label} style={{ maxHeight: 176, width: '100%', objectFit: 'contain' }} />
          ) : (
-          <div className="grid h-32 place-items-center text-xs text-gray-400">No image uploaded</div>
+          <div style={{ height: 128, display: 'grid', placeItems: 'center' }} className="ad-faint">
+           {t('admin_img_none')}
+          </div>
          )}
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="ad-row" style={{ marginTop: 12, gap: 8 }}>
          <input
           ref={(el) => {
            inputs.current[s.slot] = el;
           }}
           type="file"
           accept="image/png,image/jpeg,image/webp"
-          className="hidden"
+          className="ad-hidden"
+          style={{ display: 'none' }}
           onChange={(e) => {
            const file = e.target.files?.[0];
            if (file) void upload(s.slot, file);
            e.target.value = '';
           }}
          />
-         <button
-          disabled={busy}
-          onClick={() => inputs.current[s.slot]?.click()}
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-         >
-          {busy ? 'Working…' : hasImage ? 'Replace' : 'Upload'}
+         <button className="ad-btn sm primary" disabled={busy} onClick={() => inputs.current[s.slot]?.click()}>
+          {busy ? t('admin_working') : hasImage ? t('admin_replace') : t('admin_upload')}
          </button>
          {hasImage && (
-          <button
-           disabled={busy}
-           onClick={() => void remove(s.slot, s.label)}
-           className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          >
-           Remove
+          <button className="ad-btn sm" disabled={busy} onClick={() => void remove(s.slot, s.label)}>
+           {t('admin_remove')}
           </button>
          )}
         </div>
@@ -154,6 +132,6 @@ export default function MarketingImagesPanel() {
      })}
     </div>
    )}
-  </div>
+  </>
  );
 }

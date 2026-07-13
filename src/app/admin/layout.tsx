@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
 import { ADMIN_UNLOCK_COOKIE, isSuperAdmin, verifyAdminUnlockToken } from '@/server/permissions';
 import AdminUnlockGate from './AdminUnlockGate';
+import AdminShell from './_ui/AdminShell';
 
 // Second, independent gate in front of both admin pages (/admin, /admin/users/[id]) —
 // on top of the isSuperAdmin email check, the super-admin also needs a separate panel
@@ -25,5 +26,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   return <AdminUnlockGate />;
  }
 
- return <>{children}</>;
+ // Unlocked super-admin: render the full panel chrome (sidebar, topbar, theme,
+ // language) around every /admin/* route.
+ return <AdminShell>{children}</AdminShell>;
 }
