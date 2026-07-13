@@ -485,6 +485,16 @@ function AuthenticatedHome() {
   };
  }, [sessionUserId]);
 
+ // Records one "app open" activity event per authenticated app-shell mount, for the
+ // super-admin usage view. The ref guard keeps it to a single beacon even if this effect
+ // re-runs (it fires as soon as the user id resolves). Fire-and-forget — never blocks.
+ const appOpenRecordedRef = useRef(false);
+ useEffect(() => {
+  if (!sessionUserId || appOpenRecordedRef.current) return;
+  appOpenRecordedRef.current = true;
+  accountingApi.recordActivity('app_open');
+ }, [sessionUserId]);
+
  const subscriptionDaysLeft = subscriptionEndsAt ? Math.ceil((new Date(subscriptionEndsAt).getTime() - Date.now()) / 86_400_000) : null;
  // Keyed by the day count (not just the end date) so dismissing today's "5 days
  // left" warning doesn't suppress tomorrow's "4 days left" one — each day's
@@ -536,6 +546,14 @@ function AuthenticatedHome() {
  useEffect(() => {
   setSection(getSectionFromPath(pathname).section);
  }, [pathname]);
+
+ // Records a "section visit" activity event whenever the active section changes (covers
+ // sidebar clicks, deep-links, and browser back/forward, since it keys off section state).
+ // Gated on an authenticated user so pre-auth renders don't beacon. Fire-and-forget.
+ useEffect(() => {
+  if (!sessionUserId) return;
+  accountingApi.recordActivity('section_visit', section);
+ }, [section, sessionUserId]);
 
  // Resolve the client/organization from the URL path. Intentionally does NOT depend on
  // clientAccounts or touch the selected account — that would reset the user's chosen account
