@@ -115,6 +115,15 @@ const EMPTY_ADJUSTMENTS: ClientAdjustment[] = [];
 const EMPTY_RECONCILIATIONS: Reconciliation[] = [];
 const EMPTY_CLIENT_ACCOUNTS: ClientAccount[] = [];
 
+// Activity-telemetry dedupe guards, kept at module scope (not component refs) on purpose: this
+// page is large and remounts several times during a single load (auth/data gates swapping in, plus
+// React StrictMode's double-invoke in dev), and a fresh component instance resets any useRef — which
+// is exactly what made one "open" beacon 2–3 app_open/section_visit events. Module scope survives
+// every remount within a page load, so app_open fires once per load and section_visit fires only
+// when the section actually changes. A genuine full reload creates a fresh module → counts again.
+let appOpenBeaconSent = false;
+let lastRecordedSection: string | null = null;
+
 function AuthenticatedHome() {
  const router = useRouter();
  const pathname = usePathname();
@@ -485,13 +494,12 @@ function AuthenticatedHome() {
   };
  }, [sessionUserId]);
 
- // Records one "app open" activity event per authenticated app-shell mount, for the
- // super-admin usage view. The ref guard keeps it to a single beacon even if this effect
- // re-runs (it fires as soon as the user id resolves). Fire-and-forget — never blocks.
- const appOpenRecordedRef = useRef(false);
+ // Records one "app open" activity event per page load, for the super-admin usage view. The
+ // module-scoped guard (see note above) keeps it to a single beacon across the remounts and
+ // StrictMode double-invokes that happen while the app shell settles. Fire-and-forget.
  useEffect(() => {
-  if (!sessionUserId || appOpenRecordedRef.current) return;
-  appOpenRecordedRef.current = true;
+  if (!sessionUserId || appOpenBeaconSent) return;
+  appOpenBeaconSent = true;
   accountingApi.recordActivity('app_open');
  }, [sessionUserId]);
 
@@ -549,9 +557,13 @@ function AuthenticatedHome() {
 
  // Records a "section visit" activity event whenever the active section changes (covers
  // sidebar clicks, deep-links, and browser back/forward, since it keys off section state).
- // Gated on an authenticated user so pre-auth renders don't beacon. Fire-and-forget.
+ // Gated on an authenticated user so pre-auth renders don't beacon. The module-scoped
+ // last-section guard (see note above) suppresses duplicate beacons for the same section
+ // caused by remounts / StrictMode / the session id resolving, while still counting a real
+ // re-visit to a section the user navigated away from. Fire-and-forget.
  useEffect(() => {
-  if (!sessionUserId) return;
+  if (!sessionUserId || section === lastRecordedSection) return;
+  lastRecordedSection = section;
   accountingApi.recordActivity('section_visit', section);
  }, [section, sessionUserId]);
 
