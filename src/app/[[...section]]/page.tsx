@@ -46,7 +46,7 @@ import {
  txHighlightsStorageKey,
  txRowSettingsStorageKey,
 } from '@/shared/lib/localStorage';
-import { normalizeDecimalInput } from '@/shared/utils/decimal';
+import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { getSectionFromPath } from '@/shared/utils/section';
 import { SkBar, SkTablePanel, SK_CLIENTS, SK_CURRENCIES } from '@/shared/components/skeletons/Skeletons';
 import { useWorkspaceData, useWorkspaceCache } from '@/features/workspace/hooks/useWorkspaceData';
@@ -1338,7 +1338,9 @@ function AuthenticatedHome() {
  // pending side's rate is touched; every other field is preserved from the stored record.
  const onSavePendingPricingRate = useCallback(
   async (entry: PendingPricingEntry, rateInput: string): Promise<boolean> => {
-   const rate = parseFloat(normalizeDecimalInput(rateInput));
+   // Plain-decimal normalization: a rate has no thousands grouping, so a comma is the
+   // user's decimal separator ("10,85" → 10.85), not a group separator to strip.
+   const rate = parseFloat(normalizePlainDecimalInput(rateInput));
    if (!Number.isFinite(rate) || rate <= 0) {
     setError(t('pending_pricing_invalid_rate'));
     return false;
@@ -1869,7 +1871,7 @@ function AuthenticatedHome() {
  );
 
  return (
-  <div className={`min-h-screen flex bg-gray-100 text-gray-900 ${isRTL ? 'rtl' : 'ltr'}`}>
+  <div className={`h-screen overflow-hidden flex bg-gray-100 text-gray-900 ${isRTL ? 'rtl' : 'ltr'}`}>
    <main className="flex w-full">
     {/* Classic sidebar - desktop only */}
     <Sidebar

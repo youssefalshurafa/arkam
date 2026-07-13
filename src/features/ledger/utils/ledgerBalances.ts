@@ -1,4 +1,4 @@
-import { getCommissionAmount, chargeLedgerEffect } from '@/shared/utils/commission';
+import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
 import { buildLockBoundaries, isAtOrBeforeBoundary, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
 import type {
  Client,
@@ -17,11 +17,13 @@ import type {
 // transaction or a not-yet-saved edit payload.
 export type NetChangeSideInput = {
  currencyId: number;
+ type: string;
  amount: number;
  exchangeRateFrom: number;
  commissionFrom: number;
  exchangeRateTo: number;
  commissionTo: number;
+ exchangeActualAmount?: number | null;
  charges: number;
  chargesCurrencyId: number | null;
  chargesPayer: string;
@@ -48,14 +50,18 @@ function effectiveChargeRate(chargesCurrencyId: number | null, accountCurrencyId
 export function computeTransactionSideNetChange(tx: NetChangeSideInput, accountCurrencyId: number, side: 'from' | 'to'): number {
  const rate = side === 'from' ? tx.exchangeRateFrom : tx.exchangeRateTo;
  const commission = side === 'from' ? tx.commissionFrom : tx.commissionTo;
- const pendingRate = tx.currencyId !== accountCurrencyId && rate === 0;
+ // An exchange with a recorded actual (الفعلي) destination amount is never pending on the "to"
+ // side — the concrete settled amount stands in for the computed amount × rate.
+ const hasExchangeActual = side === 'to' && tx.type === 'exchange' && tx.exchangeActualAmount != null;
+ const pendingRate = !hasExchangeActual && tx.currencyId !== accountCurrencyId && rate === 0;
  if (pendingRate) return 0;
  const chargeRate = effectiveChargeRate(tx.chargesCurrencyId, accountCurrencyId, tx.chargesExchangeRate);
  const chargeEffect = tx.charges > 0 ? chargeLedgerEffect(tx.chargesPayer, side) * (tx.charges * chargeRate) : 0;
  if (side === 'from') {
   return tx.amount * rate + getCommissionAmount(tx.amount * rate, commission) + chargeEffect;
  }
- return -(tx.amount * rate - getCommissionAmount(tx.amount * rate, commission)) + chargeEffect;
+ const toBase = exchangeToBase(tx);
+ return -(toBase - getCommissionAmount(toBase, commission)) + chargeEffect;
 }
 
 type ComputeArgs = {
@@ -144,8 +150,10 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
 
       if (transaction.accountToId === account.id) {
        const counterparty = clientAccountMap.get(transaction.accountFromId ?? -1);
-       // Cross-currency with no exchange rate set yet (0) is pending (see note above).
-       const pendingRate = transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
+       // Cross-currency with no exchange rate set yet (0) is pending (see note above) — unless this
+       // is an exchange with a recorded actual (الفعلي) destination amount, which is never pending.
+       const hasExchangeActual = transaction.type === 'exchange' && transaction.exchangeActualAmount != null;
+       const pendingRate = !hasExchangeActual && transaction.currencyId !== account.currencyId && transaction.exchangeRateTo === 0;
        return [
         {
          transactionId: transaction.id,
@@ -165,7 +173,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          commission: transaction.commissionTo,
          netChange: pendingRate
           ? 0
-          : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)) +
+          : -(exchangeToBase(transaction) - getCommissionAmount(exchangeToBase(transaction), transaction.commissionTo)) +
             (transaction.charges > 0
              ? chargeLedgerEffect(transaction.chargesPayer, 'to') *
                (transaction.charges * effectiveChargeRate(transaction.chargesCurrencyId, account.currencyId, transaction.chargesExchangeRate))

@@ -1,5 +1,6 @@
 import type {
  DataCache,
+ ExchangeSettings,
  LedgerColumnKey,
  PdfColVisibility,
  PdfSettings,
@@ -389,6 +390,32 @@ export function getStoredPdfSettings(): PdfSettings {
   return { ...defaultPdfSettings, ...parsed };
  } catch {
   return defaultPdfSettings;
+ }
+}
+// Workspace-wide exchange (صرف) rules. Shared across members via sharedTableSettings so the
+// tolerance limit is consistent for everyone in the workspace.
+export const exchangeSettingsStorageKey = 'arkam:exchange-settings';
+export const defaultExchangeSettings: ExchangeSettings = {
+ tolerance: 5,
+};
+export function getStoredExchangeSettings(): ExchangeSettings {
+ if (typeof window === 'undefined') return defaultExchangeSettings;
+ try {
+  const raw = window.localStorage.getItem(exchangeSettingsStorageKey);
+  if (!raw) return defaultExchangeSettings;
+  const parsed = JSON.parse(raw);
+  const tolerance = Number(parsed?.tolerance);
+  return { tolerance: Number.isFinite(tolerance) && tolerance >= 0 ? tolerance : defaultExchangeSettings.tolerance };
+ } catch {
+  return defaultExchangeSettings;
+ }
+}
+export function saveExchangeSettings(settings: ExchangeSettings) {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(exchangeSettingsStorageKey, JSON.stringify(settings));
+ } catch {
+  /* ignore quota / privacy-mode errors */
  }
 }
 // Description strings the user has dismissed from the transaction description

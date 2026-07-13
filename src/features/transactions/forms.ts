@@ -19,4 +19,5 @@ export const emptyTransactionForm = (): TransactionForm => ({
  description: '',
  descriptionFrom: '',
  descriptionTo: '',
+ exchangeActualAmount: '',
 });

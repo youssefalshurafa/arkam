@@ -610,6 +610,7 @@ async function listTransactions(app) {
             t.description,
             COALESCE(t.description_from, '') AS "descriptionFrom",
             COALESCE(t.description_to, '') AS "descriptionTo",
+            t.exchange_actual_amount AS "exchangeActualAmount",
             COALESCE(t.archive_note, '') AS "archiveNote",
             CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
             t.created_at AS "createdAt"
@@ -663,10 +664,11 @@ async function createTransaction(app, txn) {
                     description,
                     description_from,
                     description_to,
+                    exchange_actual_amount,
                     is_archived,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
             `,
             [
                 txn.accountFromId || null,
@@ -688,6 +690,7 @@ async function createTransaction(app, txn) {
                 txn.description?.trim() || '',
                 txn.descriptionFrom?.trim() || '',
                 txn.descriptionTo?.trim() || '',
+                txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
                 isArchived,
                 txn.createdAt.trim(),
             ],
@@ -717,9 +720,10 @@ async function createTransaction(app, txn) {
                 description,
                 description_from,
                 description_to,
+                exchange_actual_amount,
                 is_archived
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         `,
         [
             txn.accountFromId || null,
@@ -741,6 +745,7 @@ async function createTransaction(app, txn) {
             txn.description?.trim() || '',
             txn.descriptionFrom?.trim() || '',
             txn.descriptionTo?.trim() || '',
+            txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
             isArchived,
         ],
     );
@@ -783,7 +788,10 @@ async function updateTransaction(app, txn) {
                 -- Per-side overrides are preserved (COALESCE) when a caller omits them, so the
                 -- table inline-edit / reorder paths don't wipe descriptions set at creation time.
                 description_from = COALESCE($21, description_from),
-                description_to = COALESCE($22, description_to)
+                description_to = COALESCE($22, description_to),
+                -- Exchange actual-amount override is preserved (COALESCE) when a caller omits it, so
+                -- table inline-edit / reorder paths don't wipe an override set at creation time.
+                exchange_actual_amount = COALESCE($23, exchange_actual_amount)
             WHERE id = $20
         `,
         [
@@ -810,6 +818,7 @@ async function updateTransaction(app, txn) {
             txn.id,
             txn.descriptionFrom === undefined || txn.descriptionFrom === null ? null : String(txn.descriptionFrom).trim(),
             txn.descriptionTo === undefined || txn.descriptionTo === null ? null : String(txn.descriptionTo).trim(),
+            txn.exchangeActualAmount === undefined ? null : txn.exchangeActualAmount,
         ],
     );
 }
@@ -1071,6 +1080,7 @@ function txColValue(col, row, now) {
         case 'charges_exchange_rate': return row.chargesExchangeRate ?? 1;
         case 'charges_description': return row.chargesDescription || '';
         case 'description': return row.description?.trim() || '';
+        case 'exchange_actual_amount': return row.exchangeActualAmount != null ? row.exchangeActualAmount : null;
         case 'archive_note': return row.archiveNote?.trim() || '';
         case 'is_archived': return row.isArchived ? true : false;
         case 'created_at': return row.createdAt ?? now;
@@ -1108,7 +1118,7 @@ async function bulkImportTransactions(app, { transactions = [], adjustments = []
                 'exchange_rate_from', 'commission_from', 'exchange_rate_to', 'commission_to',
                 'exchange_rate_from_reversed', 'exchange_rate_to_reversed',
                 'charges', 'charges_currency_id', 'charges_payer', 'charges_exchange_rate',
-                'charges_description', 'description', 'archive_note', 'is_archived', 'created_at',
+                'charges_description', 'description', 'exchange_actual_amount', 'archive_note', 'is_archived', 'created_at',
             ];
             const quotedCols = cols.map((c) => `"${c}"`).join(', ');
             const maxBatch = Math.max(1, Math.floor(60000 / cols.length));

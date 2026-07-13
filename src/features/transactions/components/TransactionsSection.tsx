@@ -9,7 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions } from '@/shared/lib/localStorage';
+import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ltrIsolate } from '@/shared/utils/format';
 import { formatDateValue } from '@/shared/utils/date';
@@ -178,6 +178,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // every downstream read of `transactionTableSettings` in this file is section-aware.
  const transactionTableSettings = section === 'archive' ? archiveTableSettings : transactionTableSettingsStore;
  const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
+ // Exchange (صرف) transactions get the الفعلي (actual settled destination amount) section in
+ // place of the "Extra Expenses" block. Archive-only records never touch a ledger, so they keep
+ // the plain Extra Expenses behaviour.
+ const isExchangeTransaction = section !== 'archive' && transactionForm.type === 'exchange';
 
  // Shared by the row's onContextMenu (desktop right-click) and its visible "⋮" button
  // (touch devices have no right-click event to hook into). contextMenuRowId drives a
@@ -291,6 +295,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const [txToHighlight, setTxToHighlight] = useState(0);
  // Spreadsheet-style zoom for the (often very wide) transactions table, so it fits on narrow screens.
  const [tableZoom, setTableZoom] = useState(() => getStoredTableZoom('transactions'));
+ // Max allowed deviation (in the destination currency) between the entered الفعلي actual amount
+ // and the computed amount × rate. Enforced authoritatively at submit; used here for the live hint.
+ const [exchangeTolerance] = useState(() => getStoredExchangeSettings().tolerance);
  const changeTableZoom = (z: number) => {
   setTableZoom(z);
   saveTableZoom('transactions', z);
@@ -984,7 +991,55 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              </div>
             ) : null}
 
-            {!isAdjustmentTransaction ? (
+            {isExchangeTransaction
+             ? (() => {
+                const amountNum = parseFloat(normalizeDecimalInput(transactionForm.amount));
+                const rateRaw = parseFloat(transactionForm.exchangeRateTo);
+                const effRateTo =
+                 showExchangeRateTo && transactionAccountToCurrencyCode
+                  ? Number.isFinite(rateRaw) && rateRaw > 0
+                    ? txToRateReversed
+                      ? 1 / rateRaw
+                      : rateRaw
+                    : null
+                  : 1;
+                const computed = Number.isFinite(amountNum) && effRateTo != null ? amountNum * effRateTo : null;
+                const actualRaw = transactionForm.exchangeActualAmount.trim();
+                const actualNum = parseFloat(normalizeDecimalInput(actualRaw));
+                const hasActual = actualRaw !== '' && Number.isFinite(actualNum);
+                const diff = computed != null && hasActual ? computed - actualNum : null;
+                const outOfTolerance = diff != null && Math.abs(diff) > exchangeTolerance;
+                const toCode = transactionAccountToCurrencyCode ?? '';
+                return (
+                 <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
+                  <h3 className="text-sm font-semibold text-slate-700">{t('exchange_actual_label')}</h3>
+                  {computed != null ? (
+                   <p className="mt-1 text-xs text-slate-500">
+                    {t('exchange_actual_computed_hint', { value: ltrIsolate(`${formatAmountInput(String(computed.toFixed(2)))} ${toCode}`.trim()) })}
+                   </p>
+                  ) : null}
+                  <input
+                   type="text"
+                   inputMode="decimal"
+                   dir="ltr"
+                   value={formatAmountInput(transactionForm.exchangeActualAmount)}
+                   onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeActualAmount: normalizeDecimalInput(event.target.value) }))}
+                   className={`mt-2 w-full rounded border bg-white px-3 py-2 outline-none ring-blue-300 focus:ring ${outOfTolerance ? 'border-red-400' : 'border-slate-300'}`}
+                   placeholder={computed != null ? computed.toFixed(2) : '0.00'}
+                  />
+                  {diff != null && Math.abs(diff) > 1e-9 ? (
+                   <p className={`mt-1 text-xs ${outOfTolerance ? 'text-red-600' : 'text-slate-500'}`}>
+                    {outOfTolerance
+                     ? t('exchange_actual_out_of_tolerance', { max: String(exchangeTolerance) })
+                     : t('exchange_actual_difference', { value: ltrIsolate(`${diff > 0 ? '+' : ''}${diff.toFixed(2)} ${toCode}`.trim()) })}
+                   </p>
+                  ) : null}
+                 </div>
+                );
+               })()
+             : null}
+
+            {!isAdjustmentTransaction && !isExchangeTransaction ? (
              <div className="mt-4">
               <button
                type="button"
