@@ -925,30 +925,17 @@ async function updateUserContact({ userId, phone }) {
     return { ok: true };
 }
 
-// Files a user-initiated password reset request (for username-only accounts the email-based
-// /forgot-password flow can't reach). Anti-enumeration: if no account matches the identifier we
-// silently return `created: false` so the caller can show the same confirmation either way. A
-// pending request already on file is not duplicated. A pending row changes nothing about the
-// account — only an admin approval (reviewPasswordResetRequest) mints a reset link.
-async function createPasswordResetRequest({ email, note }) {
-    await ensurePublicSchema();
-
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    if (!normalizedEmail) {
-        return { ok: true, created: false };
-    }
-
-    const user = await fetchOne('SELECT id, name FROM users WHERE email = $1', [normalizedEmail]);
-    if (!user?.id) {
-        return { ok: true, created: false };
-    }
-
+// Files a pending password reset request for an already-resolved user row, deduping any request
+// already on file. Shared by the identifier-based (logged-out) and userId-based (logged-in) entry
+// points. A pending row changes nothing about the account — only an admin approval
+// (reviewPasswordResetRequest) mints a reset link.
+async function fileResetRequestForUser(user, note) {
     const existing = await fetchOne(
         `SELECT id FROM password_reset_requests WHERE user_id = $1 AND status = 'pending' LIMIT 1`,
         [user.id],
     );
     if (existing?.id) {
-        return { ok: true, created: false, userId: user.id, name: user.name || '' };
+        return { ok: true, created: false, userId: user.id, name: user.name || '', username: user.email || '' };
     }
 
     await runQuery(
@@ -957,7 +944,45 @@ async function createPasswordResetRequest({ email, note }) {
         [generateId(), user.id, String(note || '').trim()],
     );
 
-    return { ok: true, created: true, userId: user.id, name: user.name || '' };
+    return { ok: true, created: true, userId: user.id, name: user.name || '', username: user.email || '' };
+}
+
+// Files a user-initiated password reset request (for username-only accounts the email-based
+// /forgot-password flow can't reach). Anti-enumeration: if no account matches the identifier we
+// silently return `created: false` so the caller can show the same confirmation either way.
+async function createPasswordResetRequest({ email, note }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+        return { ok: true, created: false };
+    }
+
+    const user = await fetchOne('SELECT id, name, email FROM users WHERE email = $1', [normalizedEmail]);
+    if (!user?.id) {
+        return { ok: true, created: false };
+    }
+
+    return fileResetRequestForUser(user, note);
+}
+
+// Files a password reset request for the currently logged-in user (identified by session, so no
+// username or current password is needed). Used by the in-app "forgot your current password"
+// affordance. Reuses the same support-approval machinery as the logged-out path.
+async function createPasswordResetRequestForUser({ userId, note }) {
+    await ensurePublicSchema();
+
+    const normalizedId = String(userId || '').trim();
+    if (!normalizedId) {
+        return { ok: true, created: false };
+    }
+
+    const user = await fetchOne('SELECT id, name, email FROM users WHERE id = $1', [normalizedId]);
+    if (!user?.id) {
+        return { ok: true, created: false };
+    }
+
+    return fileResetRequestForUser(user, note);
 }
 
 // Lists password reset requests joined with the requester's user info. `phone` is the trusted
@@ -1426,6 +1451,7 @@ module.exports = {
     clearUserPassword,
     updateUserContact,
     createPasswordResetRequest,
+    createPasswordResetRequestForUser,
     listPasswordResetRequests,
     reviewPasswordResetRequest,
     listAccessRequests,

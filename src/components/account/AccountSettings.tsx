@@ -59,6 +59,11 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
  const [pwdSubmitting, setPwdSubmitting] = useState(false);
  const [passwordOpen, setPasswordOpen] = useState(false);
 
+ // "Forgot current password" support-approval request state
+ const [resetRequesting, setResetRequesting] = useState(false);
+ const [resetRequested, setResetRequested] = useState(false);
+ const [resetError, setResetError] = useState('');
+
  // Renew state
  const [showRenew, setShowRenew] = useState(false);
  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
@@ -184,6 +189,30 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
    setPwdError(err instanceof Error ? err.message : t('account_password_failed'));
   } finally {
    setPwdSubmitting(false);
+  }
+ };
+
+ // Files a support-approval reset request for the logged-in user who has forgotten their current
+ // password (username-only accounts can't use the email reset link). Support verifies identity via
+ // the trusted contact and hands over a one-time reset link.
+ const onRequestReset = async () => {
+  setResetError('');
+  setResetRequesting(true);
+  try {
+   const res = await fetch('/api/auth/reset-request/authenticated', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+   });
+   const data = (await res.json()) as { ok?: boolean; error?: string };
+   if (!res.ok || !data.ok) {
+    throw new Error(data.error || t('account_password_forgot_failed'));
+   }
+   setResetRequested(true);
+  } catch (err) {
+   setResetError(err instanceof Error ? err.message : t('account_password_forgot_failed'));
+  } finally {
+   setResetRequesting(false);
   }
  };
 
@@ -577,6 +606,29 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
      </div>
     </form>
     )}
+
+    {/* Forgot current password — support-approval reset for logged-in users (esp. username-only). */}
+    <div className="mt-5 border-t border-gray-100 pt-4">
+     {resetRequested ? (
+      <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">
+       {t('account_password_forgot_done')}
+      </p>
+     ) : (
+      <>
+       <button
+        type="button"
+        onClick={() => void onRequestReset()}
+        disabled={resetRequesting}
+        className="text-sm font-semibold text-blue-700 transition hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+       >
+        {resetRequesting ? t('account_password_forgot_submit') : t('account_password_forgot')}
+       </button>
+       {resetError && (
+        <p className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{resetError}</p>
+       )}
+      </>
+     )}
+    </div>
    </div>
   </section>
  );
