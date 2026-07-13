@@ -19,7 +19,7 @@ import {
  DEFAULT_IMPORT_ROW_OVERRIDE,
 } from '@/features/transactions/utils/import';
 import { generateArchiveHtml, generateTransactionsExportHtml } from '@/features/pdf/pdfExport';
-import { saveArchiveTableSettings, saveTransactionTableSettings } from '@/shared/lib/localStorage';
+import { saveArchiveTableSettings, saveTransactionTableSettings, getStoredExchangeSettings } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
 import { selectArchiveExportRows } from '@/features/transactions/utils/archiveExport';
@@ -475,6 +475,35 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   return;
  }
 
+ // Effective destination rate, mirroring the exchangeRateTo IIFE in txPayload below. Used to
+ // derive the computed destination amount for the exchange "actual amount" tolerance check.
+ const effectiveExchangeRateTo = (() => {
+  if (!showExchangeRateTo || !transactionAccountToCurrencyCode) return 1;
+  const raw = parseFloat(transactionForm.exchangeRateTo);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return txToRateReversed ? 1 / raw : raw;
+ })();
+
+ // Exchange (صرف) only: the "actual" (الفعلي) real settled destination amount. Stored only when
+ // the user entered one, there is a destination account, and this is an exchange transaction.
+ const exchangeActualRaw = transactionForm.exchangeActualAmount.trim();
+ const exchangeActualNum = parseFloat(normalizeDecimalInput(exchangeActualRaw));
+ const exchangeActualAmountValue =
+  transactionForm.type === 'exchange' && !isArchiveCreate && transactionForm.accountToId != null && exchangeActualRaw !== '' && Number.isFinite(exchangeActualNum)
+   ? exchangeActualNum
+   : null;
+
+ // Block submit when the actual deviates from the computed amount × rate by more than the
+ // workspace's configured tolerance (skipped when there is no priced computed value to compare).
+ if (exchangeActualAmountValue != null && effectiveExchangeRateTo > 0) {
+  const computedDestination = amount * effectiveExchangeRateTo;
+  const { tolerance } = getStoredExchangeSettings();
+  if (Math.abs(computedDestination - exchangeActualAmountValue) > tolerance) {
+   setError(t('exchange_actual_out_of_tolerance', { max: String(tolerance) }));
+   return;
+  }
+ }
+
  const txPayload = {
   accountFromId: transactionForm.accountFromId,
   accountToId: transactionForm.accountToId,
@@ -508,6 +537,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   description: transactionForm.description,
   descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
   descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
+  exchangeActualAmount: exchangeActualAmountValue,
   createdAt: newTransactionCreatedAt,
  };
 
@@ -561,6 +591,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
     description: txPayload.description,
     descriptionFrom: txPayload.descriptionFrom,
     descriptionTo: txPayload.descriptionTo,
+    exchangeActualAmount: txPayload.exchangeActualAmount,
     archiveNote: '',
     isArchived: txPayload.isArchived ? 1 : 0,
     createdAt: txPayload.createdAt,
@@ -1347,6 +1378,7 @@ function buildTransactionCreatePayload(tx: Transaction, createdAt: string) {
   description: tx.description,
   descriptionFrom: tx.descriptionFrom,
   descriptionTo: tx.descriptionTo,
+  exchangeActualAmount: tx.exchangeActualAmount,
   createdAt,
  };
 }
@@ -1419,6 +1451,7 @@ function onPasteCopiedTransaction() {
   description: row.description,
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
+  exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
  });
  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);

@@ -390,6 +390,10 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- ledger shows this text instead of the shared description; empty means fall back to description.
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS description_from TEXT NOT NULL DEFAULT '';
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS description_to TEXT NOT NULL DEFAULT '';
+                -- For exchange (صرف) transactions: the real settled destination amount when it differs from
+                -- the computed amount × exchange_rate_to. NULL means no override (use the computed value).
+                -- The house's exchange gain/loss is derivable as amount * exchange_rate_to - exchange_actual_amount.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS exchange_actual_amount DOUBLE PRECISION;
 
                 -- Single-row store for workspace-wide UI settings shared across members.
                 -- "settings" holds a snapshot of the shared ledger/transaction table

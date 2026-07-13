@@ -106,6 +106,9 @@ export type Transaction = {
  description: string;
  descriptionFrom: string;
  descriptionTo: string;
+ // Exchange (صرف) only: the real settled destination amount when it differs from the computed
+ // amount × exchangeRateTo. null means no override (use the computed value).
+ exchangeActualAmount: number | null;
  archiveNote: string;
  isArchived: number;
  createdAt: string;
@@ -136,6 +139,8 @@ export type TransactionForm = {
  description: string;
  descriptionFrom: string;
  descriptionTo: string;
+ // Exchange (صرف) only: the real settled destination amount, as raw input text ('' = no override).
+ exchangeActualAmount: string;
 };
 export type TransactionUpdateInput = {
  id: number;
@@ -158,6 +163,7 @@ export type TransactionUpdateInput = {
  description: string;
  descriptionFrom?: string;
  descriptionTo?: string;
+ exchangeActualAmount?: number | null;
  archiveNote?: string;
  createdAt: string;
 };
@@ -388,6 +394,12 @@ export type TransactionTableSettings = {
  columns: TransactionColumnVisibility;
  showExchangeRate: boolean;
  dateFormat: PdfSettings['dateFormat'];
+};
+// Workspace-wide rules for exchange (صرف) transactions. `tolerance` is the maximum the
+// entered "actual" destination amount may deviate (in the destination currency) from the
+// computed amount × rate before the form blocks submission.
+export type ExchangeSettings = {
+ tolerance: number;
 };
 export type PdfSettings = {
  decimals: number;

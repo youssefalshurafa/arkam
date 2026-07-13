@@ -2,6 +2,14 @@ export function getCommissionAmount(baseAmount: number, commissionPercent: numbe
  return baseAmount * (commissionPercent / 100);
 }
 
+// The destination-side ("to") converted base amount for a transaction, in the destination
+// account's currency. For an exchange (صرف) where the user recorded the real settled amount
+// (الفعلي), that actual amount is used instead of the computed amount × exchangeRateTo, so the
+// destination ledger reflects what actually changed hands. Commission still applies on top.
+export function exchangeToBase(tx: { type: string; amount: number; exchangeRateTo: number; exchangeActualAmount?: number | null }) {
+ return tx.type === 'exchange' && tx.exchangeActualAmount != null ? tx.exchangeActualAmount : tx.amount * tx.exchangeRateTo;
+}
+
 // The four "paid by me" / "paid to me" payers settle the fee directly with the org
 // (you) rather than between the two clients. They are still recorded, but only affect
 // the one named client's ledger — the org silently absorbs the other leg.

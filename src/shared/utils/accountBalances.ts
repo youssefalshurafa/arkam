@@ -1,4 +1,4 @@
-import { getCommissionAmount, chargeLedgerEffect } from './commission';
+import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from './commission';
 import type { ClientAccount, ClientAdjustment, Transaction } from '@/shared/types';
 
 // chargesExchangeRate converts the charge's own currency into the *payer's* account
@@ -19,6 +19,9 @@ export function isPendingTransactionFrom(transaction: Transaction, accountCurren
 }
 
 export function isPendingTransactionTo(transaction: Transaction, accountCurrencyId: number): boolean {
+ // An exchange with a recorded actual (الفعلي) destination amount is never pending — we hold a
+ // concrete destination-currency figure regardless of whether the rate was left unpriced.
+ if (transaction.type === 'exchange' && transaction.exchangeActualAmount != null) return false;
  return transaction.currencyId !== accountCurrencyId && transaction.exchangeRateTo === 0;
 }
 
@@ -60,9 +63,10 @@ export function computeAccountBalances({ clientAccounts, transactions, adjustmen
     const pending = isPendingTransactionTo(transaction, account.currencyId);
     const chargeRate = effectiveChargeRate(transaction.chargesCurrencyId, account.currencyId, transaction.chargesExchangeRate);
     const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * chargeRate) : 0;
+    const toBase = exchangeToBase(transaction);
     const netChange = pending
      ? 0
-     : -(transaction.amount * transaction.exchangeRateTo - getCommissionAmount(transaction.amount * transaction.exchangeRateTo, transaction.commissionTo)) + chargeEffect;
+     : -(toBase - getCommissionAmount(toBase, transaction.commissionTo)) + chargeEffect;
     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
    }
   }

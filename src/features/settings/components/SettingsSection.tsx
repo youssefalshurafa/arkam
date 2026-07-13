@@ -14,6 +14,7 @@ import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import ClientsSection from '@/features/clients/components/ClientsSection';
 import OrganizationsSection from '@/features/organizations/components/OrganizationsSection';
 import CurrenciesSection from '@/features/currencies/components/CurrenciesSection';
+import ExchangeSettingsTab from '@/features/settings/components/ExchangeSettings';
 import type {
  Client,
  ClientAccount,
@@ -270,12 +271,15 @@ export default function SettingsSection({
     />
    ) : null}
    {settingsTab === 'currencies' ? (
-    <CurrenciesSection
-     localizedCurrencies={localizedCurrencies}
-     enabledCurrencies={enabledCurrencies}
-     clientAccounts={clientAccounts}
-     transactions={transactions}
-    />
+    <div className="flex flex-col gap-4">
+     <CurrenciesSection
+      localizedCurrencies={localizedCurrencies}
+      enabledCurrencies={enabledCurrencies}
+      clientAccounts={clientAccounts}
+      transactions={transactions}
+     />
+     <ExchangeSettingsTab />
+    </div>
    ) : null}
   </div>
  </section>
