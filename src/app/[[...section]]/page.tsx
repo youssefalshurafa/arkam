@@ -1869,7 +1869,7 @@ function AuthenticatedHome() {
  );
 
  return (
-  <div className={`min-h-screen flex bg-gray-100 text-gray-900 ${isRTL ? 'rtl' : 'ltr'}`}>
+  <div className={`h-screen overflow-hidden flex bg-gray-100 text-gray-900 ${isRTL ? 'rtl' : 'ltr'}`}>
    <main className="flex w-full">
     {/* Classic sidebar - desktop only */}
     <Sidebar
