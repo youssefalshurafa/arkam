@@ -43,6 +43,7 @@ export default function TransactionTableSettingsModal({ section, closeTransactio
            { key: 'accountFrom', label: t('transaction_account_from') },
            { key: 'accountTo', label: t('transaction_account_to') },
            { key: 'amount', label: t('transaction_amount') },
+           { key: 'exchangeRate', label: t('transaction_exchange_rate') },
            { key: 'charges', label: t('charges') },
            { key: 'commission', label: t('commission') },
           ] as Array<{ key: TransactionColumnKey; label: string }>
@@ -72,16 +73,6 @@ export default function TransactionTableSettingsModal({ section, closeTransactio
        <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('transactions_more_settings')}</p>
         <div className="mt-2 space-y-4">
-         <label className="flex items-center justify-between gap-3 rounded border border-border px-4 py-3 text-sm text-fg-muted">
-          <span>{t('transactions_show_exchange_rate')}</span>
-          <input
-           type="checkbox"
-           checked={transactionTableSettingsDraft.showExchangeRate}
-           onChange={() => setTransactionTableSettingsDraft((current) => ({ ...current, showExchangeRate: !current.showExchangeRate }))}
-           className="h-4 w-4 cursor-pointer rounded border-border-strong text-accent focus:ring-blue-500"
-          />
-         </label>
-
          <div>
           <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('pdf_date_format_label')}</label>
           <select

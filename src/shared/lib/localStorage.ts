@@ -350,13 +350,13 @@ export const defaultTransactionColumnVisibility: TransactionColumnVisibility = {
  accountFrom: true,
  accountTo: true,
  amount: true,
+ exchangeRate: true,
  charges: true,
  commission: true,
 };
 
 export const defaultTransactionTableSettings: TransactionTableSettings = {
  columns: defaultTransactionColumnVisibility,
- showExchangeRate: true,
  dateFormat: 'full',
 };
 export function getStoredPdfCols(accountId: number): PdfColVisibility {

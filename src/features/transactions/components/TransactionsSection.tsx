@@ -284,6 +284,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   [transactionTableSettings.columns.accountFrom, 17],
   [transactionTableSettings.columns.accountTo, 17],
   [transactionTableSettings.columns.amount, 13],
+  [transactionTableSettings.columns.exchangeRate, 12],
   [transactionTableSettings.columns.charges, 13],
   [transactionTableSettings.columns.commission, 15],
   [section === 'archive', 16],
@@ -1805,6 +1806,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              {transactionTableSettings.columns.accountFrom ? <col style={{ width: colWidthPercent(17) }} /> : null}
              {transactionTableSettings.columns.accountTo ? <col style={{ width: colWidthPercent(17) }} /> : null}
              {transactionTableSettings.columns.amount ? <col style={{ width: colWidthPercent(13) }} /> : null}
+             {transactionTableSettings.columns.exchangeRate ? <col style={{ width: colWidthPercent(12) }} /> : null}
              {transactionTableSettings.columns.charges ? <col style={{ width: colWidthPercent(13) }} /> : null}
              {transactionTableSettings.columns.commission ? <col style={{ width: colWidthPercent(15) }} /> : null}
              {section === 'archive' ? <col style={{ width: colWidthPercent(16) }} /> : null}
@@ -1946,6 +1948,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
               ) : null}
               {transactionTableSettings.columns.amount ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th> : null}
+              {transactionTableSettings.columns.exchangeRate ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th> : null}
               {transactionTableSettings.columns.charges ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th> : null}
               {transactionTableSettings.columns.commission ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th> : null}
               {section === 'archive' ? <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('archive_more_info')}</th> : null}
@@ -2298,52 +2301,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        clearLabel={t('clear_selection')}
                        isRTL={isRTL}
                       />
-                      {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
-                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-fg-faint">
-                         {tableRateFromReversed[txn.id] ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}`) : ltrIsolate(`1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`)}
-                        </span>
-                        <button
-                         type="button"
-                         title="Reverse rate direction"
-                         onClick={() => {
-                          const val = parseFloat(draft.exchangeRateFrom) || 1;
-                          updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                          setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
-                         }}
-                         className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
-                        >
-                         <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
-                         >
-                          <path d="M7 4 3 8l4 4M3 8h13.5" />
-                          <path d="M17 20l4-4-4-4m4 4H7.5" />
-                         </svg>
-                         <span className="text-xs font-semibold" aria-hidden>
-                          {tableRateFromReversed[txn.id] ? '÷' : '×'}
-                         </span>
-                        </button>
-                       </div>
-                      )}
-                      {transactionTableSettings.showExchangeRate ? (
-                       <input
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={draft.exchangeRateFrom}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizePlainDecimalInput(event.target.value) })}
-                        className="field-sizing-content min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                        placeholder={t('transaction_exchange_rate')}
-                       />
-                      ) : null}
                      </div>
                     ) : txn.isAdjustment ? (
                      <>
@@ -2369,14 +2326,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         </div>
                        );
                       })()}
-                      {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 && txn.currencyCode !== txn.accountFromCurrencyCode ? (
-                       <div className="text-xs text-fg-faint">
-                        {t('transaction_exchange_rate')}:{' '}
-                        {txn.exchangeRateFromReversed
-                         ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
-                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`)}
-                       </div>
-                      ) : null}
                      </>
                     ) : (
                      <>
@@ -2404,14 +2353,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         <span className="italic text-fg-faint">{t('archive_no_sender')}</span>
                        );
                       })()}
-                      {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 ? (
-                       <div className="text-xs text-fg-faint">
-                        {t('transaction_exchange_rate')}:{' '}
-                        {txn.exchangeRateFromReversed
-                         ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
-                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`)}
-                       </div>
-                      ) : null}
                      </>
                     )}
                    </td>
@@ -2449,52 +2390,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        clearLabel={t('clear_selection')}
                        isRTL={isRTL}
                       />
-                      {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
-                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-fg-faint">
-                         {tableRateToReversed[txn.id] ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}`) : ltrIsolate(`1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`)}
-                        </span>
-                        <button
-                         type="button"
-                         title="Reverse rate direction"
-                         onClick={() => {
-                          const val = parseFloat(draft.exchangeRateTo) || 1;
-                          updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
-                          setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
-                         }}
-                         className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
-                        >
-                         <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
-                         >
-                          <path d="M7 4 3 8l4 4M3 8h13.5" />
-                          <path d="M17 20l4-4-4-4m4 4H7.5" />
-                         </svg>
-                         <span className="text-xs font-semibold" aria-hidden>
-                          {tableRateToReversed[txn.id] ? '÷' : '×'}
-                         </span>
-                        </button>
-                       </div>
-                      )}
-                      {transactionTableSettings.showExchangeRate ? (
-                       <input
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={draft.exchangeRateTo}
-                        onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizePlainDecimalInput(event.target.value) })}
-                        className="field-sizing-content min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                        placeholder={t('transaction_exchange_rate')}
-                       />
-                      ) : null}
                      </div>
                     ) : txn.isAdjustment ? (
                      <div>{t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')}</div>
@@ -2524,14 +2419,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         <span className="italic text-fg-faint">{t('archive_no_receiver')}</span>
                        );
                       })()}
-                      {transactionTableSettings.showExchangeRate && txn.exchangeRateTo !== 1 ? (
-                       <div className="text-xs text-fg-faint">
-                        {t('transaction_exchange_rate')}:{' '}
-                        {txn.exchangeRateToReversed
-                         ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`)
-                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`)}
-                       </div>
-                      ) : null}
                      </>
                     )}
                    </td>
@@ -2581,6 +2468,119 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      <span className="whitespace-nowrap">
                       <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-fg-faint">{txn.currencySymbol || txn.currencyCode}</span>
                      </span>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.exchangeRate ? (
+                   <td className="whitespace-nowrap px-4 py-3 text-fg-muted">
+                    {isEditingRow && draft ? (
+                     <div className="space-y-2">
+                      {/* From-leg rate — editable only when the sent amount's currency differs
+                          from the source account currency (otherwise the rate is a meaningless 1). */}
+                      {txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode ? (
+                       <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-1">
+                         <span className="text-xs text-fg-faint">
+                          {tableRateFromReversed[txn.id] ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}`) : ltrIsolate(`1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`)}
+                         </span>
+                         <button
+                          type="button"
+                          title="Reverse rate direction"
+                          onClick={() => {
+                           const val = parseFloat(draft.exchangeRateFrom) || 1;
+                           updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                           setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                          }}
+                          className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
+                         >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                           <path d="M7 4 3 8l4 4M3 8h13.5" />
+                           <path d="M17 20l4-4-4-4m4 4H7.5" />
+                          </svg>
+                          <span className="text-xs font-semibold" aria-hidden>
+                           {tableRateFromReversed[txn.id] ? '÷' : '×'}
+                          </span>
+                         </button>
+                        </div>
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.exchangeRateFrom}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizePlainDecimalInput(event.target.value) })}
+                         className="field-sizing-content w-full min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         placeholder={t('transaction_exchange_rate')}
+                        />
+                       </div>
+                      ) : null}
+                      {/* To-leg rate — adjustments have no destination leg, so only regular
+                          transfers whose received currency differs from the destination account. */}
+                      {!txn.isAdjustment && txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode ? (
+                       <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-1">
+                         <span className="text-xs text-fg-faint">
+                          {tableRateToReversed[txn.id] ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}`) : ltrIsolate(`1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`)}
+                         </span>
+                         <button
+                          type="button"
+                          title="Reverse rate direction"
+                          onClick={() => {
+                           const val = parseFloat(draft.exchangeRateTo) || 1;
+                           updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
+                           setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
+                          }}
+                          className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
+                         >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                           <path d="M7 4 3 8l4 4M3 8h13.5" />
+                           <path d="M17 20l4-4-4-4m4 4H7.5" />
+                          </svg>
+                          <span className="text-xs font-semibold" aria-hidden>
+                           {tableRateToReversed[txn.id] ? '÷' : '×'}
+                          </span>
+                         </button>
+                        </div>
+                        <input
+                         type="text"
+                         inputMode="decimal"
+                         dir="ltr"
+                         value={draft.exchangeRateTo}
+                         onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizePlainDecimalInput(event.target.value) })}
+                         className="field-sizing-content w-full min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         placeholder={t('transaction_exchange_rate')}
+                        />
+                       </div>
+                      ) : null}
+                     </div>
+                    ) : txn.isAdjustment ? (
+                     txn.exchangeRateFrom !== 1 && txn.currencyCode !== txn.accountFromCurrencyCode ? (
+                      <div className="text-xs text-fg-faint">
+                       {txn.exchangeRateFromReversed
+                        ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
+                        : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`)}
+                      </div>
+                     ) : (
+                      <span className="text-fg-faint">-</span>
+                     )
+                    ) : txn.exchangeRateFrom !== 1 || txn.exchangeRateTo !== 1 ? (
+                     <div className="space-y-1">
+                      {txn.exchangeRateFrom !== 1 ? (
+                       <div className="text-xs text-fg-faint">
+                        {txn.exchangeRateFromReversed
+                         ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
+                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`)}
+                       </div>
+                      ) : null}
+                      {txn.exchangeRateTo !== 1 ? (
+                       <div className="text-xs text-fg-faint">
+                        {txn.exchangeRateToReversed
+                         ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`)
+                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`)}
+                       </div>
+                      ) : null}
+                     </div>
+                    ) : (
+                     <span className="text-fg-faint">-</span>
                     )}
                    </td>
                   ) : null}

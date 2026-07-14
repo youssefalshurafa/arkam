@@ -368,7 +368,7 @@ export type ImportRowOverride = {
  swap: boolean; // transaction mode: swap the sheet's from/to direction
 };
 export type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'currency' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
-export type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'charges' | 'commission';
+export type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'exchangeRate' | 'charges' | 'commission';
 export type DataCache = {
  organizations: Organization[];
  clients: Client[];
@@ -392,7 +392,6 @@ export type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
 
 export type TransactionTableSettings = {
  columns: TransactionColumnVisibility;
- showExchangeRate: boolean;
  dateFormat: PdfSettings['dateFormat'];
 };
 // Workspace-wide rules for exchange (صرف) transactions. `tolerance` is the maximum the

@@ -1374,18 +1374,22 @@ function AuthenticatedHome() {
  const { confirmIfTransactionEditLocked, confirmIfEditLocked } = useReconciliationLocks({ reconciliations, clientAccountMap });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
- // reusing the same update endpoints the ledger edit uses. The rate multiplies the entry's
- // amount into its account currency (1 <entry currency> = rate <account currency>). Only the
+ // reusing the same update endpoints the ledger edit uses. When not reversed the rate
+ // multiplies the entry's amount into its account currency (1 <entry currency> = rate
+ // <account currency>); when reversed the user typed "1 <account currency> = rate <entry
+ // currency>", so the stored multiplier is 1/rate (mirroring the ledger/adjustment edit
+ // paths, which persist the effective multiplier plus a reversed flag for display). Only the
  // pending side's rate is touched; every other field is preserved from the stored record.
  const onSavePendingPricingRate = useCallback(
-  async (entry: PendingPricingEntry, rateInput: string): Promise<boolean> => {
+  async (entry: PendingPricingEntry, rateInput: string, reversed: boolean): Promise<boolean> => {
    // Plain-decimal normalization: a rate has no thousands grouping, so a comma is the
    // user's decimal separator ("10,85" → 10.85), not a group separator to strip.
-   const rate = parseFloat(normalizePlainDecimalInput(rateInput));
-   if (!Number.isFinite(rate) || rate <= 0) {
+   const rawRate = parseFloat(normalizePlainDecimalInput(rateInput));
+   if (!Number.isFinite(rawRate) || rawRate <= 0) {
     setError(t('pending_pricing_invalid_rate'));
     return false;
    }
+   const rate = reversed ? 1 / rawRate : rawRate;
    try {
     if (entry.kind === 'adjustment' && entry.adjustmentId != null) {
      const adj = adjustments.find((a) => a.id === entry.adjustmentId);
@@ -1393,7 +1397,7 @@ function AuthenticatedHome() {
      if (!(await confirmIfEditLocked([adj.accountId], adj.createdAt, [adj.accountId], adj.createdAt, adj.id))) {
       return false;
      }
-     await accountingApi.updateClientAdjustment({ ...adj, exchangeRate: rate, exchangeRateReversed: false });
+     await accountingApi.updateClientAdjustment({ ...adj, exchangeRate: rate, exchangeRateReversed: reversed });
     } else if (entry.kind === 'transaction' && entry.transactionId != null) {
      const tx = transactions.find((x) => x.id === entry.transactionId);
      if (!tx) return false;
@@ -1408,8 +1412,8 @@ function AuthenticatedHome() {
       commissionFrom: tx.commissionFrom,
       exchangeRateTo: entry.side === 'to' ? rate : tx.exchangeRateTo,
       commissionTo: tx.commissionTo,
-      exchangeRateFromReversed: entry.side === 'from' ? 0 : tx.exchangeRateFromReversed,
-      exchangeRateToReversed: entry.side === 'to' ? 0 : tx.exchangeRateToReversed,
+      exchangeRateFromReversed: entry.side === 'from' ? (reversed ? 1 : 0) : tx.exchangeRateFromReversed,
+      exchangeRateToReversed: entry.side === 'to' ? (reversed ? 1 : 0) : tx.exchangeRateToReversed,
       charges: tx.charges,
       chargesCurrencyId: tx.chargesCurrencyId,
       chargesPayer: tx.chargesPayer,
