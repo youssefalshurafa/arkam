@@ -2764,7 +2764,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   ) : null}
                   {section === 'archive' ? (
                    <td className="px-4 py-3 text-fg-muted">
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full items-center gap-2">
                     {isEditingRow && draft ? (
                      <input
                       type="text"
@@ -2774,18 +2774,19 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       className="w-full rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                      />
                     ) : txn.archiveNote ? (
-                     <span className="min-w-0 truncate" title={txn.archiveNote}>{txn.archiveNote}</span>
+                     <span className="min-w-0 flex-1 truncate" title={txn.archiveNote}>{txn.archiveNote}</span>
                     ) : (
-                     <span className="text-fg-faint">-</span>
+                     <span className="flex-1 text-fg-faint">-</span>
                     )}
                     {txn.isArchived ? (
                      <span
                       title={t('archive_only_badge_hint')}
-                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-amber-300 bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warn-text"
+                      aria-label={t('archive_only_badge')}
+                      className="ml-auto inline-flex shrink-0 items-center justify-center rounded border border-amber-300 bg-warn-bg p-1 text-warn-text"
                      >
                       <svg
-                       width="10"
-                       height="10"
+                       width="12"
+                       height="12"
                        viewBox="0 0 24 24"
                        fill="none"
                        stroke="currentColor"
@@ -2804,7 +2805,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
                        <path d="M10 12h4" />
                       </svg>
-                      {t('archive_only_badge')}
                      </span>
                     ) : null}
                     </div>
