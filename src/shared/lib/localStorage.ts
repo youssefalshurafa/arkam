@@ -101,6 +101,33 @@ export function saveTableZoom(key: 'ledger' | 'transactions', value: number) {
   /* ignore quota / privacy-mode errors */
  }
 }
+
+// How often (in seconds) the Live Rates screen re-polls the feed while it is open.
+export const liveRatesIntervalStorageKey = 'arkam:live-rates-interval';
+export const defaultLiveRatesInterval = 5;
+export const minLiveRatesInterval = 2;
+export const maxLiveRatesInterval = 3600;
+
+export function getStoredLiveRatesInterval(): number {
+ if (typeof window === 'undefined') return defaultLiveRatesInterval;
+ try {
+  const raw = window.localStorage.getItem(liveRatesIntervalStorageKey);
+  if (!raw) return defaultLiveRatesInterval;
+  const parsed = parseInt(raw, 10);
+  if (isNaN(parsed)) return defaultLiveRatesInterval;
+  return Math.min(maxLiveRatesInterval, Math.max(minLiveRatesInterval, parsed));
+ } catch {
+  return defaultLiveRatesInterval;
+ }
+}
+
+export function saveLiveRatesInterval(value: number) {
+ try {
+  window.localStorage.setItem(liveRatesIntervalStorageKey, String(value));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
 // Remembers the last ledger account the user viewed per client, so refreshing the
 // page (or revisiting the client) restores that account instead of jumping to the first.
 export const ledgerLastAccountStorageKeyPrefix = 'arkam:ledger-last-account:';

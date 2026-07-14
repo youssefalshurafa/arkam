@@ -6,6 +6,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { queryKeys } from '@/lib/queryClient';
 import { Spinner } from '@/components/ui/Spinner';
 import { useLiveRatesHistoryStore } from '../store/liveRatesHistoryStore';
+import { useLiveRatesSettingsStore } from '../store/liveRatesSettingsStore';
 import type { LiveRatesResponse } from '@/shared/types';
 
 const UP = '#16c784';
@@ -52,12 +53,20 @@ export default function LiveRatesSection() {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
 
- // The feed is only ever hit when the user opens this page (mount) or clicks
- // refresh — never on a timer, window refocus, or network reconnect.
+ // Poll interval (seconds) is user-configurable in Settings → Live Rates.
+ const intervalSec = useLiveRatesSettingsStore((s) => s.intervalSec);
+
+ // The feed is fetched once when the user opens this page (mount) and then polled
+ // on the configured interval while it stays open. Because this component only mounts
+ // while the Live Rates section is active, navigating away stops the polling. And with
+ // refetchIntervalInBackground left at its default (false), the timer also pauses
+ // whenever the browser tab is hidden — so the API is only ever hit while this
+ // screen is actually being viewed. Manual refresh still works via the button.
  const { data, isLoading, isError, isFetching, refetch } = useQuery({
   queryKey: queryKeys.liveRates(),
   queryFn: fetchLiveRates,
-  refetchInterval: false,
+  refetchInterval: intervalSec * 1000,
+  refetchIntervalInBackground: false,
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
   refetchOnMount: 'always',

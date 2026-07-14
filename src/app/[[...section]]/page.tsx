@@ -1260,6 +1260,7 @@ function AuthenticatedHome() {
   { key: 'language', label: t('settings_language_title'), icon: 'settings' },
   { key: 'appearance', label: t('settings_appearance_title'), icon: 'settings' },
   { key: 'pdf', label: t('settings_pdf_title'), icon: 'settings' },
+  { key: 'live-rates', label: t('settings_live_rates_title'), icon: 'rates' },
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },

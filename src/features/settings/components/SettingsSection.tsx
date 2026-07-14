@@ -11,6 +11,7 @@ import LanguageSettings from '@/features/settings/components/LanguageSettings';
 import AppearanceSettings from '@/features/settings/components/AppearanceSettings';
 import DangerZone from '@/features/settings/components/DangerZone';
 import PdfSettingsTab from '@/features/settings/components/PdfSettings';
+import LiveRatesSettings from '@/features/settings/components/LiveRatesSettings';
 import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import ClientsSection from '@/features/clients/components/ClientsSection';
 import OrganizationsSection from '@/features/organizations/components/OrganizationsSection';
@@ -230,6 +231,7 @@ export default function SettingsSection({
    {settingsTab === 'language' ? <LanguageSettings /> : null}
    {settingsTab === 'appearance' ? <AppearanceSettings /> : null}
    {settingsTab === 'pdf' ? <PdfSettingsTab /> : null}
+   {settingsTab === 'live-rates' ? <LiveRatesSettings /> : null}
    {settingsTab === 'danger' && !isEditorRole ? (
     <DangerZone
      transactionCount={transactions.length}
