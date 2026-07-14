@@ -23,7 +23,7 @@ export default function CurrenciesReadOnly({ enabledCurrencies, onOpenSettings }
     <button
      type="button"
      onClick={onOpenSettings}
-     className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+     className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-accent hover:bg-accent-weak"
     >
      {t('open_in_settings')}
     </button>
@@ -31,7 +31,7 @@ export default function CurrenciesReadOnly({ enabledCurrencies, onOpenSettings }
 
    <div className={tableWrapClassName}>
     <table className="w-full text-sm">
-     <thead className="bg-slate-100 text-slate-700">
+     <thead className="bg-surface-hover text-fg-muted">
       <tr>
        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('currency_code')}</th>
        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('currency_name')}</th>
@@ -43,16 +43,16 @@ export default function CurrenciesReadOnly({ enabledCurrencies, onOpenSettings }
       {enabledCurrencies.map((currency) => (
        <tr
         key={currency.id}
-        className="border-t border-slate-200 align-top"
+        className="border-t border-border align-top"
        >
-        <td className="px-4 py-3 font-mono font-semibold text-slate-900">{currency.code}</td>
-        <td className="px-4 py-3 text-slate-700">{currency.name}</td>
-        <td className="px-4 py-3 text-slate-600">{currency.symbol || '-'}</td>
+        <td className="px-4 py-3 font-mono font-semibold text-fg">{currency.code}</td>
+        <td className="px-4 py-3 text-fg-muted">{currency.name}</td>
+        <td className="px-4 py-3 text-fg-muted">{currency.symbol || '-'}</td>
         <td className="px-4 py-3">
          {currency.isMain === 1 ? (
-          <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
+          <span className="inline-flex items-center rounded bg-good-bg px-2.5 py-0.5 text-xs font-semibold text-good-text">{t('main_currency')}</span>
          ) : (
-          <span className="text-slate-400">-</span>
+          <span className="text-fg-faint">-</span>
          )}
         </td>
        </tr>
@@ -60,7 +60,7 @@ export default function CurrenciesReadOnly({ enabledCurrencies, onOpenSettings }
       {enabledCurrencies.length === 0 ? (
        <tr>
         <td
-         className="px-4 py-6 text-slate-500"
+         className="px-4 py-6 text-fg-faint"
          colSpan={4}
         >
          {t('no_used_currencies')}

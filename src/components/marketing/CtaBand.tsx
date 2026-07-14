@@ -18,7 +18,7 @@ export default function CtaBand() {
      <button
       type="button"
       onClick={() => router.push('/signup')}
-      className="rounded-lg bg-white px-6 py-3 text-sm font-semibold text-blue-700 shadow-sm transition hover:bg-blue-50"
+      className="rounded-lg bg-surface px-6 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-accent-weak"
      >
       {t('home_get_started')}
      </button>

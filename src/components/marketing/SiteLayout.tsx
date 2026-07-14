@@ -20,8 +20,8 @@ export default function SiteLayout({ children, hideSignIn = false }: { children:
  const { t } = useTranslation(language);
 
  return (
-  <div className="flex min-h-screen flex-col bg-gray-100 text-gray-900">
-   <header className="flex items-center justify-between border-b border-gray-200 bg-white px-5 py-3">
+  <div className="flex min-h-screen flex-col bg-surface-hover text-fg">
+   <header className="flex items-center justify-between border-b border-border bg-surface px-5 py-3">
     <button
      type="button"
      onClick={() => router.push('/')}
@@ -35,18 +35,18 @@ export default function SiteLayout({ children, hideSignIn = false }: { children:
      <button
       type="button"
       onClick={() => router.push('/pricing')}
-      className="hidden rounded px-2 py-1 text-sm font-semibold text-gray-600 transition hover:text-blue-700 sm:inline-block"
+      className="hidden rounded px-2 py-1 text-sm font-semibold text-fg-muted transition hover:text-accent sm:inline-block"
      >
       {t('nav_pricing')}
      </button>
-     <div className="flex items-center gap-1 rounded border border-gray-200 p-0.5">
+     <div className="flex items-center gap-1 rounded border border-border p-0.5">
       {languageOptions.map((option) => (
        <button
         key={option.code}
         type="button"
         onClick={() => setLanguage(option.code)}
         className={`rounded px-2 py-1 text-xs font-semibold transition ${
-         language === option.code ? 'bg-blue-700 text-white' : 'text-gray-500 hover:bg-gray-100'
+         language === option.code ? 'bg-blue-700 text-white' : 'text-fg-faint hover:bg-surface-hover'
         }`}
        >
         {option.label}
@@ -57,7 +57,7 @@ export default function SiteLayout({ children, hideSignIn = false }: { children:
       <button
        type="button"
        onClick={() => router.push('/login')}
-       className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+       className="rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
       >
        {t('home_sign_in')}
       </button>
@@ -67,33 +67,33 @@ export default function SiteLayout({ children, hideSignIn = false }: { children:
 
    <main className="flex flex-1 flex-col">{children}</main>
 
-   <footer className="border-t border-gray-200 bg-white px-5 py-8 text-sm text-gray-500">
+   <footer className="border-t border-border bg-surface px-5 py-8 text-sm text-fg-faint">
     <div className="mx-auto flex max-w-5xl flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
      <div>
-      <p className="font-semibold text-gray-700">Arkam</p>
-      <p className="mt-1 text-xs text-gray-400">{t('home_footer_tagline')}</p>
-      <p className="mt-3 text-xs text-gray-400">
+      <p className="font-semibold text-fg-muted">Arkam</p>
+      <p className="mt-1 text-xs text-fg-faint">{t('home_footer_tagline')}</p>
+      <p className="mt-3 text-xs text-fg-faint">
        &copy; {new Date().getFullYear()} Arkam. {t('home_footer_rights')}
       </p>
      </div>
      <div className="flex flex-col gap-1.5 text-xs">
-      <span className="mb-0.5 font-semibold uppercase tracking-wide text-gray-400">{t('home_footer_links')}</span>
-      <button type="button" onClick={() => router.push('/')} className="text-left text-gray-500 transition hover:text-blue-700 hover:underline">
+      <span className="mb-0.5 font-semibold uppercase tracking-wide text-fg-faint">{t('home_footer_links')}</span>
+      <button type="button" onClick={() => router.push('/')} className="text-left text-fg-faint transition hover:text-accent hover:underline">
        {t('nav_home')}
       </button>
-      <button type="button" onClick={() => router.push('/pricing')} className="text-left text-gray-500 transition hover:text-blue-700 hover:underline">
+      <button type="button" onClick={() => router.push('/pricing')} className="text-left text-fg-faint transition hover:text-accent hover:underline">
        {t('nav_pricing')}
       </button>
-      <button type="button" onClick={() => router.push('/login')} className="text-left text-gray-500 transition hover:text-blue-700 hover:underline">
+      <button type="button" onClick={() => router.push('/login')} className="text-left text-fg-faint transition hover:text-accent hover:underline">
        {t('home_sign_in')}
       </button>
-      <button type="button" onClick={() => router.push('/signup')} className="text-left text-gray-500 transition hover:text-blue-700 hover:underline">
+      <button type="button" onClick={() => router.push('/signup')} className="text-left text-fg-faint transition hover:text-accent hover:underline">
        {t('signup_link')}
       </button>
      </div>
      <div className="flex flex-col gap-1.5 text-xs">
-      <span className="mb-0.5 font-semibold uppercase tracking-wide text-gray-400">{t('home_footer_contact')}</span>
-      <a href="mailto:support@arkam.app" className="text-gray-500 transition hover:text-blue-700 hover:underline">
+      <span className="mb-0.5 font-semibold uppercase tracking-wide text-fg-faint">{t('home_footer_contact')}</span>
+      <a href="mailto:support@arkam.app" className="text-fg-faint transition hover:text-accent hover:underline">
        support@arkam.app
       </a>
      </div>

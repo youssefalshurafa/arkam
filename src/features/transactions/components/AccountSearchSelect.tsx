@@ -40,7 +40,7 @@ export default function AccountSearchSelect({
     onBlur={() => setTimeout(() => setOpen(false), 150)}
     placeholder={placeholder}
     autoComplete="off"
-    className={`min-w-40 w-full rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-7' : 'pr-7'}`}
+    className={`min-w-40 w-full rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-7' : 'pr-7'}`}
    />
    {value != null && !open ? (
     <button
@@ -53,7 +53,7 @@ export default function AccountSearchSelect({
      }}
      title={clearLabel}
      aria-label={clearLabel}
-     className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-1.5' : 'right-1.5'}`}
+     className={`absolute inset-y-0 my-auto flex h-5 w-5 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted ${isRTL ? 'left-1.5' : 'right-1.5'}`}
     >
      <svg
       width="12"
@@ -82,9 +82,9 @@ export default function AccountSearchSelect({
     </button>
    ) : null}
    {open ? (
-    <ul className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white text-xs shadow-lg">
+    <ul className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface text-xs shadow-lg">
      {filtered.length === 0 ? (
-      <li className="px-3 py-2 text-slate-400">{placeholder}</li>
+      <li className="px-3 py-2 text-fg-faint">{placeholder}</li>
      ) : (
       filtered.map((account) => (
        <li
@@ -94,7 +94,7 @@ export default function AccountSearchSelect({
          setQuery('');
          setOpen(false);
         }}
-        className={`cursor-pointer px-3 py-2 hover:bg-blue-50 ${value === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+        className={`cursor-pointer px-3 py-2 hover:bg-accent-weak ${value === account.id ? 'bg-accent-weak font-medium text-accent' : 'text-fg'}`}
        >
         {account.clientName} · {account.currencyCode}
        </li>

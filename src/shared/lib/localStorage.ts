@@ -9,6 +9,30 @@ import type {
  TransactionTableSettings,
 } from '@/shared/types';
 
+// Theme preference (Light / Dark / System). Stored per-device like the language
+// choice — never synced to the server. 'system' follows the OS via matchMedia.
+export type ThemeChoice = 'light' | 'dark' | 'system';
+export const themeStorageKey = 'arkam:theme';
+
+export function getStoredTheme(): ThemeChoice {
+ if (typeof window === 'undefined') return 'system';
+ try {
+  const raw = window.localStorage.getItem(themeStorageKey);
+  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'system';
+ } catch {
+  return 'system';
+ }
+}
+
+export function saveStoredTheme(theme: ThemeChoice): void {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(themeStorageKey, theme);
+ } catch {
+  // Ignore write failures (private mode / quota) — theme just won't persist.
+ }
+}
+
 // Base reading order is date, amount, commission, exchange rate, counterparty (left to
 // right in English/French); Arabic's RTL layout mirrors this order automatically via the
 // browser's native right-to-left table rendering, so no separate order is needed per language.

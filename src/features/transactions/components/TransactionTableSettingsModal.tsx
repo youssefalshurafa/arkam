@@ -28,13 +28,13 @@ export default function TransactionTableSettingsModal({ section, closeTransactio
      onClick={closeTransactionTableSettingsModal}
     >
      <div
-      className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      className="w-full max-w-lg rounded-xl border border-border bg-surface p-6 shadow-xl"
       onClick={(event) => event.stopPropagation()}
      >
-      <h2 className="text-lg font-semibold text-slate-900">{t('transactions_table_settings_title')}</h2>
+      <h2 className="text-lg font-semibold text-fg">{t('transactions_table_settings_title')}</h2>
       <div className="mt-5 space-y-5">
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('client_ledger_columns')}</p>
         <div className="mt-2 flex flex-wrap gap-2">
          {(
           [
@@ -59,7 +59,7 @@ export default function TransactionTableSettingsModal({ section, closeTransactio
              }))
             }
             className={`rounded border px-3 py-1.5 text-xs font-semibold transition ${
-             isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+             isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
             }`}
            >
             {column.label}
@@ -70,24 +70,24 @@ export default function TransactionTableSettingsModal({ section, closeTransactio
        </div>
 
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_more_settings')}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('transactions_more_settings')}</p>
         <div className="mt-2 space-y-4">
-         <label className="flex items-center justify-between gap-3 rounded border border-slate-200 px-4 py-3 text-sm text-slate-700">
+         <label className="flex items-center justify-between gap-3 rounded border border-border px-4 py-3 text-sm text-fg-muted">
           <span>{t('transactions_show_exchange_rate')}</span>
           <input
            type="checkbox"
            checked={transactionTableSettingsDraft.showExchangeRate}
            onChange={() => setTransactionTableSettingsDraft((current) => ({ ...current, showExchangeRate: !current.showExchangeRate }))}
-           className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+           className="h-4 w-4 cursor-pointer rounded border-border-strong text-accent focus:ring-blue-500"
           />
          </label>
 
          <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_date_format_label')}</label>
+          <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('pdf_date_format_label')}</label>
           <select
            value={transactionTableSettingsDraft.dateFormat}
            onChange={(event) => setTransactionTableSettingsDraft((current) => ({ ...current, dateFormat: event.target.value as TransactionTableSettings['dateFormat'] }))}
-           className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           className="mt-2 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
           >
            <option value="full">YYYY-MM-DD</option>
            <option value="day-month">DD/MM</option>
@@ -100,16 +100,16 @@ export default function TransactionTableSettingsModal({ section, closeTransactio
        </div>
 
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_row_highlight_color')}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ledger_row_highlight_color')}</p>
         <div className="mt-2 flex items-center gap-2">
          <input
           type="color"
           value={txRowHighlightColor}
           onChange={(event) => updateTxRowHighlightColor(event.target.value)}
-          className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+          className="h-8 w-14 cursor-pointer rounded border border-border-strong bg-surface p-0.5"
          />
          <span
-          className="rounded px-3 py-1 text-xs font-semibold text-slate-700"
+          className="rounded px-3 py-1 text-xs font-semibold text-fg-muted"
           style={{ backgroundColor: txRowHighlightColor }}
          >
           {txRowHighlightColor}
@@ -122,7 +122,7 @@ export default function TransactionTableSettingsModal({ section, closeTransactio
        <button
         type="button"
         onClick={closeTransactionTableSettingsModal}
-        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        className="rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
        >
         {t('cancel')}
        </button>

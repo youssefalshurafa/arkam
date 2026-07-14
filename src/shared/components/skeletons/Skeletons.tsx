@@ -1,5 +1,5 @@
 export function SkBar({ w = 'w-1/2', h = 'h-3.5' }: { w?: string; h?: string }) {
- return <div className={`${h} ${w} animate-pulse rounded bg-slate-200`} />;
+ return <div className={`${h} ${w} animate-pulse rounded bg-surface-hover`} />;
 }
 
 export function SkTableRows({ cols, rows = 7 }: { cols: string[]; rows?: number }) {
@@ -8,7 +8,7 @@ export function SkTableRows({ cols, rows = 7 }: { cols: string[]; rows?: number 
    {Array.from({ length: rows }, (_, i) => (
     <tr
      key={i}
-     className="border-t border-slate-100"
+     className="border-t border-border"
     >
      {cols.map((w, j) => (
       <td
@@ -57,7 +57,7 @@ export function SkTablePanel({
    </div>
    <div className={tableWrapClassName}>
     <table className="w-full text-sm">
-     <thead className="bg-slate-50">
+     <thead className="bg-surface-2">
       <tr>
        {cols.map((_, i) => (
         <th

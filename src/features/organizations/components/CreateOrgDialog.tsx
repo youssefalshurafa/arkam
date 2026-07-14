@@ -35,17 +35,17 @@ export default function CreateOrgDialog({
      }}
     >
      <div
-      className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-xl"
       onClick={(e) => e.stopPropagation()}
      >
-      <h2 className="text-lg font-semibold text-slate-900">{t('new_organization')}</h2>
+      <h2 className="text-lg font-semibold text-fg">{t('new_organization')}</h2>
       {orgDialogError ? (
-       <div className="mt-3 flex items-start gap-2 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+       <div className="mt-3 flex items-start gap-2 rounded bg-bad-bg px-3 py-2 text-sm text-bad-text">
         <span className="flex-1">{orgDialogError}</span>
         <button
          type="button"
          onClick={() => setOrgDialogError('')}
-         className="shrink-0 text-red-400 hover:text-red-700"
+         className="shrink-0 text-red-400 hover:text-bad-text"
          aria-label={t('close')}
         >
          <svg
@@ -69,13 +69,13 @@ export default function CreateOrgDialog({
        className="mt-4 flex flex-col gap-4"
       >
        <div>
-        <label className="block text-sm font-medium text-slate-700">{t('organization_name')}</label>
+        <label className="block text-sm font-medium text-fg-muted">{t('organization_name')}</label>
         <input
          type="text"
          value={organizationForm.name}
          onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
          placeholder={t('organization_name_placeholder')}
-         className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          autoFocus
          required
         />
@@ -89,7 +89,7 @@ export default function CreateOrgDialog({
           setOrganizationForm(emptyOrganizationForm());
           setOrgDialogError('');
          }}
-         className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+         className="rounded border border-border px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover transition"
         >
          {t('cancel')}
         </button>

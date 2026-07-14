@@ -16,7 +16,7 @@ export function GlobalLoadingBar() {
 
  return (
   <>
-   <div className="pointer-events-none fixed inset-x-0 top-0 z-[200] h-0.5 overflow-hidden bg-blue-100">
+   <div className="pointer-events-none fixed inset-x-0 top-0 z-[200] h-0.5 overflow-hidden bg-accent-weak">
     <div className="h-full w-1/3 animate-[loading-bar_1s_ease-in-out_infinite] bg-blue-600" />
    </div>
    <div className="pointer-events-none fixed bottom-4 right-4 z-[200] flex items-center gap-2 rounded-full bg-slate-900/85 px-3 py-1.5 text-xs font-medium text-white shadow-lg">

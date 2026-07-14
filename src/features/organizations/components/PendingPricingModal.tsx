@@ -63,18 +63,18 @@ export default function PendingPricingModal({
    onClick={onClose}
   >
    <div
-    className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-slate-200 bg-white shadow-xl"
+    className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-border bg-surface shadow-xl"
     onClick={(e) => e.stopPropagation()}
    >
-    <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+    <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
      <div>
-      <h2 className="text-lg font-semibold text-slate-900">{t('pending_pricing_modal_title')}</h2>
-      {clientName ? <p className="mt-0.5 text-sm text-slate-500">{clientName}</p> : null}
+      <h2 className="text-lg font-semibold text-fg">{t('pending_pricing_modal_title')}</h2>
+      {clientName ? <p className="mt-0.5 text-sm text-fg-faint">{clientName}</p> : null}
      </div>
      <button
       type="button"
       onClick={onClose}
-      className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+      className="shrink-0 rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-fg-muted"
       aria-label={t('close')}
      >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -84,21 +84,21 @@ export default function PendingPricingModal({
     </div>
     <div className="overflow-y-auto px-5 py-4">
      {entries.length === 0 ? (
-      <p className="text-sm text-slate-500">{t('client_page_no_transactions')}</p>
+      <p className="text-sm text-fg-faint">{t('client_page_no_transactions')}</p>
      ) : (
-      <ul className="space-y-2 text-sm text-slate-700">
+      <ul className="space-y-2 text-sm text-fg-muted">
        {entries.map((entry) => {
         const rateValue = rateInputs[entry.key] ?? '';
         const isSaving = savingKey === entry.key;
         return (
          <li
           key={entry.key}
-          className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2"
+          className="rounded border border-amber-200 bg-warn-bg px-2.5 py-2"
          >
           <div className="flex items-center gap-2 whitespace-nowrap">
-           <span className="shrink-0 text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
+           <span className="shrink-0 text-fg-faint">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
            {entry.counterpartyName ? <span className="shrink-0 font-medium">{entry.counterpartyName}</span> : null}
-           <span className="min-w-0 flex-1 truncate italic text-slate-400" title={entry.description}>
+           <span className="min-w-0 flex-1 truncate italic text-fg-faint" title={entry.description}>
             {entry.description}
            </span>
            <span className="shrink-0 font-semibold">
@@ -106,7 +106,7 @@ export default function PendingPricingModal({
            </span>
           </div>
           <div className="mt-2 flex items-center gap-2">
-           <span className="shrink-0 text-xs text-slate-500">{ltrIsolate(t('pending_pricing_rate_hint', { from: entry.currencyCode, to: entry.accountCurrencyCode }))}</span>
+           <span className="shrink-0 text-xs text-fg-faint">{ltrIsolate(t('pending_pricing_rate_hint', { from: entry.currencyCode, to: entry.accountCurrencyCode }))}</span>
            <input
             type="text"
             inputMode="decimal"
@@ -120,7 +120,7 @@ export default function PendingPricingModal({
             }}
             placeholder={t('pending_pricing_rate_placeholder')}
             disabled={isSaving}
-            className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+            className="w-24 rounded-lg border border-border-strong px-2 py-1 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
            />
            <button
             type="button"

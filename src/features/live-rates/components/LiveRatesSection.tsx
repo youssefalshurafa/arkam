@@ -91,7 +91,7 @@ export default function LiveRatesSection() {
  };
 
  return (
-  <section className="mx-auto w-[92%] max-w-[430px] overflow-hidden rounded-lg border border-slate-200 shadow-sm sm:w-full">
+  <section className="mx-auto w-[92%] max-w-[430px] overflow-hidden rounded-lg border border-border shadow-sm sm:w-full">
    {/* Header — royal-blue gradient with brand title and the featured strip */}
    <div
     className="text-white"
@@ -134,18 +134,18 @@ export default function LiveRatesSection() {
 
    {/* Body */}
    {isLoading ? (
-    <div className="flex items-center justify-center gap-3 bg-white py-20 text-slate-500">
-     <Spinner className="text-xl text-slate-400" />
+    <div className="flex items-center justify-center gap-3 bg-surface py-20 text-fg-faint">
+     <Spinner className="text-xl text-fg-faint" />
      {t('live_rates_loading')}
     </div>
    ) : isError ? (
-    <p className="bg-white px-4 py-16 text-center text-sm text-red-600">{t('live_rates_error')}</p>
+    <p className="bg-surface px-4 py-16 text-center text-sm text-bad-text">{t('live_rates_error')}</p>
    ) : rates.length === 0 ? (
-    <p className="bg-white px-4 py-16 text-center text-sm text-slate-600">{t('live_rates_empty')}</p>
+    <p className="bg-surface px-4 py-16 text-center text-sm text-fg-muted">{t('live_rates_empty')}</p>
    ) : (
-    <div dir="ltr" className="bg-white text-left">
+    <div dir="ltr" className="bg-surface text-left">
      {/* Column header */}
-     <div className="flex items-center gap-3 bg-[#eef1f5] px-4 py-3 text-sm font-medium text-slate-500">
+     <div className="flex items-center gap-3 bg-surface-2 px-4 py-3 text-sm font-medium text-fg-faint">
       <span className="flex flex-1 items-center gap-1">
        {t('live_rates_currency')}
        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -158,17 +158,17 @@ export default function LiveRatesSection() {
 
      {/* Rows */}
      {rates.map((rate) => (
-      <div key={rate.code} className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
+      <div key={rate.code} className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0">
        <div className="min-w-0 flex-1">
-        <div className="text-[15px] font-bold text-slate-800">{rate.code}</div>
-        <div dir="auto" className="truncate text-xs text-slate-400">{pairName(rate.code)}</div>
+        <div className="text-[15px] font-bold text-fg">{rate.code}</div>
+        <div dir="auto" className="truncate text-xs text-fg-faint">{pairName(rate.code)}</div>
        </div>
-       <div className="w-20 text-end text-[17px] tabular-nums text-slate-700">{fmtVal(rate.buy)}</div>
-       <div className="w-20 text-end text-[17px] tabular-nums text-slate-700">{fmtVal(rate.sell)}</div>
+       <div className="w-20 text-end text-[17px] tabular-nums text-fg-muted">{fmtVal(rate.buy)}</div>
+       <div className="w-20 text-end text-[17px] tabular-nums text-fg-muted">{fmtVal(rate.sell)}</div>
       </div>
      ))}
 
-     <p className="px-4 py-4 text-xs leading-relaxed text-slate-400">{t('live_rates_disclaimer')}</p>
+     <p className="px-4 py-4 text-xs leading-relaxed text-fg-faint">{t('live_rates_disclaimer')}</p>
     </div>
    )}
   </section>

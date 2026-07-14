@@ -10,16 +10,16 @@ export default function Faq({ titleKey, pairs }: { titleKey: string; pairs: Arra
  const { t } = useTranslation(language);
 
  return (
-  <section className="border-t border-gray-200 bg-white">
+  <section className="border-t border-border bg-surface">
    <div className="mx-auto w-full max-w-3xl px-5 py-16 sm:py-20">
-    <h2 className="text-center text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{t(titleKey)}</h2>
-    <div className="mt-10 divide-y divide-gray-200 rounded-xl border border-gray-200">
+    <h2 className="text-center text-3xl font-bold tracking-tight text-fg sm:text-4xl">{t(titleKey)}</h2>
+    <div className="mt-10 divide-y divide-border rounded-xl border border-border">
      {pairs.map((pair) => (
       <details key={pair.q} className="group px-5 py-4">
-       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold text-gray-900">
+       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold text-fg">
         <span>{t(pair.q)}</span>
         <svg
-         className="h-4 w-4 shrink-0 text-gray-400 transition group-open:rotate-180"
+         className="h-4 w-4 shrink-0 text-fg-faint transition group-open:rotate-180"
          viewBox="0 0 24 24"
          fill="none"
          stroke="currentColor"
@@ -31,7 +31,7 @@ export default function Faq({ titleKey, pairs }: { titleKey: string; pairs: Arra
          <polyline points="6 9 12 15 18 9" />
         </svg>
        </summary>
-       <p className="mt-3 text-sm leading-relaxed text-gray-600">{t(pair.a)}</p>
+       <p className="mt-3 text-sm leading-relaxed text-fg-muted">{t(pair.a)}</p>
       </details>
      ))}
     </div>

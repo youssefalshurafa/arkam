@@ -56,7 +56,7 @@ export default function ClientsSection({
      <div className="flex items-center justify-between gap-3">
       <div>
        <h2 className="text-xl font-semibold">{clientForm.id ? t('update_client') : t('new_client')}</h2>
-       <p className="mt-1 text-sm text-slate-600">{t('clients_description')}</p>
+       <p className="mt-1 text-sm text-fg-muted">{t('clients_description')}</p>
       </div>
       {clientForm.id ? (
        <button
@@ -66,7 +66,7 @@ export default function ClientsSection({
          setOpenAccountOnCreate(true);
          setNewClientAccountDrafts([createNewClientAccountDraft()]);
         }}
-        className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        className="rounded border border-border-strong px-3 py-2 text-sm font-medium text-fg-muted hover:bg-surface-hover"
        >
         {t('cancel')}
        </button>
@@ -77,7 +77,7 @@ export default function ClientsSection({
      <input
       value={clientForm.name}
       onChange={(event) => setClientForm((current) => ({ ...current, name: event.target.value }))}
-      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
       placeholder={t('client_name_placeholder')}
       required
      />
@@ -96,7 +96,7 @@ export default function ClientsSection({
         organizationId: event.target.value ? Number(event.target.value) : null,
        }));
       }}
-      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
      >
       <option value="">{t('client_organization_placeholder')}</option>
       {organizations.map((organization) => (
@@ -114,7 +114,7 @@ export default function ClientsSection({
      <input
       value={clientForm.email}
       onChange={(event) => setClientForm((current) => ({ ...current, email: event.target.value }))}
-      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
       placeholder={t('client_email_placeholder')}
      />
 
@@ -122,7 +122,7 @@ export default function ClientsSection({
      <input
       value={clientForm.phone}
       onChange={(event) => setClientForm((current) => ({ ...current, phone: event.target.value }))}
-      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
       placeholder={t('client_phone_placeholder')}
      />
 
@@ -130,26 +130,26 @@ export default function ClientsSection({
      <textarea
       value={clientForm.address}
       onChange={(event) => setClientForm((current) => ({ ...current, address: event.target.value }))}
-      className="mt-2 min-h-28 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      className="mt-2 min-h-28 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
       placeholder={t('client_address_placeholder')}
      />
 
-     <div className="mt-4 rounded border border-slate-200/70 bg-slate-50/85 p-4">
-      <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+     <div className="mt-4 rounded border border-border bg-surface-2 p-4">
+      <label className="flex items-center gap-2 text-sm font-medium text-fg">
        <input
         type="checkbox"
         checked={clientForm.excludeFromBalance}
         onChange={(event) => setClientForm((current) => ({ ...current, excludeFromBalance: event.target.checked }))}
-        className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-400"
+        className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-400"
        />
        {t('client_exclude_from_balance')}
       </label>
-      <p className="mt-1 text-xs text-slate-500">{t('client_exclude_from_balance_hint')}</p>
+      <p className="mt-1 text-xs text-fg-faint">{t('client_exclude_from_balance_hint')}</p>
      </div>
 
      {!clientForm.id ? (
-      <div className="mt-4 rounded border border-slate-200/70 bg-slate-50/85 p-4">
-       <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
+      <div className="mt-4 rounded border border-border bg-surface-2 p-4">
+       <label className="flex items-center gap-2 text-sm font-medium text-fg">
         <input
          type="checkbox"
          checked={openAccountOnCreate}
@@ -160,7 +160,7 @@ export default function ClientsSection({
            setNewClientAccountDrafts([createNewClientAccountDraft()]);
           }
          }}
-         className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-400"
+         className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-400"
         />
         {t('client_account_open')}
        </label>
@@ -170,7 +170,7 @@ export default function ClientsSection({
          {newClientAccountDrafts.map((draft, index) => (
           <div
            key={`new-client-account-${index}`}
-           className="rounded border border-slate-200/70 bg-white/90 p-3"
+           className="rounded border border-border bg-surface p-3"
           >
            <div className="flex flex-col gap-2 sm:flex-row">
             <select
@@ -179,7 +179,7 @@ export default function ClientsSection({
               const currencyId = event.target.value ? Number(event.target.value) : null;
               setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, currencyId } : row)));
              }}
-             className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             >
              <option value="">{t('client_account_currency_placeholder')}</option>
              {enabledCurrencies
@@ -195,20 +195,20 @@ export default function ClientsSection({
             </select>
            </div>
            <div className="mt-2">
-            <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+            <p className="text-xs font-medium text-fg-faint">{t('starting_balance')}</p>
             <div className="mt-1 flex items-center gap-2">
-             <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+             <div className="flex rounded border border-border-strong overflow-hidden text-xs font-semibold">
               <button
                type="button"
                onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'debit' } : row)))}
-               className={`px-3 py-2 transition ${draft.balanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+               className={`px-3 py-2 transition ${draft.balanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-surface text-fg-muted hover:bg-surface-hover'}`}
               >
                {t('balance_type_debit')}
               </button>
               <button
                type="button"
                onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'credit' } : row)))}
-               className={`px-3 py-2 transition ${draft.balanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+               className={`px-3 py-2 transition ${draft.balanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-surface text-fg-muted hover:bg-surface-hover'}`}
               >
                {t('balance_type_credit')}
               </button>
@@ -222,16 +222,16 @@ export default function ClientsSection({
                setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
               }}
               placeholder="0"
-              className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              className="w-36 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
              />
             </div>
-            <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+            <p className="mt-1 text-xs text-fg-faint">{t('balance_type_hint')}</p>
            </div>
            {newClientAccountDrafts.length > 1 ? (
             <button
              type="button"
              onClick={() => setNewClientAccountDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))}
-             className="mt-2 inline-flex rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+             className="mt-2 inline-flex rounded border border-border bg-surface px-2.5 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover"
             >
              {t('client_account_remove')}
             </button>
@@ -242,7 +242,7 @@ export default function ClientsSection({
          <button
           type="button"
           onClick={() => setNewClientAccountDrafts((current) => [...current, createNewClientAccountDraft()])}
-          className="inline-flex rounded border border-blue-100 bg-blue-50/60 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+          className="inline-flex rounded border border-border bg-accent-weak px-4 py-2 text-sm font-semibold text-accent transition hover:bg-surface-hover"
          >
           {t('client_account_open_another')}
          </button>
@@ -263,7 +263,7 @@ export default function ClientsSection({
      <div className={panelClassName}>
       <div className="flex items-center justify-between gap-3">
        <h2 className="text-lg font-semibold">
-        {t('client_accounts_for')}: <span className="text-blue-700">{accountsClient.name}</span>
+        {t('client_accounts_for')}: <span className="text-accent">{accountsClient.name}</span>
        </h2>
       </div>
 
@@ -275,12 +275,12 @@ export default function ClientsSection({
          return (
           <div
            key={account.id}
-           className="rounded border border-slate-200 bg-white"
+           className="rounded border border-border bg-surface"
           >
            {/* Row · click to edit */}
            <button
             type="button"
-            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition"
+            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-surface-hover transition"
             onClick={() => {
              setMoveTargetAccountId(null);
              if (isEditing) {
@@ -296,11 +296,11 @@ export default function ClientsSection({
             }}
            >
             <div className="flex items-center gap-3">
-             <span className="font-mono font-semibold text-slate-800">{account.currencyCode}</span>
-             <span className="text-sm text-slate-500">{account.currencySymbol || ''}</span>
+             <span className="font-mono font-semibold text-fg">{account.currencyCode}</span>
+             <span className="text-sm text-fg-faint">{account.currencySymbol || ''}</span>
             </div>
             <div className="flex items-center gap-3">
-             <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+             <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-good-text' : 'text-bad-text'}`}>
               {(account.startingBalance ?? 0).toLocaleString(numLocale, { maximumFractionDigits: 2 })}
              </span>
              <svg
@@ -312,7 +312,7 @@ export default function ClientsSection({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={`text-slate-400 transition-transform ${isEditing ? 'rotate-180' : ''}`}
+              className={`text-fg-faint transition-transform ${isEditing ? 'rotate-180' : ''}`}
              >
               <path d="m6 9 6 6 6-6" />
              </svg>
@@ -321,13 +321,13 @@ export default function ClientsSection({
 
            {/* Inline edit form */}
            {isEditing && (
-            <div className="border-t border-slate-200 bg-slate-50 px-4 py-4">
-             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_edit')}</p>
+            <div className="border-t border-border bg-surface-2 px-4 py-4">
+             <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint mb-3">{t('client_account_edit')}</p>
              <div className="flex flex-col gap-3">
               <select
                value={editingAccountCurrencyId ?? ''}
                onChange={(event) => setEditingAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-               className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
               >
                <option value="">{t('client_account_currency_placeholder')}</option>
                {enabledCurrencies.map((cur) => (
@@ -340,20 +340,20 @@ export default function ClientsSection({
                ))}
               </select>
               <div>
-               <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+               <p className="text-xs font-medium text-fg-faint">{t('starting_balance')}</p>
                <div className="mt-1 flex items-center gap-2">
-                <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+                <div className="flex rounded border border-border-strong overflow-hidden text-xs font-semibold">
                  <button
                   type="button"
                   onClick={() => setEditingAccountBalanceType('debit')}
-                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-surface text-fg-muted hover:bg-surface-hover'}`}
                  >
                   {t('balance_type_debit')}
                  </button>
                  <button
                   type="button"
                   onClick={() => setEditingAccountBalanceType('credit')}
-                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                  className={`px-3 py-2 transition ${editingAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-surface text-fg-muted hover:bg-surface-hover'}`}
                  >
                   {t('balance_type_credit')}
                  </button>
@@ -367,10 +367,10 @@ export default function ClientsSection({
                   if (event.key === 'Enter' && editingAccountCurrencyId) void onSaveEditAccount();
                  }}
                  placeholder="0"
-                 className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 className="w-36 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                 />
                </div>
-               <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+               <p className="mt-1 text-xs text-fg-faint">{t('balance_type_hint')}</p>
               </div>
               <div className="flex gap-2">
                <button
@@ -384,14 +384,14 @@ export default function ClientsSection({
                <button
                 type="button"
                 onClick={() => onDeleteClientAccount(account.id)}
-                className="rounded border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 transition"
+                className="rounded border border-red-200 px-4 py-2 text-sm font-semibold text-bad-text hover:bg-bad-bg transition"
                >
                 {t('delete')}
                </button>
                <button
                 type="button"
                 onClick={() => setEditingAccountId(null)}
-                className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
+                className="rounded border border-border px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover transition"
                >
                 {t('cancel')}
                </button>
@@ -402,17 +402,17 @@ export default function ClientsSection({
                // (e.g. Youssef EUR → Youssef USD), never to another client's account.
                const moveTargets = clientAccounts.filter((a) => a.id !== account.id && a.clientId === account.clientId);
                return (
-                <div className="mt-4 border-t border-slate-200 pt-4">
-                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_account_move_title')}</p>
-                 <p className="mt-1 text-xs text-slate-400">{t('client_account_move_hint')}</p>
+                <div className="mt-4 border-t border-border pt-4">
+                 <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('client_account_move_title')}</p>
+                 <p className="mt-1 text-xs text-fg-faint">{t('client_account_move_hint')}</p>
                  {moveTargets.length === 0 ? (
-                  <p className="mt-2 text-xs text-slate-500">{t('client_account_move_no_targets')}</p>
+                  <p className="mt-2 text-xs text-fg-faint">{t('client_account_move_no_targets')}</p>
                  ) : (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                    <select
                     value={moveTargetAccountId ?? ''}
                     onChange={(event) => setMoveTargetAccountId(event.target.value ? Number(event.target.value) : null)}
-                    className="min-w-48 flex-1 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                    className="min-w-48 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                    >
                     <option value="">{t('client_account_move_select_placeholder')}</option>
                     {moveTargets.map((target) => (
@@ -429,7 +429,7 @@ export default function ClientsSection({
                     type="button"
                     onClick={() => void onMoveAccountTransactions(account.id)}
                     disabled={!moveTargetAccountId || isMovingAccount}
-                    className="rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded border border-amber-300 bg-warn-bg px-4 py-2 text-sm font-semibold text-warn-text transition hover:bg-warn-bg disabled:cursor-not-allowed disabled:opacity-40"
                    >
                     {t('client_account_move_action')}
                    </button>
@@ -444,7 +444,7 @@ export default function ClientsSection({
           </div>
          );
         })}
-       {clientAccounts.filter((a) => a.clientId === accountsClient.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
+       {clientAccounts.filter((a) => a.clientId === accountsClient.id).length === 0 ? <p className="text-sm text-fg-faint">{t('no_client_accounts')}</p> : null}
       </div>
 
       {/* Add account */}
@@ -455,18 +455,18 @@ export default function ClientsSection({
          setShowAddAccountForm(true);
          setEditingAccountId(null);
         }}
-        className="mt-4 rounded border border-dashed border-blue-400 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 transition"
+        className="mt-4 rounded border border-dashed border-blue-400 px-4 py-2 text-sm font-semibold text-accent hover:bg-accent-weak transition"
        >
         {t('client_account_add_new')}
        </button>
       ) : (
-       <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">{t('client_account_add_new')}</p>
+       <div className="mt-4 rounded border border-border bg-surface-2 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint mb-3">{t('client_account_add_new')}</p>
         <div className="flex flex-col gap-3">
          <select
           value={newAccountCurrencyId ?? ''}
           onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-          className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('client_account_currency_placeholder')}</option>
           {enabledCurrencies
@@ -481,20 +481,20 @@ export default function ClientsSection({
            ))}
          </select>
          <div>
-          <p className="text-xs font-medium text-slate-500">{t('starting_balance')}</p>
+          <p className="text-xs font-medium text-fg-faint">{t('starting_balance')}</p>
           <div className="mt-1 flex items-center gap-2">
-           <div className="flex rounded border border-slate-300 overflow-hidden text-xs font-semibold">
+           <div className="flex rounded border border-border-strong overflow-hidden text-xs font-semibold">
             <button
              type="button"
              onClick={() => setNewAccountBalanceType('debit')}
-             className={`px-3 py-2 transition ${newAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+             className={`px-3 py-2 transition ${newAccountBalanceType === 'debit' ? 'bg-red-600 text-white' : 'bg-surface text-fg-muted hover:bg-surface-hover'}`}
             >
              {t('balance_type_debit')}
             </button>
             <button
              type="button"
              onClick={() => setNewAccountBalanceType('credit')}
-             className={`px-3 py-2 transition ${newAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+             className={`px-3 py-2 transition ${newAccountBalanceType === 'credit' ? 'bg-emerald-600 text-white' : 'bg-surface text-fg-muted hover:bg-surface-hover'}`}
             >
              {t('balance_type_credit')}
             </button>
@@ -508,10 +508,10 @@ export default function ClientsSection({
              if (event.key === 'Enter' && newAccountCurrencyId && accountsClient) void onAddClientAccount(accountsClient.id);
             }}
             placeholder="0"
-            className="w-36 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            className="w-36 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
            />
           </div>
-          <p className="mt-1 text-xs text-slate-400">{t('balance_type_hint')}</p>
+          <p className="mt-1 text-xs text-fg-faint">{t('balance_type_hint')}</p>
          </div>
          <div className="flex gap-2">
           <button
@@ -530,7 +530,7 @@ export default function ClientsSection({
             setNewAccountStartingBalance('0');
             setNewAccountBalanceType('debit');
            }}
-           className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 transition"
+           className="rounded border border-border px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover transition"
           >
            {t('cancel')}
           </button>
@@ -548,7 +548,7 @@ export default function ClientsSection({
       <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
       <div className="relative">
        <svg
-        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint"
         width="14"
         height="14"
         viewBox="0 0 24 24"
@@ -576,13 +576,13 @@ export default function ClientsSection({
         value={clientSearch}
         onChange={(e) => setClientSearch(e.target.value)}
         placeholder={t('search')}
-        className="rounded border border-slate-300 py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
+        className="rounded border border-border-strong py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
        />
       </div>
      </div>
      <div className={tableWrapClassName}>
       <table className="w-full text-sm">
-       <thead className="bg-slate-100 text-slate-700">
+       <thead className="bg-surface-hover text-fg-muted">
         <tr>
          {clientSortHeader('name', t('name'))}
          {clientSortHeader('organization', t('client_organization'))}
@@ -594,9 +594,9 @@ export default function ClientsSection({
         {paginatedClients.map((client, index) => (
          <tr
           key={client.id}
-          className={`border-t border-slate-200 align-top ${index % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100`}
+          className={`border-t border-border align-top ${index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} hover:bg-surface-hover`}
          >
-          <td className="px-4 py-3 font-medium text-slate-900">
+          <td className="px-4 py-3 font-medium text-fg">
            <a
             href={`/clients/${client.id}`}
             onClick={(e) => {
@@ -604,23 +604,23 @@ export default function ClientsSection({
              e.preventDefault();
              openClientLedger(client, 'clients');
             }}
-            className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
+            className="cursor-pointer text-left text-fg transition hover:text-accent"
            >
             {client.name}
            </a>
           </td>
-          <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
+          <td className="px-4 py-3 text-fg-muted">{client.organizationName || t('unassigned')}</td>
           <td className="px-4 py-3">
            {(() => {
             const accts = clientAccounts.filter((a) => a.clientId === client.id);
-            if (accts.length === 0) return <span className="text-xs text-slate-400">—</span>;
+            if (accts.length === 0) return <span className="text-xs text-fg-faint">—</span>;
             return (
              <div className="flex flex-wrap items-center gap-1">
               {accts.map((a) => (
                <span
                 key={a.id}
                 title={a.currencyCode}
-                className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border border-slate-300 bg-slate-50 px-1.5 text-xs font-semibold text-slate-600"
+                className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border border-border-strong bg-surface-2 px-1.5 text-xs font-semibold text-fg-muted"
                >
                 {a.currencySymbol || a.currencyCode}
                </span>
@@ -647,7 +647,7 @@ export default function ClientsSection({
               setOpenAccountOnCreate(false);
               setNewClientAccountDrafts([createNewClientAccountDraft()]);
              }}
-             className="cursor-pointer rounded p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+             className="cursor-pointer rounded p-1.5 text-fg-faint transition hover:bg-surface-hover hover:text-fg"
             >
              <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -663,7 +663,7 @@ export default function ClientsSection({
              type="button"
              title={t('delete')}
              onClick={() => onDeleteClient(client.id)}
-             className="cursor-pointer rounded p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-600"
+             className="cursor-pointer rounded p-1.5 text-red-400 transition hover:bg-bad-bg hover:text-bad-text"
             >
              <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -685,7 +685,7 @@ export default function ClientsSection({
         {clients.length === 0 ? (
          <tr>
           <td
-           className="px-4 py-6 text-slate-500"
+           className="px-4 py-6 text-fg-faint"
            colSpan={4}
           >
            {t('no_clients')}
@@ -694,7 +694,7 @@ export default function ClientsSection({
         ) : sortedClients.length === 0 ? (
          <tr>
           <td
-           className="px-4 py-6 text-slate-500"
+           className="px-4 py-6 text-fg-faint"
            colSpan={4}
           >
            {t('no_search_results')}
@@ -706,15 +706,15 @@ export default function ClientsSection({
      </div>
      {sortedClients.length > clientsPageSize ? (
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-       <div className="text-xs text-slate-600">
+       <div className="text-xs text-fg-muted">
         {(clampedClientsPage - 1) * clientsPageSize + 1}–{Math.min(sortedClients.length, clampedClientsPage * clientsPageSize)} {t('pagination_of')} {sortedClients.length}
        </div>
        <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+        <span className="text-xs text-fg-faint">{t('pagination_per_page')}</span>
         <select
          value={clientsPageSize}
          onChange={(event) => setClientsPageSize(Number(event.target.value))}
-         className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+         className="rounded border border-border-strong px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
         >
          <option value={25}>25</option>
          <option value={50}>50</option>
@@ -724,7 +724,7 @@ export default function ClientsSection({
          type="button"
          onClick={() => setClientsPage((current) => Math.max(1, Math.min(current, totalClientPages) - 1))}
          disabled={clampedClientsPage <= 1}
-         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+         className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
          {t('pagination_prev')}
         </button>
@@ -742,14 +742,14 @@ export default function ClientsSection({
          onKeyDown={(event) => {
           if (event.key === 'Enter') event.currentTarget.blur();
          }}
-         className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+         className="w-14 rounded border border-border-strong px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
-        <span className="text-xs text-slate-500">/ {totalClientPages}</span>
+        <span className="text-xs text-fg-faint">/ {totalClientPages}</span>
         <button
          type="button"
          onClick={() => setClientsPage((current) => Math.min(totalClientPages, Math.min(current, totalClientPages) + 1))}
          disabled={clampedClientsPage >= totalClientPages}
-         className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+         className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
          {t('pagination_next')}
         </button>

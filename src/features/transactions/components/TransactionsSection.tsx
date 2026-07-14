@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { resolveHighlightBg } from '@/shared/utils/highlightColor';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
@@ -163,6 +165,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry,
  } = props;
  const { language, isRTL } = useLanguage();
+ const isDark = useTheme().resolvedTheme === 'dark';
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
@@ -383,7 +386,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                onClick={onPasteCopiedTransaction}
                title={t('paste_transaction')}
                aria-label={t('paste_transaction')}
-               className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+               className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-accent-weak px-2.5 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent-weak"
               >
                <svg
                 width="14"
@@ -413,7 +416,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               onClick={() => setIsNewTransactionSectionOpen(false)}
               title={t('transactions_hide_new')}
               aria-label={t('transactions_hide_new')}
-              className="inline-flex shrink-0 items-center justify-center rounded border border-slate-300 p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+              className="inline-flex shrink-0 items-center justify-center rounded border border-border-strong p-1.5 text-fg-faint transition hover:bg-surface-hover hover:text-fg"
              >
               <svg
                width="16"
@@ -431,7 +434,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              </button>
             </div>
            </div>
-           <p className="mt-1 text-sm text-slate-600">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
+           <p className="mt-1 text-sm text-fg-muted">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
 
            <form
             onSubmit={onTransactionSubmit}
@@ -447,7 +450,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                chargesPayer: event.target.value === 'adjustment' ? '' : current.chargesPayer,
               }))
              }
-             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+             className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             >
              <option value="exchange">{t('transaction_type_exchange')}</option>
              <option value="transfer">{t('transaction_type_transfer')}</option>
@@ -459,7 +462,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              type="date"
              value={newTransactionDate}
              onChange={(event) => setNewTransactionDate(event.target.value)}
-             className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+             className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             />
 
             {isAdjustmentTransaction ? (
@@ -471,8 +474,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'debit' }))}
                 className={`rounded border px-3 py-2 text-sm font-semibold transition ${
                  transactionForm.adjustmentDirection === 'debit'
-                  ? 'border-red-500 bg-red-50 text-red-700'
-                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                  ? 'border-red-500 bg-bad-bg text-bad-text'
+                  : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                 }`}
                >
                 {t('adjustment_direction_debit')}
@@ -481,7 +484,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 type="button"
                 onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'credit' }))}
                 className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                 transactionForm.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                 transactionForm.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-good-bg text-good-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                 }`}
                >
                 {t('adjustment_direction_credit')}
@@ -492,7 +495,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
             <label className="block text-sm font-medium">
              {isAdjustmentTransaction ? t('client') : t('transaction_account_from')}
-             {isAdjustmentTransaction ? <span className="text-red-500"> *</span> : null}
+             {isAdjustmentTransaction ? <span className="text-bad-text"> *</span> : null}
             </label>
             <div className="relative mt-2">
              <input
@@ -530,7 +533,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                )
               }
               placeholder={t('transaction_account_placeholder')}
-              className={`w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
+              className={`w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
               autoComplete="off"
              />
              {transactionForm.accountFromId && !txFromOpen ? (
@@ -544,7 +547,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                }}
                title={t('clear_selection')}
                aria-label={t('clear_selection')}
-               className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-2' : 'right-2'}`}
+               className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted ${isRTL ? 'left-2' : 'right-2'}`}
               >
                <svg
                 width="14"
@@ -573,9 +576,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </button>
              ) : null}
              {txFromOpen && (
-              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
                {txFromOptions.length === 0 ? (
-                <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+                <li className="px-3 py-2 text-sm text-fg-faint">{t('transaction_account_placeholder')}</li>
                ) : (
                 txFromOptions.map((option, index) => {
                  const highlighted = index === txFromHighlight;
@@ -590,7 +593,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     ref={highlightRef}
                     onMouseDown={() => selectFromAccount(account.id)}
                     onMouseEnter={() => setTxFromHighlight(index)}
-                    className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-blue-100' : selected ? 'bg-blue-50' : ''} ${selected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                    className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg'}`}
                    >
                     {account.clientName} · {account.currencyCode}
                    </li>
@@ -607,10 +610,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      setTxFromExpandedClient(option.expanded && !txFromQuery.trim() ? null : option.clientId);
                     }}
                     onMouseEnter={() => setTxFromHighlight(index)}
-                    className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-blue-100' : ''} ${groupHasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                    className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : ''} ${groupHasSelected ? 'font-medium text-accent' : 'text-fg'}`}
                    >
                     <span>
-                     {option.clientName} <span className="text-slate-400">({option.count})</span>
+                     {option.clientName} <span className="text-fg-faint">({option.count})</span>
                     </span>
                     <svg
                      width="12"
@@ -621,7 +624,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      strokeWidth="2"
                      strokeLinecap="round"
                      strokeLinejoin="round"
-                     className={`text-slate-400 transition-transform ${option.expanded ? 'rotate-180' : ''}`}
+                     className={`text-fg-faint transition-transform ${option.expanded ? 'rotate-180' : ''}`}
                      aria-hidden
                     >
                      <path d="m6 9 6 6 6-6" />
@@ -637,7 +640,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    ref={highlightRef}
                    onMouseDown={() => selectFromAccount(account.id)}
                    onMouseEnter={() => setTxFromHighlight(index)}
-                   className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-blue-100' : selected ? 'bg-blue-50' : ''} ${selected ? 'font-medium text-blue-700' : 'text-slate-600'}`}
+                   className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg-muted'}`}
                   >
                    {account.currencyCode}
                    {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
@@ -688,7 +691,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  )
                 }
                 placeholder={t('transaction_account_placeholder')}
-                className={`w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
+                className={`w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
                 autoComplete="off"
                />
                {transactionForm.accountToId && !txToOpen ? (
@@ -702,7 +705,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  }}
                  title={t('clear_selection')}
                  aria-label={t('clear_selection')}
-                 className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${isRTL ? 'left-2' : 'right-2'}`}
+                 className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted ${isRTL ? 'left-2' : 'right-2'}`}
                 >
                  <svg
                   width="14"
@@ -731,9 +734,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 </button>
                ) : null}
                {txToOpen && (
-                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
                  {txToOptions.length === 0 ? (
-                  <li className="px-3 py-2 text-sm text-slate-400">{t('transaction_account_placeholder')}</li>
+                  <li className="px-3 py-2 text-sm text-fg-faint">{t('transaction_account_placeholder')}</li>
                  ) : (
                   txToOptions.map((option, index) => {
                    const highlighted = index === txToHighlight;
@@ -747,7 +750,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       ref={highlightRef}
                       onMouseDown={() => selectToAccount(account.id)}
                       onMouseEnter={() => setTxToHighlight(index)}
-                      className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-blue-100' : selected ? 'bg-blue-50' : ''} ${selected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                      className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg'}`}
                      >
                       {account.clientName} · {account.currencyCode}
                      </li>
@@ -764,10 +767,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        setTxToExpandedClient(option.expanded && !txToQuery.trim() ? null : option.clientId);
                       }}
                       onMouseEnter={() => setTxToHighlight(index)}
-                      className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-blue-100' : ''} ${groupHasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                      className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : ''} ${groupHasSelected ? 'font-medium text-accent' : 'text-fg'}`}
                      >
                       <span>{option.clientName}</span>
-                      <span className="flex items-center gap-1 text-xs text-slate-400">
+                      <span className="flex items-center gap-1 text-xs text-fg-faint">
                        {option.count}
                        <svg
                         width="12"
@@ -795,7 +798,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      ref={highlightRef}
                      onMouseDown={() => selectToAccount(account.id)}
                      onMouseEnter={() => setTxToHighlight(index)}
-                     className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-blue-100' : selected ? 'bg-blue-50' : ''} ${selected ? 'font-medium text-blue-700' : 'text-slate-600'}`}
+                     className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg-muted'}`}
                     >
                      {account.currencyCode}
                      {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
@@ -811,7 +814,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
             <label className="mt-4 block text-sm font-medium">
              {t('transaction_amount')}
-             {isAdjustmentTransaction ? <span className="text-red-500"> *</span> : null}
+             {isAdjustmentTransaction ? <span className="text-bad-text"> *</span> : null}
             </label>
             <div className="mt-2 flex gap-2">
              <input
@@ -820,7 +823,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               dir="ltr"
               value={transactionForm.amount}
               onChange={(event) => setTransactionForm((current) => ({ ...current, amount: formatAmountInput(event.target.value) }))}
-              className="min-w-0 flex-1 rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+              className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
               placeholder="0.00"
               required
              />
@@ -832,7 +835,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 currencyId: event.target.value ? Number(event.target.value) : null,
                }))
               }
-              className="w-28 rounded border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              className="w-28 rounded border border-border-strong px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
               required
              >
               <option value="">{t('transaction_currency_placeholder')}</option>
@@ -847,13 +850,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              </select>
             </div>
 
-            <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
-             <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_from')}</h3>
+            <div className="mt-4 rounded border border-border bg-surface-2 p-4">
+             <h3 className="text-sm font-semibold text-fg-muted">{t('transaction_account_from')}</h3>
              <div className={`mt-2 grid gap-2 ${showExchangeRateFrom && !isAdjustmentTransaction ? 'sm:grid-cols-2' : ''}`}>
               {showExchangeRateFrom && (
                <div>
                 <div className="flex items-center justify-between">
-                 <label className="block text-xs font-medium text-slate-500">
+                 <label className="block text-xs font-medium text-fg-faint">
                   {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode
                    ? txFromRateReversed
                      ? ltrIsolate(`1 ${transactionAccountFromCurrencyCode} = ? ${transactionSelectedCurrencyCode}`)
@@ -869,7 +872,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     setTransactionForm((c) => ({ ...c, exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
                     setTxFromRateReversed((r) => !r);
                    }}
-                   className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                   className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
                   >
                    <svg
                     width="14"
@@ -897,21 +900,21 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  dir="ltr"
                  value={transactionForm.exchangeRateFrom}
                  onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizePlainDecimalInput(event.target.value) }))}
-                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="1"
                 />
                </div>
               )}
               {!isAdjustmentTransaction ? (
                <div>
-                <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_from')} (%)</label>
+                <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_from')} (%)</label>
                 <input
                  type="text"
                  inputMode="decimal"
                  dir="ltr"
                  value={transactionForm.commissionFrom}
                  onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizePlainDecimalInput(event.target.value) }))}
-                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="0"
                 />
                </div>
@@ -920,13 +923,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </div>
 
             {!isAdjustmentTransaction ? (
-             <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
-              <h3 className="text-sm font-semibold text-slate-700">{t('transaction_account_to')}</h3>
+             <div className="mt-3 rounded border border-border bg-surface-2 p-4">
+              <h3 className="text-sm font-semibold text-fg-muted">{t('transaction_account_to')}</h3>
               <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
                {showExchangeRateTo && (
                 <div>
                  <div className="flex items-center justify-between">
-                  <label className="block text-xs font-medium text-slate-500">
+                  <label className="block text-xs font-medium text-fg-faint">
                    {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
                     ? txToRateReversed
                       ? ltrIsolate(`1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`)
@@ -942,7 +945,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
                      setTxToRateReversed((r) => !r);
                     }}
-                    className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                    className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
                    >
                     <svg
                      width="14"
@@ -970,20 +973,20 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   dir="ltr"
                   value={transactionForm.exchangeRateTo}
                   onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizePlainDecimalInput(event.target.value) }))}
-                  className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder="1"
                  />
                 </div>
                )}
                <div>
-                <label className="block text-xs font-medium text-slate-500">{t('transaction_commission_to')} (%)</label>
+                <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_to')} (%)</label>
                 <input
                  type="text"
                  inputMode="decimal"
                  dir="ltr"
                  value={transactionForm.commissionTo}
                  onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizePlainDecimalInput(event.target.value) }))}
-                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  placeholder="0"
                 />
                </div>
@@ -1011,10 +1014,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 const outOfTolerance = diff != null && Math.abs(diff) > exchangeTolerance;
                 const toCode = transactionAccountToCurrencyCode ?? '';
                 return (
-                 <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="text-sm font-semibold text-slate-700">{t('exchange_actual_label')}</h3>
+                 <div className="mt-4 rounded border border-border bg-surface-2 p-4">
+                  <h3 className="text-sm font-semibold text-fg-muted">{t('exchange_actual_label')}</h3>
                   {computed != null ? (
-                   <p className="mt-1 text-xs text-slate-500">
+                   <p className="mt-1 text-xs text-fg-faint">
                     {t('exchange_actual_computed_hint', { value: ltrIsolate(`${formatAmountInput(String(computed.toFixed(2)))} ${toCode}`.trim()) })}
                    </p>
                   ) : null}
@@ -1024,11 +1027,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    dir="ltr"
                    value={formatAmountInput(transactionForm.exchangeActualAmount)}
                    onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeActualAmount: normalizeDecimalInput(event.target.value) }))}
-                   className={`mt-2 w-full rounded border bg-white px-3 py-2 outline-none ring-blue-300 focus:ring ${outOfTolerance ? 'border-red-400' : 'border-slate-300'}`}
+                   className={`mt-2 w-full rounded border bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring ${outOfTolerance ? 'border-red-400' : 'border-border-strong'}`}
                    placeholder={computed != null ? computed.toFixed(2) : '0.00'}
                   />
                   {diff != null && Math.abs(diff) > 1e-9 ? (
-                   <p className={`mt-1 text-xs ${outOfTolerance ? 'text-red-600' : 'text-slate-500'}`}>
+                   <p className={`mt-1 text-xs ${outOfTolerance ? 'text-bad-text' : 'text-fg-faint'}`}>
                     {outOfTolerance
                      ? t('exchange_actual_out_of_tolerance', { max: String(exchangeTolerance) })
                      : t('exchange_actual_difference', { value: ltrIsolate(`${diff > 0 ? '+' : ''}${diff.toFixed(2)} ${toCode}`.trim()) })}
@@ -1044,13 +1047,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <button
                type="button"
                onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
-               className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:underline"
+               className="flex items-center gap-1 text-sm font-medium text-accent hover:underline"
               >
                <span>{isNewTransactionExpensesOpen ? '?' : '?'}</span>
                {t('extra_expenses')}
               </button>
               {isNewTransactionExpensesOpen && (
-               <div className="mt-3 rounded border border-slate-200 bg-slate-50 p-4">
+               <div className="mt-3 rounded border border-border bg-surface-2 p-4">
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                  <input
                   type="text"
@@ -1058,13 +1061,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   dir="ltr"
                   value={formatAmountInput(transactionForm.charges)}
                   onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
-                  className="rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                  className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
                   placeholder="0"
                  />
                  <select
                   value={transactionForm.chargesCurrencyId ?? ''}
                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesCurrencyId: event.target.value ? Number(event.target.value) : null }))}
-                  className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  >
                   <option value="">{t('currency')}</option>
                   {enabledCurrencies.map((cur) => (
@@ -1084,12 +1087,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   meLabel={t('charges_payer_me')}
                   paidByPlaceholder={t('charges_payer_placeholder')}
                   paidToPlaceholder={t('charges_payer_to_placeholder')}
-                  className="rounded border border-slate-300 bg-white px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  />
                 </div>
                 {showChargesExchangeRate && (
                  <div className="mt-2">
-                  <label className="block text-xs font-medium text-slate-500">
+                  <label className="block text-xs font-medium text-fg-faint">
                    {t('charges_exchange_rate')} <span dir="ltr">({chargesCurrencyCode} → {chargesPayerAccountCurrencyCode})</span>
                   </label>
                   <input
@@ -1098,18 +1101,18 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    dir="ltr"
                    value={transactionForm.chargesExchangeRate}
                    onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizePlainDecimalInput(event.target.value) }))}
-                   className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none ring-blue-300 focus:ring"
+                   className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
                    placeholder="1"
                   />
                  </div>
                 )}
                 <div className="mt-2">
-                 <label className="block text-xs font-medium text-slate-500">{t('charges_description')}</label>
+                 <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
                  <input
                   type="text"
                   value={transactionForm.chargesDescription}
                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
-                  className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder={t('charges_description_placeholder')}
                  />
                 </div>
@@ -1128,7 +1131,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               }}
               onFocus={() => setDescriptionSuggestOpen(true)}
               onBlur={() => setTimeout(() => setDescriptionSuggestOpen(false), 150)}
-              className="min-h-20 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+              className="min-h-20 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
               placeholder={t('transaction_description_placeholder')}
               autoComplete="off"
              />
@@ -1158,7 +1161,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                }
                if (suggestions.length === 0) return null;
                return (
-                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
                  {suggestions.map((desc) => (
                   <li
                    key={desc}
@@ -1166,7 +1169,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     setTransactionForm((current) => ({ ...current, description: desc }));
                     setDescriptionSuggestOpen(false);
                    }}
-                   className="group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-blue-50"
+                   className="group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-fg-muted hover:bg-accent-weak"
                    title={desc}
                   >
                    <span className="flex-1 truncate">{desc}</span>
@@ -1179,7 +1182,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     }}
                     title={t('transaction_description_suggestion_remove')}
                     aria-label={t('transaction_description_suggestion_remove')}
-                    className="shrink-0 rounded p-0.5 text-slate-300 opacity-0 transition hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
+                    className="shrink-0 rounded p-0.5 text-fg-faint opacity-0 transition hover:bg-surface-hover hover:text-fg-muted group-hover:opacity-100"
                    >
                     <svg
                      width="12"
@@ -1204,12 +1207,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
             {!isAdjustmentTransaction ? (
              <div className="mt-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
                <input
                 type="checkbox"
                 checked={txSplitDescription}
                 onChange={(event) => setTxSplitDescription(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+                className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-300"
                />
                {t('transaction_description_split')}
               </label>
@@ -1217,24 +1220,24 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               {txSplitDescription ? (
                <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div>
-                 <label className="block text-xs font-medium text-slate-500">
+                 <label className="block text-xs font-medium text-fg-faint">
                   {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? t('transaction_account_from')}
                  </label>
                  <textarea
                   value={transactionForm.descriptionFrom}
                   onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionFrom: event.target.value }))}
-                  className="mt-1 min-h-16 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder={transactionForm.description || t('transaction_description_placeholder')}
                  />
                 </div>
                 <div>
-                 <label className="block text-xs font-medium text-slate-500">
+                 <label className="block text-xs font-medium text-fg-faint">
                   {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? t('transaction_account_to')}
                  </label>
                  <textarea
                   value={transactionForm.descriptionTo}
                   onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionTo: event.target.value }))}
-                  className="mt-1 min-h-16 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder={transactionForm.description || t('transaction_description_placeholder')}
                  />
                 </div>
@@ -1258,7 +1261,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
           <div className="flex items-start justify-between gap-4">
            <div>
             <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_title') : t('transactions_title')}</h2>
-            {section === 'archive' ? <p className="mt-1 text-sm text-slate-600">{t('archive_description')}</p> : null}
+            {section === 'archive' ? <p className="mt-1 text-sm text-fg-muted">{t('archive_description')}</p> : null}
            </div>
            <div className="flex flex-wrap items-center gap-2">
             <input
@@ -1283,7 +1286,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              disabled={isImportingTransactions}
              title={isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
              aria-label={isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
-             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+             className="cursor-pointer rounded border border-border-strong p-2 text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
              {isImportingTransactions ? (
               <svg
@@ -1328,7 +1331,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              onClick={openTransactionExportModal}
              title={t('transactions_export_title')}
              aria-label={t('transactions_export_title')}
-             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
+             className="cursor-pointer rounded border border-border-strong p-2 text-fg-muted transition hover:bg-surface-hover"
             >
              <svg
               width="16"
@@ -1356,7 +1359,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              onClick={toggleSelectionMode}
              title={t('bulk_select')}
              aria-pressed={selectionMode}
-             className={`cursor-pointer rounded border p-2 transition ${selectionMode ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+             className={`cursor-pointer rounded border p-2 transition ${selectionMode ? 'border-blue-600 bg-accent-weak text-accent' : 'border-border-strong text-fg-muted hover:bg-surface-hover'}`}
             >
              <svg
               width="16"
@@ -1377,7 +1380,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              type="button"
              onClick={openTransactionTableSettingsModal}
              title={t('transactions_more_settings')}
-             className="cursor-pointer rounded border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50"
+             className="cursor-pointer rounded border border-border-strong p-2 text-fg-muted transition hover:bg-surface-hover"
             >
              <svg
               width="16"
@@ -1428,10 +1431,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             {selectedTransactionSums.map((sum) => (
              <span
               key={sum.code || 'none'}
-              className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+              className="inline-flex items-center gap-1.5 rounded border border-border-strong bg-surface-2 px-3 py-2 text-sm text-fg-muted"
              >
-              <span className="font-semibold text-slate-900">{sum.total.toLocaleString(numLocale)}</span>
-              <span className="text-slate-500">{sum.symbol || sum.code}</span>
+              <span className="font-semibold text-fg">{sum.total.toLocaleString(numLocale)}</span>
+              <span className="text-fg-faint">{sum.symbol || sum.code}</span>
              </span>
             ))}
             {Object.keys(transactionTableDrafts).length > 0 ? (
@@ -1441,7 +1444,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                title={t('undo')}
                onClick={txTableHistory.undo}
                disabled={!txTableHistory.canUndo}
-               className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+               className="cursor-pointer rounded border border-border-strong bg-surface p-2 text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
               >
                <svg
                 width="16"
@@ -1463,7 +1466,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                title={t('redo')}
                onClick={txTableHistory.redo}
                disabled={!txTableHistory.canRedo}
-               className="cursor-pointer rounded border border-slate-300 bg-white p-2 text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+               className="cursor-pointer rounded border border-border-strong bg-surface p-2 text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
               >
                <svg
                 width="16"
@@ -1519,7 +1522,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             onClick={() => setTxRowClickMode(txRowClickActive && txRowClickHighlight && !txSumMode ? 'none' : 'highlight')}
             aria-pressed={txRowClickActive && txRowClickHighlight && !txSumMode}
             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-             txRowClickActive && txRowClickHighlight && !txSumMode ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+             txRowClickActive && txRowClickHighlight && !txSumMode ? 'border-amber-400 bg-warn-bg text-warn-text hover:bg-warn-bg' : 'border-border-strong text-fg-muted hover:bg-surface-hover'
             }`}
            >
             <svg
@@ -1543,7 +1546,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             onClick={() => setTxRowClickMode(txRowClickActive && !txRowClickHighlight && !txSumMode ? 'none' : 'copy')}
             aria-pressed={txRowClickActive && !txRowClickHighlight && !txSumMode}
             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-             txRowClickActive && !txRowClickHighlight && !txSumMode ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+             txRowClickActive && !txRowClickHighlight && !txSumMode ? 'border-blue-400 bg-accent-weak text-accent hover:bg-accent-weak' : 'border-border-strong text-fg-muted hover:bg-surface-hover'
             }`}
            >
             <svg
@@ -1574,7 +1577,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             onClick={toggleTxSumMode}
             aria-pressed={txSumMode}
             className={`cursor-pointer rounded border px-2 py-2 text-sm font-semibold transition ${
-             txSumMode ? 'border-purple-400 bg-purple-50 text-purple-600 hover:bg-purple-100' : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+             txSumMode ? 'border-purple-400 bg-violet-bg text-violet-text hover:bg-violet-bg' : 'border-border-strong text-fg-muted hover:bg-surface-hover'
             }`}
            >
             <svg
@@ -1594,22 +1597,22 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
            {txSumByCurrency.map((sum) => (
             <span
              key={sum.code || 'none'}
-             className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-purple-50 px-3 py-2 text-sm text-slate-600"
+             className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-violet-bg px-3 py-2 text-sm text-fg-muted"
             >
-             <span className="font-medium text-slate-500">
+             <span className="font-medium text-fg-faint">
               {sum.code || t('amount')} ({sum.count})
              </span>
-             <span className="font-semibold text-slate-800">{sum.total.toLocaleString(numLocale)}</span>
+             <span className="font-semibold text-fg">{sum.total.toLocaleString(numLocale)}</span>
             </span>
            ))}
           </div>
 
-          <div className="mt-3 rounded border border-slate-200 bg-slate-50">
+          <div className="mt-3 rounded border border-border bg-surface-2">
            <button
             type="button"
             onClick={() => setTxFilterOpen((o) => !o)}
             aria-expanded={txFilterOpen}
-            className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-fg-muted transition hover:bg-surface-hover"
            >
             <svg
              width="14"
@@ -1646,16 +1649,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </svg>
            </button>
            {txFilterOpen && (
-            <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-3 py-3">
+            <div className="flex flex-wrap items-end gap-2 border-t border-border px-3 py-3">
              <div className="flex min-w-36 flex-1 flex-col gap-1">
-              <label className="text-xs font-medium text-slate-500">{t('tx_filter_search')}</label>
+              <label className="text-xs font-medium text-fg-faint">{t('tx_filter_search')}</label>
               <div className="relative">
                <input
                 type="text"
                 value={txFilterSearch}
                 onChange={(e) => setTxFilterSearch(e.target.value)}
                 placeholder={t('tx_filter_search_placeholder')}
-                className={`w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
+                className={`w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
                />
                <div className={`absolute inset-y-0 flex items-center gap-0.5 ${isRTL ? 'left-1' : 'right-1'}`}>
                 <button
@@ -1665,7 +1668,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  aria-label={t('tx_filter_whole_word')}
                  aria-pressed={txFilterWholeWord}
                  className={`flex h-5 w-6 items-center justify-center rounded text-[11px] font-semibold transition ${
-                  txFilterWholeWord ? 'bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-400' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
+                  txFilterWholeWord ? 'bg-accent-weak text-accent ring-1 ring-inset ring-blue-400' : 'text-fg-faint hover:bg-surface-hover hover:text-fg-muted'
                  }`}
                 >
                  <span className="border-b border-current leading-none">ab</span>
@@ -1676,7 +1679,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   onClick={() => setTxFilterSearch('')}
                   title={t('clear_selection')}
                   aria-label={t('clear_selection')}
-                  className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  className="flex h-5 w-5 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
                  >
                   <svg
                    width="12"
@@ -1708,11 +1711,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </div>
              </div>
              <div className="flex min-w-36 flex-1 flex-col gap-1">
-              <label className="text-xs font-medium text-slate-500">{t('tx_filter_client')}</label>
+              <label className="text-xs font-medium text-fg-faint">{t('tx_filter_client')}</label>
               <select
                value={txFilterClient}
                onChange={(e) => setTxFilterClient(e.target.value)}
-               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+               className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
               >
                <option value="">{t('tx_filter_client_all')}</option>
                {txFilterClientOptions.map((name) => (
@@ -1726,29 +1729,29 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </select>
              </div>
              <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_from')}</label>
+              <label className="text-xs font-medium text-fg-faint">{t('tx_filter_date_from')}</label>
               <input
                type="date"
                value={txFilterDateFrom}
                onChange={(e) => setTxFilterDateFrom(e.target.value)}
-               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+               className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
               />
              </div>
              <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_to')}</label>
+              <label className="text-xs font-medium text-fg-faint">{t('tx_filter_date_to')}</label>
               <input
                type="date"
                value={txFilterDateTo}
                onChange={(e) => setTxFilterDateTo(e.target.value)}
-               className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+               className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
               />
              </div>
-             <label className="flex cursor-pointer select-none items-center gap-2 self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100">
+             <label className="flex cursor-pointer select-none items-center gap-2 self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover">
               <input
                type="checkbox"
                checked={txFilterHideExpenses}
                onChange={(e) => setTxFilterHideExpenses(e.target.checked)}
-               className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-600 focus:ring-blue-300"
+               className="h-4 w-4 cursor-pointer rounded border-border-strong text-accent focus:ring-blue-300"
               />
               {t('tx_filter_hide_expenses')}
              </label>
@@ -1763,7 +1766,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 setTxFilterDateTo('');
                 setTxFilterHideExpenses(false);
                }}
-               className="self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
+               className="self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover"
               >
                {t('tx_filter_clear')}
               </button>
@@ -1796,7 +1799,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              {transactionTableSettings.columns.commission ? <col style={{ width: colWidthPercent(15) }} /> : null}
              {section === 'archive' ? <col style={{ width: colWidthPercent(16) }} /> : null}
             </colgroup>
-            <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
+            <thead className="sticky top-0 z-20 bg-surface-hover text-fg-muted">
              <tr>
               <th className="w-px whitespace-nowrap px-1 py-3">
                {isEditAllTransactions ? (
@@ -1805,7 +1808,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   type="button"
                   title={t('save_changes')}
                   onClick={() => void onSaveAllTransactions()}
-                  className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                  className="rounded p-1 text-good-text hover:bg-good-bg"
                  >
                   <svg
                    width="13"
@@ -1825,7 +1828,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   type="button"
                   title={t('cancel')}
                   onClick={() => onCancelAllTransactions()}
-                  className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                  className="rounded p-1 text-fg-faint hover:bg-surface-hover"
                  >
                   <svg
                    width="13"
@@ -1858,7 +1861,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  type="button"
                  title="Edit all rows"
                  onClick={() => onEditAllTransactions()}
-                 className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                 className="rounded p-1 text-fg-faint hover:bg-surface-hover hover:text-accent"
                 >
                  <svg
                   width="13"
@@ -1884,7 +1887,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  checked={paginatedTransactions.length > 0 && paginatedTransactions.every((t) => selectedTransactionIds.has(t.id))}
                  onChange={onToggleSelectAllTransactions}
                  aria-label="Select all"
-                 className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                 className="h-4 w-4 cursor-pointer rounded border-border-strong"
                 />
                </th>
               ) : null}
@@ -1893,7 +1896,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 <button
                  type="button"
                  onClick={() => setTxSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
-                 className="inline-flex items-center gap-1 hover:text-blue-600 transition-colors"
+                 className="inline-flex items-center gap-1 hover:text-accent transition-colors"
                  title={txSortDir === 'desc' ? t('sort_asc') : t('sort_desc')}
                 >
                  {t('date')}
@@ -1953,7 +1956,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 e.preventDefault();
                 void onSaveTransactionTableRow(txn.id);
                }}
-               className={`border-t border-slate-200 align-top transition-colors hover:bg-slate-100 ${txn.isArchived || (!txn.isAdjustment && (!txn.accountFromId || !txn.accountToId)) ? 'bg-amber-50' : index % 2 === 1 ? 'bg-slate-50' : 'bg-white'} ${
+               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${!txn.isArchived && !txn.isAdjustment && (!txn.accountFromId || !txn.accountToId) ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
@@ -1962,7 +1965,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 const color = highlightedTxRows.get(txn.id);
                 const isEditingRow = editingRowIds.has(txn.id);
                 return {
-                 ...(color ? { backgroundColor: color } : {}),
+                 ...(color ? { backgroundColor: resolveHighlightBg(color, isDark) } : {}),
                  ...(isEditingRow || txSumMode || !txRowClickActive ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                 };
                })()}
@@ -2006,7 +2009,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     <div className="flex flex-col items-center gap-1">
                      {/* Dragging is disabled while editing (matches the previous native-drag
                          behavior) — this handle is a static visual placeholder here. */}
-                     <span className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing" title="Drag to reorder">
+                     <span className="cursor-grab text-fg-faint hover:text-fg-faint active:cursor-grabbing" title="Drag to reorder">
                       <svg
                        width="12"
                        height="12"
@@ -2052,7 +2055,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       type="button"
                       title={t('save_changes')}
                       onClick={() => void onSaveTransactionTableRow(txn.id)}
-                      className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                      className="rounded p-1 text-good-text hover:bg-good-bg"
                      >
                       <svg
                        width="14"
@@ -2078,7 +2081,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         return next;
                        })
                       }
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                      className="rounded p-1 text-fg-faint hover:bg-surface-hover"
                      >
                       <svg
                        width="14"
@@ -2109,7 +2112,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       type="button"
                       title={t('delete')}
                       onClick={() => void onDeleteTransactionTableRow(txn)}
-                      className="rounded p-1 text-red-500 hover:bg-red-50"
+                      className="rounded p-1 text-bad-text hover:bg-bad-bg"
                      >
                       <svg
                        width="14"
@@ -2140,7 +2143,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          exchangeRateTo: draft.exchangeRateFrom,
                         })
                        }
-                       className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                       className="rounded p-1 text-fg-faint hover:bg-surface-hover hover:text-accent"
                       >
                        <svg
                         width="14"
@@ -2167,7 +2170,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     <div className="flex items-center justify-center gap-1">
                      <span
                       {...transactionRowDrag.dragHandleProps(txn.id)}
-                      className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                      className="cursor-grab text-fg-faint hover:text-fg-faint active:cursor-grabbing"
                       title="Drag to reorder"
                      >
                       <svg
@@ -2214,7 +2217,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       title={t('row_actions_menu')}
                       aria-label={t('row_actions_menu')}
                       onClick={(e) => openRowMenu(e, txn)}
-                      className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                      className="rounded p-0.5 text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
                      >
                       <svg
                        width="12"
@@ -2238,18 +2241,18 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      checked={selectedTransactionIds.has(txn.id)}
                      onChange={() => onToggleTransactionSelection(txn.id)}
                      aria-label={`Select transaction ${txn.id}`}
-                     className="h-4 w-4 cursor-pointer rounded border-slate-300"
+                     className="h-4 w-4 cursor-pointer rounded border-border-strong"
                     />
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.created ? (
-                   <td className="px-4 py-3 text-slate-500">
+                   <td className="px-4 py-3 text-fg-faint">
                     {isEditingRow && draft ? (
                      <input
                       type="date"
                       value={draft.createdDate}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      className="w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                      />
                     ) : (
                      <span className="inline-flex items-center gap-1.5">
@@ -2259,22 +2262,22 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.description ? (
-                   <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                   <td className="px-4 py-3 text-fg-muted whitespace-nowrap">
                     {isEditingRow && draft ? (
                      <input
                       type="text"
                       value={draft.description}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
-                      className="field-sizing-content min-w-28 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      className="field-sizing-content min-w-28 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                       placeholder={t('transaction_description_placeholder')}
                      />
                     ) : (
-                     txn.description || <span className="text-slate-400">-</span>
+                     txn.description || <span className="text-fg-faint">-</span>
                     )}
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountFrom ? (
-                   <td className={`px-4 py-3 font-medium text-slate-900 whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
+                   <td className={`px-4 py-3 font-medium text-fg whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
                     {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <AccountSearchSelect
@@ -2287,7 +2290,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       />
                       {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountFromCurrencyCode && txn.currencyCode !== txn.accountFromCurrencyCode && (
                        <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-fg-faint">
                          {tableRateFromReversed[txn.id] ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ? ${txn.currencyCode}`) : ltrIsolate(`1 ${txn.currencyCode} = ? ${txn.accountFromCurrencyCode}`)}
                         </span>
                         <button
@@ -2298,7 +2301,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           updateTransactionTableDraft(txn.id, { exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
                           setTableRateFromReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
                          }}
-                         className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                         className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
                         >
                          <svg
                           width="14"
@@ -2327,7 +2330,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         dir="ltr"
                         value={draft.exchangeRateFrom}
                         onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizePlainDecimalInput(event.target.value) })}
-                        className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        className="field-sizing-content min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         placeholder={t('transaction_exchange_rate')}
                        />
                       ) : null}
@@ -2346,18 +2349,18 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           e.preventDefault();
                           openClientLedger(fromClient, 'clients', fromAccount?.id);
                          }}
-                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                         className="cursor-pointer text-left hover:text-accent hover:underline"
                         >
-                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                         {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </a>
                        ) : (
                         <div>
-                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                         {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </div>
                        );
                       })()}
                       {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 && txn.currencyCode !== txn.accountFromCurrencyCode ? (
-                       <div className="text-xs text-slate-500">
+                       <div className="text-xs text-fg-faint">
                         {t('transaction_exchange_rate')}:{' '}
                         {txn.exchangeRateFromReversed
                          ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
@@ -2379,20 +2382,20 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           e.preventDefault();
                           openClientLedger(fromClient, 'clients', fromAccount?.id);
                          }}
-                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                         className="cursor-pointer text-left hover:text-accent hover:underline"
                         >
-                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                         {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </a>
                        ) : txn.accountFromId ? (
                         <div>
-                         {txn.clientFromName} <span className="text-xs font-normal text-slate-500">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                         {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </div>
                        ) : (
-                        <span className="italic text-slate-400">{t('archive_no_sender')}</span>
+                        <span className="italic text-fg-faint">{t('archive_no_sender')}</span>
                        );
                       })()}
                       {transactionTableSettings.showExchangeRate && txn.exchangeRateFrom !== 1 ? (
-                       <div className="text-xs text-slate-500">
+                       <div className="text-xs text-fg-faint">
                         {t('transaction_exchange_rate')}:{' '}
                         {txn.exchangeRateFromReversed
                          ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
@@ -2404,14 +2407,14 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.accountTo ? (
-                   <td className={`px-4 py-3 font-medium text-slate-900 whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
+                   <td className={`px-4 py-3 font-medium text-fg whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
                     {isEditingRow && draft && txn.isAdjustment ? (
                      <div className="grid grid-cols-2 gap-2">
                       <button
                        type="button"
                        onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'debit' })}
                        className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                        draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                        draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                        }`}
                       >
                        {t('adjustment_direction_debit_short')}
@@ -2420,7 +2423,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        type="button"
                        onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'credit' })}
                        className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                        draft.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                        draft.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-good-bg text-good-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                        }`}
                       >
                        {t('adjustment_direction_credit_short')}
@@ -2438,7 +2441,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       />
                       {transactionTableSettings.showExchangeRate && txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode && (
                        <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-fg-faint">
                          {tableRateToReversed[txn.id] ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ? ${txn.currencyCode}`) : ltrIsolate(`1 ${txn.currencyCode} = ? ${txn.accountToCurrencyCode}`)}
                         </span>
                         <button
@@ -2449,7 +2452,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           updateTransactionTableDraft(txn.id, { exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
                           setTableRateToReversed((prev) => ({ ...prev, [txn.id]: !prev[txn.id] }));
                          }}
-                         className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                         className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
                         >
                          <svg
                           width="14"
@@ -2478,7 +2481,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         dir="ltr"
                         value={draft.exchangeRateTo}
                         onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizePlainDecimalInput(event.target.value) })}
-                        className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                        className="field-sizing-content min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                         placeholder={t('transaction_exchange_rate')}
                        />
                       ) : null}
@@ -2499,20 +2502,20 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           e.preventDefault();
                           openClientLedger(toClient, 'clients', toAccount?.id);
                          }}
-                         className="cursor-pointer text-left hover:text-blue-700 hover:underline"
+                         className="cursor-pointer text-left hover:text-accent hover:underline"
                         >
-                         {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                         {txn.clientToName} <span className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </a>
                        ) : txn.accountToId ? (
                         <div>
-                         {txn.clientToName} <span className="text-xs font-normal text-slate-500">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                         {txn.clientToName} <span className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </div>
                        ) : (
-                        <span className="italic text-slate-400">{t('archive_no_receiver')}</span>
+                        <span className="italic text-fg-faint">{t('archive_no_receiver')}</span>
                        );
                       })()}
                       {transactionTableSettings.showExchangeRate && txn.exchangeRateTo !== 1 ? (
-                       <div className="text-xs text-slate-500">
+                       <div className="text-xs text-fg-faint">
                         {t('transaction_exchange_rate')}:{' '}
                         {txn.exchangeRateToReversed
                          ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`)
@@ -2524,7 +2527,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.amount ? (
-                   <td className="px-4 py-3 text-slate-700">
+                   <td className="px-4 py-3 text-fg-muted">
                     {isEditingRow && draft ? (
                      <div className="flex gap-2">
                       <input
@@ -2533,12 +2536,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        dir="ltr"
                        value={formatAmountInput(draft.amount)}
                        onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
-                       className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       className="field-sizing-content min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                       />
                       <select
                        value={draft.currencyId ?? ''}
                        onChange={(event) => updateTransactionTableDraft(txn.id, { currencyId: event.target.value ? Number(event.target.value) : null })}
-                       className="w-20 rounded border border-slate-300 px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       className="w-20 rounded border border-border-strong px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
                       >
                        <option value="">{t('transaction_currency_placeholder')}</option>
                        {enabledCurrencies.map((currency) => (
@@ -2558,23 +2561,23 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        <button
                         type="button"
                         onClick={() => toggleTxSumEntry(txn.id)}
-                        className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                        className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
                        >
-                        <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
+                        <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-fg-faint">{txn.currencySymbol || txn.currencyCode}</span>
                        </button>
                       );
                      })()
                     ) : (
                      <span className="whitespace-nowrap">
-                      <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-slate-500">{txn.currencySymbol || txn.currencyCode}</span>
+                      <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-fg-faint">{txn.currencySymbol || txn.currencyCode}</span>
                      </span>
                     )}
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.charges ? (
-                   <td className="px-4 py-3 text-slate-700">
+                   <td className="px-4 py-3 text-fg-muted">
                     {txn.isAdjustment ? (
-                     <span className="text-slate-400">-</span>
+                     <span className="text-fg-faint">-</span>
                     ) : isEditingRow && draft ? (
                      (() => {
                       const isZero = parseFloat(draft.charges) === 0;
@@ -2584,7 +2587,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         <button
                          type="button"
                          onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                         className="text-sm text-blue-600 hover:underline"
+                         className="text-sm text-accent hover:underline"
                         >
                          + {t('add_expenses')}
                         </button>
@@ -2598,13 +2601,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          dir="ltr"
                          value={formatAmountInput(draft.charges)}
                          onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
-                         className="field-sizing-content min-w-16 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         className="field-sizing-content min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                          placeholder="0"
                         />
                         <select
                          value={draft.chargesCurrencyId ?? ''}
                          onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
-                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                         className="w-full rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                         >
                          <option value="">{t('currency')}</option>
                          {enabledCurrencies.map((cur) => (
@@ -2624,7 +2627,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          meLabel={t('charges_payer_me')}
                          paidByPlaceholder={t('charges_payer_placeholder')}
                          paidToPlaceholder={t('charges_payer_to_placeholder')}
-                         className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                         className="w-full rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                         />
                         {(() => {
                          const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
@@ -2633,7 +2636,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
                          return (
                           <div>
-                           <span dir="ltr" className="text-xs text-slate-500">
+                           <span dir="ltr" className="text-xs text-fg-faint">
                             {draftChargesCurrencyCode} → {draftPayerAccountCurrencyCode}
                            </span>
                            <input
@@ -2642,7 +2645,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                             dir="ltr"
                             value={draft.chargesExchangeRate}
                             onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })}
-                            className="mt-1 field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                            className="mt-1 field-sizing-content min-w-16 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                             placeholder="1"
                            />
                           </div>
@@ -2653,7 +2656,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           type="text"
                           value={draft.chargesDescription}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
-                          className="field-sizing-content min-w-28 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className="field-sizing-content min-w-28 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder={t('charges_description_placeholder')}
                          />
                         </div>
@@ -2664,11 +2667,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      <div>
                       <span className="whitespace-nowrap">
                        <span>{txn.charges.toLocaleString(numLocale)}</span>
-                       {txn.chargesCurrencyCode && <span className="text-slate-500"> {txn.chargesCurrencyCode}</span>}
+                       {txn.chargesCurrencyCode && <span className="text-fg-faint"> {txn.chargesCurrencyCode}</span>}
                       </span>
-                      {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-slate-400">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
+                      {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-fg-faint">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
                       {txn.chargesPayer && (
-                       <div className="text-xs text-slate-500">
+                       <div className="text-xs text-fg-faint">
                         {txn.chargesPayer === 'from'
                          ? txn.clientFromName
                          : txn.chargesPayer === 'to'
@@ -2684,17 +2687,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                                    : ''}
                        </div>
                       )}
-                      {txn.chargesDescription && <div className="text-xs italic text-slate-400">{txn.chargesDescription}</div>}
+                      {txn.chargesDescription && <div className="text-xs italic text-fg-faint">{txn.chargesDescription}</div>}
                      </div>
                     ) : (
-                     <span className="text-slate-400">-</span>
+                     <span className="text-fg-faint">-</span>
                     )}
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.commission ? (
-                   <td className="px-4 py-3 text-slate-600">
+                   <td className="px-4 py-3 text-fg-muted">
                     {txn.isAdjustment ? (
-                     <span className="text-slate-400">—</span>
+                     <span className="text-fg-faint">—</span>
                     ) : isEditingRow && draft ? (
                      (() => {
                       const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
@@ -2704,7 +2707,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         <button
                          type="button"
                          onClick={() => setCommissionExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                         className="text-sm text-blue-600 hover:underline"
+                         className="text-sm text-accent hover:underline"
                         >
                          + {t('add_commission')}
                         </button>
@@ -2713,30 +2716,30 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       return (
                        <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                         <span className="shrink-0 text-xs text-slate-500">{txn.clientFromName}:</span>
+                         <span className="shrink-0 text-xs text-fg-faint">{txn.clientFromName}:</span>
                          <input
                           type="text"
                           inputMode="decimal"
                           dir="ltr"
                           value={draft.commissionFrom}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizePlainDecimalInput(event.target.value) })}
-                          className="field-sizing-content min-w-12 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className="field-sizing-content min-w-12 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder="0"
                          />
-                         <span className="text-xs text-slate-400">%</span>
+                         <span className="text-xs text-fg-faint">%</span>
                         </div>
                         <div className="flex items-center gap-2">
-                         <span className="shrink-0 text-xs text-slate-500">{txn.clientToName}:</span>
+                         <span className="shrink-0 text-xs text-fg-faint">{txn.clientToName}:</span>
                          <input
                           type="text"
                           inputMode="decimal"
                           dir="ltr"
                           value={draft.commissionTo}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizePlainDecimalInput(event.target.value) })}
-                          className="field-sizing-content min-w-12 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className="field-sizing-content min-w-12 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                           placeholder="0"
                          />
-                         <span className="text-xs text-slate-400">%</span>
+                         <span className="text-xs text-fg-faint">%</span>
                         </div>
                        </div>
                       );
@@ -2753,14 +2756,14 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         ))}
                        </div>
                       ) : (
-                       <span className="text-slate-400">-</span>
+                       <span className="text-fg-faint">-</span>
                       );
                      })()
                     )}
                    </td>
                   ) : null}
                   {section === 'archive' ? (
-                   <td className="px-4 py-3 text-slate-600">
+                   <td className="px-4 py-3 text-fg-muted">
                     <div className="flex items-center gap-2">
                     {isEditingRow && draft ? (
                      <input
@@ -2768,17 +2771,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       value={draft.archiveNote}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { archiveNote: event.target.value })}
                       placeholder={t('archive_more_info_placeholder')}
-                      className="w-full rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                      className="w-full rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
                      />
                     ) : txn.archiveNote ? (
                      <span className="min-w-0 truncate" title={txn.archiveNote}>{txn.archiveNote}</span>
                     ) : (
-                     <span className="text-slate-400">-</span>
+                     <span className="text-fg-faint">-</span>
                     )}
                     {txn.isArchived ? (
                      <span
                       title={t('archive_only_badge_hint')}
-                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded border border-amber-300 bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warn-text"
                      >
                       <svg
                        width="10"
@@ -2815,7 +2818,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              {displayedTransactionRows.length === 0 ? (
               <tr>
                <td
-                className="px-4 py-6 text-slate-500"
+                className="px-4 py-6 text-fg-faint"
                 colSpan={visibleTransactionColumnCount - (selectionMode ? 0 : 1) + (section === 'archive' ? 1 : 0)}
                >
                 {section === 'archive' ? t('archive_empty') : t('no_transactions')}
@@ -2825,19 +2828,19 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </tbody>
             {section === 'archive' && archiveCurrencyTotals.length > 0 ? (
              <tfoot>
-              <tr className="border-t-2 border-slate-300 bg-slate-50">
+              <tr className="border-t-2 border-border-strong bg-surface-2">
                <td
                 colSpan={visibleTransactionColumnCount - (selectionMode ? 0 : 1) + 1}
                 className="px-4 py-3"
                >
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-                 <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">{t('archive_totals')}</span>
+                 <span className="text-sm font-semibold uppercase tracking-wide text-fg-faint">{t('archive_totals')}</span>
                  {archiveCurrencyTotals.map((total) => (
                   <span
                    key={total.code}
-                   className="text-sm font-semibold text-slate-900"
+                   className="text-sm font-semibold text-fg"
                   >
-                   {total.total.toLocaleString(numLocale)} <span className="font-normal text-slate-500">{total.symbol || total.code}</span>
+                   {total.total.toLocaleString(numLocale)} <span className="font-normal text-fg-faint">{total.symbol || total.code}</span>
                   </span>
                  ))}
                 </div>
@@ -2877,7 +2880,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
       type="button"
       title={t('cancel')}
       onClick={() => onCancelAllTransactions()}
-      className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-500 shadow-lg ring-1 ring-slate-300 active:bg-slate-100"
+      className="flex h-12 w-12 items-center justify-center rounded-full bg-surface text-fg-faint shadow-lg ring-1 ring-slate-300 active:bg-surface-hover"
      >
       <svg
        width="20"

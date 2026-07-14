@@ -13,10 +13,10 @@ export default function LanguageSettings() {
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
     <h2 className="text-2xl font-semibold">{t('settings_language_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('settings_language_description')}</p>
+    <p className="mt-2 text-sm text-fg-muted">{t('settings_language_description')}</p>
 
     <div className="mt-6 max-w-md">
-     <label className="block text-sm font-medium text-slate-700">{t('select_language')}</label>
+     <label className="block text-sm font-medium text-fg-muted">{t('select_language')}</label>
      <CustomSelect
       value={language}
       onChange={(value) => setLanguage(value)}
@@ -25,7 +25,7 @@ export default function LanguageSettings() {
        { value: 'ar', label: t('arabic') },
        { value: 'fr', label: t('french') },
       ]}
-      className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+      className="mt-2 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-blue-400"
      />
     </div>
    </div>

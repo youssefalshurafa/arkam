@@ -17,10 +17,10 @@ export default function PricingCards() {
     return (
      <div
       key={tier.id}
-      className={`relative flex flex-col overflow-hidden rounded-2xl bg-white ${
+      className={`relative flex flex-col overflow-hidden rounded-2xl bg-surface ${
        tier.highlight
         ? 'border-2 border-blue-600 shadow-xl md:-my-2 md:scale-[1.02]'
-        : 'border border-gray-200 shadow-sm'
+        : 'border border-border shadow-sm'
       }`}
      >
       {tier.highlight && (
@@ -29,17 +29,17 @@ export default function PricingCards() {
        </div>
       )}
       <div className="px-6 pt-6 text-center">
-       <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">{tier.name}</p>
+       <p className="text-sm font-semibold uppercase tracking-wide text-accent">{tier.name}</p>
        <div className="mt-3 flex items-baseline justify-center gap-2">
-        <span className="text-5xl font-bold tracking-tight text-gray-900">{tier.priceUsdt}</span>
-        <span className="text-lg font-semibold text-gray-500">USDT</span>
+        <span className="text-5xl font-bold tracking-tight text-fg">{tier.priceUsdt}</span>
+        <span className="text-lg font-semibold text-fg-faint">USDT</span>
         {tier.originalUsdt && (
-         <span className="text-base font-medium text-gray-400 line-through">{tier.originalUsdt}</span>
+         <span className="text-base font-medium text-fg-faint line-through">{tier.originalUsdt}</span>
         )}
        </div>
-       <p className="mt-1 text-xs text-gray-500">{tier.period}</p>
+       <p className="mt-1 text-xs text-fg-faint">{tier.period}</p>
        {saved > 0 ? (
-        <span className="mt-4 inline-block rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
+        <span className="mt-4 inline-block rounded-full bg-good-bg px-3 py-1 text-xs font-semibold text-good-text">
          {t('home_save')} {saved} USDT
         </span>
        ) : (
@@ -49,9 +49,9 @@ export default function PricingCards() {
       <div className="flex flex-1 flex-col px-6 pb-6 pt-5">
        <ul className="space-y-3">
         {PLAN_FEATURES.map((feature) => (
-         <li key={feature} className="flex items-start gap-2.5 text-sm text-gray-700">
+         <li key={feature} className="flex items-start gap-2.5 text-sm text-fg-muted">
           <svg
-           className="mt-0.5 h-4 w-4 shrink-0 text-blue-600"
+           className="mt-0.5 h-4 w-4 shrink-0 text-accent"
            viewBox="0 0 24 24"
            fill="none"
            stroke="currentColor"
@@ -72,7 +72,7 @@ export default function PricingCards() {
         className={`mt-6 w-full rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
          tier.highlight
           ? 'bg-blue-700 text-white hover:bg-blue-800'
-          : 'border border-blue-700 bg-white text-blue-700 hover:bg-blue-50'
+          : 'border border-blue-700 bg-surface text-accent hover:bg-accent-weak'
         }`}
        >
         {t('home_get_started')}

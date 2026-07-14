@@ -23,7 +23,7 @@ export default function OrganizationsSection({ organizations, organizationForm, 
   <section className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
    <div className={panelClassName}>
     <h2 className="text-xl font-semibold">{organizationForm.id ? t('update_organization') : t('new_organization')}</h2>
-    <p className="mt-1 text-sm text-slate-600">{t('organizations_description')}</p>
+    <p className="mt-1 text-sm text-fg-muted">{t('organizations_description')}</p>
 
     <form
      onSubmit={(event) => void onOrganizationSubmit(event)}
@@ -35,7 +35,7 @@ export default function OrganizationsSection({ organizations, organizationForm, 
       value={organizationForm.name}
       onChange={(event) => setOrganizationForm((current) => ({ ...current, name: event.target.value }))}
       placeholder={t('organization_name_placeholder')}
-      className="mt-2 w-full rounded border border-slate-300 px-3 py-2 outline-none ring-blue-300 focus:ring"
+      className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
       required
      />
 
@@ -52,7 +52,7 @@ export default function OrganizationsSection({ organizations, organizationForm, 
     <h2 className="text-xl font-semibold">{t('organizations_title')}</h2>
     <div className={tableWrapClassName}>
      <table className="w-full text-sm">
-      <thead className="bg-slate-100 text-slate-700">
+      <thead className="bg-surface-hover text-fg-muted">
        <tr>
         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('actions')}</th>
@@ -62,9 +62,9 @@ export default function OrganizationsSection({ organizations, organizationForm, 
        {organizations.map((organization) => (
         <tr
          key={organization.id}
-         className="border-t border-slate-200 align-top"
+         className="border-t border-border align-top"
         >
-         <td className="px-4 py-3 font-medium text-slate-900">
+         <td className="px-4 py-3 font-medium text-fg">
           <a
            href={`/organizations/${organization.id}`}
            onClick={(e) => {
@@ -72,7 +72,7 @@ export default function OrganizationsSection({ organizations, organizationForm, 
             e.preventDefault();
             openOrganizationClientsPage(organization);
            }}
-           className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
+           className="cursor-pointer text-left text-fg transition hover:text-accent"
           >
            {organization.name}
           </a>
@@ -86,7 +86,7 @@ export default function OrganizationsSection({ organizations, organizationForm, 
              e.preventDefault();
              openOrganizationClientsPage(organization);
             }}
-            className="cursor-pointer rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+            className="cursor-pointer rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-weak"
            >
             {t('organization_page_open')}
            </a>
@@ -98,14 +98,14 @@ export default function OrganizationsSection({ organizations, organizationForm, 
               name: organization.name,
              })
             }
-            className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded border border-border-strong px-3 py-1.5 text-xs font-semibold text-fg-muted hover:bg-surface-hover"
            >
             {t('edit')}
            </button>
            <button
             type="button"
             onClick={() => onDeleteOrganization(organization.id)}
-            className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+            className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-bad-text hover:bg-bad-bg"
            >
             {t('delete')}
            </button>
@@ -116,7 +116,7 @@ export default function OrganizationsSection({ organizations, organizationForm, 
        {organizations.length === 0 ? (
         <tr>
          <td
-          className="px-4 py-6 text-slate-500"
+          className="px-4 py-6 text-fg-faint"
           colSpan={2}
          >
           {t('no_organizations')}

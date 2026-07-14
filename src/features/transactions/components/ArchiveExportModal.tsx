@@ -37,26 +37,26 @@ export default function ArchiveExportModal({ displayedTransactionRows, highlight
 
  return (
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-   <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
-    <h3 className="text-lg font-semibold text-slate-900">{t('archive_export_pdf')}</h3>
+   <div className="w-full max-w-md rounded bg-surface p-6 shadow-2xl">
+    <h3 className="text-lg font-semibold text-fg">{t('archive_export_pdf')}</h3>
 
     <div className="mt-5 flex flex-col gap-4">
      <div className="flex flex-col gap-1">
-      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_date_from')}</label>
+      <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_date_from')}</label>
       <input
        type="date"
        value={modal.fromDate}
        onChange={(e) => setArchiveExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value, fromRowId: null, toRowId: null } : prev))}
-       className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+       className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
       />
      </div>
      <div className="flex flex-col gap-1">
-      <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_date_to')}</label>
+      <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_date_to')}</label>
       <input
        type="date"
        value={modal.toDate}
        onChange={(e) => setArchiveExportModal((prev) => (prev ? { ...prev, toDate: e.target.value, fromRowId: null, toRowId: null } : prev))}
-       className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+       className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
       />
      </div>
 
@@ -78,11 +78,11 @@ export default function ArchiveExportModal({ displayedTransactionRows, highlight
           prev ? { ...prev, fromDate: dates[0], toDate: dates[dates.length - 1], fromRowId: first.id, toRowId: last.id } : prev,
          );
         }}
-        className="cursor-pointer rounded border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
+        className="cursor-pointer rounded border border-amber-400 bg-warn-bg px-3 py-2 text-sm font-semibold text-warn-text transition hover:bg-warn-bg"
        >
         {t('export_use_highlights')}
        </button>
-       <p className="text-xs text-slate-400">{t('export_use_highlights_hint')}</p>
+       <p className="text-xs text-fg-faint">{t('export_use_highlights_hint')}</p>
       </div>
      ) : null}
 
@@ -94,7 +94,7 @@ export default function ArchiveExportModal({ displayedTransactionRows, highlight
          const label = (row: TransactionTableRow | undefined) =>
           row ? `${formatDateValue(row.createdAt, pdfSettings.dateFormat)}${row.description ? ` · ${row.description}` : ''}` : '—';
          return (
-          <div className="rounded border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800">
+          <div className="rounded border border-border bg-warn-bg px-3 py-2 text-xs text-warn-text">
            <div className="truncate">{label(first)}</div>
            <div className="my-0.5 text-amber-400">↓</div>
            <div className="truncate">{label(last)}</div>
@@ -103,10 +103,10 @@ export default function ArchiveExportModal({ displayedTransactionRows, highlight
         })()
       : null}
 
-     <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+     <div className="rounded border border-border bg-surface-2 px-4 py-3 text-sm">
       <div className="flex justify-between">
-       <span className="text-slate-500">{t('client_page_transaction_count')}</span>
-       <span className="font-semibold text-slate-900">{selectedCount}</span>
+       <span className="text-fg-faint">{t('client_page_transaction_count')}</span>
+       <span className="font-semibold text-fg">{selectedCount}</span>
       </div>
      </div>
     </div>
@@ -115,7 +115,7 @@ export default function ArchiveExportModal({ displayedTransactionRows, highlight
      <button
       type="button"
       onClick={() => setArchiveExportModal(null)}
-      className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+      className="rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
      >
       {t('cancel')}
      </button>

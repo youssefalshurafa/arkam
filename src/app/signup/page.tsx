@@ -140,8 +140,8 @@ export default function SignupPage() {
    <SiteLayout>
     <div className="flex flex-1 items-center justify-center p-4">
      <div className="w-full max-w-sm">
-      <section className="rounded border border-gray-300 bg-white p-6 shadow-md">
-       <h2 className="mb-4 text-sm font-semibold text-gray-700">{t('signup_already_signed_in')}</h2>
+      <section className="rounded border border-border-strong bg-surface p-6 shadow-md">
+       <h2 className="mb-4 text-sm font-semibold text-fg-muted">{t('signup_already_signed_in')}</h2>
        <button
         type="button"
         onClick={() => router.push('/')}
@@ -161,23 +161,23 @@ export default function SignupPage() {
    <div className="flex flex-1 items-center justify-center p-4">
     <div className="w-full max-w-sm">
      <div className="mb-6 text-center">
-      <p className="text-sm text-gray-500">{t('signup_create_account')}</p>
+      <p className="text-sm text-fg-faint">{t('signup_create_account')}</p>
      </div>
 
-     <section className="rounded border border-gray-300 bg-white shadow-md">
-      <div className="border-b border-gray-200 bg-gray-50 px-5 py-3 flex items-center justify-between">
-       <h2 className="text-sm font-semibold text-gray-700">{t('signup_heading')}</h2>
+     <section className="rounded border border-border-strong bg-surface shadow-md">
+      <div className="border-b border-border bg-surface-2 px-5 py-3 flex items-center justify-between">
+       <h2 className="text-sm font-semibold text-fg-muted">{t('signup_heading')}</h2>
        <button
         type="button"
         onClick={() => router.push('/login')}
-        className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+        className="text-sm text-accent transition hover:text-accent hover:underline"
        >
         {t('home_sign_in')}
        </button>
       </div>
 
       <div className="p-5 space-y-4">
-       <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-semibold text-emerald-700">
+       <p className="rounded border border-emerald-200 bg-good-bg px-3 py-2 text-center text-xs font-semibold text-good-text">
         {t('signup_trial_badge', { days: 14 })}
        </p>
 
@@ -189,34 +189,34 @@ export default function SignupPage() {
            setError('');
            void signIn('google', { callbackUrl: '/' });
           }}
-          className="inline-flex w-full items-center justify-center gap-2 rounded border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
+          className="inline-flex w-full items-center justify-center gap-2 rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg-muted shadow-sm transition hover:bg-surface-hover"
          >
           <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-blue-600 text-xs font-bold text-white">G</span>
           {t('signup_google')}
          </button>
-         <div className="flex items-center gap-3 text-xs text-gray-400">
-          <span className="h-px flex-1 bg-gray-200" />
+         <div className="flex items-center gap-3 text-xs text-fg-faint">
+          <span className="h-px flex-1 bg-border" />
           <span>{t('signup_or')}</span>
-          <span className="h-px flex-1 bg-gray-200" />
+          <span className="h-px flex-1 bg-border" />
          </div>
         </>
        ) : null}
 
        <form className="space-y-4" onSubmit={(e) => void onSubmit(e)}>
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">
-          {t('signup_full_name')} <span className="font-normal text-gray-400">({t('signup_optional')})</span>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted">
+          {t('signup_full_name')} <span className="font-normal text-fg-faint">({t('signup_optional')})</span>
          </label>
          <input
           type="text"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
           placeholder={t('signup_full_name')}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
          />
         </div>
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('signup_email')}</label>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_email')}</label>
          <input
           type="text"
           value={email}
@@ -226,26 +226,26 @@ export default function SignupPage() {
           }}
           onBlur={() => void checkUsername()}
           placeholder={t('signup_email')}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           autoComplete="username"
           autoCapitalize="none"
           required
          />
          {usernameStatus === 'checking' ? (
-          <p className="mt-1 text-xs text-gray-400">{t('signup_username_checking')}</p>
+          <p className="mt-1 text-xs text-fg-faint">{t('signup_username_checking')}</p>
          ) : usernameStatus === 'available' ? (
-          <p className="mt-1 text-xs font-medium text-emerald-600">✓ {t('signup_username_available')}</p>
+          <p className="mt-1 text-xs font-medium text-good-text">✓ {t('signup_username_available')}</p>
          ) : usernameStatus === 'taken' ? (
-          <p className="mt-1 text-xs font-medium text-red-600">✕ {t('signup_username_taken')}</p>
+          <p className="mt-1 text-xs font-medium text-bad-text">✕ {t('signup_username_taken')}</p>
          ) : null}
         </div>
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('signup_whatsapp_label')}</label>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_whatsapp_label')}</label>
          <div className="flex gap-2">
           <select
            value={dialCode}
            onChange={(e) => setDialCode(e.target.value)}
-           className="w-28 shrink-0 rounded border border-gray-300 bg-white px-2 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           className="w-28 shrink-0 rounded border border-border-strong bg-surface px-2 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
            aria-label={t('signup_whatsapp_country')}
           >
            {COUNTRY_DIAL_CODES.map((c) => (
@@ -259,34 +259,34 @@ export default function SignupPage() {
            value={phone}
            onChange={(e) => setPhone(e.target.value)}
            placeholder={t('signup_whatsapp_placeholder')}
-           className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
            autoComplete="tel-national"
            inputMode="tel"
            dir="ltr"
            required
           />
          </div>
-         <p className="mt-1 text-xs text-gray-400">{t('signup_whatsapp_hint')}</p>
+         <p className="mt-1 text-xs text-fg-faint">{t('signup_whatsapp_hint')}</p>
         </div>
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('signup_password_label')}</label>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_password_label')}</label>
          <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={t('signup_password_placeholder')}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           minLength={8}
           required
           autoComplete="new-password"
          />
          {password.length > 0 ? (
           <ul className="mt-1.5 space-y-0.5">
-           <li className={`flex items-center gap-1.5 text-xs ${pwHasLength ? 'text-emerald-600' : 'text-gray-400'}`}>
+           <li className={`flex items-center gap-1.5 text-xs ${pwHasLength ? 'text-good-text' : 'text-fg-faint'}`}>
             <span aria-hidden>{pwHasLength ? '✓' : '○'}</span>
             {t('signup_password_req_length')}
            </li>
-           <li className={`flex items-center gap-1.5 text-xs ${pwHasMix ? 'text-emerald-600' : 'text-gray-400'}`}>
+           <li className={`flex items-center gap-1.5 text-xs ${pwHasMix ? 'text-good-text' : 'text-fg-faint'}`}>
             <span aria-hidden>{pwHasMix ? '✓' : '○'}</span>
             {t('signup_password_req_mix')}
            </li>
@@ -294,26 +294,26 @@ export default function SignupPage() {
          ) : null}
         </div>
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('signup_confirm_password_label')}</label>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_confirm_password_label')}</label>
          <input
           type="password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           placeholder={t('signup_confirm_password_placeholder')}
-          className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           minLength={8}
           required
           autoComplete="new-password"
          />
          {confirmPassword.length > 0 ? (
-          <p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${pwConfirmMatch ? 'text-emerald-600' : 'text-red-600'}`}>
+          <p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${pwConfirmMatch ? 'text-good-text' : 'text-bad-text'}`}>
            <span aria-hidden>{pwConfirmMatch ? '✓' : '✕'}</span>
            {pwConfirmMatch ? t('signup_password_match') : t('signup_password_mismatch')}
           </p>
          ) : null}
         </div>
 
-        {error ? <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+        {error ? <p className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{error}</p> : null}
 
         <button
          type="submit"
@@ -324,11 +324,11 @@ export default function SignupPage() {
         </button>
        </form>
 
-       <div className="border-t border-gray-200 pt-4 text-center">
+       <div className="border-t border-border pt-4 text-center">
         <button
          type="button"
          onClick={() => router.push('/login')}
-         className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+         className="text-sm text-accent transition hover:text-accent hover:underline"
         >
          {t('signup_already_have')}
         </button>

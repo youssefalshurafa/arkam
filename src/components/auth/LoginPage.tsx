@@ -162,7 +162,7 @@ export default function LoginPage() {
   return (
    <SiteLayout hideSignIn>
     <div className="flex flex-1 items-center justify-center p-4">
-     <div className="rounded border border-gray-300 bg-white px-6 py-4 text-sm text-gray-700 shadow-sm">{t('loading')}</div>
+     <div className="rounded border border-border-strong bg-surface px-6 py-4 text-sm text-fg-muted shadow-sm">{t('loading')}</div>
     </div>
    </SiteLayout>
   );
@@ -174,14 +174,14 @@ export default function LoginPage() {
    <div className="w-full max-w-sm">
     {/* App header */}
     <div className="mb-6 text-center">
-     <p className="text-sm text-gray-500">{t('app_description')}</p>
+     <p className="text-sm text-fg-faint">{t('app_description')}</p>
     </div>
 
     {/* Login card */}
-    <section className="rounded border border-gray-300 bg-white shadow-md">
+    <section className="rounded border border-border-strong bg-surface shadow-md">
      {/* Card title bar */}
-     <div className="border-b border-gray-200 bg-gray-50 px-5 py-3">
-      <h2 className="text-sm font-semibold text-gray-700">{t('login_title')}</h2>
+     <div className="border-b border-border bg-surface-2 px-5 py-3">
+      <h2 className="text-sm font-semibold text-fg-muted">{t('login_title')}</h2>
      </div>
 
      <div className="p-5">
@@ -193,15 +193,15 @@ export default function LoginPage() {
           setError('');
           void signIn('google', { callbackUrl: '/' });
          }}
-         className="inline-flex w-full items-center justify-center gap-2 rounded border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
+         className="inline-flex w-full items-center justify-center gap-2 rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg-muted shadow-sm transition hover:bg-surface-hover"
         >
          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">G</span>
          {t('login_google')}
         </button>
-        <div className="my-4 flex items-center gap-3 text-xs text-gray-400">
-         <span className="h-px flex-1 bg-gray-200" />
+        <div className="my-4 flex items-center gap-3 text-xs text-fg-faint">
+         <span className="h-px flex-1 bg-border" />
          <span>{t('login_or')}</span>
-         <span className="h-px flex-1 bg-gray-200" />
+         <span className="h-px flex-1 bg-border" />
         </div>
        </>
       ) : null}
@@ -211,13 +211,13 @@ export default function LoginPage() {
        onSubmit={(event) => void onLogin(event)}
       >
        <div>
-        <label className="mb-1 block text-xs font-semibold text-gray-600">{t('login_email')}</label>
+        <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('login_email')}</label>
         <input
          type="text"
          value={email}
          onChange={(event) => setEmail(event.target.value)}
          placeholder={t('login_email')}
-         className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+         className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
          required
          autoComplete="username"
          autoCapitalize="none"
@@ -227,14 +227,14 @@ export default function LoginPage() {
        </div>
 
        <div>
-        <label className="mb-1 block text-xs font-semibold text-gray-600">{t('login_password')}</label>
+        <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('login_password')}</label>
         <div className="relative">
          <input
           type={showPassword ? 'text' : 'password'}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           placeholder={t('login_password')}
-          className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          className="w-full rounded border border-border-strong px-3 py-2 pr-10 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           minLength={8}
           required
           autoComplete="current-password"
@@ -246,7 +246,7 @@ export default function LoginPage() {
           type="button"
           onClick={() => setShowPassword((current) => !current)}
           aria-label={showPassword ? 'Hide password' : 'Show password'}
-          className="absolute inset-y-0 right-0 inline-flex w-9 items-center justify-center text-gray-400 transition hover:text-gray-600"
+          className="absolute inset-y-0 right-0 inline-flex w-9 items-center justify-center text-fg-faint transition hover:text-fg-muted"
          >
           {showPassword ? (
            <svg
@@ -308,19 +308,19 @@ export default function LoginPage() {
        </div>
 
        <div className="flex items-center justify-between">
-        <label className="inline-flex items-center gap-2 text-sm text-gray-600">
+        <label className="inline-flex items-center gap-2 text-sm text-fg-muted">
          <input
           type="checkbox"
           checked={rememberMe}
           onChange={(event) => setRememberMe(event.target.checked)}
-          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-500"
          />
          {t('login_remember_me')}
         </label>
         <button
          type="button"
          onClick={() => router.push('/forgot-password')}
-         className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+         className="text-sm text-accent transition hover:text-accent hover:underline"
         >
          {t('login_forgot_password')}
         </button>
@@ -331,7 +331,7 @@ export default function LoginPage() {
        <button
         type="button"
         onClick={() => router.push('/set-password')}
-        className="block text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+        className="block text-sm text-accent transition hover:text-accent hover:underline"
        >
         {t('login_set_password_prompt')}
        </button>
@@ -341,13 +341,13 @@ export default function LoginPage() {
        <button
         type="button"
         onClick={() => router.push('/reset-request')}
-        className="block text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+        className="block text-sm text-accent transition hover:text-accent hover:underline"
        >
         {t('login_request_reset')}
        </button>
 
        {displayedError ? (
-        <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">
          <p>{displayedError}</p>
          {errorCode === 'SUBSCRIPTION_EXPIRED' ? (
           <button
@@ -370,11 +370,11 @@ export default function LoginPage() {
        </button>
       </form>
 
-      <div className="mt-4 border-t border-gray-200 pt-4 text-center">
+      <div className="mt-4 border-t border-border pt-4 text-center">
        <button
         type="button"
         onClick={() => router.push('/signup')}
-        className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+        className="text-sm text-accent transition hover:text-accent hover:underline"
        >
         {t('login_signup_prompt')}
        </button>

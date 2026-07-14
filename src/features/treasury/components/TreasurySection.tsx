@@ -17,11 +17,11 @@ export default function TreasurySection() {
    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-500">
     {renderIcon('treasury', 'h-8 w-8')}
    </div>
-   <span className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-700">
+   <span className="inline-flex items-center gap-2 rounded-full bg-warn-bg px-3 py-1 text-xs font-semibold uppercase tracking-wide text-warn-text">
     {t('coming_soon_badge')}
    </span>
-   <h2 className="text-2xl font-bold text-slate-900">{t('treasury_title')}</h2>
-   <p className="max-w-md text-sm text-slate-500">{t('treasury_coming_soon')}</p>
+   <h2 className="text-2xl font-bold text-fg">{t('treasury_title')}</h2>
+   <p className="max-w-md text-sm text-fg-faint">{t('treasury_coming_soon')}</p>
   </div>
  );
 }

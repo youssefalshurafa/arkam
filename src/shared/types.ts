@@ -418,7 +418,7 @@ export type PdfSettings = {
  showCurrencySymbol: boolean;
  highlightNetChange: boolean;
 };
-export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
+export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf';
 
 export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury';
 export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury';

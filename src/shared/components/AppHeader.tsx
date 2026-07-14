@@ -34,9 +34,9 @@ export default function AppHeader({ sidebarItems, section, navigateToSection, ac
  return (
   <>
    {/* Top bar - mobile navigation (pinned to the top of the scroll column on mobile) */}
-   <div className="sticky top-0 z-30 border-b border-[#15304f] bg-[#1e3a5f] px-4 py-2 lg:hidden">
+   <div className="sticky top-0 z-30 border-b border-(--sidebar-border) bg-(--sidebar-bg) px-4 py-2 lg:hidden">
     <div className="flex items-center justify-between gap-2 overflow-x-auto">
-     <span className="inline-flex shrink-0 items-center rounded-md bg-white px-1.5 py-1 shadow-sm">
+     <span className="inline-flex shrink-0 items-center rounded-md bg-surface px-1.5 py-1 shadow-sm">
       <Image
        src="/logo/arkam-logo.png"
        alt="Arkam"
@@ -87,19 +87,19 @@ export default function AppHeader({ sidebarItems, section, navigateToSection, ac
       >
        <option
         value="en"
-        className="bg-white text-slate-900"
+        className="bg-surface text-fg"
        >
         EN
        </option>
        <option
         value="ar"
-        className="bg-white text-slate-900"
+        className="bg-surface text-fg"
        >
         عر
        </option>
        <option
         value="fr"
-        className="bg-white text-slate-900"
+        className="bg-surface text-fg"
        >
         FR
        </option>
@@ -110,11 +110,11 @@ export default function AppHeader({ sidebarItems, section, navigateToSection, ac
 
    {/* Page title bar · hidden when in settings (settings has its own header) */}
    {section !== 'client-ledger' && section !== 'settings' ? (
-    <div className="border-b border-gray-200 bg-white px-5 py-3">
+    <div className="border-b border-border bg-surface px-5 py-3">
      <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-       <h1 className="text-sm font-semibold text-gray-800">{activeSectionMeta.title}</h1>
-       <p className="mt-0.5 text-xs text-gray-500">{activeSectionMeta.description}</p>
+       <h1 className="text-sm font-semibold text-fg">{activeSectionMeta.title}</h1>
+       <p className="mt-0.5 text-xs text-fg-faint">{activeSectionMeta.description}</p>
       </div>
       <div className="flex items-center gap-6">
        {shellMetrics.map((metric) => (
@@ -122,8 +122,8 @@ export default function AppHeader({ sidebarItems, section, navigateToSection, ac
          key={metric.label}
          className="text-right"
         >
-         <p className="text-xs text-gray-500">{metric.label}</p>
-         <p className="text-sm font-semibold text-gray-800">{metric.value}</p>
+         <p className="text-xs text-fg-faint">{metric.label}</p>
+         <p className="text-sm font-semibold text-fg">{metric.value}</p>
         </div>
        ))}
       </div>

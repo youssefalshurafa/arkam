@@ -26,41 +26,41 @@ export default function PricingPage() {
  return (
   <SiteLayout>
    {/* Header */}
-   <section className="relative overflow-hidden bg-white">
+   <section className="relative overflow-hidden bg-surface">
     <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-blue-50/70 to-white" />
     <div className="relative mx-auto w-full max-w-5xl px-5 pb-4 pt-16 text-center sm:pt-20">
-     <span className="inline-block rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700">
+     <span className="inline-block rounded-full border border-green-200 bg-good-bg px-3 py-1 text-xs font-semibold text-good-text">
       {t('pricing_trial_badge')}
      </span>
-     <h1 className="mt-4 text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">{t('home_pricing_title')}</h1>
-     <p className="mx-auto mt-4 max-w-xl text-base text-gray-600">{t('pricing_page_subtitle')}</p>
+     <h1 className="mt-4 text-4xl font-bold tracking-tight text-fg sm:text-5xl">{t('home_pricing_title')}</h1>
+     <p className="mx-auto mt-4 max-w-xl text-base text-fg-muted">{t('pricing_page_subtitle')}</p>
     </div>
    </section>
 
    {/* Cards */}
-   <section className="bg-white">
+   <section className="bg-surface">
     <div className="mx-auto w-full max-w-5xl px-5 pb-8 pt-6">
      <PricingCards />
-     <p className="mt-6 text-center text-xs text-gray-400">{t('home_pricing_note')}</p>
+     <p className="mt-6 text-center text-xs text-fg-faint">{t('home_pricing_note')}</p>
     </div>
    </section>
 
    {/* How billing works */}
-   <section className="border-t border-gray-200 bg-gray-50">
+   <section className="border-t border-border bg-surface-2">
     <div className="mx-auto w-full max-w-5xl px-5 py-16">
-     <h2 className="text-center text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">{t('pricing_how_title')}</h2>
+     <h2 className="text-center text-2xl font-bold tracking-tight text-fg sm:text-3xl">{t('pricing_how_title')}</h2>
      <div className="mt-10 grid gap-6 sm:grid-cols-3">
       {steps.map((step, i) => (
-       <div key={step.title} className="rounded-xl border border-gray-200 bg-white p-6 text-center">
+       <div key={step.title} className="rounded-xl border border-border bg-surface p-6 text-center">
         <span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-blue-700 text-sm font-bold text-white">
          {i + 1}
         </span>
-        <h3 className="mt-4 text-sm font-semibold text-gray-900">{t(step.title)}</h3>
-        <p className="mt-2 text-sm text-gray-600">{t(step.body)}</p>
+        <h3 className="mt-4 text-sm font-semibold text-fg">{t(step.title)}</h3>
+        <p className="mt-2 text-sm text-fg-muted">{t(step.body)}</p>
        </div>
       ))}
      </div>
-     <p className="mx-auto mt-8 max-w-xl text-center text-sm text-gray-500">{t('pricing_trial_note')}</p>
+     <p className="mx-auto mt-8 max-w-xl text-center text-sm text-fg-faint">{t('pricing_trial_note')}</p>
     </div>
    </section>
 

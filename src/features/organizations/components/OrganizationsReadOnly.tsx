@@ -43,7 +43,7 @@ export default function OrganizationsReadOnly({
     <button
      type="button"
      onClick={onOpenSettings}
-     className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+     className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-accent hover:bg-accent-weak"
     >
      {t('open_in_settings')}
     </button>
@@ -51,7 +51,7 @@ export default function OrganizationsReadOnly({
 
    <div className={tableWrapClassName}>
     <table className="w-full text-sm">
-     <thead className="bg-slate-100 text-slate-700">
+     <thead className="bg-surface-hover text-fg-muted">
       <tr>
        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('overview_clients')}</th>
@@ -64,9 +64,9 @@ export default function OrganizationsReadOnly({
        return (
         <tr
          key={organization.id}
-         className="border-t border-slate-200 align-top"
+         className="border-t border-border align-top"
         >
-         <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-900">
+         <td className="whitespace-nowrap px-4 py-3 font-medium text-fg">
           <a
            href={`/organizations/${organization.id}`}
            onClick={(e) => {
@@ -74,21 +74,21 @@ export default function OrganizationsReadOnly({
             e.preventDefault();
             openOrganizationClientsPage(organization);
            }}
-           className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
+           className="cursor-pointer text-left text-fg transition hover:text-accent"
           >
            {organization.name}
           </a>
          </td>
-         <td className="px-4 py-3 text-slate-600">{clients.filter((client) => client.organizationId === organization.id).length}</td>
+         <td className="px-4 py-3 text-fg-muted">{clients.filter((client) => client.organizationId === organization.id).length}</td>
          <td className="px-4 py-3">
           {orgBalances.length === 0 ? (
-           <span className="text-xs text-slate-400">—</span>
+           <span className="text-xs text-fg-faint">—</span>
           ) : (
            <div className="flex flex-wrap gap-1">
             {orgBalances.map((group) => (
              <span
               key={group.key}
-              className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${group.total >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}
+              className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${group.total >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}
              >
               {group.currencySymbol || group.currencyCode} {group.total.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
              </span>
@@ -102,7 +102,7 @@ export default function OrganizationsReadOnly({
       {organizations.length === 0 ? (
        <tr>
         <td
-         className="px-4 py-6 text-slate-500"
+         className="px-4 py-6 text-fg-faint"
          colSpan={3}
         >
          {t('no_organizations')}

@@ -20,7 +20,7 @@ export default function PasswordVisibilityToggle({
    type="button"
    onClick={onToggle}
    aria-label={shown ? hideLabel : showLabel}
-   className="absolute inset-y-0 right-0 inline-flex w-9 items-center justify-center text-gray-400 transition hover:text-gray-600"
+   className="absolute inset-y-0 right-0 inline-flex w-9 items-center justify-center text-fg-faint transition hover:text-fg-muted"
   >
    {shown ? (
     <svg

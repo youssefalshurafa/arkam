@@ -15,12 +15,12 @@ export default function TrustStrip() {
  ];
 
  return (
-  <section className="border-y border-gray-200 bg-gray-50">
+  <section className="border-y border-border bg-surface-2">
    <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-6 px-5 py-10 md:grid-cols-4">
     {stats.map((s) => (
      <div key={s.label} className="text-center">
-      <p className="text-xl font-bold text-blue-700 sm:text-2xl">{s.value}</p>
-      <p className="mt-1 text-xs text-gray-500 sm:text-sm">{s.label}</p>
+      <p className="text-xl font-bold text-accent sm:text-2xl">{s.value}</p>
+      <p className="mt-1 text-xs text-fg-faint sm:text-sm">{s.label}</p>
      </div>
     ))}
    </div>

@@ -56,7 +56,7 @@ export default function CustomSelect<T extends string | number>({ value, options
    >
     <span className="truncate">{selected?.label ?? ''}</span>
     <svg
-     className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+     className={`h-4 w-4 shrink-0 text-fg-faint transition-transform ${open ? 'rotate-180' : ''}`}
      viewBox="0 0 20 20"
      fill="none"
      stroke="currentColor"
@@ -70,7 +70,7 @@ export default function CustomSelect<T extends string | number>({ value, options
     </svg>
    </button>
    {open && (
-    <ul className="absolute z-30 mt-1 max-h-60 w-full overflow-y-auto rounded border border-slate-200 bg-white text-sm shadow-lg">
+    <ul className="absolute z-30 mt-1 max-h-60 w-full overflow-y-auto rounded border border-border bg-surface text-sm shadow-lg">
      {options.map((opt) => (
       <li key={opt.value}>
        <button
@@ -79,7 +79,7 @@ export default function CustomSelect<T extends string | number>({ value, options
          onChange(opt.value);
          setOpen(false);
         }}
-        className={`block w-full px-3 py-2 text-start hover:bg-blue-50 ${opt.value === value ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-700'}`}
+        className={`block w-full px-3 py-2 text-start hover:bg-accent-weak ${opt.value === value ? 'bg-accent-weak font-medium text-accent' : 'text-fg-muted'}`}
        >
         {opt.label}
        </button>

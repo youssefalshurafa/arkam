@@ -28,36 +28,36 @@ export default function TransactionExportModal({ onExportTransactionsPdf, onExpo
      onClick={closeTransactionExportModal}
     >
      <div
-      className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+      className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-xl"
       onClick={(event) => event.stopPropagation()}
      >
-      <h2 className="text-lg font-semibold text-slate-900">{t('transactions_export_title')}</h2>
-      <p className="mt-1 text-sm text-slate-500">{t('transactions_export_hint')}</p>
+      <h2 className="text-lg font-semibold text-fg">{t('transactions_export_title')}</h2>
+      <p className="mt-1 text-sm text-fg-faint">{t('transactions_export_hint')}</p>
 
       <div className="mt-5 grid grid-cols-2 gap-4">
        <div>
-        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_export_from')}</label>
+        <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('transactions_export_from')}</label>
         <input
          type="date"
          value={transactionExportFrom}
          max={transactionExportTo || undefined}
          onChange={(event) => setTransactionExportFrom(event.target.value)}
-         className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         className="mt-2 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
         />
        </div>
        <div>
-        <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('transactions_export_to')}</label>
+        <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('transactions_export_to')}</label>
         <input
          type="date"
          value={transactionExportTo}
          min={transactionExportFrom || undefined}
          onChange={(event) => setTransactionExportTo(event.target.value)}
-         className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         className="mt-2 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
         />
        </div>
       </div>
 
-      <p className="mt-3 text-xs text-slate-500">
+      <p className="mt-3 text-xs text-fg-faint">
        {t('transactions_export_count').replace('{count}', String(buildTransactionExportData(transactionExportFrom, transactionExportTo).count))}
       </p>
 
@@ -114,7 +114,7 @@ export default function TransactionExportModal({ onExportTransactionsPdf, onExpo
         type="button"
         onClick={closeTransactionExportModal}
         disabled={isExportingTransactions}
-        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
        >
         {t('cancel')}
        </button>

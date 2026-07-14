@@ -18,9 +18,9 @@ export default function ExchangeSettingsTab() {
  return (
   <div className={panelClassName}>
    <h3 className="text-lg font-semibold">{t('exchange_settings_title')}</h3>
-   <p className="mt-1 text-sm text-slate-600">{t('exchange_tolerance_hint')}</p>
+   <p className="mt-1 text-sm text-fg-muted">{t('exchange_tolerance_hint')}</p>
    <div className="mt-4 max-w-xs">
-    <label className="block text-sm font-medium text-slate-800">{t('exchange_tolerance_setting_label')}</label>
+    <label className="block text-sm font-medium text-fg">{t('exchange_tolerance_setting_label')}</label>
     <input
      type="text"
      inputMode="decimal"
@@ -31,7 +31,7 @@ export default function ExchangeSettingsTab() {
       const parsed = parseFloat(raw);
       updateExchangeSettings({ tolerance: Number.isFinite(parsed) && parsed >= 0 ? parsed : 0 });
      }}
-     className="mt-2 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+     className="mt-2 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-blue-400"
      placeholder="5"
     />
    </div>
