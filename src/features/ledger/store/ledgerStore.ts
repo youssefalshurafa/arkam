@@ -172,7 +172,7 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setLedgerRowHighlightColor: setter('ledgerRowHighlightColor'),
   ledgerRowClickHighlight: true,
   setLedgerRowClickHighlight: setter('ledgerRowClickHighlight'),
-  ledgerRowClickActive: true,
+  ledgerRowClickActive: false,
   setLedgerRowClickActive: setter('ledgerRowClickActive'),
   highlightedLedgerRows: new Map(),
   setHighlightedLedgerRows: setter('highlightedLedgerRows'),

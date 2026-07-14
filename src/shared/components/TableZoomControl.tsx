@@ -10,7 +10,7 @@ export function TableZoomControl({ zoom, onZoomChange, className = 'mt-3' }: { z
  const atMin = zoom <= minTableZoom + 1e-9;
  const atMax = zoom >= maxTableZoom - 1e-9;
  const btnClassName =
-  'rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50';
 
  return (
   <div className={`flex items-center justify-end gap-1 whitespace-nowrap ${className}`}>

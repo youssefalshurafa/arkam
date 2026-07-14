@@ -885,7 +885,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       type="button"
                       onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
                       disabled={currentLedgerPage <= 1}
-                      className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                      >
                       {t('pagination_prev')}
                      </button>
@@ -903,14 +903,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       onKeyDown={(event) => {
                        if (event.key === 'Enter') event.currentTarget.blur();
                       }}
-                      className="w-14 rounded border border-border-strong px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      className="h-7 w-12 rounded border border-border-strong bg-surface px-1.5 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                      />
                      <span className="text-xs text-fg-faint">/ {totalLedgerPages}</span>
                      <button
                       type="button"
                       onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
                       disabled={currentLedgerPage >= totalLedgerPages}
-                      className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                      >
                       {t('pagination_next')}
                      </button>
@@ -2676,7 +2676,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
                      setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
                     }}
-                    className="rounded border border-border-strong px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                    className="h-7 rounded border border-border-strong bg-surface px-1.5 text-xs outline-none ring-blue-300 focus:ring"
                    >
                     <option value={25}>25</option>
                     <option value={50}>50</option>
@@ -2688,7 +2688,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       type="button"
                       onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
                       disabled={currentLedgerPage <= 1}
-                      className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                      >
                       {t('pagination_prev')}
                      </button>
@@ -2706,14 +2706,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       onKeyDown={(event) => {
                        if (event.key === 'Enter') event.currentTarget.blur();
                       }}
-                      className="w-14 rounded border border-border-strong px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      className="h-7 w-12 rounded border border-border-strong bg-surface px-1.5 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                      />
                      <span className="text-xs text-fg-faint">/ {totalLedgerPages}</span>
                      <button
                       type="button"
                       onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
                       disabled={currentLedgerPage >= totalLedgerPages}
-                      className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                      >
                       {t('pagination_next')}
                      </button>

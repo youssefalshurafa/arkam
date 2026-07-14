@@ -227,7 +227,7 @@ function AuthenticatedHome() {
  const [txRowClickHighlight, setTxRowClickHighlight] = useState<boolean>(() => getStoredTxRowSettings().rowClickHighlight);
  // Whether the tx highlight/copy click mode is engaged at all; when false the pointer is
  // neutral and row clicks do nothing. Session-only — the highlight-vs-copy preference persists.
- const [txRowClickActive, setTxRowClickActive] = useState(true);
+ const [txRowClickActive, setTxRowClickActive] = useState(false);
  const [highlightedTxRows, setHighlightedTxRows] = useState<Map<number, string>>(() => getStoredTxHighlights());
  const [txRowHighlightColor, setTxRowHighlightColor] = useState<string>(() => getStoredTxRowSettings().rowHighlightColor);
  // "Sum mode" for the transactions table: a third row-click mode alongside highlight/copy.
@@ -1664,7 +1664,7 @@ function AuthenticatedHome() {
        setTransactionsPageSize(nextSize);
        setTransactionsPage(99999);
       }}
-      className="rounded border border-border-strong px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+      className="h-7 rounded border border-border-strong bg-surface px-1.5 text-xs outline-none ring-blue-300 focus:ring"
      >
       <option value={50}>50</option>
       <option value={100}>100</option>
@@ -1674,7 +1674,7 @@ function AuthenticatedHome() {
       type="button"
       onClick={() => setTransactionsPage((current) => Math.max(1, Math.min(current, totalTransactionPages) - 1))}
       disabled={clampedPage <= 1}
-      className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
      >
       {t('pagination_prev')}
      </button>
@@ -1692,14 +1692,14 @@ function AuthenticatedHome() {
       onKeyDown={(event) => {
        if (event.key === 'Enter') event.currentTarget.blur();
       }}
-      className="w-14 rounded border border-border-strong px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      className="h-7 w-12 rounded border border-border-strong bg-surface px-1.5 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
      />
      <span className="text-xs text-fg-faint">/ {totalTransactionPages}</span>
      <button
       type="button"
       onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, Math.min(current, totalTransactionPages) + 1))}
       disabled={clampedPage >= totalTransactionPages}
-      className="rounded border border-border-strong px-2 py-1 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
      >
       {t('pagination_next')}
      </button>

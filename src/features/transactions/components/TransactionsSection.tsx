@@ -851,7 +851,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </div>
 
             <div className="mt-4 rounded border border-border bg-surface-2 p-4">
-             <h3 className="text-sm font-semibold text-fg-muted">{t('transaction_account_from')}</h3>
+             <h3 className="text-sm font-semibold text-fg-muted">
+              {t('transaction_account_from')}
+              {transactionForm.accountFromId && clientAccountMap.get(transactionForm.accountFromId)?.clientName ? (
+               <span className="ml-1.5 font-normal text-fg-faint">— {clientAccountMap.get(transactionForm.accountFromId)!.clientName}</span>
+              ) : null}
+             </h3>
              <div className={`mt-2 grid gap-2 ${showExchangeRateFrom && !isAdjustmentTransaction ? 'sm:grid-cols-2' : ''}`}>
               {showExchangeRateFrom && (
                <div>
@@ -924,7 +929,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
             {!isAdjustmentTransaction ? (
              <div className="mt-3 rounded border border-border bg-surface-2 p-4">
-              <h3 className="text-sm font-semibold text-fg-muted">{t('transaction_account_to')}</h3>
+              <h3 className="text-sm font-semibold text-fg-muted">
+               {t('transaction_account_to')}
+               {transactionForm.accountToId && clientAccountMap.get(transactionForm.accountToId)?.clientName ? (
+                <span className="ml-1.5 font-normal text-fg-faint">— {clientAccountMap.get(transactionForm.accountToId)!.clientName}</span>
+               ) : null}
+              </h3>
               <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
                {showExchangeRateTo && (
                 <div>
@@ -2747,8 +2757,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     ) : (
                      (() => {
                       const parts: string[] = [];
-                      if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
-                      if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
+                      if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${formatRateValue(txn.commissionFrom)}%`);
+                      if (txn.commissionTo) parts.push(`${txn.clientToName}: ${formatRateValue(txn.commissionTo)}%`);
                       return parts.length > 0 ? (
                        <div className="space-y-0.5 text-xs">
                         {parts.map((p, i) => (
