@@ -31,30 +31,30 @@ export default function LedgerSettingsModal({
      onClick={() => setShowLedgerSettingsModal(false)}
     >
      <div
-      className="w-full max-w-md rounded bg-white p-6 shadow-2xl"
+      className="w-full max-w-md rounded bg-surface p-6 shadow-2xl"
       onClick={(e) => e.stopPropagation()}
      >
-      <h3 className="text-lg font-semibold text-slate-900">{t('nav_settings')}</h3>
+      <h3 className="text-lg font-semibold text-fg">{t('nav_settings')}</h3>
 
       <div className="mt-5 flex flex-col gap-5">
        {/* Decimal places */}
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('decimal_places')}</p>
-        <div className="mt-2 flex overflow-hidden rounded border border-slate-300 bg-white w-fit">
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('decimal_places')}</p>
+        <div className="mt-2 flex overflow-hidden rounded border border-border-strong bg-surface w-fit">
          <button
           type="button"
           onClick={() => updateLedgerDecimals(Math.max(0, ledgerDecimals - 1))}
           disabled={ledgerDecimals === 0}
-          className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
+          className="px-3 py-1.5 text-sm font-bold text-fg-muted hover:bg-surface-hover disabled:opacity-30 transition"
          >
           -
          </button>
-         <span className="border-x border-slate-200 px-3 py-1.5 text-center text-sm font-semibold text-slate-800">{ledgerDecimals}</span>
+         <span className="border-x border-border px-3 py-1.5 text-center text-sm font-semibold text-fg">{ledgerDecimals}</span>
          <button
           type="button"
           onClick={() => updateLedgerDecimals(Math.min(6, ledgerDecimals + 1))}
           disabled={ledgerDecimals === 6}
-          className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-30 transition"
+          className="px-3 py-1.5 text-sm font-bold text-fg-muted hover:bg-surface-hover disabled:opacity-30 transition"
          >
           +
          </button>
@@ -63,13 +63,13 @@ export default function LedgerSettingsModal({
 
        {/* Currency symbol toggle */}
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('currency_symbol')}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('currency_symbol')}</p>
         <button
          type="button"
          onClick={() => toggleLedgerCurrencySymbol()}
          aria-pressed={showLedgerCurrencySymbol}
          className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-          showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+          showLedgerCurrencySymbol ? 'border-blue-600 bg-blue-700 text-white' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
          }`}
         >
          {t('currency_symbol')}
@@ -78,11 +78,11 @@ export default function LedgerSettingsModal({
 
        {/* Date format */}
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_date_format_label')}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('pdf_date_format_label')}</p>
         <select
          value={ledgerDateFormat}
          onChange={(event) => updateLedgerDateFormat(event.target.value as PdfSettings['dateFormat'])}
-         className="mt-2 w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-blue-300 focus:ring"
+         className="mt-2 w-full max-w-xs rounded border border-border-strong bg-surface px-3 py-2 text-sm text-fg outline-none ring-blue-300 focus:ring"
         >
          <option value="full">2026-06-26 (YYYY-MM-DD)</option>
          <option value="day-month">26/06 (DD/MM)</option>
@@ -94,13 +94,13 @@ export default function LedgerSettingsModal({
 
        {/* Highlight net change column */}
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_highlight_net_change')}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ledger_highlight_net_change')}</p>
         <button
          type="button"
          onClick={() => toggleLedgerHighlightNetChange()}
          aria-pressed={ledgerHighlightNetChange}
          className={`mt-2 cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-          ledgerHighlightNetChange ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+          ledgerHighlightNetChange ? 'border-blue-600 bg-blue-700 text-white' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
          }`}
         >
          {t('ledger_highlight_net_change')}
@@ -111,10 +111,10 @@ export default function LedgerSettingsModal({
            type="color"
            value={ledgerNetChangeHighlightColor}
            onChange={(event) => updateLedgerNetChangeHighlightColor(event.target.value)}
-           className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+           className="h-8 w-14 cursor-pointer rounded border border-border-strong bg-surface p-0.5"
           />
           <span
-           className="rounded px-3 py-1 text-xs font-semibold text-slate-700"
+           className="rounded px-3 py-1 text-xs font-semibold text-fg-muted"
            style={{ backgroundColor: ledgerNetChangeHighlightColor }}
           >
            {ledgerNetChangeHighlightColor}
@@ -125,16 +125,16 @@ export default function LedgerSettingsModal({
 
        {/* Row highlight colour */}
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('ledger_row_highlight_color')}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ledger_row_highlight_color')}</p>
         <div className="mt-2 flex items-center gap-2">
          <input
           type="color"
           value={ledgerRowHighlightColor}
           onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
-          className="h-8 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+          className="h-8 w-14 cursor-pointer rounded border border-border-strong bg-surface p-0.5"
          />
          <span
-          className="rounded px-3 py-1 text-xs font-semibold text-slate-700"
+          className="rounded px-3 py-1 text-xs font-semibold text-fg-muted"
           style={{ backgroundColor: ledgerRowHighlightColor }}
          >
           {ledgerRowHighlightColor}
@@ -144,7 +144,7 @@ export default function LedgerSettingsModal({
 
        {/* Column visibility */}
        <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_ledger_columns')}</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('client_ledger_columns')}</p>
         <div className="mt-2 flex flex-wrap gap-1.5">
          {orderedLedgerColumnOptions.map((column) => {
           const isVisible = ledgerColumnVisibility[column.key];
@@ -155,7 +155,7 @@ export default function LedgerSettingsModal({
             onClick={() => toggleLedgerColumn(column.key)}
             aria-pressed={isVisible}
             className={`cursor-pointer rounded border px-3 py-1.5 text-xs font-semibold transition ${
-             isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+             isVisible ? 'border-blue-600 bg-blue-700 text-white' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
             }`}
            >
             {column.label}
@@ -170,7 +170,7 @@ export default function LedgerSettingsModal({
        <button
         type="button"
         onClick={() => setShowLedgerSettingsModal(false)}
-        className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        className="rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
        >
         {t('close')}
        </button>

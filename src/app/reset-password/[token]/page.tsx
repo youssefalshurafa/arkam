@@ -105,22 +105,22 @@ export default function ResetPasswordPage() {
  };
 
  return (
-  <main className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+  <main className="flex min-h-screen items-center justify-center bg-surface-hover p-4">
    <div className="w-full max-w-sm">
     <div className="mb-6 text-center">
      <div className="inline-flex items-center justify-center rounded bg-blue-800 px-4 py-2 mb-3">
       <span className="text-lg font-bold tracking-widest text-white">ARKAM</span>
      </div>
     </div>
-    <section className="rounded border border-gray-300 bg-white shadow-md">
-     <div className="border-b border-gray-200 bg-gray-50 px-5 py-3">
-      <h2 className="text-sm font-semibold text-gray-700">{t('reset_password_title')}</h2>
+    <section className="rounded border border-border-strong bg-surface shadow-md">
+     <div className="border-b border-border bg-surface-2 px-5 py-3">
+      <h2 className="text-sm font-semibold text-fg-muted">{t('reset_password_title')}</h2>
      </div>
      <div className="p-5">
-      {isValidating ? <p className="text-sm text-gray-500">{t('reset_password_validating')}</p> : null}
+      {isValidating ? <p className="text-sm text-fg-faint">{t('reset_password_validating')}</p> : null}
 
       {!isValidating && !isTokenValid ? (
-       <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{t('reset_password_invalid')}</div>
+       <div className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{t('reset_password_invalid')}</div>
       ) : null}
 
       {!isValidating && isTokenValid ? (
@@ -129,14 +129,14 @@ export default function ResetPasswordPage() {
         onSubmit={(event) => void onSubmit(event)}
        >
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('set_password_new_label')}</label>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('set_password_new_label')}</label>
          <div className="relative">
           <input
            type={showPassword ? 'text' : 'password'}
            value={password}
            onChange={(event) => setPassword(event.target.value)}
            placeholder={t('set_password_new_label')}
-           className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           className="w-full rounded border border-border-strong px-3 py-2 pr-10 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
            minLength={8}
            required
           />
@@ -149,14 +149,14 @@ export default function ResetPasswordPage() {
          </div>
         </div>
         <div>
-         <label className="mb-1 block text-xs font-semibold text-gray-600">{t('set_password_confirm_label')}</label>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('set_password_confirm_label')}</label>
          <div className="relative">
           <input
            type={showConfirmPassword ? 'text' : 'password'}
            value={confirmPassword}
            onChange={(event) => setConfirmPassword(event.target.value)}
            placeholder={t('set_password_confirm_label')}
-           className="w-full rounded border border-gray-300 px-3 py-2 pr-10 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+           className="w-full rounded border border-border-strong px-3 py-2 pr-10 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
            minLength={8}
            required
           />
@@ -169,8 +169,8 @@ export default function ResetPasswordPage() {
          </div>
         </div>
 
-        {error ? <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
-        {success ? <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{success}</p> : null}
+        {error ? <p className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{error}</p> : null}
+        {success ? <p className="rounded border border-green-300 bg-good-bg px-3 py-2 text-sm text-good-text">{success}</p> : null}
 
         <button
          type="submit"
@@ -182,11 +182,11 @@ export default function ResetPasswordPage() {
        </form>
       ) : null}
 
-      <div className="mt-4 border-t border-gray-200 pt-4 text-center">
+      <div className="mt-4 border-t border-border pt-4 text-center">
        <button
         type="button"
         onClick={() => router.push('/login')}
-        className="text-sm text-blue-700 transition hover:text-blue-900 hover:underline"
+        className="text-sm text-accent transition hover:text-accent hover:underline"
        >
         {t('set_password_back_to_sign_in')}
        </button>

@@ -122,27 +122,27 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
     <div className="flex items-start justify-between gap-4">
      <div>
       <h2 className="text-xl font-semibold">{t('currencies_title')}</h2>
-      <p className="mt-1 text-sm text-slate-600">{t('currencies_description')}</p>
+      <p className="mt-1 text-sm text-fg-muted">{t('currencies_description')}</p>
      </div>
-     <div className="rounded border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">{t('currencies_seeded_hint')}</div>
+     <div className="rounded border border-blue-100 bg-accent-weak px-4 py-3 text-sm text-accent">{t('currencies_seeded_hint')}</div>
     </div>
 
-    <div className="mt-4 rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">{t('currencies_seeded_description')}</div>
+    <div className="mt-4 rounded border border-border bg-surface-2 px-4 py-3 text-sm text-fg-muted">{t('currencies_seeded_description')}</div>
 
-    <div className="mt-4 rounded border border-slate-200 bg-white px-4 py-4">
+    <div className="mt-4 rounded border border-border bg-surface px-4 py-4">
      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
       <div className="flex-1">
-       <label className="block text-sm font-medium text-slate-700">{t('currency_catalog_title')}</label>
+       <label className="block text-sm font-medium text-fg-muted">{t('currency_catalog_title')}</label>
        <input
         value={catalogCurrencyQuery}
         onChange={(event) => {
          setCatalogCurrencyQuery(event.target.value);
          setSelectedCatalogCurrencyId(null);
         }}
-        className="mt-2 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        className="mt-2 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
         placeholder={t('currency_catalog_search_placeholder')}
        />
-       <div className="mt-2 max-h-64 overflow-y-auto rounded border border-slate-200 bg-slate-50">
+       <div className="mt-2 max-h-64 overflow-y-auto rounded border border-border bg-surface-2">
         {filteredAvailableCurrencies.length > 0 ? (
          filteredAvailableCurrencies.map((currency) => (
           <button
@@ -153,15 +153,15 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
             setCatalogCurrencyQuery(`${currency.code} - ${currency.name}`);
            }}
            className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-sm transition ${
-            selectedCatalogCurrencyId === currency.id ? 'bg-blue-100 text-blue-900' : 'text-slate-700 hover:bg-white'
+            selectedCatalogCurrencyId === currency.id ? 'bg-accent-weak text-accent' : 'text-fg-muted hover:bg-surface'
            }`}
           >
            <span className="font-semibold">{currency.code}</span>
-           <span className="flex-1 truncate text-slate-600">{currency.name}</span>
+           <span className="flex-1 truncate text-fg-muted">{currency.name}</span>
           </button>
          ))
         ) : (
-         <p className="px-3 py-3 text-sm text-slate-500">{t('currency_catalog_no_match')}</p>
+         <p className="px-3 py-3 text-sm text-fg-faint">{t('currency_catalog_no_match')}</p>
         )}
        </div>
       </div>
@@ -174,12 +174,12 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
        {t('currency_add_to_used')}
       </button>
      </div>
-     {availableCurrencies.length === 0 ? <p className="mt-3 text-sm text-slate-500">{t('currency_catalog_empty')}</p> : null}
+     {availableCurrencies.length === 0 ? <p className="mt-3 text-sm text-fg-faint">{t('currency_catalog_empty')}</p> : null}
     </div>
 
     <div className={tableWrapClassName}>
      <table className="w-full text-sm">
-      <thead className="bg-slate-100 text-slate-700">
+      <thead className="bg-surface-hover text-fg-muted">
        <tr>
         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('currency_code')}</th>
         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('currency_name')}</th>
@@ -192,11 +192,11 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
        {enabledCurrencies.map((currency) => (
         <tr
          key={currency.id}
-         className="border-t border-slate-200 align-top"
+         className="border-t border-border align-top"
         >
-         <td className="px-4 py-3 font-mono font-semibold text-slate-900">{currency.code}</td>
-         <td className="px-4 py-3 text-slate-700">{currency.name}</td>
-         <td className="px-4 py-3 text-slate-600">
+         <td className="px-4 py-3 font-mono font-semibold text-fg">{currency.code}</td>
+         <td className="px-4 py-3 text-fg-muted">{currency.name}</td>
+         <td className="px-4 py-3 text-fg-muted">
           {editingCurrencySymbolId === currency.id ? (
            <div className="flex items-center gap-2">
             <input
@@ -208,20 +208,20 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
               if (event.key === 'Escape') onCancelEditCurrencySymbol();
              }}
              maxLength={8}
-             className="w-20 rounded border border-slate-300 px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+             className="w-20 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
              placeholder={t('currency_symbol')}
             />
             <button
              type="button"
              onClick={() => void onSaveCurrencySymbol(currency)}
-             className="rounded border border-green-200 px-2.5 py-1 text-xs font-semibold text-green-700 hover:bg-green-50"
+             className="rounded border border-green-200 px-2.5 py-1 text-xs font-semibold text-good-text hover:bg-good-bg"
             >
              {t('client_account_save')}
             </button>
             <button
              type="button"
              onClick={onCancelEditCurrencySymbol}
-             className="rounded border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+             className="rounded border border-border px-2.5 py-1 text-xs font-semibold text-fg-muted hover:bg-surface-hover"
             >
              {t('cancel')}
             </button>
@@ -234,7 +234,7 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
              onClick={() => onStartEditCurrencySymbol(currency)}
              title={t('edit')}
              aria-label={t('edit')}
-             className="rounded border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+             className="rounded border border-border p-1.5 text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
             >
              <svg
               width="14"
@@ -256,9 +256,9 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
          </td>
          <td className="px-4 py-3">
           {currency.isMain === 1 ? (
-           <span className="inline-flex items-center rounded bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">{t('main_currency')}</span>
+           <span className="inline-flex items-center rounded bg-good-bg px-2.5 py-0.5 text-xs font-semibold text-good-text">{t('main_currency')}</span>
           ) : (
-           <span className="text-slate-400">-</span>
+           <span className="text-fg-faint">-</span>
           )}
          </td>
          <td className="px-4 py-3">
@@ -266,7 +266,7 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
            <button
             type="button"
             onClick={() => onDisableCurrency(currency.id)}
-            className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+            className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-bad-text hover:bg-bad-bg"
            >
             {t('currency_remove_from_used')}
            </button>
@@ -274,7 +274,7 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
             <button
              type="button"
              onClick={() => onSetMainCurrency(currency.id)}
-             className="rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+             className="rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-weak"
             >
              {t('set_as_main')}
             </button>
@@ -286,7 +286,7 @@ export default function CurrenciesSection({ localizedCurrencies, enabledCurrenci
        {enabledCurrencies.length === 0 ? (
         <tr>
          <td
-          className="px-4 py-6 text-slate-500"
+          className="px-4 py-6 text-fg-faint"
           colSpan={5}
          >
           {t('no_used_currencies')}

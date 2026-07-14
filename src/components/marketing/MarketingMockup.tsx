@@ -55,7 +55,7 @@ export function MarketingMockup({
      src={`/api/marketing-image/${slot}?v=${updatedAt}`}
      alt=""
      onError={() => setFailed(true)}
-     className="w-full rounded-xl border border-gray-200 shadow-lg"
+     className="w-full rounded-xl border border-border shadow-lg"
     />
    </div>
   );

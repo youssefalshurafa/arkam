@@ -48,7 +48,7 @@ export default function ClientsReadOnly({
      <div className="flex items-center gap-2">
       <div className="relative">
        <svg
-        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint"
         width="14"
         height="14"
         viewBox="0 0 24 24"
@@ -76,13 +76,13 @@ export default function ClientsReadOnly({
         value={clientSearch}
         onChange={(e) => setClientSearch(e.target.value)}
         placeholder={t('search')}
-        className="rounded border border-slate-300 py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
+        className="rounded border border-border-strong py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
        />
       </div>
       <button
        type="button"
        onClick={() => setClientsGroupByOrg((current) => !current)}
-       className="rounded border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+       className="rounded border border-border-strong px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
       >
        {clientsGroupByOrg ? t('clients_view_as_list') : t('clients_group_by_org')}
       </button>
@@ -92,7 +92,7 @@ export default function ClientsReadOnly({
         setSettingsTab('clients');
         navigateToSection('settings');
        }}
-       className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+       className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-accent hover:bg-accent-weak"
       >
        {t('open_in_settings')}
       </button>
@@ -100,9 +100,9 @@ export default function ClientsReadOnly({
     </div>
 
     {clients.length === 0 ? (
-     <p className="px-1 py-6 text-slate-500">{t('no_clients')}</p>
+     <p className="px-1 py-6 text-fg-faint">{t('no_clients')}</p>
     ) : sortedClients.length === 0 ? (
-     <p className="px-1 py-6 text-slate-500">{t('no_search_results')}</p>
+     <p className="px-1 py-6 text-fg-faint">{t('no_search_results')}</p>
     ) : clientsGroupByOrg ? (
      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {clientsByOrganization.map((group) => {
@@ -125,12 +125,12 @@ export default function ClientsReadOnly({
           setDraggedOrgKey(null);
           setDragOverOrgKey(null);
          }}
-         className={`flex flex-col overflow-hidden rounded border bg-white transition ${
-          dragOverOrgKey === orgKey && draggedOrgKey !== orgKey ? 'border-blue-500 ring-2 ring-blue-300' : 'border-slate-200'
+         className={`flex flex-col overflow-hidden rounded border bg-surface transition ${
+          dragOverOrgKey === orgKey && draggedOrgKey !== orgKey ? 'border-blue-500 ring-2 ring-blue-300' : 'border-border'
          } ${draggedOrgKey === orgKey ? 'opacity-50' : ''}`}
         >
          <div
-          className="flex cursor-move items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5"
+          className="flex cursor-move items-center justify-between gap-2 border-b border-border bg-surface-2 px-4 py-2.5"
           title={t('clients_drag_org_hint')}
          >
           <span className="flex min-w-0 items-center gap-1.5">
@@ -140,7 +140,7 @@ export default function ClientsReadOnly({
             viewBox="0 0 24 24"
             fill="currentColor"
             aria-hidden
-            className="shrink-0 text-slate-400"
+            className="shrink-0 text-fg-faint"
            >
             <circle
              cx="9"
@@ -173,11 +173,11 @@ export default function ClientsReadOnly({
              r="1.5"
             />
            </svg>
-           <h3 className="truncate font-semibold text-slate-800">{group.name}</h3>
+           <h3 className="truncate font-semibold text-fg">{group.name}</h3>
           </span>
-          <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">{group.clients.length}</span>
+          <span className="shrink-0 rounded-full bg-surface-hover px-2 py-0.5 text-xs font-semibold text-fg-muted">{group.clients.length}</span>
          </div>
-         <ul className="divide-y divide-slate-100">
+         <ul className="divide-y divide-border">
           {group.clients.map((client) => (
            <li
             key={client.id}
@@ -190,7 +190,7 @@ export default function ClientsReadOnly({
               e.preventDefault();
               openClientLedger(client, 'clients');
              }}
-             className="min-w-0 flex-1 truncate text-left font-medium text-slate-900 transition hover:text-blue-700"
+             className="min-w-0 flex-1 truncate text-left font-medium text-fg transition hover:text-accent"
             >
              {client.name}
             </a>
@@ -200,7 +200,7 @@ export default function ClientsReadOnly({
                key={accountId}
                className="inline-flex items-center gap-1"
               >
-               <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+               <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}>
                 {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
                </span>
                {balance !== 0 && Math.abs(balance) <= SMALL_BALANCE_THRESHOLD ? (
@@ -212,7 +212,7 @@ export default function ClientsReadOnly({
                   event.stopPropagation();
                   onWriteOffBalance(accountId, balance);
                  }}
-                 className="rounded border border-amber-300 bg-amber-50 px-1 py-0.5 text-[10px] font-semibold text-amber-800 transition hover:bg-amber-100"
+                 className="rounded border border-amber-300 bg-warn-bg px-1 py-0.5 text-[10px] font-semibold text-warn-text transition hover:bg-warn-bg"
                 >
                  {t('write_off_button')}
                 </button>
@@ -230,7 +230,7 @@ export default function ClientsReadOnly({
     ) : (
      <div className={tableWrapClassName}>
       <table className="w-full text-sm">
-       <thead className="bg-slate-100 text-slate-700">
+       <thead className="bg-surface-hover text-fg-muted">
         <tr>
          {clientSortHeader('name', t('name'))}
          {clientSortHeader('organization', t('client_organization'))}
@@ -242,9 +242,9 @@ export default function ClientsReadOnly({
         {sortedClients.map((client) => (
          <tr
           key={client.id}
-          className="border-t border-slate-200 align-top"
+          className="border-t border-border align-top"
          >
-          <td className="px-4 py-3 font-medium text-slate-900">
+          <td className="px-4 py-3 font-medium text-fg">
            <a
             href={`/clients/${client.id}`}
             onClick={(e) => {
@@ -252,13 +252,13 @@ export default function ClientsReadOnly({
              e.preventDefault();
              openClientLedger(client, 'clients');
             }}
-            className="cursor-pointer text-left text-slate-900 transition hover:text-blue-700"
+            className="cursor-pointer text-left text-fg transition hover:text-accent"
            >
             {client.name}
            </a>
           </td>
-          <td className="px-4 py-3 text-slate-600">{client.organizationName || t('unassigned')}</td>
-          <td className="px-4 py-3 text-slate-600">{client.accountCount}</td>
+          <td className="px-4 py-3 text-fg-muted">{client.organizationName || t('unassigned')}</td>
+          <td className="px-4 py-3 text-fg-muted">{client.accountCount}</td>
           <td className="px-4 py-3">
            <div className="flex flex-wrap gap-1">
             {(clientPageBalances.get(client.id) ?? []).map(({ accountId, currencyCode, currencySymbol, balance }) => (
@@ -266,7 +266,7 @@ export default function ClientsReadOnly({
               key={accountId}
               className="inline-flex items-center gap-1"
              >
-              <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+              <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}>
                {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
               </span>
               {balance !== 0 && Math.abs(balance) <= SMALL_BALANCE_THRESHOLD ? (
@@ -278,7 +278,7 @@ export default function ClientsReadOnly({
                  event.stopPropagation();
                  onWriteOffBalance(accountId, balance);
                 }}
-                className="rounded border border-amber-300 bg-amber-50 px-1 py-0.5 text-[10px] font-semibold text-amber-800 transition hover:bg-amber-100"
+                className="rounded border border-amber-300 bg-warn-bg px-1 py-0.5 text-[10px] font-semibold text-warn-text transition hover:bg-warn-bg"
                >
                 {t('write_off_button')}
                </button>
@@ -299,12 +299,12 @@ export default function ClientsReadOnly({
     <div className={panelClassName}>
      <div className="flex items-center justify-between gap-3">
       <h2 className="text-lg font-semibold">
-       {t('client_accounts_for')}: <span className="text-blue-700">{selectedClientForAccounts.name}</span>
+       {t('client_accounts_for')}: <span className="text-accent">{selectedClientForAccounts.name}</span>
       </h2>
       <button
        type="button"
        onClick={() => setSelectedClientForAccounts(null)}
-       className="rounded border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+       className="rounded border border-border-strong px-3 py-1.5 text-xs font-semibold text-fg-muted hover:bg-surface-hover"
       >
        {t('cancel')}
       </button>
@@ -316,12 +316,12 @@ export default function ClientsReadOnly({
        .map((account) => (
         <div
          key={account.id}
-         className="flex items-center justify-between rounded border border-slate-200 px-4 py-3"
+         className="flex items-center justify-between rounded border border-border px-4 py-3"
         >
-         <span className="font-mono font-semibold text-slate-800">{account.currencySymbol || account.currencyCode}</span>
+         <span className="font-mono font-semibold text-fg">{account.currencySymbol || account.currencyCode}</span>
         </div>
        ))}
-      {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-slate-500">{t('no_client_accounts')}</p> : null}
+      {clientAccounts.filter((a) => a.clientId === selectedClientForAccounts.id).length === 0 ? <p className="text-sm text-fg-faint">{t('no_client_accounts')}</p> : null}
      </div>
     </div>
    ) : null}

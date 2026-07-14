@@ -6,6 +6,8 @@ import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as React
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { resolveHighlightBg } from '@/shared/utils/highlightColor';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
@@ -93,6 +95,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  } = props;
  const router = useRouter();
  const { language, isRTL } = useLanguage();
+ const isDark = useTheme().resolvedTheme === 'dark';
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
@@ -287,7 +290,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
            {Array.from({ length: 2 }, (_, i) => (
             <div
              key={i}
-             className="rounded border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col gap-2"
+             className="rounded border border-border bg-surface-2 px-4 py-3 flex flex-col gap-2"
             >
              <SkBar
               w="w-24"
@@ -320,8 +323,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
          <div className={panelClassName}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
            <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">{t('client_page_title')}</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-900">{selectedClientForLedger?.name ?? t('clients_title')}</h2>
+            <p className="text-sm font-semibold uppercase tracking-wide text-accent">{t('client_page_title')}</p>
+            <h2 className="mt-2 text-2xl font-semibold text-fg">{selectedClientForLedger?.name ?? t('clients_title')}</h2>
             {selectedClientForLedger?.organizationId != null &&
              (() => {
               const org = organizations.find((o) => o.id === selectedClientForLedger.organizationId);
@@ -333,13 +336,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  e.preventDefault();
                  openOrganizationClientsPage(org);
                 }}
-                className="mt-1 cursor-pointer text-sm text-slate-500 transition hover:text-blue-600 hover:underline"
+                className="mt-1 cursor-pointer text-sm text-fg-faint transition hover:text-accent hover:underline"
                >
                 {org.name}
                </a>
               ) : null;
              })()}
-            <p className="mt-2 text-sm text-slate-600">{selectedClientForLedger ? t('client_page_description') : t('client_page_no_client')}</p>
+            <p className="mt-2 text-sm text-fg-muted">{selectedClientForLedger ? t('client_page_description') : t('client_page_no_client')}</p>
            </div>
 
            <button
@@ -352,7 +355,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
               navigateToSection('clients');
              }
             }}
-            className="cursor-pointer rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="cursor-pointer rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
            >
             {clientLedgerBackSection === 'organization-clients' ? t('organization_page_back') : t('client_page_back')}
            </button>
@@ -366,7 +369,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
               type="button"
               onClick={() => setSelectedLedgerAccountId(ledger.accountId)}
               className={`cursor-pointer rounded border px-4 py-2 text-sm font-semibold transition ${
-               selectedLedgerAccountId === ledger.accountId ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+               selectedLedgerAccountId === ledger.accountId ? 'border-fg bg-fg text-canvas' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
               }`}
              >
               {ledger.currencyName}
@@ -375,7 +378,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
            </div>
           ) : null}
           {selectedClientForLedger && (
-           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
+           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
             <>
              <button
               type="button"
@@ -400,7 +403,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
               }}
               title={t('export_ledger_action')}
               aria-label={t('export_ledger_action')}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-slate-300 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-border-strong px-3 py-2 text-sm text-fg-muted transition hover:bg-surface-hover"
              >
               <svg
                width="16"
@@ -434,7 +437,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                if (!targetLedger) return;
                openAdjustmentModal(targetLedger.accountId);
               }}
-              className="cursor-pointer rounded border border-purple-500 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition hover:bg-purple-100"
+              className="cursor-pointer rounded border border-purple-500 bg-violet-bg px-4 py-2 text-sm font-semibold text-violet-text transition hover:bg-violet-bg"
              >
               {t('adjustment_add')}
              </button>
@@ -445,7 +448,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 title={t('undo')}
                 onClick={ledgerHistory.undo}
                 disabled={!ledgerHistory.canUndo}
-                className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
                >
                 <svg
                  width="16"
@@ -467,7 +470,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 title={t('redo')}
                 onClick={ledgerHistory.redo}
                 disabled={!ledgerHistory.canRedo}
-                className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
                >
                 <svg
                  width="16"
@@ -490,7 +493,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
               type="button"
               title={t('nav_settings')}
               onClick={() => setShowLedgerSettingsModal(true)}
-              className="cursor-pointer rounded border border-slate-300 px-2 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
              >
               <svg
                width="16"
@@ -517,9 +520,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
          </div>
 
          {!selectedClientForLedger ? (
-          <div className={`${panelClassName} text-sm text-slate-600`}>{t('client_page_no_client')}</div>
+          <div className={`${panelClassName} text-sm text-fg-muted`}>{t('client_page_no_client')}</div>
          ) : selectedClientLedgers.length === 0 ? (
-          <div className={`${panelClassName} text-sm text-slate-600`}>{t('no_client_accounts')}</div>
+          <div className={`${panelClassName} text-sm text-fg-muted`}>{t('no_client_accounts')}</div>
          ) : (
           selectedClientLedgers
            .filter((ledger) => selectedClientLedgers.length === 1 || ledger.accountId === selectedLedgerAccountId)
@@ -528,13 +531,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
              key={ledger.accountId}
              className={panelClassName}
             >
-             <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
+             <div className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
-               <p className="text-sm font-medium text-slate-500">{selectedClientForLedger?.name}</p>
-               <h3 className="text-xl font-semibold text-slate-900">{ledger.currencyName}</h3>
-               <p className="mt-1 text-sm text-slate-600">{t('client_page_account_summary')}</p>
+               <p className="text-sm font-medium text-fg-faint">{selectedClientForLedger?.name}</p>
+               <h3 className="text-xl font-semibold text-fg">{ledger.currencyName}</h3>
+               <p className="mt-1 text-sm text-fg-muted">{t('client_page_account_summary')}</p>
                <div className="mt-2 flex items-center gap-1.5">
-                <span className="text-xs text-slate-400">{t('starting_balance')}:</span>
+                <span className="text-xs text-fg-faint">{t('starting_balance')}:</span>
                 {editingStartingBalanceIds.has(ledger.accountId) ? (
                  <input
                   type="text"
@@ -574,11 +577,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     });
                    }
                   }}
-                  className="w-32 rounded border border-slate-300 px-2 py-0.5 text-xs outline-none ring-blue-300 focus:ring"
+                  className="w-32 rounded border border-border-strong px-2 py-0.5 text-xs outline-none ring-blue-300 focus:ring"
                  />
                 ) : (
                  <>
-                  <span className="text-xs font-medium text-slate-600">
+                  <span className="text-xs font-medium text-fg-muted">
                    {(ledgerStartingBalanceDrafts[ledger.accountId] !== undefined
                     ? parseFloat(normalizeDecimalInput(ledgerStartingBalanceDrafts[ledger.accountId])) || 0
                     : ledger.startingBalance
@@ -588,7 +591,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    type="button"
                    onClick={() => setEditingStartingBalanceIds((prev) => new Set([...prev, ledger.accountId]))}
                    title={t('edit')}
-                   className="text-slate-400 transition hover:text-slate-700"
+                   className="text-fg-faint transition hover:text-fg-muted"
                   >
                    <svg
                     width="11"
@@ -611,9 +614,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-               <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_current_balance')}</p>
-                <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+               <div className="rounded border border-border bg-surface-2 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-fg-faint">{t('client_page_current_balance')}</p>
+                <p className={`mt-2 text-xl font-bold ${ledger.currentBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}>
                  {ledger.currentBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                 </p>
                 {(() => {
@@ -627,7 +630,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     type="button"
                     onClick={() => togglePendingEntriesOpen(ledger.accountId)}
                     aria-expanded={isOpen}
-                    className="mt-1.5 flex cursor-pointer items-center gap-1 text-xs font-medium text-amber-600 hover:underline"
+                    className="mt-1.5 flex cursor-pointer items-center gap-1 text-xs font-medium text-warn-text hover:underline"
                    >
                     <svg
                      width="12"
@@ -660,15 +663,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     </svg>
                    </button>
                    {isOpen && (
-                    <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto rounded border border-amber-200 bg-amber-50 p-2 text-xs text-slate-700">
+                    <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto rounded border border-amber-200 bg-warn-bg p-2 text-xs text-fg-muted">
                      {pendingEntries.map((entry) => (
                       <li
                        key={`${entry.transactionId}-${entry.direction}`}
                        className="flex items-center gap-2 whitespace-nowrap"
                       >
-                       <span className="shrink-0 text-slate-500">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
+                       <span className="shrink-0 text-fg-faint">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
                        <span className="shrink-0 font-medium">{entry.counterpartyName}</span>
-                       <span className="min-w-0 flex-1 truncate italic text-slate-400" title={entry.description}>
+                       <span className="min-w-0 flex-1 truncate italic text-fg-faint" title={entry.description}>
                         {entry.description}
                        </span>
                        <span className="shrink-0">
@@ -682,15 +685,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  );
                 })()}
                </div>
-               <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('client_page_transaction_count')}</p>
-                <p className="mt-2 text-xl font-bold text-slate-900">{ledger.transactionCount}</p>
+               <div className="rounded border border-border bg-surface-2 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-fg-faint">{t('client_page_transaction_count')}</p>
+                <p className="mt-2 text-xl font-bold text-fg">{ledger.transactionCount}</p>
                </div>
               </div>
              </div>
 
              {ledger.entries.length === 0 ? (
-              <p className="mt-5 text-sm text-slate-500">{t('client_page_no_transactions')}</p>
+              <p className="mt-5 text-sm text-fg-faint">{t('client_page_no_transactions')}</p>
              ) : (
               <>
                {/* Filter bar */}
@@ -699,11 +702,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 const hasFilter = !!(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo);
                 const activeCount = [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo].filter(Boolean).length;
                 return (
-                 <div className="mt-4 rounded border border-slate-200 bg-slate-50">
+                 <div className="mt-4 rounded border border-border bg-surface-2">
                   <button
                    type="button"
                    onClick={() => setLedgerFilterOpen((o) => !o)}
-                   className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                   className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-fg-muted transition hover:bg-surface-hover"
                   >
                    <svg
                     width="14"
@@ -736,16 +739,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    </svg>
                   </button>
                   {ledgerFilterOpen && (
-                   <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 px-3 py-3">
+                   <div className="flex flex-wrap items-end gap-2 border-t border-border px-3 py-3">
                     <div className="flex min-w-36 flex-1 flex-col gap-1">
-                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_search')}</label>
+                     <label className="text-xs font-medium text-fg-faint">{t('tx_filter_search')}</label>
                      <div className="relative">
                       <input
                        type="text"
                        value={ledgerFilterSearch}
                        onChange={(e) => setLedgerFilterSearch(e.target.value)}
                        placeholder={t('tx_filter_search_placeholder')}
-                       className={`w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
+                       className={`w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
                       />
                       <div className={`absolute inset-y-0 flex items-center gap-0.5 ${isRTL ? 'left-1' : 'right-1'}`}>
                        <button
@@ -755,7 +758,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         aria-label={t('tx_filter_whole_word')}
                         aria-pressed={ledgerFilterWholeWord}
                         className={`flex h-5 w-6 items-center justify-center rounded text-[11px] font-semibold transition ${
-                         ledgerFilterWholeWord ? 'bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-400' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
+                         ledgerFilterWholeWord ? 'bg-accent-weak text-accent ring-1 ring-inset ring-blue-400' : 'text-fg-faint hover:bg-surface-hover hover:text-fg-muted'
                         }`}
                        >
                         <span className="border-b border-current leading-none">ab</span>
@@ -766,7 +769,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                          onClick={() => setLedgerFilterSearch('')}
                          title={t('clear_selection')}
                          aria-label={t('clear_selection')}
-                         className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                         className="flex h-5 w-5 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
                         >
                          <svg
                           width="12"
@@ -799,11 +802,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     </div>
                     {counterpartyOptions.length > 0 && (
                      <div className="flex min-w-36 flex-1 flex-col gap-1">
-                      <label className="text-xs font-medium text-slate-500">{t('counterparty')}</label>
+                      <label className="text-xs font-medium text-fg-faint">{t('counterparty')}</label>
                       <select
                        value={ledgerFilterCounterparty}
                        onChange={(e) => setLedgerFilterCounterparty(e.target.value)}
-                       className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                       className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
                       >
                        <option value="">{t('tx_filter_client_all')}</option>
                        {counterpartyOptions.map((name) => (
@@ -818,21 +821,21 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      </div>
                     )}
                     <div className="flex flex-col gap-1">
-                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_from')}</label>
+                     <label className="text-xs font-medium text-fg-faint">{t('tx_filter_date_from')}</label>
                      <input
                       type="date"
                       value={ledgerFilterDateFrom}
                       onChange={(e) => setLedgerFilterDateFrom(e.target.value)}
-                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                      className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
                      />
                     </div>
                     <div className="flex flex-col gap-1">
-                     <label className="text-xs font-medium text-slate-500">{t('tx_filter_date_to')}</label>
+                     <label className="text-xs font-medium text-fg-faint">{t('tx_filter_date_to')}</label>
                      <input
                       type="date"
                       value={ledgerFilterDateTo}
                       onChange={(e) => setLedgerFilterDateTo(e.target.value)}
-                      className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
+                      className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
                      />
                     </div>
                     {hasFilter && (
@@ -845,7 +848,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        setLedgerFilterDateFrom('');
                        setLedgerFilterDateTo('');
                       }}
-                      className="self-end rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-100"
+                      className="self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover"
                      >
                       {t('tx_filter_clear')}
                      </button>
@@ -870,7 +873,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 const showPager = visibleCount > 0 && totalLedgerPages > 1;
                 return (
                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs text-slate-600">
+                  <div className="text-xs text-fg-muted">
                    {showPager
                     ? `${(currentLedgerPage - 1) * ledgerPageSize + 1}–${Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} ${t('pagination_of')} ${visibleCount}`
                     : null}
@@ -882,7 +885,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       type="button"
                       onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
                       disabled={currentLedgerPage <= 1}
-                      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                      >
                       {t('pagination_prev')}
                      </button>
@@ -900,14 +903,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       onKeyDown={(event) => {
                        if (event.key === 'Enter') event.currentTarget.blur();
                       }}
-                      className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      className="h-7 w-12 rounded border border-border-strong bg-surface px-1.5 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                      />
-                     <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
+                     <span className="text-xs text-fg-faint">/ {totalLedgerPages}</span>
                      <button
                       type="button"
                       onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
                       disabled={currentLedgerPage >= totalLedgerPages}
-                      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                      >
                       {t('pagination_next')}
                      </button>
@@ -938,7 +941,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  className="w-full text-sm"
                  style={{ zoom: String(tableZoom) }}
                 >
-                 <thead className="sticky top-0 z-20 bg-slate-100 text-slate-700">
+                 <thead className="sticky top-0 z-20 bg-surface-hover text-fg-muted">
                   <tr>
                    <th className="w-10 px-2 py-3">
                     {editAllLedgerAccountIds.has(ledger.accountId) ? (
@@ -947,7 +950,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        type="button"
                        title={t('save_changes')}
                        onClick={() => void onSaveAllLedger(ledger)}
-                       className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                       className="rounded p-1 text-good-text hover:bg-good-bg"
                       >
                        <svg
                         width="13"
@@ -967,7 +970,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        type="button"
                        title={t('cancel')}
                        onClick={() => onCancelAllLedger(ledger)}
-                       className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                       className="rounded p-1 text-fg-faint hover:bg-surface-hover"
                       >
                        <svg
                         width="13"
@@ -1000,7 +1003,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       type="button"
                       title="Edit all rows"
                       onClick={() => onEditAllLedger(ledger)}
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-blue-600"
+                      className="rounded p-1 text-fg-faint hover:bg-surface-hover hover:text-accent"
                      >
                       <svg
                        width="13"
@@ -1050,7 +1053,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        viewBox="0 0 24 24"
                        fill="currentColor"
                        aria-hidden
-                       className={`shrink-0 text-slate-400 ${draggedLedgerColumn === column.key ? 'opacity-50' : 'opacity-70'}`}
+                       className={`shrink-0 text-fg-faint ${draggedLedgerColumn === column.key ? 'opacity-50' : 'opacity-70'}`}
                       >
                        <circle
                         cx="9"
@@ -1301,11 +1304,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        const color = highlightedLedgerRows.get(rowKey);
                        const isEditing = editingLedgerRowKeys.has(rowKey);
                        return {
-                        ...(color ? { backgroundColor: color } : {}),
+                        ...(color ? { backgroundColor: resolveHighlightBg(color, isDark) } : {}),
                         ...(isEditing || !ledgerRowClickActive ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                        };
                       })()}
-                      className={`border-t border-slate-200 align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-slate-50' : 'bg-white'} hover:bg-slate-100 ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''} ${contextMenuRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? 'ring-2 ring-inset ring-indigo-400' : ''}`}
+                      className={`border-t border-border align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} hover:bg-surface-hover ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''} ${contextMenuRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? 'ring-2 ring-inset ring-indigo-400' : ''}`}
                      >
                       {(() => {
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -1323,7 +1326,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              type="button"
                              title={t('save_changes')}
                              onClick={() => void onSaveLedgerRow(entry.transactionId, ledger.accountId)}
-                             className="rounded p-1 text-emerald-600 hover:bg-emerald-50"
+                             className="rounded p-1 text-good-text hover:bg-good-bg"
                             >
                              <svg
                               width="14"
@@ -1354,7 +1357,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                return n;
                               });
                              }}
-                             className="rounded p-1 text-slate-400 hover:bg-slate-100"
+                             className="rounded p-1 text-fg-faint hover:bg-surface-hover"
                             >
                              <svg
                               width="14"
@@ -1390,7 +1393,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            <div className="flex items-center justify-center gap-1">
                             <span
                              {...ledgerRowDrag.dragHandleProps(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
-                             className="cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+                             className="cursor-grab text-fg-faint hover:text-fg-faint active:cursor-grabbing"
                              title="Drag to reorder"
                             >
                              <svg
@@ -1437,7 +1440,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              title={t('row_actions_menu')}
                              aria-label={t('row_actions_menu')}
                              onClick={openRowMenu}
-                             className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                             className="rounded p-0.5 text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
                             >
                              <svg
                               width="12"
@@ -1475,7 +1478,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className="px-4 py-3 text-slate-500"
+                              className="px-4 py-3 text-fg-faint"
                              >
                               {draft ? (
                                <input
@@ -1483,7 +1486,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 value={draft.createdDate}
                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
                                 style={{ width: '8.5rem' }}
-                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                />
                               ) : (
                                formatDateValue(entry.createdAt, ledgerDateFormat)
@@ -1494,7 +1497,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap"
+                              className="px-4 py-3 font-medium text-fg whitespace-nowrap"
                              >
                               {entry.isAdjustment && draft ? (
                                // Mirrors the 'direction' column's edit toggle (kept there too for when that
@@ -1505,7 +1508,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  type="button"
                                  onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
                                  className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                                  }`}
                                 >
                                  {t('adjustment_direction_debit_short')}
@@ -1515,15 +1518,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
                                  className={`rounded border px-2 py-1 text-xs font-semibold transition ${
                                   draft.adjustmentDirection === 'credit'
-                                   ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                   ? 'border-emerald-500 bg-good-bg text-good-text'
+                                   : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                                  }`}
                                 >
                                  {t('adjustment_direction_credit_short')}
                                 </button>
                                </div>
                               ) : entry.isAdjustment ? (
-                               <span className="text-slate-400">-</span>
+                               <span className="text-fg-faint">-</span>
                               ) : draft ? (
                                (() => {
                                 const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -1554,7 +1557,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     }}
                                     placeholder={t('transaction_account_placeholder')}
                                     style={{ width: '12rem' }}
-                                    className="rounded border border-slate-300 py-1.5 pe-6 ps-2 text-xs outline-none ring-blue-300 focus:ring"
+                                    className="rounded border border-border-strong py-1.5 pe-6 ps-2 text-xs outline-none ring-blue-300 focus:ring"
                                     autoComplete="off"
                                    />
                                    {draft.counterpartyAccountId && ledgerCounterpartyOpen !== rowKey ? (
@@ -1567,7 +1570,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       setLedgerCounterpartyOpen(null);
                                      }}
                                      title={t('clear_selection')}
-                                     className="absolute inset-y-0 end-1 my-auto flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                     className="absolute inset-y-0 end-1 my-auto flex h-4 w-4 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
                                     >
                                      <svg
                                       width="10"
@@ -1596,7 +1599,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     </button>
                                    ) : null}
                                    {ledgerCounterpartyOpen === rowKey && (
-                                    <ul className="absolute z-30 mt-1 max-h-48 w-52 overflow-y-auto rounded border border-slate-200 bg-white text-xs shadow-lg">
+                                    <ul className="absolute z-30 mt-1 max-h-48 w-52 overflow-y-auto rounded border border-border bg-surface text-xs shadow-lg">
                                      {(() => {
                                       const q = ledgerCounterpartyQuery.trim().toLowerCase();
                                       const byClient = new Map<number, ClientAccount[]>();
@@ -1609,7 +1612,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       }
                                       const groups = [...byClient.values()];
                                       if (groups.length === 0) {
-                                       return <li className="px-3 py-2 text-slate-400">{t('transaction_account_placeholder')}</li>;
+                                       return <li className="px-3 py-2 text-fg-faint">{t('transaction_account_placeholder')}</li>;
                                       }
                                       const selectAccount = (id: number) => {
                                        updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterpartyAccountId: id });
@@ -1625,7 +1628,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                          <li
                                           key={`g${clientId}`}
                                           onMouseDown={() => selectAccount(account.id)}
-                                          className={`cursor-pointer px-3 py-1.5 hover:bg-blue-50 ${draft.counterpartyAccountId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-800'}`}
+                                          className={`cursor-pointer px-3 py-1.5 hover:bg-accent-weak ${draft.counterpartyAccountId === account.id ? 'bg-accent-weak font-medium text-accent' : 'text-fg'}`}
                                          >
                                           {account.clientName} · {account.currencyCode}
                                          </li>
@@ -1640,10 +1643,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                            e.preventDefault();
                                            setLedgerCounterpartyExpandedClient(expanded && !q ? null : clientId);
                                           }}
-                                          className={`flex cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-blue-50 ${hasSelected ? 'font-medium text-blue-700' : 'text-slate-800'}`}
+                                          className={`flex cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-accent-weak ${hasSelected ? 'font-medium text-accent' : 'text-fg'}`}
                                          >
                                           <span>{accts[0].clientName}</span>
-                                          <span className="flex items-center gap-1 text-slate-400">
+                                          <span className="flex items-center gap-1 text-fg-faint">
                                            {accts.length}
                                            <svg
                                             width="10"
@@ -1666,7 +1669,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                            <li
                                             key={account.id}
                                             onMouseDown={() => selectAccount(account.id)}
-                                            className={`cursor-pointer py-1.5 ps-7 pe-3 hover:bg-blue-50 ${draft.counterpartyAccountId === account.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                                            className={`cursor-pointer py-1.5 ps-7 pe-3 hover:bg-accent-weak ${draft.counterpartyAccountId === account.id ? 'bg-accent-weak font-medium text-accent' : 'text-fg-muted'}`}
                                            >
                                             {account.currencyCode}
                                            </li>
@@ -1684,7 +1687,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    onClick={() =>
                                     updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: draft.direction === 'outgoing' ? 'incoming' : 'outgoing' })
                                    }
-                                   className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                                   className="shrink-0 rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-accent"
                                   >
                                    <svg
                                     width="14"
@@ -1713,18 +1716,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  const client = clients.find((c) => c.id === entry.counterpartyClientId);
                                  if (client) openClientLedger(client, clientLedgerBackSection);
                                 }}
-                                className="cursor-pointer font-medium text-blue-700 underline decoration-blue-300 underline-offset-2 transition hover:text-blue-900"
+                                className="cursor-pointer font-medium text-accent underline decoration-blue-300 underline-offset-2 transition hover:text-accent"
                                >
                                 {entry.counterpartyName}
                                 {(entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode) && (
-                                 <span className="font-normal text-blue-400"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
+                                 <span className="font-normal text-accent"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
                                 )}
                                </a>
                               ) : (
                                <>
                                 {entry.counterpartyName}
                                 {(entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode) && (
-                                 <span className="font-normal text-slate-400"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
+                                 <span className="font-normal text-fg-faint"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
                                 )}
                                </>
                               )}
@@ -1742,7 +1745,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  type="button"
                                  onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
                                  className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                                  }`}
                                 >
                                  {t('adjustment_direction_debit_short')}
@@ -1752,8 +1755,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
                                  className={`rounded border px-2 py-1 text-xs font-semibold transition ${
                                   draft.adjustmentDirection === 'credit'
-                                   ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                                   : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                                   ? 'border-emerald-500 bg-good-bg text-good-text'
+                                   : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                                  }`}
                                 >
                                  {t('adjustment_direction_credit_short')}
@@ -1761,7 +1764,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                </div>
                               ) : entry.isAdjustment ? (
                                <span
-                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}
                                >
                                 {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
                                </span>
@@ -1772,14 +1775,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })
                                 }
                                 style={{ width: ledgerSelectWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 2) }}
-                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                >
                                 <option value="incoming">{t('incoming')}</option>
                                 <option value="outgoing">{t('outgoing')}</option>
                                </select>
                               ) : (
                                <span
-                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}
+                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'incoming' ? 'bg-bad-bg text-bad-text' : 'bg-good-bg text-good-text'}`}
                                >
                                 {entry.direction === 'incoming' ? t('incoming') : t('outgoing')}
                                </span>
@@ -1790,16 +1793,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className="px-4 py-3 text-slate-600"
+                              className="px-4 py-3 text-fg-muted"
                              >
                               {entry.isAdjustment ? (
-                               <span className="inline-flex rounded bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">{t('adjustment_label')}</span>
+                               <span className="inline-flex rounded bg-violet-bg px-2.5 py-1 text-xs font-semibold text-violet-text">{t('adjustment_label')}</span>
                               ) : draft ? (
                                <select
                                 value={draft.type}
                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
                                 style={{ width: ledgerSelectWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 2) }}
-                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                >
                                 <option value="exchange">{t('transaction_type_exchange')}</option>
                                 <option value="transfer">{t('transaction_type_transfer')}</option>
@@ -1817,7 +1820,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className={`whitespace-nowrap px-4 py-3 font-semibold ${(draft?.direction ?? entry.direction) === 'outgoing' ? 'text-emerald-600' : 'text-red-600'}`}
+                              className={`whitespace-nowrap px-4 py-3 font-semibold ${(draft?.direction ?? entry.direction) === 'outgoing' ? 'text-good-text' : 'text-bad-text'}`}
                              >
                               {draft ? (
                                <div className="flex items-center gap-1">
@@ -1831,7 +1834,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
                                  onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'amount', entry, ledger.accountId, pagedEntries, entryIdx)}
                                  style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
-                                 className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                 className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                 />
                                 {/* Expenses (adjustments) can be in any currency, but the dedicated
                                     "currency" column defaults to hidden — show a fallback selector
@@ -1844,7 +1847,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })
                                   }
                                   style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
-                                  className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                  className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                  >
                                   {enabledCurrencies.map((cur) => (
                                    <option
@@ -1865,7 +1868,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  <button
                                   type="button"
                                   onClick={() => toggleLedgerSumEntry(sumKey)}
-                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
                                  >
                                   {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                   {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
@@ -1879,12 +1882,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                </>
                               )}
                               {showChargesUnderAmount && (
-                               <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-red-500">
+                               <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-bad-text">
                                 <span>
                                  −{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                  {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                                 </span>
-                                {entry.chargesDescription && <span className="font-normal italic text-slate-400">{entry.chargesDescription}</span>}
+                                {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
                                </div>
                               )}
                              </td>
@@ -1893,7 +1896,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className="px-4 py-3 text-slate-600"
+                              className="px-4 py-3 text-fg-muted"
                              >
                               {draft
                                ? (() => {
@@ -1907,7 +1910,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   const accCurr = ledger.currencyCode;
                                   // Adjustment with same currency as account: no rate needed
                                   if (entry.isAdjustment && txCurr === accCurr) {
-                                   return <span className="text-slate-400">-</span>;
+                                   return <span className="text-fg-faint">-</span>;
                                   }
                                   return (
                                    <div className="flex items-center gap-1">
@@ -1977,7 +1980,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      }}
                                      onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'exchangeRate', entry, ledger.accountId, pagedEntries, entryIdx)}
                                      style={{ width: ledgerFieldWidth(draft.exchangeRate, 5, 2) }}
-                                     className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                     className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                     />
                                     {txCurr && accCurr && txCurr !== accCurr && (
                                      <button
@@ -1988,7 +1991,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                        updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: (1 / val).toFixed(6).replace(/\.?0+$/, '') });
                                        setLedgerRateReversed((prev) => ({ ...prev, [ledgerRateKey]: !isLedgerRateReversed }));
                                       }}
-                                      className="inline-flex shrink-0 items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                      className="inline-flex shrink-0 items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
                                      >
                                       <svg
                                        width="14"
@@ -2023,7 +2026,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   if (entry.pendingRate) {
                                    return (
                                     <span
-                                     className="text-amber-500"
+                                     className="text-warn-text"
                                      title={t('ledger_rate_pending')}
                                     >
                                      -
@@ -2042,7 +2045,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      type="button"
                                      title="Reverse rate direction"
                                      onClick={() => setLedgerDisplayRateReversed((prev) => ({ ...prev, [displayRateKey]: !isReversed }))}
-                                     className="inline-flex items-center gap-0.5 rounded p-0.5 text-slate-400 hover:text-slate-700"
+                                     className="inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
                                     >
                                      <svg
                                       width="14"
@@ -2071,10 +2074,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className="px-4 py-3 text-slate-600"
+                              className="px-4 py-3 text-fg-muted"
                              >
                               {draft && entry.isAdjustment ? (
-                               <span className="text-slate-400">-</span>
+                               <span className="text-fg-faint">-</span>
                               ) : draft ? (
                                (() => {
                                 const commVal = parseFloat(draft.commission) || 0;
@@ -2140,7 +2143,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    }}
                                    onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'commission', entry, ledger.accountId, pagedEntries, entryIdx)}
                                    style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
-                                   className={`rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-emerald-600 font-semibold' : commVal < 0 ? 'text-red-600 font-semibold' : ''}`}
+                                   className={`rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-good-text font-semibold' : commVal < 0 ? 'text-bad-text font-semibold' : ''}`}
                                    placeholder="0"
                                   />
                                   <button
@@ -2150,7 +2153,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     const v = parseFloat(draft.commission) || 0;
                                     if (v !== 0) updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: String(-v) });
                                    }}
-                                   className="shrink-0 rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                                   className="shrink-0 rounded p-0.5 text-fg-faint transition hover:bg-surface-hover hover:text-fg-muted"
                                   >
                                    <svg
                                     width="14"
@@ -2171,11 +2174,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 );
                                })()
                               ) : entry.commission ? (
-                               <span className={entry.commission < 0 ? 'font-semibold text-red-600' : 'font-semibold text-emerald-600'}>
+                               <span className={entry.commission < 0 ? 'font-semibold text-bad-text' : 'font-semibold text-good-text'}>
                                 {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}%
                                </span>
                               ) : (
-                               <span className="text-slate-400">-</span>
+                               <span className="text-fg-faint">-</span>
                               )}
                              </td>
                             );
@@ -2205,8 +2208,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              return (
                               <td
                                key={column.key}
-                               style={highlightNet ? { backgroundColor: ledgerNetChangeHighlightColor } : undefined}
-                               className={`px-4 py-3 font-semibold ${isPending ? 'text-amber-500' : liveNetChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                               style={highlightNet ? { backgroundColor: resolveHighlightBg(ledgerNetChangeHighlightColor, isDark) } : undefined}
+                               className={`px-4 py-3 font-semibold ${isPending ? 'text-warn-text' : liveNetChange >= 0 ? 'text-good-text' : 'text-bad-text'}`}
                               >
                                {isPending ? (
                                 <span title={t('ledger_rate_pending')}>-</span>
@@ -2219,18 +2222,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    <button
                                     type="button"
                                     onClick={() => toggleLedgerSumEntry(sumKey)}
-                                    className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                                    className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
                                    >
                                     {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                     {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                                    </button>
                                    {showCharges && (
-                                    <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-red-500' : 'text-emerald-500'}`}>
+                                    <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                                      <span>
                                       {entry.isChargesPayerThisAccount ? '−' : '+'}
                                       {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                      </span>
-                                     {entry.chargesDescription && <span className="font-normal italic text-slate-400">{entry.chargesDescription}</span>}
+                                     {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
                                     </div>
                                    )}
                                   </>
@@ -2243,12 +2246,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                                  </div>
                                  {showCharges && (
-                                  <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-red-500' : 'text-emerald-500'}`}>
+                                  <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                                    <span>
                                     {entry.isChargesPayerThisAccount ? '−' : '+'}
                                     {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                    </span>
-                                   {entry.chargesDescription && <span className="font-normal italic text-slate-400">{entry.chargesDescription}</span>}
+                                   {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
                                   </div>
                                  )}
                                 </>
@@ -2260,7 +2263,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}
+                              className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}
                              >
                               {ledgerSumMode && !draft ? (
                                (() => {
@@ -2270,7 +2273,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  <button
                                   type="button"
                                   onClick={() => toggleLedgerSumEntry(sumKey)}
-                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-purple-200 ring-1 ring-purple-400' : 'hover:bg-purple-50'}`}
+                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
                                  >
                                   {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                   {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
@@ -2286,7 +2289,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               {entry.reconciledMark ? (
                                <span
                                 title={entry.reconciledMark.note || undefined}
-                                className="ms-2 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 align-middle"
+                                className="ms-2 inline-flex items-center gap-1 rounded-full bg-good-bg px-2 py-0.5 text-[10px] font-semibold text-good-text align-middle"
                                >
                                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                                  <path d="M20 6L9 17l-5-5" />
@@ -2300,7 +2303,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className="px-4 py-3 text-slate-500 whitespace-nowrap"
+                              className="px-4 py-3 text-fg-faint whitespace-nowrap"
                              >
                               {draft ? (
                                <select
@@ -2309,7 +2312,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })
                                 }
                                 style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
-                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                >
                                 {enabledCurrencies.map((cur) => (
                                  <option
@@ -2329,7 +2332,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className="px-4 py-3 text-slate-500 whitespace-nowrap"
+                              className="px-4 py-3 text-fg-faint whitespace-nowrap"
                              >
                               {draft ? (
                                <input
@@ -2337,7 +2340,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 value={draft.description}
                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
                                 style={{ width: ledgerFieldWidth(draft.description, 6, 3) }}
-                                className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                />
                               ) : (
                                entry.description || '-'
@@ -2369,7 +2372,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         return (
                          <tr
                           key={`${ledger.accountId}-${entry.transactionId}-charges-edit`}
-                          className="border-t border-dashed border-slate-200 bg-slate-50/60"
+                          className="border-t border-dashed border-border bg-surface-2"
                          >
                           <td
                            colSpan={colSpanCount}
@@ -2378,7 +2381,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            <button
                             type="button"
                             onClick={() => setLedgerExpensesExpandedKeys((prev) => new Set([...prev, chargesRowKey]))}
-                            className="text-sm text-blue-600 hover:underline"
+                            className="text-sm text-accent hover:underline"
                            >
                             + {t('add_expenses')}
                            </button>
@@ -2397,21 +2400,21 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        return (
                         <tr
                          key={`${ledger.accountId}-${entry.transactionId}-charges-edit`}
-                         className="border-t border-dashed border-slate-200 bg-amber-50/60"
+                         className="border-t border-dashed border-border bg-warn-bg"
                         >
                          <td
                           colSpan={colSpanCount}
                           className="px-4 py-2"
                          >
                           <div className="flex flex-wrap items-start gap-2">
-                           <span className="mt-2 text-xs font-medium text-amber-700">{t('charges')}</span>
+                           <span className="mt-2 text-xs font-medium text-warn-text">{t('charges')}</span>
                            <input
                             type="text"
                             inputMode="decimal"
                             dir="ltr"
                             value={formatAmountInput(chargesDraft.charges)}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: normalizeDecimalInput(event.target.value) })}
-                            className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            className="field-sizing-content min-w-16 rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                             placeholder="0"
                            />
                            <select
@@ -2419,7 +2422,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             onChange={(event) =>
                              updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })
                             }
-                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            >
                             <option value="">{t('currency')}</option>
                             {enabledCurrencies.map((cur) => (
@@ -2439,11 +2442,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             meLabel={t('charges_payer_me')}
                             paidByPlaceholder={t('charges_payer_placeholder')}
                             paidToPlaceholder={t('charges_payer_to_placeholder')}
-                            className="rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                            />
                            {showRate && (
                             <div className="flex items-center gap-1">
-                             <span dir="ltr" className="text-xs text-slate-500">
+                             <span dir="ltr" className="text-xs text-fg-faint">
                               {draftChargesCurrencyCode} → {ledger.currencyCode}
                              </span>
                              <input
@@ -2454,7 +2457,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               onChange={(event) =>
                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })
                               }
-                              className="field-sizing-content min-w-16 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              className="field-sizing-content min-w-16 rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                               placeholder="1"
                              />
                             </div>
@@ -2463,7 +2466,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             type="text"
                             value={chargesDraft.chargesDescription}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: event.target.value })}
-                            className="field-sizing-content min-w-28 rounded border border-slate-300 px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            className="field-sizing-content min-w-28 rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                             placeholder={t('charges_description_placeholder')}
                            />
                           </div>
@@ -2493,7 +2496,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      <tr>
                       <td
                        colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 2 : 1)}
-                       className="px-4 py-6 text-sm text-slate-500"
+                       className="px-4 py-6 text-sm text-fg-faint"
                       >
                        {t('no_search_results')}
                       </td>
@@ -2525,7 +2528,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     onClick={() => setLedgerRowClickMode(ledgerRowClickActive && ledgerRowClickHighlight ? 'none' : 'highlight')}
                     aria-pressed={ledgerRowClickActive && ledgerRowClickHighlight}
                     className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                     ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                     ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-warn-bg text-warn-text hover:bg-warn-bg' : 'border-border-strong text-fg-faint hover:bg-surface-hover'
                     }`}
                    >
                     <svg
@@ -2549,7 +2552,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     onClick={() => setLedgerRowClickMode(ledgerRowClickActive && !ledgerRowClickHighlight ? 'none' : 'copy')}
                     aria-pressed={ledgerRowClickActive && !ledgerRowClickHighlight}
                     className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                     ledgerRowClickActive && !ledgerRowClickHighlight ? 'border-blue-400 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                     ledgerRowClickActive && !ledgerRowClickHighlight ? 'border-blue-400 bg-accent-weak text-accent hover:bg-accent-weak' : 'border-border-strong text-fg-faint hover:bg-surface-hover'
                     }`}
                    >
                     <svg
@@ -2580,7 +2583,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     onClick={toggleLedgerSumMode}
                     aria-pressed={ledgerSumMode}
                     className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                     ledgerSumMode ? 'border-purple-400 bg-purple-50 text-purple-600 hover:bg-purple-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                     ledgerSumMode ? 'border-purple-400 bg-violet-bg text-violet-text hover:bg-violet-bg' : 'border-border-strong text-fg-faint hover:bg-surface-hover'
                     }`}
                    >
                     <svg
@@ -2605,7 +2608,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     onClick={toggleSelectionMode}
                     aria-pressed={selectionMode}
                     className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                     selectionMode ? 'border-blue-500 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                     selectionMode ? 'border-blue-500 bg-accent-weak text-accent hover:bg-accent-weak' : 'border-border-strong text-fg-faint hover:bg-surface-hover'
                     }`}
                    >
                     <svg
@@ -2627,7 +2630,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     <button
                      type="button"
                      onClick={() => void onDeleteSelectedLedgerEntries()}
-                     className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-red-500 bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+                     className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-red-500 bg-bad-bg px-3 py-1.5 text-sm font-semibold text-bad-text transition hover:bg-bad-bg"
                     >
                      <svg
                       width="16"
@@ -2651,20 +2654,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    {[...ledgerSumByCurrency.entries()].map(([code, bucket]) => (
                     <span
                      key={code || 'none'}
-                     className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm text-slate-600"
+                     className="inline-flex items-center gap-1.5 rounded border border-purple-300 bg-violet-bg px-3 py-1.5 text-sm text-fg-muted"
                     >
-                     <span className="font-medium text-slate-500">
+                     <span className="font-medium text-fg-faint">
                       {code || t('amount')} ({bucket.count})
                      </span>
-                     <span className="font-semibold text-slate-800">{bucket.total.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}</span>
+                     <span className="font-semibold text-fg">{bucket.total.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}</span>
                     </span>
                    ))}
-                   <span className="text-xs text-slate-600">
+                   <span className="text-xs text-fg-muted">
                     {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
                    </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                   <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+                   <span className="text-xs text-fg-faint">{t('pagination_per_page')}</span>
                    <select
                     value={ledgerPageSize}
                     onChange={(event) => {
@@ -2673,7 +2676,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
                      setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
                     }}
-                    className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                    className="h-7 rounded border border-border-strong bg-surface px-1.5 text-xs outline-none ring-blue-300 focus:ring"
                    >
                     <option value={25}>25</option>
                     <option value={50}>50</option>
@@ -2685,7 +2688,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       type="button"
                       onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.max(1, currentLedgerPage - 1) }))}
                       disabled={currentLedgerPage <= 1}
-                      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                      >
                       {t('pagination_prev')}
                      </button>
@@ -2703,14 +2706,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       onKeyDown={(event) => {
                        if (event.key === 'Enter') event.currentTarget.blur();
                       }}
-                      className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      className="h-7 w-12 rounded border border-border-strong bg-surface px-1.5 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                      />
-                     <span className="text-xs text-slate-500">/ {totalLedgerPages}</span>
+                     <span className="text-xs text-fg-faint">/ {totalLedgerPages}</span>
                      <button
                       type="button"
                       onClick={() => setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: Math.min(totalLedgerPages, currentLedgerPage + 1) }))}
                       disabled={currentLedgerPage >= totalLedgerPages}
-                      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                      >
                       {t('pagination_next')}
                      </button>
@@ -2753,7 +2756,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
       type="button"
       title={t('cancel')}
       onClick={() => onCancelAllEditingLedgerRows()}
-      className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-slate-500 shadow-lg ring-1 ring-slate-300 active:bg-slate-100"
+      className="flex h-12 w-12 items-center justify-center rounded-full bg-surface text-fg-faint shadow-lg ring-1 ring-slate-300 active:bg-surface-hover"
      >
       <svg
        width="20"

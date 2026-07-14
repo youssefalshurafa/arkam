@@ -61,7 +61,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
          <div
-          className="w-full max-w-md rounded bg-white p-6 shadow-2xl"
+          className="w-full max-w-md rounded bg-surface p-6 shadow-2xl"
           onKeyDown={(e) => {
            // Enter submits the adjustment (ignore Enter inside multi-line fields).
            if (e.key !== 'Enter') return;
@@ -70,16 +70,16 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
            void onSubmitAdjustment();
           }}
          >
-          <h3 className="text-lg font-semibold text-slate-900">{adjustmentModal.editingId ? t('adjustment_edit_title') : t('adjustment_add_title')}</h3>
+          <h3 className="text-lg font-semibold text-fg">{adjustmentModal.editingId ? t('adjustment_edit_title') : t('adjustment_add_title')}</h3>
           {ledger ? (
-           <p className="mt-1 text-sm text-slate-500">
+           <p className="mt-1 text-sm text-fg-faint">
             {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
            </p>
           ) : null}
 
           <div className="mt-5 flex flex-col gap-4">
            <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_direction')}</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('adjustment_direction')}</label>
             {/* Fixed LTR order regardless of app language — debit/credit is a universal
                 accounting convention, not text, so it shouldn't mirror in Arabic (the
                 colors looked "reversed" because the grid itself was flipping side). */}
@@ -88,7 +88,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
               type="button"
               onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'debit' } : prev))}
               className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-               adjustmentModal.direction === 'debit' ? 'border-red-500 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+               adjustmentModal.direction === 'debit' ? 'border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
               }`}
              >
               {t('adjustment_direction_debit')}
@@ -97,17 +97,17 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
               type="button"
               onClick={() => setAdjustmentModal((prev) => (prev ? { ...prev, direction: 'credit' } : prev))}
               className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-               adjustmentModal.direction === 'credit' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+               adjustmentModal.direction === 'credit' ? 'border-emerald-500 bg-good-bg text-good-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
               }`}
              >
               {t('adjustment_direction_credit')}
              </button>
             </div>
-            <p className="mt-1 text-xs text-slate-400">{adjustmentModal.direction === 'debit' ? t('adjustment_debit_hint') : t('adjustment_credit_hint')}</p>
+            <p className="mt-1 text-xs text-fg-faint">{adjustmentModal.direction === 'debit' ? t('adjustment_debit_hint') : t('adjustment_credit_hint')}</p>
            </div>
 
            <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('amount')}</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('amount')}</label>
             <input
              type="text"
              inputMode="decimal"
@@ -116,18 +116,18 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, amount: normalizeDecimalInput(e.target.value) } : prev))}
              placeholder="0"
              autoFocus
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
 
            <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('currency')}</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('currency')}</label>
             <select
              value={adjustmentModal.currencyId ?? ''}
              onChange={(e) =>
               setAdjustmentModal((prev) => (prev ? { ...prev, currencyId: e.target.value ? Number(e.target.value) : null, exchangeRate: '', exchangeRateReversed: false } : prev))
              }
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             >
              {(adjustmentModal.currencyId && !enabledCurrencies.some((c) => c.id === adjustmentModal.currencyId)
               ? [...enabledCurrencies, ...localizedCurrencies.filter((c) => c.id === adjustmentModal.currencyId)]
@@ -146,7 +146,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
            {needsRate ? (
             <div className="flex flex-col gap-1">
              <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('exchange_rate')}</label>
+              <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('exchange_rate')}</label>
               <button
                type="button"
                title={t('reverse_rate')}
@@ -161,7 +161,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
                  };
                 })
                }
-               className="inline-flex items-center gap-1 rounded p-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+               className="inline-flex items-center gap-1 rounded p-1 text-xs text-fg-faint transition hover:bg-surface-hover hover:text-fg"
               >
                <svg
                 width="14"
@@ -180,7 +180,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
                {adjustmentModal.exchangeRateReversed ? t('rate_division') : t('rate_multiplication')}
               </button>
              </div>
-             <span className="text-xs text-slate-400">
+             <span className="text-xs text-fg-faint">
               {adjustmentModal.exchangeRateReversed
                ? ltrIsolate(`1 ${accountCurrencyCode} = ? ${selectedCurrency?.code ?? ''}`)
                : ltrIsolate(`1 ${selectedCurrency?.code ?? ''} = ? ${accountCurrencyCode}`)}
@@ -192,10 +192,10 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
               value={adjustmentModal.exchangeRate}
               onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, exchangeRate: normalizePlainDecimalInput(e.target.value) } : prev))}
               placeholder="0"
-              className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
              />
              {amountValue > 0 && effectiveRate > 0 ? (
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-fg-faint">
                = {convertedAmount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {accountCurrencyCode}
               </span>
              ) : null}
@@ -203,14 +203,14 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
            ) : null}
 
            <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('adjustment_description')}</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('adjustment_description')}</label>
             <input
              type="text"
              list="adjustment-description-suggestions"
              value={adjustmentModal.description}
              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
              placeholder={t('adjustment_description_placeholder')}
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
             <datalist id="adjustment-description-suggestions">
              {descriptionSuggestions.map((desc) => (
@@ -223,12 +223,12 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
            </div>
 
            <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('date')}</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('date')}</label>
             <input
              type="date"
              value={adjustmentModal.date}
              onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, date: e.target.value } : prev))}
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
           </div>
@@ -237,7 +237,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
            <button
             type="button"
             onClick={() => setAdjustmentModal(null)}
-            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
            >
             {t('cancel')}
            </button>

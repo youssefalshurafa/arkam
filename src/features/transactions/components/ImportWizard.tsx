@@ -47,20 +47,20 @@ export default function ImportWizard({
   <>
    {pendingImportData && !importReview ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-     <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded bg-white shadow-2xl">
-      <div className="border-b border-slate-200 p-6">
-       <h3 className="text-lg font-semibold text-slate-900">{t('import_setup_title')}</h3>
-       <p className="mt-1 text-sm text-slate-500">{t('import_setup_subtitle', { fileName: pendingImportData.fileName })}</p>
+     <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded bg-surface shadow-2xl">
+      <div className="border-b border-border p-6">
+       <h3 className="text-lg font-semibold text-fg">{t('import_setup_title')}</h3>
+       <p className="mt-1 text-sm text-fg-faint">{t('import_setup_subtitle', { fileName: pendingImportData.fileName })}</p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
        <div className="grid gap-3 md:grid-cols-2">
-        <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_date_label')}</span>
+        <label className="text-sm text-fg-muted">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_setup_date_label')}</span>
          <select
           value={importMapping.dateColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, dateColumn: event.target.value === '' ? null : Number(event.target.value) }))}
-          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('import_setup_date_none')}</option>
           {pendingImportData.columnOptions.map((option) => (
@@ -74,15 +74,15 @@ export default function ImportWizard({
          </select>
         </label>
 
-        <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <label className="text-sm text-fg-muted">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">
           {t('import_setup_sender_label')}
-          {allowOneSided ? <span className="ml-1 font-normal normal-case text-slate-400">({t('import_setup_optional')})</span> : null}
+          {allowOneSided ? <span className="ml-1 font-normal normal-case text-fg-faint">({t('import_setup_optional')})</span> : null}
          </span>
          <select
           value={importMapping.fromColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, fromColumn: event.target.value === '' ? null : Number(event.target.value) }))}
-          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('import_setup_sender_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
@@ -96,15 +96,15 @@ export default function ImportWizard({
          </select>
         </label>
 
-        <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <label className="text-sm text-fg-muted">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">
           {t('import_setup_receiver_label')}
-          {allowOneSided ? <span className="ml-1 font-normal normal-case text-slate-400">({t('import_setup_optional')})</span> : null}
+          {allowOneSided ? <span className="ml-1 font-normal normal-case text-fg-faint">({t('import_setup_optional')})</span> : null}
          </span>
          <select
           value={importMapping.toColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, toColumn: event.target.value === '' ? null : Number(event.target.value) }))}
-          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('import_setup_receiver_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
@@ -118,12 +118,12 @@ export default function ImportWizard({
          </select>
         </label>
 
-        <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_amount_label')}</span>
+        <label className="text-sm text-fg-muted">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_setup_amount_label')}</span>
          <select
           value={importMapping.amountColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, amountColumn: event.target.value === '' ? null : Number(event.target.value) }))}
-          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('import_setup_amount_placeholder')}</option>
           {pendingImportData.columnOptions.map((option) => (
@@ -137,12 +137,12 @@ export default function ImportWizard({
          </select>
         </label>
 
-        <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_description_label')}</span>
+        <label className="text-sm text-fg-muted">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_setup_description_label')}</span>
          <select
           value={importMapping.descriptionColumn ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, descriptionColumn: event.target.value === '' ? null : Number(event.target.value) }))}
-          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('import_setup_description_none')}</option>
           {pendingImportData.columnOptions.map((option) => (
@@ -158,12 +158,12 @@ export default function ImportWizard({
 
         {/* Archive imports carry a per-row "More info" note (archiveNote). */}
         {allowOneSided ? (
-         <label className="text-sm text-slate-700">
-          <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_more_info_label')}</span>
+         <label className="text-sm text-fg-muted">
+          <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_setup_more_info_label')}</span>
           <select
            value={importMapping.moreInfoColumn ?? ''}
            onChange={(event) => setImportMapping((current) => ({ ...current, moreInfoColumn: event.target.value === '' ? null : Number(event.target.value) }))}
-           className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+           className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
           >
            <option value="">{t('import_setup_more_info_none')}</option>
            {pendingImportData.columnOptions.map((option) => (
@@ -178,12 +178,12 @@ export default function ImportWizard({
          </label>
         ) : null}
 
-        <label className="text-sm text-slate-700">
-         <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_setup_currency_label')}</span>
+        <label className="text-sm text-fg-muted">
+         <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_setup_currency_label')}</span>
          <select
           value={importMapping.currencyId ?? ''}
           onChange={(event) => setImportMapping((current) => ({ ...current, currencyId: event.target.value === '' ? null : Number(event.target.value) }))}
-          className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('import_setup_currency_placeholder')}</option>
           {currencies.map((currency) => (
@@ -199,12 +199,12 @@ export default function ImportWizard({
        </div>
       </div>
 
-      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-6">
+      <div className="flex flex-wrap justify-end gap-2 border-t border-border p-6">
        <button
         type="button"
         onClick={onCancelImportTransactions}
         disabled={isImportingTransactions}
-        className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
        >
         {t('import_cancel')}
        </button>
@@ -222,10 +222,10 @@ export default function ImportWizard({
    ) : null}
    {importReview ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-     <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded bg-white shadow-2xl">
-      <div className="border-b border-slate-200 p-6">
-       <h3 className="text-lg font-semibold text-slate-900">{t('import_review_title')}</h3>
-       <p className="mt-1 text-sm text-slate-500">
+     <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded bg-surface shadow-2xl">
+      <div className="border-b border-border p-6">
+       <h3 className="text-lg font-semibold text-fg">{t('import_review_title')}</h3>
+       <p className="mt-1 text-sm text-fg-faint">
         {t('import_review_subtitle', { count: importReview.length, fileName: pendingImportData?.fileName ?? t('import_review_the_file') })}
        </p>
       </div>
@@ -237,11 +237,11 @@ export default function ImportWizard({
          return (
           <div
            key={entry.key}
-           className={`rounded border p-3 ${entry.isExpense ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'}`}
+           className={`rounded border p-3 ${entry.isExpense ? 'border-amber-300 bg-warn-bg' : 'border-border'}`}
           >
            <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-slate-700">{entry.originalName}</span>
-            <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-slate-600">
+            <span className="text-sm font-semibold text-fg-muted">{entry.originalName}</span>
+            <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium text-fg-muted">
              <input
               type="checkbox"
               checked={entry.isExpense}
@@ -253,7 +253,7 @@ export default function ImportWizard({
 
            {entry.isExpense ? (
             <div className="mt-2">
-             <p className="text-xs text-amber-700">{t('import_review_expense_hint', { name: entry.originalName })}</p>
+             <p className="text-xs text-warn-text">{t('import_review_expense_hint', { name: entry.originalName })}</p>
              <div className="mt-2 flex flex-col gap-1.5">
               {importParsedRows
                .map((row, index) => ({ row, index }))
@@ -266,17 +266,17 @@ export default function ImportWizard({
                 return (
                  <div
                   key={index}
-                  className="rounded border border-amber-200 bg-white px-2.5 py-1.5 text-xs"
+                  className="rounded border border-amber-200 bg-surface px-2.5 py-1.5 text-xs"
                  >
                   <div className="flex items-center justify-between gap-2">
-                   <span className="min-w-0 flex-1 truncate text-slate-600">
+                   <span className="min-w-0 flex-1 truncate text-fg-muted">
                     {row.fromName} → {row.toName} · {row.amount}
                     {row.createdAt ? ` · ${row.createdAt.slice(0, 10)}` : ''}
                    </span>
                    <select
                     value={override.mode}
                     onChange={(event) => updateImportRowOverride(index, { mode: event.target.value as ImportRowOverride['mode'] })}
-                    className="shrink-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                    className="shrink-0 rounded border border-border-strong bg-surface px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
                    >
                     <option value="expense">{t('import_review_mode_expense')}</option>
                     <option value="transaction">{t('import_review_mode_transaction')}</option>
@@ -286,11 +286,11 @@ export default function ImportWizard({
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                    {override.mode === 'expense' ? (
                     <>
-                     <span className="text-slate-500">{t('import_review_on_party', { party: counterparty || t('import_review_other_party') })}</span>
+                     <span className="text-fg-faint">{t('import_review_on_party', { party: counterparty || t('import_review_other_party') })}</span>
                      <select
                       value={override.direction}
                       onChange={(event) => updateImportRowOverride(index, { direction: event.target.value as ImportRowOverride['direction'] })}
-                      className="rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                      className="rounded border border-border-strong bg-surface px-2 py-1 text-xs outline-none ring-blue-300 focus:ring"
                      >
                       <option value="debit">{t('import_review_debit')}</option>
                       <option value="credit">{t('import_review_credit')}</option>
@@ -298,13 +298,13 @@ export default function ImportWizard({
                     </>
                    ) : (
                     <>
-                     <span className="text-slate-600">
+                     <span className="text-fg-muted">
                       {t('import_review_from')} <span className="font-semibold">{sendName}</span> → {t('import_review_to')} <span className="font-semibold">{receiveName}</span>
                      </span>
                      <button
                       type="button"
                       onClick={() => updateImportRowOverride(index, { swap: !override.swap })}
-                      className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 font-semibold text-slate-600 transition hover:bg-slate-50"
+                      className="inline-flex items-center gap-1 rounded border border-border-strong px-2 py-1 font-semibold text-fg-muted transition hover:bg-surface-hover"
                      >
                       ⇄ {t('import_review_swap')}
                      </button>
@@ -320,8 +320,8 @@ export default function ImportWizard({
             <>
              {/* Client selector — DB clients + new clients being created in this import */}
              <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-end">
-              <label className="flex-1 text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client')}</span>
+              <label className="flex-1 text-sm text-fg-muted">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('client')}</span>
                <select
                 value={entry.existingClientId != null ? String(entry.existingClientId) : entry.pendingEntryKey != null ? `__pending__${entry.pendingEntryKey}` : '__new__'}
                 onChange={(event) => {
@@ -342,7 +342,7 @@ export default function ImportWizard({
                  const defaultAccount = accountsForClient.find((account) => account.currencyId === entry.currencyId) ?? accountsForClient[0] ?? null;
                  updateImportReviewEntry(entry.key, { existingClientId: clientId, existingAccountId: defaultAccount?.id ?? null, pendingEntryKey: null, targetCurrencyId: null });
                 }}
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                >
                 <option value="__new__">{t('import_review_create_new')}</option>
                 {/* Other review entries whose new clients can be reused */}
@@ -377,13 +377,13 @@ export default function ImportWizard({
 
               {/* New client name — only for entries creating a fresh client */}
               {entry.existingClientId == null && entry.pendingEntryKey == null ? (
-               <label className="flex-1 text-sm text-slate-700">
-                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_new_client_name')}</span>
+               <label className="flex-1 text-sm text-fg-muted">
+                <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_review_new_client_name')}</span>
                 <input
                  type="text"
                  value={entry.name}
                  onChange={(event) => updateImportReviewEntry(entry.key, { name: event.target.value })}
-                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                 />
                </label>
               ) : null}
@@ -391,8 +391,8 @@ export default function ImportWizard({
 
              {/* Organization — only for new clients */}
              {entry.existingClientId == null && entry.pendingEntryKey == null ? (
-              <label className="mt-3 block text-sm text-slate-700">
-               <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('client_organization')}</span>
+              <label className="mt-3 block text-sm text-fg-muted">
+               <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('client_organization')}</span>
                <select
                 value={entry.organizationId ?? ''}
                 onChange={(event) => {
@@ -404,7 +404,7 @@ export default function ImportWizard({
                  }
                  updateImportReviewEntry(entry.key, { organizationId: event.target.value === '' ? null : Number(event.target.value) });
                 }}
-                className="mt-1 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                >
                 <option value="">{t('overview_no_organization')}</option>
                 {organizations.map((organization) => (
@@ -425,16 +425,16 @@ export default function ImportWizard({
               ? (() => {
                  const accountsForClient = clientAccounts.filter((account) => account.clientId === entry.existingClientId);
                  if (!accountsForClient.length) {
-                  return <p className="mt-2 text-xs text-amber-600">{t('import_review_existing_no_accounts')}</p>;
+                  return <p className="mt-2 text-xs text-warn-text">{t('import_review_existing_no_accounts')}</p>;
                  }
                  if (accountsForClient.length === 1) return null;
                  return (
-                  <label className="mt-3 block text-sm text-slate-700">
-                   <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_apply_account')}</span>
+                  <label className="mt-3 block text-sm text-fg-muted">
+                   <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_review_apply_account')}</span>
                    <select
                     value={entry.existingAccountId ?? ''}
                     onChange={(event) => updateImportReviewEntry(entry.key, { existingAccountId: event.target.value === '' ? null : Number(event.target.value) })}
-                    className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.existingAccountId == null ? 'border-red-400' : 'border-slate-300'}`}
+                    className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-surface ${entry.existingAccountId == null ? 'border-red-400' : 'border-border-strong'}`}
                    >
                     <option value="">{t('import_review_select_account')}</option>
                     {accountsForClient.map((account) => (
@@ -460,16 +460,16 @@ export default function ImportWizard({
                   .map((id) => enabledCurrencies.find((c) => c.id === id) ?? currencies.find((c) => c.id === id))
                   .filter(Boolean);
                  if (refCurrencies.length === 0) {
-                  return <p className="mt-2 text-xs text-amber-600">{t('import_review_ref_no_accounts', { name: refEntry?.name || refEntry?.originalName || '' })}</p>;
+                  return <p className="mt-2 text-xs text-warn-text">{t('import_review_ref_no_accounts', { name: refEntry?.name || refEntry?.originalName || '' })}</p>;
                  }
                  if (refCurrencies.length === 1) return null;
                  return (
-                  <label className="mt-3 block text-sm text-slate-700">
-                   <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_post_to')}</span>
+                  <label className="mt-3 block text-sm text-fg-muted">
+                   <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_review_post_to')}</span>
                    <select
                     value={entry.targetCurrencyId ?? ''}
                     onChange={(event) => updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })}
-                    className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
+                    className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-surface ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-border-strong'}`}
                    >
                     <option value="">{t('import_review_select_account')}</option>
                     {refCurrencies.map(
@@ -494,15 +494,15 @@ export default function ImportWizard({
              {entry.existingClientId == null && entry.pendingEntryKey == null ? (
               <div className="mt-3 space-y-2">
                <div>
-                <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_accounts_to_open')}</span>
+                <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_review_accounts_to_open')}</span>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                 {entry.accountCurrencyIds.length === 0 ? <span className="text-xs font-semibold text-red-500">{t('import_review_accounts_required')}</span> : null}
+                 {entry.accountCurrencyIds.length === 0 ? <span className="text-xs font-semibold text-bad-text">{t('import_review_accounts_required')}</span> : null}
                  {entry.accountCurrencyIds.map((currencyId) => {
                   const currency = enabledCurrencies.find((item) => item.id === currencyId) ?? currencies.find((item) => item.id === currencyId);
                   return (
                    <span
                     key={currencyId}
-                    className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700"
+                    className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-1 text-xs font-semibold text-fg-muted"
                    >
                     {currency ? currency.code : currencyId}
                     <button
@@ -515,7 +515,7 @@ export default function ImportWizard({
                       });
                      }}
                      aria-label={t('close')}
-                     className="text-slate-400 transition hover:text-slate-700"
+                     className="text-fg-faint transition hover:text-fg-muted"
                     >
                      <svg
                       width="12"
@@ -545,7 +545,7 @@ export default function ImportWizard({
                      targetCurrencyId: entry.targetCurrencyId ?? currencyId,
                     });
                    }}
-                   className="rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600 outline-none ring-blue-300 focus:ring"
+                   className="rounded-full border border-dashed border-border-strong bg-surface px-2.5 py-1 text-xs text-fg-muted outline-none ring-blue-300 focus:ring"
                   >
                    <option value="">{t('import_review_add_account')}</option>
                    {addableCurrencies.map((currency) => (
@@ -561,12 +561,12 @@ export default function ImportWizard({
                 </div>
                </div>
                {entry.accountCurrencyIds.length >= 2 ? (
-                <label className="block text-sm text-slate-700">
-                 <span className="block text-xs font-semibold uppercase tracking-wide text-slate-500">{t('import_review_post_to')}</span>
+                <label className="block text-sm text-fg-muted">
+                 <span className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('import_review_post_to')}</span>
                  <select
                   value={entry.targetCurrencyId ?? ''}
                   onChange={(event) => updateImportReviewEntry(entry.key, { targetCurrencyId: event.target.value === '' ? null : Number(event.target.value) })}
-                  className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-white ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-slate-300'}`}
+                  className={`mt-1 w-full rounded border px-3 py-2 text-sm outline-none ring-blue-300 focus:ring bg-surface ${entry.targetCurrencyId == null ? 'border-red-400' : 'border-border-strong'}`}
                  >
                   <option value="">{t('import_review_select_account')}</option>
                   {entry.accountCurrencyIds.map((currencyId) => {
@@ -591,15 +591,15 @@ export default function ImportWizard({
 
            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
             {entry.isExpense ? (
-             <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">{t('import_review_badge_expense')}</span>
+             <span className="rounded-full bg-warn-bg px-2 py-0.5 font-semibold text-warn-text">{t('import_review_badge_expense')}</span>
             ) : entry.existingClientId != null ? (
-             <span className="rounded-full bg-slate-100 px-2 py-0.5 font-semibold text-slate-600">{t('import_review_badge_existing')}</span>
+             <span className="rounded-full bg-surface-hover px-2 py-0.5 font-semibold text-fg-muted">{t('import_review_badge_existing')}</span>
             ) : entry.pendingEntryKey != null ? (
              <span className="rounded-full bg-violet-100 px-2 py-0.5 font-semibold text-violet-700">{t('import_review_badge_new_from_import')}</span>
             ) : (
-             <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">{t('import_review_badge_new')}</span>
+             <span className="rounded-full bg-good-bg px-2 py-0.5 font-semibold text-good-text">{t('import_review_badge_new')}</span>
             )}
-            <span className="text-slate-500">{t('import_review_row_count', { count: entry.transactionCount })}</span>
+            <span className="text-fg-faint">{t('import_review_row_count', { count: entry.transactionCount })}</span>
            </div>
           </div>
          );
@@ -674,7 +674,7 @@ export default function ImportWizard({
 
        if (skipCount === 0) return null;
        return (
-        <div className="border-t border-amber-200 bg-amber-50 px-6 py-3 text-xs text-amber-800">
+        <div className="border-t border-amber-200 bg-warn-bg px-6 py-3 text-xs text-warn-text">
          <span className="font-semibold">{t('import_skip_count', { count: skipCount })}</span>
          {' — '}
          {t('import_skip_hint_pre')} <span className="font-medium">{skipNames.join(', ')}</span>. {t('import_skip_hint_post')}
@@ -682,12 +682,12 @@ export default function ImportWizard({
        );
       })()}
 
-      <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 p-6">
+      <div className="flex flex-wrap justify-end gap-2 border-t border-border p-6">
        <button
         type="button"
         onClick={() => setImportReview(null)}
         disabled={isImportingTransactions}
-        className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
        >
         {t('import_back')}
        </button>

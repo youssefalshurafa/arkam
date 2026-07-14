@@ -77,7 +77,7 @@ const ROWS: Row[] = [
 function CheckIcon() {
  return (
   <svg
-   className="mt-0.5 h-4 w-4 shrink-0 text-blue-600"
+   className="mt-0.5 h-4 w-4 shrink-0 text-accent"
    viewBox="0 0 24 24"
    fill="none"
    stroke="currentColor"
@@ -96,12 +96,12 @@ export default function FeatureShowcase() {
  const { t } = useTranslation(language);
 
  return (
-  <section className="bg-white">
+  <section className="bg-surface">
    <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-20">
     <div className="mx-auto max-w-2xl text-center">
-     <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('home_features_eyebrow')}</span>
-     <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{t('home_features_title')}</h2>
-     <p className="mt-3 text-base text-gray-600">{t('home_features_subtitle')}</p>
+     <span className="text-xs font-semibold uppercase tracking-wide text-accent">{t('home_features_eyebrow')}</span>
+     <h2 className="mt-2 text-3xl font-bold tracking-tight text-fg sm:text-4xl">{t('home_features_title')}</h2>
+     <p className="mt-3 text-base text-fg-muted">{t('home_features_subtitle')}</p>
     </div>
 
     <div className="mt-14 space-y-16 sm:space-y-24">
@@ -110,11 +110,11 @@ export default function FeatureShowcase() {
       return (
        <div key={row.slot} className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
         <div className={reversed ? 'lg:order-2' : ''}>
-         <h3 className="text-2xl font-bold tracking-tight text-gray-900">{t(row.titleKey)}</h3>
-         <p className="mt-3 text-base text-gray-600">{t(row.bodyKey)}</p>
+         <h3 className="text-2xl font-bold tracking-tight text-fg">{t(row.titleKey)}</h3>
+         <p className="mt-3 text-base text-fg-muted">{t(row.bodyKey)}</p>
          <ul className="mt-5 space-y-2.5">
           {row.bulletKeys.map((key) => (
-           <li key={key} className="flex items-start gap-2.5 text-sm text-gray-700">
+           <li key={key} className="flex items-start gap-2.5 text-sm text-fg-muted">
             <CheckIcon />
             <span>{t(key)}</span>
            </li>

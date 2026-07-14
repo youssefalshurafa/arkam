@@ -36,15 +36,15 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
        if (!ledger) return null;
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-         <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
-          <h3 className="text-lg font-semibold text-slate-900">{t('export_ledger_title')}</h3>
-          <p className="mt-1 text-sm text-slate-500">
+         <div className="w-full max-w-md rounded bg-surface p-6 shadow-2xl">
+          <h3 className="text-lg font-semibold text-fg">{t('export_ledger_title')}</h3>
+          <p className="mt-1 text-sm text-fg-faint">
            {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
           </p>
 
           <div className="mt-5 flex flex-col gap-4">
            <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_date_from')}</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_date_from')}</label>
             <input
              type="date"
              value={pdfExportModal.fromDate}
@@ -52,11 +52,11 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
               savePdfDateRange(pdfExportModal.accountId, e.target.value, pdfExportModal.toDate);
               setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev));
              }}
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
            <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_date_to')}</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_date_to')}</label>
             <input
              type="date"
              value={pdfExportModal.toDate}
@@ -64,7 +64,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
               savePdfDateRange(pdfExportModal.accountId, pdfExportModal.fromDate, e.target.value);
               setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev));
              }}
-             className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
 
@@ -94,11 +94,11 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
                  prev ? { ...prev, fromDate: newFrom, toDate: newTo, fromEntryKey: ledgerEntryKey(first), toEntryKey: ledgerEntryKey(last) } : prev,
                 );
                }}
-               className="cursor-pointer rounded border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
+               className="cursor-pointer rounded border border-amber-400 bg-warn-bg px-3 py-2 text-sm font-semibold text-warn-text transition hover:bg-warn-bg"
               >
                {t('export_use_highlights')}
               </button>
-              <p className="text-xs text-slate-400">{t('export_use_highlights_hint')}</p>
+              <p className="text-xs text-fg-faint">{t('export_use_highlights_hint')}</p>
              </div>
             );
            })()}
@@ -126,11 +126,11 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
              <>
               {startCandidates.length > 0 ? (
                <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_start_transaction')}</label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_start_transaction')}</label>
                 <select
                  value={startKey}
                  onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, fromEntryKey: e.target.value } : prev))}
-                 className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                 >
                  {startCandidates.map((entry) => (
                   <option
@@ -145,11 +145,11 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
               ) : null}
               {endCandidates.length > 0 ? (
                <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('export_end_transaction')}</label>
+                <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_end_transaction')}</label>
                 <select
                  value={endKey}
                  onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, toEntryKey: e.target.value } : prev))}
-                 className="rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                 >
                  {endCandidates.map((entry) => (
                   <option
@@ -168,7 +168,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
 
            {/* Column toggles */}
            <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('pdf_columns_label')}</label>
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('pdf_columns_label')}</label>
             <div className="mt-2 flex flex-wrap gap-1.5">
              {pdfAllColumns.map((col) => {
               const isRunningBal = col.key === 'runningBalance';
@@ -185,7 +185,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
                  setPdfExportModal((prev) => (prev ? { ...prev, cols: newCols } : prev));
                 }}
                 className={`rounded border px-2.5 py-1 text-xs font-medium transition ${
-                 isOn ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-600 hover:border-slate-400'
+                 isOn ? 'border-blue-600 bg-blue-600 text-white' : 'border-border-strong bg-surface text-fg-muted hover:border-slate-400'
                 } ${isRunningBal ? 'cursor-default opacity-60' : 'cursor-pointer'}`}
                >
                 {col.label}
@@ -214,16 +214,16 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
             const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
             const count = selected.length;
             return (
-             <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+             <div className="rounded border border-border bg-surface-2 px-4 py-3 text-sm">
               <div className="flex justify-between">
-               <span className="text-slate-500">{t('export_pre_balance')}</span>
-               <span className={`font-semibold ${preBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+               <span className="text-fg-faint">{t('export_pre_balance')}</span>
+               <span className={`font-semibold ${preBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}>
                 {preBalance.toLocaleString(numLocale, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
                </span>
               </div>
               <div className="mt-1 flex justify-between">
-               <span className="text-slate-500">{t('client_page_transaction_count')}</span>
-               <span className="font-semibold text-slate-900">{count}</span>
+               <span className="text-fg-faint">{t('client_page_transaction_count')}</span>
+               <span className="font-semibold text-fg">{count}</span>
               </div>
              </div>
             );
@@ -234,7 +234,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            <button
             type="button"
             onClick={() => setPdfExportModal(null)}
-            className="rounded border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
            >
             {t('cancel')}
            </button>

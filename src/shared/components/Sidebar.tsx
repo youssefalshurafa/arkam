@@ -45,14 +45,16 @@ export default function Sidebar({
  return (
     <aside
      className={`hidden lg:flex flex-col text-white border-r shrink-0 transition-[width,background-color] duration-200 ${
-      section === 'settings' ? 'bg-[#3b2f63] border-[#2a2049]' : 'bg-[#1e3a5f] border-[#15304f]'
+      section === 'settings'
+       ? 'bg-(--sidebar-settings-bg) border-(--sidebar-settings-border)'
+       : 'bg-(--sidebar-bg) border-(--sidebar-border)'
      } ${isSidebarCollapsed ? 'w-16' : 'w-56'}`}
      style={{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto' }}
     >
      {/* Brand */}
      <div className={`flex items-center border-b border-white/10 px-3 py-3 ${isSidebarCollapsed ? 'justify-center' : 'justify-between gap-2'}`}>
       {!isSidebarCollapsed && (
-       <div className="flex min-w-0 items-center rounded-lg bg-white px-2.5 py-1.5 shadow-sm">
+       <div className="flex min-w-0 items-center rounded-lg bg-surface px-2.5 py-1.5 shadow-sm">
         <Image
          src="/logo/arkam-logo.png"
          alt="Arkam"
@@ -178,19 +180,19 @@ export default function Sidebar({
         >
          <option
           value="en"
-          className="bg-white text-slate-900"
+          className="bg-surface text-fg"
          >
           EN
          </option>
          <option
           value="ar"
-          className="bg-white text-slate-900"
+          className="bg-surface text-fg"
          >
           عر
          </option>
          <option
           value="fr"
-          className="bg-white text-slate-900"
+          className="bg-surface text-fg"
          >
           FR
          </option>
@@ -205,19 +207,19 @@ export default function Sidebar({
         >
          <option
           value="en"
-          className="bg-white text-slate-900"
+          className="bg-surface text-fg"
          >
           {t('english')}
          </option>
          <option
           value="ar"
-          className="bg-white text-slate-900"
+          className="bg-surface text-fg"
          >
           {t('arabic')}
          </option>
          <option
           value="fr"
-          className="bg-white text-slate-900"
+          className="bg-surface text-fg"
          >
           {t('french')}
          </option>

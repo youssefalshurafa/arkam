@@ -227,7 +227,7 @@ function AuthenticatedHome() {
  const [txRowClickHighlight, setTxRowClickHighlight] = useState<boolean>(() => getStoredTxRowSettings().rowClickHighlight);
  // Whether the tx highlight/copy click mode is engaged at all; when false the pointer is
  // neutral and row clicks do nothing. Session-only — the highlight-vs-copy preference persists.
- const [txRowClickActive, setTxRowClickActive] = useState(true);
+ const [txRowClickActive, setTxRowClickActive] = useState(false);
  const [highlightedTxRows, setHighlightedTxRows] = useState<Map<number, string>>(() => getStoredTxHighlights());
  const [txRowHighlightColor, setTxRowHighlightColor] = useState<string>(() => getStoredTxRowSettings().rowHighlightColor);
  // "Sum mode" for the transactions table: a third row-click mode alongside highlight/copy.
@@ -1258,6 +1258,7 @@ function AuthenticatedHome() {
   { key: 'team', label: t('team_title'), icon: 'clients' },
   { key: 'database', label: t('settings_database_title'), icon: 'database' },
   { key: 'language', label: t('settings_language_title'), icon: 'settings' },
+  { key: 'appearance', label: t('settings_appearance_title'), icon: 'settings' },
   { key: 'pdf', label: t('settings_pdf_title'), icon: 'settings' },
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
@@ -1651,11 +1652,11 @@ function AuthenticatedHome() {
   const toRow = totalRows - chunkStart;
   return (
    <div className="flex flex-1 flex-wrap items-center justify-between gap-2">
-    <div className="text-xs text-slate-600">
+    <div className="text-xs text-fg-muted">
      {fromRow}–{toRow} {t('pagination_of')} {totalRows}
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
-     <span className="text-xs text-slate-500">{t('pagination_per_page')}</span>
+     <span className="text-xs text-fg-faint">{t('pagination_per_page')}</span>
      <select
       value={transactionsPageSize}
       onChange={(event) => {
@@ -1663,7 +1664,7 @@ function AuthenticatedHome() {
        setTransactionsPageSize(nextSize);
        setTransactionsPage(99999);
       }}
-      className="rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+      className="h-7 rounded border border-border-strong bg-surface px-1.5 text-xs outline-none ring-blue-300 focus:ring"
      >
       <option value={50}>50</option>
       <option value={100}>100</option>
@@ -1673,7 +1674,7 @@ function AuthenticatedHome() {
       type="button"
       onClick={() => setTransactionsPage((current) => Math.max(1, Math.min(current, totalTransactionPages) - 1))}
       disabled={clampedPage <= 1}
-      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
      >
       {t('pagination_prev')}
      </button>
@@ -1691,14 +1692,14 @@ function AuthenticatedHome() {
       onKeyDown={(event) => {
        if (event.key === 'Enter') event.currentTarget.blur();
       }}
-      className="w-14 rounded border border-slate-300 px-1.5 py-1 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      className="h-7 w-12 rounded border border-border-strong bg-surface px-1.5 text-center text-xs outline-none ring-blue-300 focus:ring [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
      />
-     <span className="text-xs text-slate-500">/ {totalTransactionPages}</span>
+     <span className="text-xs text-fg-faint">/ {totalTransactionPages}</span>
      <button
       type="button"
       onClick={() => setTransactionsPage((current) => Math.min(totalTransactionPages, Math.min(current, totalTransactionPages) + 1))}
       disabled={clampedPage >= totalTransactionPages}
-      className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
      >
       {t('pagination_next')}
      </button>
@@ -1805,7 +1806,7 @@ function AuthenticatedHome() {
      type="button"
      onClick={() => toggleClientSort(key)}
      title={t('sort_by', { field: label })}
-     className={`inline-flex items-center gap-1.5 font-semibold transition hover:text-blue-700 ${active ? 'text-blue-700' : 'text-slate-700'}`}
+     className={`inline-flex items-center gap-1.5 font-semibold transition hover:text-accent ${active ? 'text-accent' : 'text-fg-muted'}`}
     >
      <span>{label}</span>
      {active ? (
@@ -1832,7 +1833,7 @@ function AuthenticatedHome() {
        strokeWidth="2"
        strokeLinecap="round"
        strokeLinejoin="round"
-       className="text-slate-300"
+       className="text-fg-faint"
        aria-hidden
       >
        <polyline points="8 9 12 5 16 9" />
@@ -1901,7 +1902,7 @@ function AuthenticatedHome() {
  );
 
  return (
-  <div className={`h-screen overflow-hidden flex bg-gray-100 text-gray-900 ${isRTL ? 'rtl' : 'ltr'}`}>
+  <div className={`h-screen overflow-hidden flex bg-surface-hover text-fg ${isRTL ? 'rtl' : 'ltr'}`}>
    <main className="flex w-full">
     {/* Classic sidebar - desktop only */}
     <Sidebar
@@ -1922,7 +1923,7 @@ function AuthenticatedHome() {
      <AppHeader sidebarItems={sidebarItems} section={section} navigateToSection={navigateToSection} activeSectionMeta={activeSectionMeta} shellMetrics={shellMetrics} />
 
      {showSubscriptionBanner ? (
-      <div className="flex items-center justify-between gap-3 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
+      <div className="flex items-center justify-between gap-3 border-b border-amber-300 bg-warn-bg px-4 py-2 text-sm font-medium text-warn-text">
        {/* subscriptionDaysLeft is guaranteed 1-5 here — showSubscriptionBanner excludes
            <= 0, since an actually-expired subscription now force-signs the user out
            (see the effect above) instead of just showing a dismissible warning. */}
@@ -1934,7 +1935,7 @@ function AuthenticatedHome() {
           setSettingsTab('account');
           navigateToSection('settings');
          }}
-         className="rounded border border-amber-400 bg-white px-3 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+         className="rounded border border-amber-400 bg-surface px-3 py-1 text-xs font-semibold text-warn-text transition hover:bg-warn-bg"
         >
          {t('subscription_banner_renew')}
         </button>
@@ -1943,7 +1944,7 @@ function AuthenticatedHome() {
          onClick={dismissSubscriptionBanner}
          aria-label={t('close')}
          title={t('close')}
-         className="rounded p-0.5 text-amber-700 transition hover:bg-amber-100 hover:text-amber-900"
+         className="rounded p-0.5 text-warn-text transition hover:bg-warn-bg hover:text-warn-text"
         >
          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M18 6 6 18M6 6l12 12" />
@@ -1959,14 +1960,14 @@ function AuthenticatedHome() {
      {section !== 'settings' ? (
       <div className="flex flex-col gap-4 p-4">
        {error ? (
-        <div className="flex items-start justify-between gap-3 rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div className="flex items-start justify-between gap-3 rounded border border-red-300 bg-bad-bg px-4 py-2 text-sm text-bad-text">
          <span>{error}</span>
          <button
           type="button"
           onClick={() => setError('')}
           aria-label={t('close')}
           title={t('close')}
-          className="-mr-1 shrink-0 rounded p-0.5 text-red-600 transition hover:bg-red-100 hover:text-red-900"
+          className="-mr-1 shrink-0 rounded p-0.5 text-bad-text transition hover:bg-bad-bg hover:text-bad-text"
          >
           <svg
            width="16"
@@ -1985,14 +1986,14 @@ function AuthenticatedHome() {
         </div>
        ) : null}
        {importSummary ? (
-        <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+        <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-good-bg px-4 py-2 text-sm text-good-text">
          <span>{importSummary}</span>
          <button
           type="button"
           onClick={() => setImportSummary('')}
           aria-label={t('close')}
           title={t('close')}
-          className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
+          className="-mr-1 shrink-0 rounded p-0.5 text-good-text transition hover:bg-good-bg hover:text-good-text"
          >
           <svg
            width="16"
@@ -2019,7 +2020,7 @@ function AuthenticatedHome() {
            const archivedToday = transactions.filter((tx) => tx.isArchived && tx.createdAt.slice(0, 10) === today).length;
            if (archivedToday === 0) return null;
            return (
-            <div className="flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+            <div className="flex items-center gap-2 rounded border border-amber-300 bg-warn-bg px-4 py-2 text-sm font-semibold text-warn-text">
              <svg
               width="16"
               height="16"

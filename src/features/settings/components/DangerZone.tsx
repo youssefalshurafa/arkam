@@ -18,19 +18,19 @@ export default function DangerZone({ transactionCount, clientCount, onDeleteAllT
  return (
   <section className="flex flex-col gap-6">
    <div className={`${panelClassName} border-red-300/80`}>
-    <h2 className="text-2xl font-semibold text-red-800">{t('settings_danger_title')}</h2>
-    <p className="mt-2 text-sm text-slate-700">{t('settings_danger_description')}</p>
+    <h2 className="text-2xl font-semibold text-bad-text">{t('settings_danger_title')}</h2>
+    <p className="mt-2 text-sm text-fg-muted">{t('settings_danger_description')}</p>
 
-    <div className="mt-5 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+    <div className="mt-5 rounded border border-red-300 bg-bad-bg px-4 py-3 text-sm text-bad-text">
      <p className="font-semibold">{t('danger_zone_warning_title')}</p>
      <p className="mt-1">{t('danger_zone_warning_body')}</p>
     </div>
 
     <div className="mt-6 grid gap-4 md:grid-cols-2">
-     <div className="rounded border border-slate-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{t('danger_delete_all_transactions')}</h3>
-      <p className="mt-1 text-sm text-slate-600">{t('danger_delete_all_transactions_hint')}</p>
-      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+     <div className="rounded border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold text-fg">{t('danger_delete_all_transactions')}</h3>
+      <p className="mt-1 text-sm text-fg-muted">{t('danger_delete_all_transactions_hint')}</p>
+      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-fg-faint">
        {t('overview_transactions')}: {transactionCount}
       </p>
       <button
@@ -43,10 +43,10 @@ export default function DangerZone({ transactionCount, clientCount, onDeleteAllT
       </button>
      </div>
 
-     <div className="rounded border border-slate-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{t('danger_delete_all_clients')}</h3>
-      <p className="mt-1 text-sm text-slate-600">{t('danger_delete_all_clients_hint')}</p>
-      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+     <div className="rounded border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold text-fg">{t('danger_delete_all_clients')}</h3>
+      <p className="mt-1 text-sm text-fg-muted">{t('danger_delete_all_clients_hint')}</p>
+      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-fg-faint">
        {t('overview_clients')}: {clientCount}
       </p>
       <button

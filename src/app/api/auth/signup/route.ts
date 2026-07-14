@@ -9,6 +9,7 @@ type SignupBody = {
  name?: string;
  email?: string;
  password?: string;
+ phone?: string;
  workspaceName?: string;
 };
 
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest) {
    name: body.name,
    email: body.email,
    password: body.password,
+   phone: body.phone,
    workspaceName: body.workspaceName,
   });
 

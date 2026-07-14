@@ -126,7 +126,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
            {Array.from({ length: 4 }, (_, i) => (
             <div
              key={i}
-             className="rounded border border-slate-200 bg-slate-50 p-4 flex flex-col gap-2"
+             className="rounded border border-border bg-surface-2 p-4 flex flex-col gap-2"
             >
              <SkBar
               w="w-24"
@@ -149,7 +149,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
            {Array.from({ length: 3 }, (_, i) => (
             <div
              key={i}
-             className="rounded border border-slate-200 p-4 flex flex-col gap-2"
+             className="rounded border border-border p-4 flex flex-col gap-2"
             >
              <SkBar
               w="w-40"
@@ -173,7 +173,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
           <div className="flex items-start justify-between gap-4">
            <div>
             <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
-            <p className="mt-2 text-sm text-slate-600">{t('overview_description')}</p>
+            <p className="mt-2 text-sm text-fg-muted">{t('overview_description')}</p>
            </div>
            <button
             type="button"
@@ -191,8 +191,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
              key={card.label}
              className={mutedPanelClassName}
             >
-             <p className="text-sm text-slate-500">{card.label}</p>
-             <p className="mt-3 text-3xl font-bold text-slate-900">{isLoading ? <Spinner className="text-2xl text-slate-400" /> : card.value}</p>
+             <p className="text-sm text-fg-faint">{card.label}</p>
+             <p className="mt-3 text-3xl font-bold text-fg">{isLoading ? <Spinner className="text-2xl text-fg-faint" /> : card.value}</p>
             </div>
            ))}
           </div>
@@ -202,7 +202,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
           const mainCode = mainCurrency?.code ?? '';
           const mainSymbol = mainCurrency?.symbol || mainCode;
           const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 0 });
-          const balanceColor = (n: number) => (n >= 0 ? 'text-emerald-600' : 'text-red-600');
+          const balanceColor = (n: number) => (n >= 0 ? 'text-good-text' : 'text-bad-text');
 
           // The user-entered rate string for a card, keyed per card (orgId:currencyId)
           // so each organization's card keeps its own rate. Falls back to any legacy
@@ -312,12 +312,12 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                  }
                 }}
                 placeholder={t('overview_search_org_placeholder')}
-                className="w-52 rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                className="w-52 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                />
                {orgSearchOpen && orgSearchQuery.trim() ? (
-                <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded border border-slate-200 bg-white shadow-lg">
+                <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
                  {orgSearchMatches.length === 0 ? (
-                  <p className="px-3 py-2 text-sm text-slate-500">{t('overview_search_no_results')}</p>
+                  <p className="px-3 py-2 text-sm text-fg-faint">{t('overview_search_no_results')}</p>
                  ) : (
                   orgSearchMatches.map((org) => (
                    <button
@@ -325,7 +325,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => jumpToOrgSection(org.key)}
-                    className="block w-full truncate px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                    className="block w-full truncate px-3 py-2 text-left text-sm text-fg-muted hover:bg-surface-hover"
                    >
                     {org.name}
                    </button>
@@ -335,7 +335,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                ) : null}
               </div>
               <div className={`text-right ${balanceColor(grandTotal)}`}>
-               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{t('overview_grand_total')}</p>
+               <p className="text-xs font-medium uppercase tracking-wide text-fg-faint">{t('overview_grand_total')}</p>
                <p
                 className="text-lg font-bold"
                 dir="ltr"
@@ -346,12 +346,12 @@ export default function OverviewSection({ organizations, clients, clientAccounts
              </div>
             </div>
 
-            {anyRateMissing ? <p className="mt-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
+            {anyRateMissing ? <p className="mt-2 text-xs text-warn-text">{t('overview_set_rate')}</p> : null}
 
             {!overviewOrgBalances.hasAccounts ? (
-             <p className="mt-4 text-sm text-slate-600">{t('overview_no_balances')}</p>
+             <p className="mt-4 text-sm text-fg-muted">{t('overview_no_balances')}</p>
             ) : (
-             <div className="mt-5 divide-y-2 divide-slate-300">
+             <div className="mt-5 divide-y-2 divide-border">
               {orgEntries.map(([orgKey, orgGroups], orgIndex) => {
                const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
                const showMerged = orgGroups.length >= 2;
@@ -384,9 +384,9 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                 <div
                  key={orgKey}
                  id={`overview-org-${orgKey}`}
-                 className={`-mx-5 px-5 pb-6 pt-6 last:pb-0 first:pt-0 ${orgIndex % 2 === 1 ? 'bg-slate-50' : 'bg-white'}`}
+                 className={`-mx-5 px-5 pb-6 pt-6 last:pb-0 first:pt-0 ${orgIndex % 2 === 1 ? 'bg-surface-2' : 'bg-surface'}`}
                 >
-                 <h3 className="mb-3 text-lg font-bold uppercase tracking-wide text-slate-700">{orgName}</h3>
+                 <h3 className="mb-3 text-lg font-bold uppercase tracking-wide text-fg-muted">{orgName}</h3>
                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {orgGroups
                    .filter((group) => group.total !== 0)
@@ -426,8 +426,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                      >
                       <div className={`relative transition-transform duration-500 [transform-style:preserve-3d] ${flipped ? '[transform:rotateY(180deg)]' : ''}`}>
                        {/* FRONT — original currency */}
-                       <div className="flex flex-col rounded border border-slate-200 bg-white [backface-visibility:hidden]">
-                        <div className="flex flex-col gap-1 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                       <div className="flex flex-col rounded border border-border bg-surface [backface-visibility:hidden]">
+                        <div className="flex flex-col gap-1 border-b border-border bg-surface-2 px-3 py-2">
                          <div className="flex items-center justify-between gap-2">
                           <label className="flex min-w-0 items-center gap-1.5">
                            <input
@@ -437,23 +437,23 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                             aria-label={t('overview_select_card')}
                             className="shrink-0"
                            />
-                           <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">{orgName}</span>
+                           <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-fg-faint">{orgName}</span>
                           </label>
                           <button
                            type="button"
                            title={t('overview_print_card')}
                            aria-label={t('overview_print_card')}
                            onClick={() => printCards([cardFromGroup(group, orgName)])}
-                           className="shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-emerald-600"
+                           className="shrink-0 rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-good-text"
                           >
                            {printIcon}
                           </button>
                          </div>
                          <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-slate-700">{group.currencySymbol || group.currencyCode}</span>
+                          <span className="text-sm font-semibold text-fg-muted">{group.currencySymbol || group.currencyCode}</span>
                           {!group.isMain ? (
                           <div className="flex items-center gap-2">
-                           <label className="flex items-center gap-1 text-xs text-slate-500">
+                           <label className="flex items-center gap-1 text-xs text-fg-faint">
                             <span>{t('overview_rate_label', { currency: mainCode })}</span>
                             <input
                              type="text"
@@ -461,7 +461,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                              dir="ltr"
                              value={rateStringOf(group) ?? ''}
                              onChange={(event) => updateOverviewRate(group.key, normalizeDecimalInput(event.target.value))}
-                             className="w-16 rounded border border-slate-300 px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                             className="w-16 rounded border border-border-strong px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
                             />
                            </label>
                            {rateValid ? (
@@ -469,7 +469,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                              type="button"
                              title={t('overview_show_in_main', { currency: mainCode })}
                              onClick={toggleFlip}
-                             className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-blue-600"
+                             className="rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-accent"
                             >
                              {flipIcon}
                             </button>
@@ -479,13 +479,13 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                          </div>
                         </div>
 
-                        <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+                        <div className="flex-1 divide-y divide-border px-3 py-1">
                          {group.clients.map((client) => (
                           <div
                            key={client.clientId}
                            className="flex items-center justify-between gap-3 py-1.5 text-sm"
                           >
-                           <span className="truncate text-slate-700">{client.clientName}</span>
+                           <span className="truncate text-fg-muted">{client.clientName}</span>
                            <span
                             className={`shrink-0 font-medium ${balanceColor(client.balance)}`}
                             dir="ltr"
@@ -496,8 +496,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                          ))}
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
-                         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_card_total')}</span>
+                        <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-2 px-3 py-2">
+                         <span className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('overview_card_total')}</span>
                          <span
                           className={`font-bold ${balanceColor(group.total)}`}
                           dir="ltr"
@@ -509,8 +509,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
 
                        {/* BACK — converted to main currency */}
                        {!group.isMain ? (
-                        <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-white [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                         <div className="flex flex-col gap-1 border-b border-blue-100 bg-blue-50 px-3 py-2">
+                        <div className="absolute inset-0 flex flex-col rounded border border-blue-200 bg-surface [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                         <div className="flex flex-col gap-1 border-b border-blue-100 bg-accent-weak px-3 py-2">
                           <div className="flex items-center justify-between gap-2">
                            <label className="flex min-w-0 items-center gap-1.5">
                             <input
@@ -520,23 +520,23 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                              aria-label={t('overview_select_card')}
                              className="shrink-0"
                             />
-                            <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-blue-400">{orgName}</span>
+                            <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-accent">{orgName}</span>
                            </label>
                            <button
                             type="button"
                             title={t('overview_print_card')}
                             aria-label={t('overview_print_card')}
                             onClick={() => printCards([cardFromGroup(group, orgName, true)])}
-                            className="shrink-0 rounded p-1 text-blue-400 transition hover:bg-blue-100 hover:text-emerald-600"
+                            className="shrink-0 rounded p-1 text-accent transition hover:bg-accent-weak hover:text-good-text"
                            >
                             {printIcon}
                            </button>
                           </div>
                           <div className="flex items-center justify-between gap-2">
-                           <span className="text-sm font-semibold text-blue-700">{mainSymbol}</span>
+                           <span className="text-sm font-semibold text-accent">{mainSymbol}</span>
                            <div className="flex items-center gap-2">
                             <span
-                             className="text-xs text-blue-600"
+                             className="text-xs text-accent"
                              dir="ltr"
                             >
                              1 {group.currencyCode} = {rateStringOf(group) ?? rate} {mainCode}
@@ -545,7 +545,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                              type="button"
                              title={t('overview_show_original')}
                              onClick={toggleFlip}
-                             className="rounded p-1 text-blue-500 transition hover:bg-blue-100 hover:text-blue-700"
+                             className="rounded p-1 text-accent transition hover:bg-accent-weak hover:text-accent"
                             >
                              {flipIcon}
                             </button>
@@ -553,13 +553,13 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                           </div>
                          </div>
 
-                         <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+                         <div className="flex-1 divide-y divide-border px-3 py-1">
                           {group.clients.map((client) => (
                            <div
                             key={client.clientId}
                             className="flex items-center justify-between gap-3 py-1.5 text-sm"
                            >
-                            <span className="truncate text-slate-700">{client.clientName}</span>
+                            <span className="truncate text-fg-muted">{client.clientName}</span>
                             <span
                              className={`shrink-0 font-medium ${balanceColor(client.balance * rate)}`}
                              dir="ltr"
@@ -570,8 +570,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                           ))}
                          </div>
 
-                         <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-50 px-3 py-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
+                         <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-accent-weak px-3 py-2">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-accent">{t('overview_card_total')}</span>
                           <span
                            className={`font-bold ${balanceColor(converted)}`}
                            dir="ltr"
@@ -587,21 +587,21 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                    })}
 
                   {showMerged ? (
-                   <div className="flex flex-col rounded border-2 border-blue-200 bg-blue-50/50">
-                    <div className="border-b border-blue-200 bg-blue-100/60 px-3 py-2">
-                     <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                   <div className="flex flex-col rounded border border-border bg-surface">
+                    <div className="border-b border-border bg-accent-weak px-3 py-2">
+                     <p className="text-xs font-semibold uppercase tracking-wide text-accent">
                       {t('overview_merged_total', { org: orgName, currency: getLocalizedCurrencyName(mainCurrency?.code ?? mainCode, mainCurrency?.name ?? mainCode) })}
                      </p>
                     </div>
                     {mergedReady ? (
                      <>
-                      <div className="flex-1 divide-y divide-blue-100 px-3 py-1">
+                      <div className="flex-1 divide-y divide-border px-3 py-1">
                        {mergedClients.map((client) => (
                         <div
                          key={client.clientId}
                          className="flex items-center justify-between gap-3 py-1.5 text-sm"
                         >
-                         <span className="truncate text-slate-700">{client.clientName}</span>
+                         <span className="truncate text-fg-muted">{client.clientName}</span>
                          <span
                           className={`shrink-0 font-medium ${balanceColor(client.balance)}`}
                           dir="ltr"
@@ -611,8 +611,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                         </div>
                        ))}
                       </div>
-                      <div className="flex items-center justify-between gap-3 border-t border-blue-200 bg-blue-100/60 px-3 py-2">
-                       <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">{t('overview_card_total')}</span>
+                      <div className="flex items-center justify-between gap-3 border-t border-border bg-accent-weak px-3 py-2">
+                       <span className="text-xs font-semibold uppercase tracking-wide text-accent">{t('overview_card_total')}</span>
                        <span
                         className={`font-bold ${balanceColor(mergedTotal)}`}
                         dir="ltr"
@@ -622,7 +622,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                       </div>
                      </>
                     ) : (
-                     <p className="px-3 py-3 text-xs text-amber-600">{t('overview_set_rate')}</p>
+                     <p className="px-3 py-3 text-xs text-warn-text">{t('overview_set_rate')}</p>
                     )}
                    </div>
                   ) : null}
@@ -635,12 +635,12 @@ export default function OverviewSection({ organizations, clients, clientAccounts
            </div>
 
            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div className="flex flex-col rounded border border-slate-200 bg-white">
-             <div className="border-b border-slate-100 bg-slate-50 px-3 py-2">
-              <span className="text-sm font-semibold text-slate-700">{t('overview_general_balance')}</span>
+            <div className="flex flex-col rounded border border-border bg-surface">
+             <div className="border-b border-border bg-surface-2 px-3 py-2">
+              <span className="text-sm font-semibold text-fg-muted">{t('overview_general_balance')}</span>
              </div>
 
-             <div className="flex-1 divide-y divide-slate-100 px-3 py-1">
+             <div className="flex-1 divide-y divide-border px-3 py-1">
               {orgEntries.map(([orgKey, orgGroups]) => {
                const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
                // This org's balance in the main currency: sum of its currency groups
@@ -660,21 +660,21 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                  key={orgKey}
                  className="flex items-center justify-between gap-3 py-1.5 text-sm"
                 >
-                 <span className="truncate text-slate-700">{orgName}</span>
+                 <span className="truncate text-fg-muted">{orgName}</span>
                  <span
                   className={`shrink-0 font-medium ${balanceColor(orgTotal)}`}
                   dir="ltr"
                  >
                   {fmt(orgTotal)} {mainSymbol}
-                  {orgRateMissing ? <span className="ml-1 text-amber-500">*</span> : null}
+                  {orgRateMissing ? <span className="ml-1 text-warn-text">*</span> : null}
                  </span>
                 </div>
                );
               })}
              </div>
 
-             <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('overview_grand_total')}</span>
+             <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-2 px-3 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('overview_grand_total')}</span>
               <span
                className={`font-bold ${balanceColor(grandTotal)}`}
                dir="ltr"
@@ -683,7 +683,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
               </span>
              </div>
 
-             {anyRateMissing ? <p className="px-3 pb-2 text-xs text-amber-600">{t('overview_set_rate')}</p> : null}
+             {anyRateMissing ? <p className="px-3 pb-2 text-xs text-warn-text">{t('overview_set_rate')}</p> : null}
             </div>
            </div>
 
@@ -700,7 +700,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
              <button
               type="button"
               onClick={() => setSelectedCardKeys(new Set())}
-              className="shrink-0 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-lg transition hover:bg-slate-50"
+              className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted shadow-lg transition hover:bg-surface-hover"
              >
               {t('overview_deselect_all')}
              </button>

@@ -12,17 +12,20 @@ export const dynamic = 'force-dynamic';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
+// Returns the super-admin session when authorized, else null (so callers can both
+// gate access and log the acting admin's email).
 async function requireSuperAdmin(request: NextRequest) {
  const session = await getServerSession(authOptions);
  if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
-  return false;
+  return null;
  }
- return true;
+ return session;
 }
 
 // Uploads / replaces the screenshot for one homepage mockup slot. Super-admin only.
 export async function POST(request: NextRequest) {
- if (!(await requireSuperAdmin(request))) {
+ const session = await requireSuperAdmin(request);
+ if (!session) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
@@ -46,6 +49,7 @@ export async function POST(request: NextRequest) {
 
   const buffer = Buffer.from(await file.arrayBuffer());
   await authDb.saveMarketingAsset({ slot, mime: file.type, buffer });
+  await authDb.logAdminAction({ actorEmail: session.user?.email, action: 'upload_image', meta: { slot } });
 
   return NextResponse.json({ ok: true, slot, updatedAt: Date.now() });
  } catch (error) {
@@ -56,7 +60,8 @@ export async function POST(request: NextRequest) {
 
 // Clears the screenshot for one slot, reverting the homepage to its CSS mockup.
 export async function DELETE(request: NextRequest) {
- if (!(await requireSuperAdmin(request))) {
+ const session = await requireSuperAdmin(request);
+ if (!session) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
@@ -66,6 +71,7 @@ export async function DELETE(request: NextRequest) {
    return NextResponse.json({ error: 'Unknown image slot.' }, { status: 400 });
   }
   await authDb.deleteMarketingAsset(slot);
+  await authDb.logAdminAction({ actorEmail: session.user?.email, action: 'remove_image', meta: { slot } });
   return NextResponse.json({ ok: true, slot });
  } catch (error) {
   const message = error instanceof Error ? error.message : 'Failed to remove image.';

@@ -143,7 +143,7 @@ export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop
    ? createPortal(
       <div
        ref={ghostRef}
-       className="pointer-events-none fixed left-0 top-0 z-[9999] max-w-xs truncate rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 shadow-lg"
+       className="pointer-events-none fixed left-0 top-0 z-[9999] max-w-xs truncate rounded border border-border-strong bg-surface px-2 py-1 text-xs font-semibold text-fg-muted shadow-lg"
       >
        {ghostContent}
       </div>,

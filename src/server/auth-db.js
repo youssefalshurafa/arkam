@@ -86,10 +86,14 @@ async function ensureUserHasWorkspace(userId, preferredName) {
     return workspace.id;
 }
 
-async function createCredentialsUser({ name, email, password, workspaceName }) {
+async function createCredentialsUser({ name, email, password, phone, workspaceName }) {
     await ensurePublicSchema();
 
     const normalizedEmail = String(email || '').trim().toLowerCase();
+    // WhatsApp/phone doubles as the trusted contact used to verify identity before approving a
+    // password reset (see reviewPasswordResetRequest). Store as '+<digits>' (E.164-style).
+    const phoneDigits = String(phone || '').replace(/\D/g, '');
+    const normalizedPhone = phoneDigits ? `+${phoneDigits}` : '';
 
     if (!normalizedEmail) {
         throw new Error('Username or email is required.');
@@ -119,9 +123,9 @@ async function createCredentialsUser({ name, email, password, workspaceName }) {
 
     await withTransaction(async (client) => {
         await runQuery(
-            `INSERT INTO users (id, email, name, password_hash, subscription_started_at, subscription_ends_at)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [userId, normalizedEmail, displayName, hash, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
+            `INSERT INTO users (id, email, name, password_hash, phone, subscription_started_at, subscription_ends_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [userId, normalizedEmail, displayName, hash, normalizedPhone, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
             client,
         );
         await createWorkspaceForUserWithExecutor(client, userId, String(workspaceName || `${displayName} Workspace`).trim());
@@ -925,30 +929,17 @@ async function updateUserContact({ userId, phone }) {
     return { ok: true };
 }
 
-// Files a user-initiated password reset request (for username-only accounts the email-based
-// /forgot-password flow can't reach). Anti-enumeration: if no account matches the identifier we
-// silently return `created: false` so the caller can show the same confirmation either way. A
-// pending request already on file is not duplicated. A pending row changes nothing about the
-// account — only an admin approval (reviewPasswordResetRequest) mints a reset link.
-async function createPasswordResetRequest({ email, note }) {
-    await ensurePublicSchema();
-
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    if (!normalizedEmail) {
-        return { ok: true, created: false };
-    }
-
-    const user = await fetchOne('SELECT id, name FROM users WHERE email = $1', [normalizedEmail]);
-    if (!user?.id) {
-        return { ok: true, created: false };
-    }
-
+// Files a pending password reset request for an already-resolved user row, deduping any request
+// already on file. Shared by the identifier-based (logged-out) and userId-based (logged-in) entry
+// points. A pending row changes nothing about the account — only an admin approval
+// (reviewPasswordResetRequest) mints a reset link.
+async function fileResetRequestForUser(user, note) {
     const existing = await fetchOne(
         `SELECT id FROM password_reset_requests WHERE user_id = $1 AND status = 'pending' LIMIT 1`,
         [user.id],
     );
     if (existing?.id) {
-        return { ok: true, created: false, userId: user.id, name: user.name || '' };
+        return { ok: true, created: false, userId: user.id, name: user.name || '', username: user.email || '' };
     }
 
     await runQuery(
@@ -957,7 +948,45 @@ async function createPasswordResetRequest({ email, note }) {
         [generateId(), user.id, String(note || '').trim()],
     );
 
-    return { ok: true, created: true, userId: user.id, name: user.name || '' };
+    return { ok: true, created: true, userId: user.id, name: user.name || '', username: user.email || '' };
+}
+
+// Files a user-initiated password reset request (for username-only accounts the email-based
+// /forgot-password flow can't reach). Anti-enumeration: if no account matches the identifier we
+// silently return `created: false` so the caller can show the same confirmation either way.
+async function createPasswordResetRequest({ email, note }) {
+    await ensurePublicSchema();
+
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+        return { ok: true, created: false };
+    }
+
+    const user = await fetchOne('SELECT id, name, email FROM users WHERE email = $1', [normalizedEmail]);
+    if (!user?.id) {
+        return { ok: true, created: false };
+    }
+
+    return fileResetRequestForUser(user, note);
+}
+
+// Files a password reset request for the currently logged-in user (identified by session, so no
+// username or current password is needed). Used by the in-app "forgot your current password"
+// affordance. Reuses the same support-approval machinery as the logged-out path.
+async function createPasswordResetRequestForUser({ userId, note }) {
+    await ensurePublicSchema();
+
+    const normalizedId = String(userId || '').trim();
+    if (!normalizedId) {
+        return { ok: true, created: false };
+    }
+
+    const user = await fetchOne('SELECT id, name, email FROM users WHERE id = $1', [normalizedId]);
+    if (!user?.id) {
+        return { ok: true, created: false };
+    }
+
+    return fileResetRequestForUser(user, note);
 }
 
 // Lists password reset requests joined with the requester's user info. `phone` is the trusted
@@ -1203,6 +1232,10 @@ async function listAllUsers() {
             u.image,
             CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' ELSE 'oauth' END AS "authProvider",
             u.created_at AS "createdAt",
+            u.status,
+            u.phone,
+            u.subscription_started_at AS "subscriptionStartedAt",
+            u.subscription_ends_at AS "subscriptionEndsAt",
             COUNT(DISTINCT wm.workspace_id)::int AS "workspaceCount",
             COALESCE(
                 json_agg(
@@ -1390,8 +1423,74 @@ async function deleteMarketingAsset(slot) {
     return { ok: true };
 }
 
+// --- Admin audit log -------------------------------------------------------
+
+// Records one super-admin action. Best-effort: audit logging must never break the
+// primary action, so failures are swallowed. When target_email/name aren't supplied
+// but a targetUserId is, we snapshot them from the users table so the audit row stays
+// meaningful even after the user is later deleted.
+async function logAdminAction({ actorEmail, action, targetUserId, targetEmail, targetName, meta } = {}) {
+    if (!action) return;
+    try {
+        await ensurePublicSchema();
+        let email = targetEmail || null;
+        let name = targetName || null;
+        if (targetUserId && (!email || !name)) {
+            const u = await fetchOne('SELECT email, name FROM users WHERE id = $1', [targetUserId]);
+            if (u) {
+                email = email || u.email || null;
+                name = name || u.name || null;
+            }
+        }
+        await runQuery(
+            `INSERT INTO admin_audit (actor_email, action, target_user_id, target_email, target_name, meta)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [actorEmail || null, String(action), targetUserId || null, email, name, meta ? JSON.stringify(meta) : null],
+        );
+    } catch (error) {
+        console.error('[admin audit] failed to log action:', error);
+    }
+}
+
+// Returns a merged, newest-first feed of super-admin actions (from admin_audit) and
+// recent user login events (from user_activity_events) — the two halves the audit
+// screen shows. Login rows join to users for a display name; deleted users are dropped.
+async function listAdminAudit({ limit = 100 } = {}) {
+    await ensurePublicSchema();
+    const cap = Math.min(Math.max(Number(limit) || 100, 1), 500);
+
+    const admin = await runQuery(
+        `SELECT 'admin' AS kind, id, actor_email AS "actorEmail", action,
+                target_user_id AS "targetUserId", target_email AS "targetEmail",
+                target_name AS "targetName", meta, created_at AS "createdAt"
+         FROM admin_audit
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [cap],
+    );
+
+    const logins = await runQuery(
+        `SELECT 'login' AS kind, e.id, NULL AS "actorEmail", 'login' AS action,
+                u.id AS "targetUserId", u.email AS "targetEmail", u.name AS "targetName",
+                NULL::jsonb AS meta, e.created_at AS "createdAt"
+         FROM user_activity_events e
+         JOIN users u ON u.id = e.user_id
+         WHERE e.event_type = 'login'
+         ORDER BY e.created_at DESC
+         LIMIT $1`,
+        [cap],
+    );
+
+    return [...admin.rows, ...logins.rows]
+        .map((r) => ({ ...r, id: `${r.kind}-${r.id}` }))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, cap);
+}
+
 module.exports = {
     openAuthDb,
+    logAdminAction,
+    listAdminAudit,
     saveMarketingAsset,
     getMarketingAsset,
     listMarketingAssets,
@@ -1426,6 +1525,7 @@ module.exports = {
     clearUserPassword,
     updateUserContact,
     createPasswordResetRequest,
+    createPasswordResetRequestForUser,
     listPasswordResetRequests,
     reviewPasswordResetRequest,
     listAccessRequests,

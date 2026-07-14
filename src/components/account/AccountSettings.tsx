@@ -33,7 +33,7 @@ type PaymentInfo = {
 const MAX_PROOF_BYTES = 5 * 1024 * 1024;
 const ALLOWED_PROOF_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
-const panelClass = 'rounded-lg border border-gray-200 bg-white p-5 shadow-sm';
+const panelClass = 'rounded-lg border border-border bg-surface p-5 shadow-sm';
 
 export default function AccountSettings({ hideSubscription = false }: { hideSubscription?: boolean }) {
  const { language } = useLanguage();
@@ -58,6 +58,11 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
  const [pwdSuccess, setPwdSuccess] = useState('');
  const [pwdSubmitting, setPwdSubmitting] = useState(false);
  const [passwordOpen, setPasswordOpen] = useState(false);
+
+ // "Forgot current password" support-approval request state
+ const [resetRequesting, setResetRequesting] = useState(false);
+ const [resetRequested, setResetRequested] = useState(false);
+ const [resetError, setResetError] = useState('');
 
  // Renew state
  const [showRenew, setShowRenew] = useState(false);
@@ -187,6 +192,30 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
   }
  };
 
+ // Files a support-approval reset request for the logged-in user who has forgotten their current
+ // password (username-only accounts can't use the email reset link). Support verifies identity via
+ // the trusted contact and hands over a one-time reset link.
+ const onRequestReset = async () => {
+  setResetError('');
+  setResetRequesting(true);
+  try {
+   const res = await fetch('/api/auth/reset-request/authenticated', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+   });
+   const data = (await res.json()) as { ok?: boolean; error?: string };
+   if (!res.ok || !data.ok) {
+    throw new Error(data.error || t('account_password_forgot_failed'));
+   }
+   setResetRequested(true);
+  } catch (err) {
+   setResetError(err instanceof Error ? err.message : t('account_password_forgot_failed'));
+  } finally {
+   setResetRequesting(false);
+  }
+ };
+
  const onFileChange = (file: File | null) => {
   setRenewError('');
   if (proofPreview) URL.revokeObjectURL(proofPreview);
@@ -252,12 +281,12 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
 
  const toneBadge =
   subscriptionState.tone === 'expired'
-   ? 'bg-red-50 text-red-700'
+   ? 'bg-bad-bg text-bad-text'
    : subscriptionState.tone === 'soon'
-    ? 'bg-amber-50 text-amber-800'
+    ? 'bg-warn-bg text-warn-text'
     : subscriptionState.tone === 'active'
-     ? 'bg-green-50 text-green-700'
-     : 'bg-gray-100 text-gray-500';
+     ? 'bg-good-bg text-good-text'
+     : 'bg-surface-hover text-fg-faint';
 
  const toneLabel =
   subscriptionState.tone === 'expired'
@@ -280,25 +309,25 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
    {!hideSubscription && (
    <div className={panelClass}>
     <h2 className="text-2xl font-semibold">{t('account_subscription_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('account_subscription_desc')}</p>
+    <p className="mt-2 text-sm text-fg-muted">{t('account_subscription_desc')}</p>
 
     <div className="mt-5 grid gap-4 sm:grid-cols-3">
-     <div className="rounded border border-gray-200 bg-gray-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('account_status')}</p>
+     <div className="rounded border border-border bg-surface-2 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('account_status')}</p>
       <span className={`mt-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${toneBadge}`}>{toneLabel}</span>
      </div>
-     <div className="rounded border border-gray-200 bg-gray-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('account_started')}</p>
-      <p className="mt-2 text-sm text-slate-900">{formatDate(info?.subscriptionStartedAt ?? null)}</p>
+     <div className="rounded border border-border bg-surface-2 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('account_started')}</p>
+      <p className="mt-2 text-sm text-fg">{formatDate(info?.subscriptionStartedAt ?? null)}</p>
      </div>
-     <div className="rounded border border-gray-200 bg-gray-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('account_ends')}</p>
-      <p className="mt-2 text-sm text-slate-900">{formatDate(info?.subscriptionEndsAt ?? null)}</p>
+     <div className="rounded border border-border bg-surface-2 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('account_ends')}</p>
+      <p className="mt-2 text-sm text-fg">{formatDate(info?.subscriptionEndsAt ?? null)}</p>
      </div>
     </div>
 
     {renewSubmitted || info?.pendingRenewal ? (
-     <div className="mt-4 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{t('account_renew_pending')}</div>
+     <div className="mt-4 rounded border border-amber-200 bg-warn-bg px-4 py-3 text-sm text-warn-text">{t('account_renew_pending')}</div>
     ) : null}
 
     {!showRenew ? (
@@ -310,10 +339,10 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
       {t('account_renew_button')}
      </button>
     ) : (
-     <form onSubmit={(e) => void onSubmitRenew(e)} className="mt-5 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
+     <form onSubmit={(e) => void onSubmitRenew(e)} className="mt-5 rounded-lg border border-border bg-accent-weak p-4">
       <div className="flex items-center justify-between">
-       <p className="text-sm font-semibold text-gray-900">{t('signup_payment_title')}</p>
-       <button type="button" onClick={() => setShowRenew(false)} className="text-xs font-semibold text-slate-500 hover:text-slate-700">
+       <p className="text-sm font-semibold text-fg">{t('signup_payment_title')}</p>
+       <button type="button" onClick={() => setShowRenew(false)} className="text-xs font-semibold text-fg-faint hover:text-fg-muted">
         {t('cancel')}
        </button>
       </div>
@@ -329,13 +358,13 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
            type="button"
            onClick={() => setSelectedPlanId(tier.id)}
            className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left transition ${
-            selected ? 'border-blue-600 bg-white ring-1 ring-blue-600' : 'border-gray-300 bg-white hover:border-gray-400'
+            selected ? 'border-blue-600 bg-surface ring-1 ring-blue-600' : 'border-border-strong bg-surface hover:border-gray-400'
            }`}
           >
-           <span className="text-sm font-semibold text-gray-900">{tierLabel(tier)}</span>
+           <span className="text-sm font-semibold text-fg">{tierLabel(tier)}</span>
            <span className="flex items-baseline gap-1.5">
-            {tier.originalUsdt && <span className="text-xs text-gray-400 line-through">{tier.originalUsdt}</span>}
-            <span className="text-sm font-bold text-gray-900">{tier.amount}</span>
+            {tier.originalUsdt && <span className="text-xs text-fg-faint line-through">{tier.originalUsdt}</span>}
+            <span className="text-sm font-bold text-fg">{tier.amount}</span>
            </span>
           </button>
          );
@@ -347,62 +376,62 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
        <>
         {paymentInfo.qrDataUrl ? (
          // eslint-disable-next-line @next/next/no-img-element
-         <img src={paymentInfo.qrDataUrl} alt="USDT wallet QR" className="mx-auto my-3 h-40 w-40 rounded border border-gray-200 bg-white p-1" />
+         <img src={paymentInfo.qrDataUrl} alt="USDT wallet QR" className="mx-auto my-3 h-40 w-40 rounded border border-border bg-surface p-1" />
         ) : null}
-        <label className="mb-1 block text-xs font-semibold text-gray-600">
+        <label className="mb-1 block text-xs font-semibold text-fg-muted">
          {t('signup_payment_address_label')} ({paymentInfo.network})
         </label>
         <div className="flex items-stretch gap-2">
-         <code className="min-w-0 flex-1 truncate rounded border border-gray-300 bg-white px-2 py-2 text-xs text-gray-800">{paymentInfo.address}</code>
+         <code className="min-w-0 flex-1 truncate rounded border border-border-strong bg-surface px-2 py-2 text-xs text-fg">{paymentInfo.address}</code>
          <button
           type="button"
           onClick={() => void copyAddress()}
-          className="shrink-0 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
+          className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover"
          >
           {addressCopied ? t('signup_payment_copied') : t('signup_payment_copy')}
          </button>
         </div>
-        <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+        <p className="mt-2 rounded border border-amber-200 bg-warn-bg px-2 py-1.5 text-xs text-warn-text">
          {t('signup_payment_network_warning', { network: paymentInfo.network })}
         </p>
        </>
       ) : (
-       <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">{t('signup_payment_not_configured')}</p>
+       <p className="mt-2 rounded border border-amber-200 bg-warn-bg px-2 py-1.5 text-xs text-warn-text">{t('signup_payment_not_configured')}</p>
       )}
 
       {/* Screenshot */}
       <div className="mt-3">
-       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('signup_proof_label')}</label>
+       <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_proof_label')}</label>
        <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => onFileChange(e.target.files?.[0] ?? null)} className="hidden" />
        {proofPreview ? (
         <div className="flex items-center gap-3">
          {/* eslint-disable-next-line @next/next/no-img-element */}
-         <img src={proofPreview} alt="payment proof preview" className="h-16 w-16 rounded border border-gray-200 object-cover" />
-         <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50">
+         <img src={proofPreview} alt="payment proof preview" className="h-16 w-16 rounded border border-border object-cover" />
+         <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded border border-border-strong bg-surface px-3 py-2 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover">
           {t('signup_proof_change')}
          </button>
         </div>
        ) : (
-        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full rounded border border-dashed border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-600 transition hover:bg-gray-50">
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full rounded border border-dashed border-border-strong bg-surface px-4 py-3 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover">
          {t('signup_proof_upload')}
         </button>
        )}
-       <p className="mt-1 text-xs text-gray-400">{t('signup_proof_hint')}</p>
+       <p className="mt-1 text-xs text-fg-faint">{t('signup_proof_hint')}</p>
       </div>
 
       {/* Tx hash */}
       <div className="mt-3">
-       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('signup_tx_label')}</label>
+       <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_tx_label')}</label>
        <input
         type="text"
         value={txReference}
         onChange={(e) => setTxReference(e.target.value)}
         placeholder={t('signup_tx_placeholder')}
-        className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
        />
       </div>
 
-      {renewError && <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{renewError}</p>}
+      {renewError && <p className="mt-3 rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{renewError}</p>}
 
       <button
        type="submit"
@@ -419,9 +448,9 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
    {/* Change email */}
    <div className={panelClass}>
     <h2 className="text-2xl font-semibold">{t('account_email_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('account_email_desc')}</p>
+    <p className="mt-2 text-sm text-fg-muted">{t('account_email_desc')}</p>
     {info?.email ? (
-     <p className="mt-2 text-sm text-slate-900">
+     <p className="mt-2 text-sm text-fg">
       <span className="font-mono">{info.email}</span>
      </p>
     ) : null}
@@ -437,40 +466,40 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
     ) : (
      <form onSubmit={(e) => void onChangeEmail(e)} className="mt-5 max-w-sm space-y-4">
       <div>
-       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_email_new')}</label>
+       <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_email_new')}</label>
        <input
         type="email"
         value={newEmail}
         onChange={(e) => setNewEmail(e.target.value)}
-        className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
         autoComplete="email"
         required
        />
       </div>
       <div>
-       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_email_confirm')}</label>
+       <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_email_confirm')}</label>
        <input
         type="email"
         value={confirmEmail}
         onChange={(e) => setConfirmEmail(e.target.value)}
-        className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
         autoComplete="email"
         required
        />
       </div>
       <div>
-       <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_current_password')}</label>
+       <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_current_password')}</label>
        <input
         type="password"
         value={emailPassword}
         onChange={(e) => setEmailPassword(e.target.value)}
-        className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+        className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
         autoComplete="current-password"
        />
       </div>
 
-      {emailError && <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{emailError}</p>}
-      {emailSuccess && <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{emailSuccess}</p>}
+      {emailError && <p className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{emailError}</p>}
+      {emailSuccess && <p className="rounded border border-green-300 bg-good-bg px-3 py-2 text-sm text-good-text">{emailSuccess}</p>}
 
       <div className="flex items-center gap-3">
        <button
@@ -490,7 +519,7 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
          setConfirmEmail('');
          setEmailPassword('');
         }}
-        className="text-sm font-semibold text-slate-500 transition hover:text-slate-700"
+        className="text-sm font-semibold text-fg-faint transition hover:text-fg-muted"
        >
         {t('cancel')}
        </button>
@@ -502,7 +531,7 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
    {/* Change password */}
    <div className={panelClass}>
     <h2 className="text-2xl font-semibold">{t('account_password_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('account_password_desc')}</p>
+    <p className="mt-2 text-sm text-fg-muted">{t('account_password_desc')}</p>
 
     {!passwordOpen ? (
      <button
@@ -515,42 +544,42 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
     ) : (
     <form onSubmit={(e) => void onChangePassword(e)} className="mt-5 max-w-sm space-y-4">
      <div>
-      <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_current_password')}</label>
+      <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_current_password')}</label>
       <input
        type="password"
        value={currentPassword}
        onChange={(e) => setCurrentPassword(e.target.value)}
-       className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+       className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
        autoComplete="current-password"
       />
      </div>
      <div>
-      <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_new_password')}</label>
+      <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_new_password')}</label>
       <input
        type="password"
        value={newPassword}
        onChange={(e) => setNewPassword(e.target.value)}
-       className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+       className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
        minLength={8}
        autoComplete="new-password"
        required
       />
      </div>
      <div>
-      <label className="mb-1 block text-xs font-semibold text-gray-600">{t('account_confirm_password')}</label>
+      <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_confirm_password')}</label>
       <input
        type="password"
        value={confirmPassword}
        onChange={(e) => setConfirmPassword(e.target.value)}
-       className="w-full rounded border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+       className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
        minLength={8}
        autoComplete="new-password"
        required
       />
      </div>
 
-     {pwdError && <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{pwdError}</p>}
-     {pwdSuccess && <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{pwdSuccess}</p>}
+     {pwdError && <p className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{pwdError}</p>}
+     {pwdSuccess && <p className="rounded border border-green-300 bg-good-bg px-3 py-2 text-sm text-good-text">{pwdSuccess}</p>}
 
      <div className="flex items-center gap-3">
       <button
@@ -570,13 +599,36 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
         setNewPassword('');
         setConfirmPassword('');
        }}
-       className="text-sm font-semibold text-slate-500 transition hover:text-slate-700"
+       className="text-sm font-semibold text-fg-faint transition hover:text-fg-muted"
       >
        {t('cancel')}
       </button>
      </div>
     </form>
     )}
+
+    {/* Forgot current password — support-approval reset for logged-in users (esp. username-only). */}
+    <div className="mt-5 border-t border-border pt-4">
+     {resetRequested ? (
+      <p className="rounded border border-green-300 bg-good-bg px-3 py-2 text-sm text-good-text">
+       {t('account_password_forgot_done')}
+      </p>
+     ) : (
+      <>
+       <button
+        type="button"
+        onClick={() => void onRequestReset()}
+        disabled={resetRequesting}
+        className="text-sm font-semibold text-accent transition hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
+       >
+        {resetRequesting ? t('account_password_forgot_submit') : t('account_password_forgot')}
+       </button>
+       {resetError && (
+        <p className="mt-2 rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{resetError}</p>
+       )}
+      </>
+     )}
+    </div>
    </div>
   </section>
  );

@@ -295,6 +295,23 @@ async function ensurePublicSchema() {
 
                     CREATE INDEX IF NOT EXISTS idx_user_activity_events_user ON user_activity_events(user_id, created_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_user_activity_events_user_type ON user_activity_events(user_id, event_type);
+
+                    -- Audit trail of super-admin actions (approvals, deletions, password
+                    -- resets, subscription changes, marketing edits). target_user_id is a
+                    -- plain column, NOT a foreign key: the audit row must survive after the
+                    -- user it refers to is deleted, so we snapshot email/name at write time.
+                    CREATE TABLE IF NOT EXISTS admin_audit (
+                        id BIGSERIAL PRIMARY KEY,
+                        actor_email TEXT,
+                        action TEXT NOT NULL,
+                        target_user_id TEXT,
+                        target_email TEXT,
+                        target_name TEXT,
+                        meta JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at DESC);
                 `);
             });
         })().catch((error) => {

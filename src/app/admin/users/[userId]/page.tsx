@@ -1,167 +1,47 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useStableSession } from '@/hooks/useStableSession';
-import LockButton from '@/app/admin/LockButton';
 import { getSubscriptionState } from '@/app/admin/subscription';
+import { useAdminI18n } from '../../_ui/useAdminI18n';
+import { Icon } from '../../_ui/icons';
+import { Avatar, AuthBadge, RoleBadge, SubscriptionBadge, StatTile, StateBlock } from '../../_ui/primitives';
+import { formatDate, formatDateTime } from '../../_lib/format';
+import type { DetailResponse } from '../../_lib/types';
 
-type WorkspaceStats = {
- organizationCount: number;
- clientCount: number;
- accountCount: number;
- transactionCount: number;
- adjustmentCount: number;
- lastTransactionAt: string | null;
-};
-
-type Workspace = {
- id: string;
- name: string;
- slug: string;
- role: string;
- isOwner: boolean;
- createdAt: string;
- stats: WorkspaceStats;
-};
-
-type UserDetail = {
- id: string;
- email: string;
- name: string;
- image: string | null;
- authProvider: 'credentials' | 'oauth';
- createdAt: string;
- status: 'pending' | 'approved' | 'rejected';
- phone: string;
- subscriptionStartedAt: string | null;
- subscriptionEndsAt: string | null;
-};
-
-type PendingAccessRequest = {
- id: string;
- plan: string;
- amount: string;
- network: string;
- txReference: string;
- hasProof: boolean;
- createdAt: string;
-};
-
-type SectionVisit = {
- section: string;
- count: number;
- lastVisitAt: string | null;
-};
-
-type ActivitySummary = {
- appOpenCount: number;
- lastAppOpenAt: string | null;
- loginCount: number;
- lastLoginAt: string | null;
- lastActiveAt: string | null;
- sectionVisits: SectionVisit[];
-};
-
-type DetailResponse = {
- user: UserDetail;
- workspaces: Workspace[];
- totals: WorkspaceStats;
- pendingAccessRequest: PendingAccessRequest | null;
- activity: ActivitySummary;
-};
-
-// Friendly names for the section keys recorded by the client activity beacon
-// (see Section union in src/shared/types). Falls back to the raw key if unmapped.
-const SECTION_LABELS: Record<string, string> = {
- overview: 'Overview',
- organizations: 'Organizations',
- 'organization-clients': 'Organization clients',
- clients: 'Clients',
- 'client-ledger': 'Client ledger',
- currencies: 'Currencies',
- transactions: 'Transactions',
- archive: 'Archive',
- 'live-rates': 'Live rates',
- treasury: 'Treasury',
- settings: 'Settings',
-};
-
-function sectionLabel(section: string) {
- return SECTION_LABELS[section] || section || '—';
+// Section keys recorded by the client activity beacon map to admin_section_* i18n
+// keys; unknown keys fall back to the raw section string.
+function sectionLabel(section: string, t: (k: string) => string) {
+ if (!section) return '—';
+ const key = `admin_section_${section}`;
+ const val = t(key);
+ return val === key ? section : val;
 }
 
-function formatDate(iso: string | null) {
- if (!iso) return '—';
- return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function formatDateTime(iso: string | null) {
- if (!iso) return 'Never';
- return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-// Mirrors the paid-plan durations in src/config/plan.ts, so an admin's manual "renew"
-// grants exactly what a real monthly/6-month/annual purchase would.
+// Mirrors the paid-plan durations in src/config/plan.ts.
 const RENEW_QUICK_OPTIONS = [
- { label: '+30 days', days: 30 },
- { label: '+6 months', days: 180 },
- { label: '+1 year', days: 365 },
+ { labelKey: 'admin_ud_renew_30', days: 30 },
+ { labelKey: 'admin_ud_renew_180', days: 180 },
+ { labelKey: 'admin_ud_renew_365', days: 365 },
 ];
-
-function getInitials(name: string) {
- return name
-  .split(' ')
-  .map((w) => w[0])
-  .join('')
-  .toUpperCase()
-  .slice(0, 2);
-}
-
-function teamRoleLabel(role: string) {
- switch (role) {
-  case 'owner':
-   return 'Owner';
-  case 'admin':
-   return 'Admin';
-  case 'member':
-   return 'Editor';
-  case 'viewer':
-   return 'Reviewer';
-  default:
-   return role;
- }
-}
-
-function StatCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
- return (
-  <div className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-1">
-   <span className="text-2xl font-bold text-gray-900">{value}</span>
-   <span className="text-sm font-medium text-gray-700">{label}</span>
-   {sub && <span className="text-xs text-gray-400">{sub}</span>}
-  </div>
- );
-}
 
 export default function AdminUserDetailPage() {
  const { status: sessionStatus } = useStableSession();
  const router = useRouter();
  const params = useParams<{ userId: string }>();
  const userId = params?.userId || '';
+ const { t, language } = useAdminI18n();
 
  const [data, setData] = useState<DetailResponse | null>(null);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
 
- // Subscription quick-edit: manual "days remaining" override, plus the +30/+6mo/+1yr
- // renew shortcuts. Both hit the same admin endpoint the main panel's per-row
- // Renew/Set days buttons use; success patches `data` locally instead of a full reload.
  const [daysInput, setDaysInput] = useState('');
  const [subMutating, setSubMutating] = useState(false);
  const [subError, setSubError] = useState('');
 
- // Trusted contact (phone/WhatsApp) — the number the admin calls to verify identity before
- // approving a password reset. Editable here so existing accounts (whose phone is empty) get one.
  const [phoneInput, setPhoneInput] = useState('');
  const [phoneMutating, setPhoneMutating] = useState(false);
  const [phoneError, setPhoneError] = useState('');
@@ -252,9 +132,7 @@ export default function AdminUserDetailPage() {
  };
 
  useEffect(() => {
-  if (sessionStatus === 'unauthenticated') {
-   router.replace('/login');
-  }
+  if (sessionStatus === 'unauthenticated') router.replace('/login');
  }, [sessionStatus, router]);
 
  const loadUser = useCallback(async () => {
@@ -284,338 +162,191 @@ export default function AdminUserDetailPage() {
   void loadUser();
  }, [sessionStatus, userId, loadUser]);
 
- if (sessionStatus === 'loading' || loading) {
-  return (
-   <div className="min-h-screen flex items-center justify-center bg-gray-50">
-    <div className="text-gray-400 text-sm">Loading…</div>
-   </div>
-  );
- }
+ const backLink = (
+  <Link href="/admin/users" className="ad-link ad-flip" style={{ margin: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+   <Icon name="back" width={15} height={15} strokeWidth={2} />
+   {t('admin_nav_users')}
+  </Link>
+ );
 
- if (error === 'forbidden') {
-  return (
-   <div className="min-h-screen flex items-center justify-center bg-gray-50">
-    <div className="text-center">
-     <p className="text-4xl mb-2">🚫</p>
-     <h1 className="text-xl font-semibold text-gray-800 mb-1">Access Denied</h1>
-     <p className="text-sm text-gray-500">You are not authorised to view this page.</p>
-    </div>
-   </div>
-  );
- }
-
+ if (sessionStatus === 'loading' || loading) return <StateBlock>{t('admin_loading')}</StateBlock>;
+ if (error === 'forbidden') return <StateBlock>🚫 {t('admin_access_denied')}</StateBlock>;
  if (error === 'not_found' || !data) {
   return (
-   <div className="min-h-screen flex items-center justify-center bg-gray-50">
-    <div className="text-center">
-     <p className="text-4xl mb-2">🔍</p>
-     <h1 className="text-xl font-semibold text-gray-800 mb-1">User not found</h1>
-     <button
-      onClick={() => router.push('/admin')}
-      className="mt-3 text-sm text-indigo-600 hover:underline"
-     >
-      Back to admin panel
-     </button>
-    </div>
+   <div className="ad-card ad-card-pad" style={{ textAlign: 'center', padding: '48px 24px' }}>
+    <div style={{ fontSize: 15, fontWeight: 650 }}>{t('admin_user_not_found')}</div>
+    <div style={{ marginTop: 10 }}>{backLink}</div>
    </div>
   );
  }
 
  const { user, workspaces, totals, pendingAccessRequest, activity } = data;
- const sub = getSubscriptionState(user.subscriptionEndsAt);
- const subTone =
-  sub.tone === 'expired' ? 'bg-red-50 text-red-700' : sub.tone === 'soon' ? 'bg-amber-50 text-amber-800' : sub.tone === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500';
 
  return (
-  <div dir="ltr" className="min-h-screen bg-gray-50">
-   <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between gap-3">
-    <div className="flex items-center gap-3">
-     <button
-      onClick={() => router.push('/admin')}
-      className="text-gray-400 hover:text-gray-700 text-sm flex items-center gap-1"
-     >
-      <svg
-       width="16"
-       height="16"
-       viewBox="0 0 16 16"
-       fill="none"
-       xmlns="http://www.w3.org/2000/svg"
-      >
-       <path
-        d="M10 12L6 8L10 4"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-       />
-      </svg>
-      Back
+  <>
+   <div>{backLink}</div>
+
+   {/* Profile */}
+   <div className="ad-card ad-card-pad ad-row" style={{ gap: 16 }}>
+    <Avatar name={user.name} image={user.image} id={user.id} size={56} />
+    <div style={{ flex: 1, minWidth: 0 }}>
+     <div className="ad-row ad-wrap" style={{ gap: 8 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 650, margin: 0 }}>{user.name}</h2>
+      <AuthBadge provider={user.authProvider} t={t} />
+      <SubscriptionBadge endsAt={user.subscriptionEndsAt} />
+     </div>
+     <p className="ad-u-email" style={{ marginTop: 2 }}>{user.email}</p>
+     <p className="ad-faint ad-num" style={{ fontSize: 12, marginTop: 4 }}>
+      {t('admin_ud_joined').replace('{date}', formatDate(user.createdAt, language))}
+      {user.subscriptionStartedAt ? ` · ${t('admin_started_label')} ${formatDate(user.subscriptionStartedAt, language)}` : ''}
+      {user.subscriptionEndsAt ? ` · ${t('admin_ends_label')} ${formatDate(user.subscriptionEndsAt, language)}` : ''}
+     </p>
+    </div>
+   </div>
+
+   {/* Trusted contact */}
+   <div className="ad-card ad-card-pad">
+    <h3 className="ad-section-title" style={{ marginBottom: 2 }}>{t('admin_ud_trusted_contact')}</h3>
+    <p className="ad-faint" style={{ fontSize: 12, marginBottom: 12 }}>{t('admin_ud_trusted_desc')}</p>
+    {phoneError && <p style={{ color: 'var(--ad-bad-text)', fontSize: 13, marginBottom: 8 }}>{phoneError}</p>}
+    <div className="ad-row" style={{ gap: 8 }}>
+     <input
+      className="ad-input"
+      style={{ maxWidth: 260 }}
+      type="text"
+      value={phoneInput}
+      onChange={(e) => setPhoneInput(e.target.value)}
+      disabled={phoneMutating}
+      placeholder="e.g. +20 100 000 0000"
+     />
+     <button className="ad-btn sm primary" onClick={() => void onSavePhone()} disabled={phoneMutating || phoneInput.trim() === (user.phone || '')}>
+      {phoneSaved ? t('admin_saved') : t('admin_save')}
      </button>
-     <span className="text-gray-300">|</span>
-     <h1 className="text-base font-semibold text-gray-900">User details</h1>
     </div>
-    <LockButton />
    </div>
 
-   <div className="max-w-5xl mx-auto px-6 py-8">
-    {/* Profile card */}
-    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 flex items-center gap-4">
-     {user.image ? (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-       src={user.image}
-       alt={user.name}
-       className="w-14 h-14 rounded-full object-cover"
-      />
-     ) : (
-      <div className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center text-white text-lg font-semibold shrink-0">{getInitials(user.name)}</div>
-     )}
-     <div className="flex-1">
-      <div className="flex items-center gap-2">
-       <h2 className="text-lg font-semibold text-gray-900">{user.name}</h2>
-       <span
-        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-         user.authProvider === 'oauth' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'
-        }`}
-       >
-        {user.authProvider === 'oauth' ? 'Google' : 'Password'}
-       </span>
-       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${subTone}`}>{sub.label}</span>
-      </div>
-      <p className="text-sm text-gray-400">{user.email}</p>
-      <p className="text-xs text-gray-400 mt-1">
-       Joined {formatDate(user.createdAt)}
-       {user.subscriptionStartedAt ? ` · Subscription started ${formatDate(user.subscriptionStartedAt)}` : ''}
-       {user.subscriptionEndsAt ? ` · Ends ${formatDate(user.subscriptionEndsAt)}` : ''}
-      </p>
-     </div>
-    </div>
-
-    {/* Trusted contact — the number the admin calls to verify identity before approving a
-        password reset request (see the Password Resets tab). */}
-    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-     <h3 className="text-sm font-semibold text-gray-700 mb-1">Trusted contact</h3>
-     <p className="text-xs text-gray-400 mb-4">Phone / WhatsApp used to verify this user out-of-band before approving a password reset.</p>
-     {phoneError && <p className="mb-3 text-sm text-red-600">{phoneError}</p>}
-     <div className="flex items-center gap-2">
-      <input
-       type="text"
-       value={phoneInput}
-       onChange={(e) => setPhoneInput(e.target.value)}
-       disabled={phoneMutating}
-       placeholder="e.g. +20 100 000 0000"
-       className="w-64 max-w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
-      />
-      <button
-       onClick={() => void onSavePhone()}
-       disabled={phoneMutating || phoneInput.trim() === (user.phone || '')}
-       className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
-      >
-       {phoneSaved ? 'Saved' : 'Save'}
-      </button>
-     </div>
-    </div>
-
-    {/* Pending access request — surfaced here so the admin doesn't have to
-        cross-reference the separate Access Requests tab to know one exists. */}
-    {pendingAccessRequest && (
-     <div className="bg-amber-50 rounded-xl border border-amber-200 p-6 mb-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-       <div>
-        <h3 className="text-sm font-semibold text-amber-900">Pending access request</h3>
-        <p className="mt-1 text-sm text-amber-800">
-         {pendingAccessRequest.plan ? <span className="font-medium">{pendingAccessRequest.plan}</span> : null}
-         {pendingAccessRequest.amount ? ` · ${pendingAccessRequest.amount}` : ''}
-         {pendingAccessRequest.network ? ` · ${pendingAccessRequest.network}` : ''}
-        </p>
-        <p className="mt-1 text-xs text-amber-700">
-         Submitted {formatDateTime(pendingAccessRequest.createdAt)}
-         {pendingAccessRequest.txReference ? ` · tx: ${pendingAccessRequest.txReference}` : ''}
-        </p>
-       </div>
-       <div className="flex items-center gap-2">
-        {pendingAccessRequest.hasProof && (
-         <a
-          href={`/api/admin/access-requests/${pendingAccessRequest.id}/proof`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 text-amber-800 font-medium hover:bg-amber-100"
-         >
-          View screenshot
-         </a>
-        )}
-        <button
-         onClick={() => router.push('/admin')}
-         className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700"
-        >
-         Review in Access Requests
-        </button>
-       </div>
-      </div>
-     </div>
-    )}
-
-    {/* Subscription management */}
-    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-     <h3 className="text-sm font-semibold text-gray-700 mb-4">Subscription</h3>
-     {subError && <p className="mb-3 text-sm text-red-600">{subError}</p>}
-     <div className="flex flex-wrap items-end gap-6">
+   {/* Pending access request */}
+   {pendingAccessRequest && (
+    <div className="ad-card ad-card-pad" style={{ borderColor: 'color-mix(in srgb, var(--ad-warn) 40%, var(--ad-border))', background: 'var(--ad-warn-bg)' }}>
+     <div className="ad-row ad-wrap" style={{ justifyContent: 'space-between', gap: 12 }}>
       <div>
-       <label className="block text-xs font-medium text-gray-500 mb-1">Days remaining</label>
-       <div className="flex items-center gap-2">
-        <input
-         type="number"
-         min={0}
-         value={daysInput}
-         onChange={(e) => setDaysInput(e.target.value)}
-         disabled={subMutating}
-         className="w-24 rounded-lg border border-gray-300 px-3 py-1.5 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
-        />
-        <button
-         onClick={() => void onSetDays()}
-         disabled={subMutating}
-         className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700 disabled:opacity-50"
-        >
-         Save
-        </button>
-       </div>
-       <p className="mt-1 text-xs text-gray-400">Replaces the current expiry date exactly.</p>
+       <h3 className="ad-section-title" style={{ color: 'var(--ad-warn-text)' }}>{t('admin_ud_pending_title')}</h3>
+       <p style={{ color: 'var(--ad-warn-text)', fontSize: 13, marginTop: 4 }}>
+        {pendingAccessRequest.plan ? <strong>{pendingAccessRequest.plan}</strong> : null}
+        {pendingAccessRequest.amount ? ` · ${pendingAccessRequest.amount}` : ''}
+        {pendingAccessRequest.network ? ` · ${pendingAccessRequest.network}` : ''}
+       </p>
+       <p className="ad-num" style={{ color: 'var(--ad-warn-text)', fontSize: 12, marginTop: 4, opacity: 0.85 }}>
+        {t('admin_ud_submitted').replace('{when}', formatDateTime(pendingAccessRequest.createdAt, language))}
+        {pendingAccessRequest.txReference ? ` · tx: ${pendingAccessRequest.txReference}` : ''}
+       </p>
       </div>
-      <div>
-       <label className="block text-xs font-medium text-gray-500 mb-1">Quick renew</label>
-       <div className="flex items-center gap-2">
-        {RENEW_QUICK_OPTIONS.map((opt) => (
-         <button
-          key={opt.days}
-          onClick={() => void onRenew(opt.days)}
-          disabled={subMutating}
-          title={sub.tone === 'expired' || sub.tone === 'none' ? `Start a fresh ${opt.label} subscription from today` : `Add ${opt.label} on top of the current expiry date`}
-          className="text-xs px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 font-medium hover:bg-blue-50 disabled:opacity-50"
-         >
-          {opt.label}
-         </button>
-        ))}
-       </div>
-       <p className="mt-1 text-xs text-gray-400">Adds on top of the current expiry (or starts from today if expired).</p>
+      <div className="ad-row" style={{ gap: 8 }}>
+       {pendingAccessRequest.hasProof && (
+        <a href={`/api/admin/access-requests/${pendingAccessRequest.id}/proof`} target="_blank" rel="noopener noreferrer" className="ad-btn sm">
+         {t('admin_view_proof')}
+        </a>
+       )}
+       <Link href="/admin/requests" className="ad-btn sm primary">
+        {t('admin_req_title')}
+       </Link>
       </div>
      </div>
     </div>
+   )}
 
-    {/* Usage stats — the growth signal: how much this account is actually being used */}
-    <h3 className="text-sm font-semibold text-gray-700 mb-3">Usage across all workspaces</h3>
-    <div className="grid grid-cols-2 gap-4 mb-8 sm:grid-cols-3 lg:grid-cols-6">
-     <StatCard
-      label="Workspaces"
-      value={workspaces.length}
-     />
-     <StatCard
-      label="Organizations"
-      value={totals.organizationCount}
-     />
-     <StatCard
-      label="Clients"
-      value={totals.clientCount}
-     />
-     <StatCard
-      label="Accounts"
-      value={totals.accountCount}
-     />
-     <StatCard
-      label="Transactions"
-      value={totals.transactionCount}
-      sub={`${totals.adjustmentCount} expense${totals.adjustmentCount === 1 ? '' : 's'}`}
-     />
-     <StatCard
-      label="Last activity"
-      value={totals.lastTransactionAt ? formatDate(totals.lastTransactionAt) : '—'}
-      sub={totals.lastTransactionAt ? formatDateTime(totals.lastTransactionAt) : 'No transactions yet'}
+   {/* Subscription management */}
+   <div className="ad-card ad-card-pad">
+    <h3 className="ad-section-title" style={{ marginBottom: 12 }}>{t('admin_col_sub')}</h3>
+    {subError && <p style={{ color: 'var(--ad-bad-text)', fontSize: 13, marginBottom: 8 }}>{subError}</p>}
+    <div className="ad-row ad-wrap" style={{ gap: 28, alignItems: 'flex-end' }}>
+     <div>
+      <label className="ad-label">{t('admin_ud_days_remaining')}</label>
+      <div className="ad-row" style={{ gap: 8 }}>
+       <input
+        className="ad-input ad-num"
+        style={{ width: 96 }}
+        type="number"
+        min={0}
+        value={daysInput}
+        onChange={(e) => setDaysInput(e.target.value)}
+        disabled={subMutating}
+       />
+       <button className="ad-btn sm primary" onClick={() => void onSetDays()} disabled={subMutating}>
+        {t('admin_save')}
+       </button>
+      </div>
+      <p className="ad-faint" style={{ fontSize: 12, marginTop: 6 }}>{t('admin_ud_days_replace')}</p>
+     </div>
+     <div>
+      <label className="ad-label">{t('admin_ud_quick_renew')}</label>
+      <div className="ad-row" style={{ gap: 8 }}>
+       {RENEW_QUICK_OPTIONS.map((opt) => (
+        <button key={opt.days} className="ad-btn sm outline-accent" onClick={() => void onRenew(opt.days)} disabled={subMutating}>
+         {t(opt.labelKey)}
+        </button>
+       ))}
+      </div>
+      <p className="ad-faint" style={{ fontSize: 12, marginTop: 6 }}>{t('admin_ud_quick_renew_desc')}</p>
+     </div>
+    </div>
+   </div>
+
+   {/* Usage stats */}
+   <div>
+    <h3 className="ad-section-title" style={{ marginBottom: 12 }}>{t('admin_ud_usage')}</h3>
+    <div className="ad-kpi-grid" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
+     <StatTile label={t('admin_col_ws')} value={workspaces.length} />
+     <StatTile label={t('admin_stat_orgs')} value={totals.organizationCount} />
+     <StatTile label={t('admin_stat_clients')} value={totals.clientCount} />
+     <StatTile label={t('admin_stat_accounts')} value={totals.accountCount} />
+     <StatTile label={t('admin_stat_transactions')} value={totals.transactionCount} sub={t('admin_ud_expenses').replace('{count}', String(totals.adjustmentCount))} />
+     <StatTile
+      label={t('admin_stat_last_activity')}
+      value={totals.lastTransactionAt ? formatDate(totals.lastTransactionAt, language) : '—'}
+      sub={totals.lastTransactionAt ? formatDateTime(totals.lastTransactionAt, language) : t('admin_ud_no_tx_yet')}
      />
     </div>
+   </div>
 
-    {/* App activity — behavioral usage (logins, app opens, page visits) */}
-    <h3 className="text-sm font-semibold text-gray-700 mb-3">App activity</h3>
-    <div className="grid grid-cols-2 gap-4 mb-4 sm:grid-cols-3">
-     <StatCard
-      label="App opens"
+   {/* App activity */}
+   <div>
+    <h3 className="ad-section-title" style={{ marginBottom: 12 }}>{t('admin_ud_app_activity')}</h3>
+    <div className="ad-kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 16 }}>
+     <StatTile
+      label={t('admin_stat_app_opens')}
       value={activity.appOpenCount}
-      sub={activity.lastAppOpenAt ? `Last ${formatDateTime(activity.lastAppOpenAt)}` : 'Never'}
+      sub={activity.lastAppOpenAt ? t('admin_ud_last').replace('{when}', formatDateTime(activity.lastAppOpenAt, language)) : t('admin_never')}
      />
-     <StatCard
-      label="Logins"
+     <StatTile
+      label={t('admin_stat_logins')}
       value={activity.loginCount}
-      sub={activity.lastLoginAt ? `Last ${formatDateTime(activity.lastLoginAt)}` : 'Never'}
+      sub={activity.lastLoginAt ? t('admin_ud_last').replace('{when}', formatDateTime(activity.lastLoginAt, language)) : t('admin_never')}
      />
-     <StatCard
-      label="Last active"
-      value={activity.lastActiveAt ? formatDate(activity.lastActiveAt) : '—'}
-      sub={activity.lastActiveAt ? formatDateTime(activity.lastActiveAt) : 'No activity yet'}
+     <StatTile
+      label={t('admin_stat_last_active')}
+      value={activity.lastActiveAt ? formatDate(activity.lastActiveAt, language) : '—'}
+      sub={activity.lastActiveAt ? formatDateTime(activity.lastActiveAt, language) : t('admin_ud_no_activity_yet')}
      />
     </div>
-    <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto mb-8">
+    <div className="ad-card ad-table-wrap">
      {activity.sectionVisits.length === 0 ? (
-      <div className="py-10 text-center text-sm text-gray-400">No page visits recorded yet.</div>
+      <StateBlock>{t('admin_ud_no_visits')}</StateBlock>
      ) : (
-      <table className="w-full text-sm">
+      <table className="ad-table hover">
        <thead>
-        <tr className="bg-gray-50 border-b border-gray-200">
-         <th className="text-left px-4 py-3 font-medium text-gray-500">Section</th>
-         <th className="text-center px-4 py-3 font-medium text-gray-500">Visits</th>
-         <th className="text-left px-4 py-3 font-medium text-gray-500 whitespace-nowrap">Last visited</th>
+        <tr>
+         <th>{t('admin_col_section')}</th>
+         <th className="center">{t('admin_col_visits')}</th>
+         <th>{t('admin_col_last_visited')}</th>
         </tr>
        </thead>
-       <tbody className="divide-y divide-gray-100">
+       <tbody>
         {activity.sectionVisits.map((visit) => (
-         <tr
-          key={visit.section || '(none)'}
-          className="hover:bg-gray-50"
-         >
-          <td className="px-4 py-3 font-medium text-gray-900">{sectionLabel(visit.section)}</td>
-          <td className="px-4 py-3 text-center text-gray-700">{visit.count}</td>
-          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateTime(visit.lastVisitAt)}</td>
-         </tr>
-        ))}
-       </tbody>
-      </table>
-     )}
-    </div>
-
-    {/* Per-workspace breakdown */}
-    <h3 className="text-sm font-semibold text-gray-700 mb-3">Workspaces</h3>
-    <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-     {workspaces.length === 0 ? (
-      <div className="py-16 text-center text-sm text-gray-400">No workspaces.</div>
-     ) : (
-      <table className="w-full text-sm">
-       <thead>
-        <tr className="bg-gray-50 border-b border-gray-200">
-         <th className="text-left px-4 py-3 font-medium text-gray-500">Workspace</th>
-         <th className="text-center px-4 py-3 font-medium text-gray-500">Orgs</th>
-         <th className="text-center px-4 py-3 font-medium text-gray-500">Clients</th>
-         <th className="text-center px-4 py-3 font-medium text-gray-500">Accounts</th>
-         <th className="text-center px-4 py-3 font-medium text-gray-500">Transactions</th>
-         <th className="text-left px-4 py-3 font-medium text-gray-500 hidden sm:table-cell">Last activity</th>
-        </tr>
-       </thead>
-       <tbody className="divide-y divide-gray-100">
-        {workspaces.map((ws) => (
-         <tr
-          key={ws.id}
-          className="hover:bg-gray-50"
-         >
-          <td className="px-4 py-3">
-           <div className="font-medium text-gray-900 flex items-center gap-1.5">
-            {ws.name}
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${ws.isOwner ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-             {teamRoleLabel(ws.role)}
-            </span>
-           </div>
-           <div className="text-xs text-gray-400">/{ws.slug}</div>
-          </td>
-          <td className="px-4 py-3 text-center text-gray-700">{ws.stats.organizationCount}</td>
-          <td className="px-4 py-3 text-center text-gray-700">{ws.stats.clientCount}</td>
-          <td className="px-4 py-3 text-center text-gray-700">{ws.stats.accountCount}</td>
-          <td className="px-4 py-3 text-center text-gray-700">{ws.stats.transactionCount}</td>
-          <td className="px-4 py-3 text-gray-500 hidden sm:table-cell whitespace-nowrap">{formatDateTime(ws.stats.lastTransactionAt)}</td>
+         <tr key={visit.section || '(none)'}>
+          <td className="ad-u-name">{sectionLabel(visit.section, t)}</td>
+          <td className="center ad-num">{visit.count}</td>
+          <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(visit.lastVisitAt, language)}</td>
          </tr>
         ))}
        </tbody>
@@ -623,6 +354,47 @@ export default function AdminUserDetailPage() {
      )}
     </div>
    </div>
-  </div>
+
+   {/* Workspaces */}
+   <div>
+    <h3 className="ad-section-title" style={{ marginBottom: 12 }}>{t('admin_col_ws')}</h3>
+    <div className="ad-card ad-table-wrap">
+     {workspaces.length === 0 ? (
+      <StateBlock>{t('admin_ud_no_workspaces')}</StateBlock>
+     ) : (
+      <table className="ad-table hover">
+       <thead>
+        <tr>
+         <th>{t('workspace_label')}</th>
+         <th className="center">{t('admin_col_orgs')}</th>
+         <th className="center">{t('admin_col_clients')}</th>
+         <th className="center">{t('admin_col_accounts')}</th>
+         <th className="center">{t('admin_col_transactions')}</th>
+         <th>{t('admin_stat_last_activity')}</th>
+        </tr>
+       </thead>
+       <tbody>
+        {workspaces.map((ws) => (
+         <tr key={ws.id}>
+          <td>
+           <div className="ad-u-name">
+            {ws.name}
+            <RoleBadge role={ws.role} t={t} />
+           </div>
+           <div className="ad-u-email">/{ws.slug}</div>
+          </td>
+          <td className="center ad-num">{ws.stats.organizationCount}</td>
+          <td className="center ad-num">{ws.stats.clientCount}</td>
+          <td className="center ad-num">{ws.stats.accountCount}</td>
+          <td className="center ad-num">{ws.stats.transactionCount}</td>
+          <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(ws.stats.lastTransactionAt, language)}</td>
+         </tr>
+        ))}
+       </tbody>
+      </table>
+     )}
+    </div>
+   </div>
+  </>
  );
 }

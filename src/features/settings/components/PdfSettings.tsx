@@ -8,7 +8,7 @@ import type { PdfSettings } from '@/shared/types';
 import { useSettingsStore } from '../store/settingsStore';
 
 const selectClassName =
- 'mt-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400';
+ 'mt-3 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-blue-400';
 
 const FONT_FAMILY_OPTIONS = [
  { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
@@ -42,26 +42,26 @@ export default function PdfSettingsTab() {
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
     <h2 className="text-2xl font-semibold">{t('settings_pdf_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('settings_pdf_description')}</p>
+    <p className="mt-2 text-sm text-fg-muted">{t('settings_pdf_description')}</p>
 
     {/* Company name */}
     <div className="mt-6">
-     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_company_name_label')}</h3>
-     <p className="mt-1 text-xs text-slate-500">{t('pdf_company_name_hint')}</p>
+     <h3 className="text-sm font-semibold text-fg">{t('pdf_company_name_label')}</h3>
+     <p className="mt-1 text-xs text-fg-faint">{t('pdf_company_name_hint')}</p>
      <div className="mt-3 flex items-center gap-3">
       <input
        type="text"
        value={pdfSettings.companyName}
        onChange={(e) => updatePdfSettings({ companyName: e.target.value })}
        placeholder={t('pdf_company_name_placeholder')}
-       className="w-full max-w-xs rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+       className="w-full max-w-xs rounded border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-blue-400"
       />
-      <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm font-medium text-slate-700">
+      <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm font-medium text-fg-muted">
        <input
         type="checkbox"
         checked={pdfSettings.showCompanyName}
         onChange={(e) => updatePdfSettings({ showCompanyName: e.target.checked })}
-        className="h-4 w-4 rounded border-slate-300 text-blue-600 accent-blue-600"
+        className="h-4 w-4 rounded border-border-strong text-accent accent-blue-600"
        />
        {t('pdf_company_name_toggle')}
       </label>
@@ -71,8 +71,8 @@ export default function PdfSettingsTab() {
     {/* Font */}
     <div className="mt-6 grid gap-4 sm:grid-cols-2">
      <div>
-      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_font_family_label')}</h3>
-      <p className="mt-1 text-xs text-slate-500">{t('pdf_font_family_hint')}</p>
+      <h3 className="text-sm font-semibold text-fg">{t('pdf_font_family_label')}</h3>
+      <p className="mt-1 text-xs text-fg-faint">{t('pdf_font_family_hint')}</p>
       <CustomSelect
        value={pdfSettings.fontFamily}
        onChange={(value) => updatePdfSettings({ fontFamily: value })}
@@ -81,8 +81,8 @@ export default function PdfSettingsTab() {
       />
      </div>
      <div>
-      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_font_size_label')}</h3>
-      <p className="mt-1 text-xs text-slate-500">{t('pdf_font_size_hint')}</p>
+      <h3 className="text-sm font-semibold text-fg">{t('pdf_font_size_label')}</h3>
+      <p className="mt-1 text-xs text-fg-faint">{t('pdf_font_size_hint')}</p>
       <CustomSelect
        value={pdfSettings.fontSize}
        onChange={(value) => updatePdfSettings({ fontSize: value })}
@@ -91,8 +91,8 @@ export default function PdfSettingsTab() {
       />
      </div>
      <div>
-      <h3 className="text-sm font-semibold text-slate-800">{t('pdf_head_font_size_label')}</h3>
-      <p className="mt-1 text-xs text-slate-500">{t('pdf_head_font_size_hint')}</p>
+      <h3 className="text-sm font-semibold text-fg">{t('pdf_head_font_size_label')}</h3>
+      <p className="mt-1 text-xs text-fg-faint">{t('pdf_head_font_size_hint')}</p>
       <CustomSelect
        value={pdfSettings.headFontSize}
        onChange={(value) => updatePdfSettings({ headFontSize: value })}
@@ -104,8 +104,8 @@ export default function PdfSettingsTab() {
 
     {/* Date format */}
     <div className="mt-6">
-     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_date_format_label')}</h3>
-     <p className="mt-1 text-xs text-slate-500">{t('pdf_date_format_hint')}</p>
+     <h3 className="text-sm font-semibold text-fg">{t('pdf_date_format_label')}</h3>
+     <p className="mt-1 text-xs text-fg-faint">{t('pdf_date_format_hint')}</p>
      <div className="max-w-xs">
       <CustomSelect
        value={pdfSettings.dateFormat}
@@ -118,22 +118,22 @@ export default function PdfSettingsTab() {
 
     {/* Decimal places */}
     <div className="mt-6">
-     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_decimals_label')}</h3>
-     <p className="mt-1 text-xs text-slate-500">{t('pdf_decimals_hint')}</p>
-     <div className="mt-3 inline-flex items-center rounded border border-slate-300 bg-white overflow-hidden">
+     <h3 className="text-sm font-semibold text-fg">{t('pdf_decimals_label')}</h3>
+     <p className="mt-1 text-xs text-fg-faint">{t('pdf_decimals_hint')}</p>
+     <div className="mt-3 inline-flex items-center rounded border border-border-strong bg-surface overflow-hidden">
       <button
        type="button"
        onClick={() => updatePdfSettings({ decimals: Math.max(0, pdfSettings.decimals - 1) })}
-       className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+       className="px-3 py-1.5 text-sm font-bold text-fg-muted hover:bg-surface-hover disabled:opacity-40"
        disabled={pdfSettings.decimals === 0}
       >
        -
       </button>
-      <span className="min-w-8 px-2 py-1.5 text-center text-sm font-semibold text-slate-800 border-x border-slate-300">{pdfSettings.decimals}</span>
+      <span className="min-w-8 px-2 py-1.5 text-center text-sm font-semibold text-fg border-x border-border-strong">{pdfSettings.decimals}</span>
       <button
        type="button"
        onClick={() => updatePdfSettings({ decimals: Math.min(6, pdfSettings.decimals + 1) })}
-       className="px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+       className="px-3 py-1.5 text-sm font-bold text-fg-muted hover:bg-surface-hover disabled:opacity-40"
        disabled={pdfSettings.decimals === 6}
       >
        +
@@ -143,8 +143,8 @@ export default function PdfSettingsTab() {
 
     {/* Section visibility */}
     <div className="mt-6">
-     <h3 className="text-sm font-semibold text-slate-800">{t('pdf_sections_label')}</h3>
-     <p className="mt-1 text-xs text-slate-500">{t('pdf_sections_hint')}</p>
+     <h3 className="text-sm font-semibold text-fg">{t('pdf_sections_label')}</h3>
+     <p className="mt-1 text-xs text-fg-faint">{t('pdf_sections_hint')}</p>
      <div className="mt-3 grid gap-3 sm:grid-cols-2">
       {(
        [
@@ -160,17 +160,17 @@ export default function PdfSettingsTab() {
       ).map(({ key, labelKey, hintKey }) => (
        <label
         key={key}
-        className="flex cursor-pointer items-start gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-slate-100"
+        className="flex cursor-pointer items-start gap-3 rounded border border-border bg-surface-2 px-4 py-3 hover:bg-surface-hover"
        >
         <input
          type="checkbox"
          checked={pdfSettings[key] as boolean}
          onChange={(e) => updatePdfSettings({ [key]: e.target.checked })}
-         className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 accent-blue-600"
+         className="mt-0.5 h-4 w-4 rounded border-border-strong text-accent accent-blue-600"
         />
         <div>
-         <p className="text-sm font-medium text-slate-800">{t(labelKey)}</p>
-         <p className="text-xs text-slate-500">{t(hintKey)}</p>
+         <p className="text-sm font-medium text-fg">{t(labelKey)}</p>
+         <p className="text-xs text-fg-faint">{t(hintKey)}</p>
         </div>
        </label>
       ))}

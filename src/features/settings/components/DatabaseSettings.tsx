@@ -23,7 +23,7 @@ export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backu
   <section className="flex flex-col gap-6">
    <div className={panelClassName}>
     <h2 className="text-2xl font-semibold">{t('backup_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">{t('backup_description')}</p>
+    <p className="mt-2 text-sm text-fg-muted">{t('backup_description')}</p>
 
     <input
      ref={backupRestoreInputRef}
@@ -34,9 +34,9 @@ export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backu
     />
 
     <div className="mt-6 grid gap-4 md:grid-cols-2">
-     <div className="rounded border border-slate-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{t('backup_download_title')}</h3>
-      <p className="mt-1 text-sm text-slate-600">{t('backup_download_hint')}</p>
+     <div className="rounded border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold text-fg">{t('backup_download_title')}</h3>
+      <p className="mt-1 text-sm text-fg-muted">{t('backup_download_hint')}</p>
       <button
        type="button"
        onClick={() => void onDownloadBackup()}
@@ -65,12 +65,12 @@ export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backu
        </svg>
        {isBackingUp ? t('backup_download_loading') : t('backup_download_button')}
       </button>
-      <p className={`mt-3 text-xs ${lastBackupAt ? 'text-slate-500' : 'text-amber-600'}`}>{lastBackupLabel()}</p>
+      <p className={`mt-3 text-xs ${lastBackupAt ? 'text-fg-faint' : 'text-warn-text'}`}>{lastBackupLabel()}</p>
      </div>
 
-     <div className="rounded border border-amber-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-slate-900">{t('backup_restore_title')}</h3>
-      <p className="mt-1 text-sm text-slate-600">{t('backup_restore_hint')}</p>
+     <div className="rounded border border-amber-200 bg-surface p-4">
+      <h3 className="text-sm font-semibold text-fg">{t('backup_restore_title')}</h3>
+      <p className="mt-1 text-sm text-fg-muted">{t('backup_restore_hint')}</p>
       <button
        type="button"
        onClick={() => backupRestoreInputRef.current?.click()}

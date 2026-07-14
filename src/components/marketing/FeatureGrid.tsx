@@ -84,20 +84,20 @@ export default function FeatureGrid() {
  const { t } = useTranslation(language);
 
  return (
-  <section className="border-t border-gray-200 bg-gray-50">
+  <section className="border-t border-border bg-surface-2">
    <div className="mx-auto w-full max-w-6xl px-5 py-16 sm:py-20">
     <div className="mx-auto max-w-2xl text-center">
-     <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{t('home_grid_title')}</h2>
-     <p className="mt-3 text-base text-gray-600">{t('home_grid_subtitle')}</p>
+     <h2 className="text-3xl font-bold tracking-tight text-fg sm:text-4xl">{t('home_grid_title')}</h2>
+     <p className="mt-3 text-base text-fg-muted">{t('home_grid_subtitle')}</p>
     </div>
     <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
      {ITEMS.map((item) => (
-      <div key={item.titleKey} className="rounded-xl border border-gray-200 bg-white p-5 transition hover:border-blue-200 hover:shadow-sm">
-       <span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-50 text-blue-700">
+      <div key={item.titleKey} className="rounded-xl border border-border bg-surface p-5 transition hover:border-blue-200 hover:shadow-sm">
+       <span className="grid h-10 w-10 place-items-center rounded-lg bg-accent-weak text-accent">
         <span className="h-5 w-5">{item.icon}</span>
        </span>
-       <h3 className="mt-4 text-sm font-semibold text-gray-900">{t(item.titleKey)}</h3>
-       <p className="mt-1.5 text-sm text-gray-600">{t(item.bodyKey)}</p>
+       <h3 className="mt-4 text-sm font-semibold text-fg">{t(item.titleKey)}</h3>
+       <p className="mt-1.5 text-sm text-fg-muted">{t(item.bodyKey)}</p>
       </div>
      ))}
     </div>

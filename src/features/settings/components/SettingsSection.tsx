@@ -8,6 +8,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { renderIcon } from '@/shared/utils/icons';
 import { panelClassName } from '@/shared/styles';
 import LanguageSettings from '@/features/settings/components/LanguageSettings';
+import AppearanceSettings from '@/features/settings/components/AppearanceSettings';
 import DangerZone from '@/features/settings/components/DangerZone';
 import PdfSettingsTab from '@/features/settings/components/PdfSettings';
 import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
@@ -126,16 +127,16 @@ export default function SettingsSection({
  return (
  <section className="flex flex-col gap-0">
   {/* Settings section header */}
-  <div className="border-b-2 border-blue-800 bg-white px-5 py-4">
+  <div className="border-b-2 border-blue-800 bg-surface px-5 py-4">
    <div className="flex items-center gap-3">
     <span className="inline-flex h-8 w-8 items-center justify-center rounded bg-blue-800 text-white">{renderIcon('settings', 'h-4 w-4')}</span>
     <div>
-     <h2 className="text-base font-bold text-gray-900">{t('settings_title')}</h2>
-     <p className="text-xs text-gray-500">{t('settings_description')}</p>
+     <h2 className="text-base font-bold text-fg">{t('settings_title')}</h2>
+     <p className="text-xs text-fg-faint">{t('settings_description')}</p>
     </div>
    </div>
    {/* Tab strip */}
-   <div className="mt-4 flex flex-wrap gap-0 border-b border-gray-200 -mb-px">
+   <div className="mt-4 flex flex-wrap gap-0 border-b border-border -mb-px">
     {settingsTabs.map((tab) => {
      const isActive = settingsTab === tab.key;
      return (
@@ -144,7 +145,7 @@ export default function SettingsSection({
        type="button"
        onClick={() => setSettingsTab(tab.key)}
        className={`inline-flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition ${
-        isActive ? 'border-blue-700 text-blue-700' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+        isActive ? 'border-blue-700 text-accent' : 'border-transparent text-fg-faint hover:border-border-strong hover:text-fg-muted'
        }`}
       >
        {renderIcon(tab.icon, 'h-4 w-4')}
@@ -156,16 +157,16 @@ export default function SettingsSection({
   </div>
   {/* Active tab content */}
   <div className="flex flex-col gap-4 p-4">
-   {error ? <div className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
+   {error ? <div className="rounded border border-red-300 bg-bad-bg px-4 py-2 text-sm text-bad-text">{error}</div> : null}
    {importSummary ? (
-    <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">
+    <div className="flex items-start justify-between gap-3 rounded border border-green-300 bg-good-bg px-4 py-2 text-sm text-good-text">
      <span>{importSummary}</span>
      <button
       type="button"
       onClick={() => setImportSummary('')}
       aria-label={t('close')}
       title={t('close')}
-      className="-mr-1 shrink-0 rounded p-0.5 text-green-700 transition hover:bg-green-100 hover:text-green-900"
+      className="-mr-1 shrink-0 rounded p-0.5 text-good-text transition hover:bg-good-bg hover:text-good-text"
      >
       <svg
        width="16"
@@ -192,7 +193,7 @@ export default function SettingsSection({
        <div className="flex items-start justify-between gap-4">
         <div>
          <h3 className="text-lg font-semibold">{t('shared_settings_title')}</h3>
-         <p className="mt-1 text-sm text-slate-600">{t('shared_settings_description')}</p>
+         <p className="mt-1 text-sm text-fg-muted">{t('shared_settings_description')}</p>
         </div>
         <button
          type="button"
@@ -204,13 +205,13 @@ export default function SettingsSection({
          {/* translate-x is physical, so in RTL the knob must move the opposite way or it
              slides off the track — flip the sign when the layout is right-to-left. */}
          <span
-          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+          className={`inline-block h-5 w-5 transform rounded-full bg-surface shadow transition ${
            sharedSettingsEnabled ? (isRTL ? '-translate-x-5' : 'translate-x-5') : isRTL ? '-translate-x-0.5' : 'translate-x-0.5'
           }`}
          />
         </button>
        </div>
-       {sharedSettingsEnabled ? <p className="mt-3 text-xs text-slate-500">{t('shared_settings_active_hint')}</p> : null}
+       {sharedSettingsEnabled ? <p className="mt-3 text-xs text-fg-faint">{t('shared_settings_active_hint')}</p> : null}
       </div>
      ) : null}
     </div>
@@ -227,6 +228,7 @@ export default function SettingsSection({
     />
    ) : null}
    {settingsTab === 'language' ? <LanguageSettings /> : null}
+   {settingsTab === 'appearance' ? <AppearanceSettings /> : null}
    {settingsTab === 'pdf' ? <PdfSettingsTab /> : null}
    {settingsTab === 'danger' && !isEditorRole ? (
     <DangerZone

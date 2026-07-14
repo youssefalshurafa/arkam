@@ -144,10 +144,10 @@ export function DialogHost() {
    role="dialog"
    aria-modal="true"
   >
-   <div className="w-full max-w-md rounded bg-white p-6 shadow-2xl">
-    {current.title ? <h3 className="text-lg font-semibold text-slate-900">{current.title}</h3> : null}
+   <div className="w-full max-w-md rounded bg-surface p-6 shadow-2xl">
+    {current.title ? <h3 className="text-lg font-semibold text-fg">{current.title}</h3> : null}
     {current.message ? (
-     <p className={`whitespace-pre-line text-sm text-slate-600 ${current.title ? 'mt-2' : ''}`}>{current.message}</p>
+     <p className={`whitespace-pre-line text-sm text-fg-muted ${current.title ? 'mt-2' : ''}`}>{current.message}</p>
     ) : null}
 
     {current.kind === 'prompt' ? (
@@ -157,7 +157,7 @@ export function DialogHost() {
       value={inputValue}
       placeholder={current.placeholder}
       onChange={(event) => setInputValue(event.target.value)}
-      className="mt-4 w-full rounded border border-slate-300 px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+      className="mt-4 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
      />
     ) : null}
 
@@ -166,7 +166,7 @@ export function DialogHost() {
       <button
        type="button"
        onClick={onCancel}
-       className="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+       className="rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
       >
        {cancelLabel}
       </button>

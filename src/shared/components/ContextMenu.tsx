@@ -30,9 +30,9 @@ export function useContextMenu() {
 }
 
 const toneClassName: Record<NonNullable<ContextMenuItem['tone']>, string> = {
- default: 'text-slate-700',
- danger: 'text-red-600',
- success: 'text-emerald-600',
+ default: 'text-fg-muted',
+ danger: 'text-bad-text',
+ success: 'text-good-text',
 };
 
 /**
@@ -99,7 +99,7 @@ export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<type
    ref={ref}
    style={{ position: 'fixed', top: menu.y / zoom, left: menu.x / zoom, zIndex: 200, zoom }}
    role="menu"
-   className="min-w-[11rem] overflow-hidden rounded border border-slate-200 bg-white py-1 shadow-xl"
+   className="min-w-[11rem] overflow-hidden rounded border border-border bg-surface py-1 shadow-xl"
   >
    {menu.items.map((item) => (
     <button
@@ -111,7 +111,7 @@ export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<type
       onClose();
       item.onSelect();
      }}
-     className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 ${toneClassName[item.tone ?? 'default']}`}
+     className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40 ${toneClassName[item.tone ?? 'default']}`}
     >
      {item.icon}
      {item.label}

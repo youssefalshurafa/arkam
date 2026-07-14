@@ -1,18 +1,127 @@
 @import 'tailwindcss';
 
+/*
+ * Dark mode is driven by a `.dark` class on <html> (stamped by ThemeContext /
+ * the anti-FOUC script in layout.tsx). We resolve "system" in JS and always
+ * apply a concrete class, so CSS never needs prefers-color-scheme for tokens.
+ * This custom variant also enables an optional `dark:` escape hatch in JSX.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------- Light theme tokens (default) ---------- */
 :root {
- --background: #f3f4f6;
- --foreground: #111827;
+ /* Semantic surfaces & text (neutral ramp) */
+ --canvas: #f3f4f6;
+ --surface: #ffffff;
+ --surface-2: #f9fafb;
+ --surface-hover: #f1f5f9;
+ --fg: #111827;
+ --fg-muted: #475569;
+ --fg-faint: #94a3b8;
+ --border: #e2e8f0;
+ --border-strong: #cbd5e1;
+
+ /* Accent (brand blue) */
+ --accent-color: #1d4ed8;
+ --accent-strong: #1e40af;
+ --accent-weak: #eff6ff;
+ --accent-contrast: #ffffff;
+
+ /* Semantic states: base / soft bg / readable text */
+ --good: #16a34a; --good-bg: #f0fdf4; --good-text: #15803d;
+ --warn: #d97706; --warn-bg: #fffbeb; --warn-text: #b45309;
+ --bad: #dc2626;  --bad-bg: #fef2f2;  --bad-text: #b91c1c;
+ --info: #2563eb; --info-bg: #eff6ff; --info-text: #1d4ed8;
+ /* Violet accent — used for "adjustment" / "sum mode" markers. */
+ --violet: #7c3aed; --violet-bg: #f5f3ff; --violet-text: #6d28d9;
+
+ /* Legacy variables (kept working, mapped onto the new tokens) */
+ --background: var(--canvas);
+ --foreground: var(--fg);
+ /* Sidebar / mobile top bar chrome. Navy normally, purple on the settings section. */
  --sidebar-bg: #1e3a5f;
+ --sidebar-border: #15304f;
+ --sidebar-settings-bg: #3b2f63;
+ --sidebar-settings-border: #2a2049;
  --sidebar-fg: #e2e8f0;
  --sidebar-active-bg: #2563eb;
  --sidebar-hover-bg: rgba(255, 255, 255, 0.1);
- --panel-bg: #ffffff;
- --border-color: #d1d5db;
- --accent: #1d4ed8;
+ --panel-bg: var(--surface);
+ --border-color: var(--border-strong);
+ --accent: var(--accent-color);
+
+ color-scheme: light;
+}
+
+/* ---------- Dark theme tokens ---------- */
+.dark {
+ --canvas: #0b0d13;
+ --surface: #14171f;
+ --surface-2: #171b24;
+ --surface-hover: #1c2029;
+ --fg: #e8eaf2;
+ --fg-muted: #99a1b8;
+ --fg-faint: #656d84;
+ --border: #262b38;
+ --border-strong: #333a4a;
+
+ --accent-color: #6b8dfb;
+ --accent-strong: #8ba4fc;
+ --accent-weak: rgba(107, 141, 251, 0.15);
+ --accent-contrast: #0b0d13;
+
+ --good: #34d17f; --good-bg: rgba(34, 197, 94, 0.14); --good-text: #4ade8c;
+ --warn: #e6a13c; --warn-bg: rgba(217, 119, 6, 0.16); --warn-text: #f4bd6b;
+ --bad: #f4736f;  --bad-bg: rgba(220, 38, 38, 0.16);  --bad-text: #f89a97;
+ --info: #6ba0f8; --info-bg: rgba(37, 99, 235, 0.16); --info-text: #93bafb;
+ --violet: #a78bfa; --violet-bg: rgba(139, 92, 246, 0.18); --violet-text: #c4b5fd;
+
+ /* Legacy variables in dark */
+ --sidebar-bg: #0f1420;
+ --sidebar-border: #1e2740;
+ --sidebar-settings-bg: #1a1530;
+ --sidebar-settings-border: #2a2440;
+ --sidebar-fg: #cbd3e6;
+ --sidebar-active-bg: var(--accent-color);
+ --sidebar-hover-bg: rgba(255, 255, 255, 0.06);
+
+ color-scheme: dark;
 }
 
 @theme inline {
+ /* Semantic token utilities: bg-surface, text-fg, border-border, etc. */
+ --color-canvas: var(--canvas);
+ --color-surface: var(--surface);
+ --color-surface-2: var(--surface-2);
+ --color-surface-hover: var(--surface-hover);
+ --color-fg: var(--fg);
+ --color-fg-muted: var(--fg-muted);
+ --color-fg-faint: var(--fg-faint);
+ --color-border: var(--border);
+ --color-border-strong: var(--border-strong);
+
+ --color-accent: var(--accent-color);
+ --color-accent-strong: var(--accent-strong);
+ --color-accent-weak: var(--accent-weak);
+ --color-accent-contrast: var(--accent-contrast);
+
+ --color-good: var(--good);
+ --color-good-bg: var(--good-bg);
+ --color-good-text: var(--good-text);
+ --color-warn: var(--warn);
+ --color-warn-bg: var(--warn-bg);
+ --color-warn-text: var(--warn-text);
+ --color-bad: var(--bad);
+ --color-bad-bg: var(--bad-bg);
+ --color-bad-text: var(--bad-text);
+ --color-info: var(--info);
+ --color-info-bg: var(--info-bg);
+ --color-info-text: var(--info-text);
+ --color-violet: var(--violet);
+ --color-violet-bg: var(--violet-bg);
+ --color-violet-text: var(--violet-text);
+
+ /* Existing tokens */
  --color-background: var(--background);
  --color-foreground: var(--foreground);
  --font-sans: var(--font-cairo);
@@ -22,11 +131,19 @@
 
 body {
  min-height: 100vh;
- background: var(--background);
- color: var(--foreground);
+ background: var(--canvas);
+ color: var(--fg);
  font-family: var(--font-cairo), 'Segoe UI', Tahoma, sans-serif;
  text-rendering: optimizeLegibility;
  font-size: 14px;
+ transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Respect users who prefer less motion — no theme-swap fade. */
+@media (prefers-reduced-motion: reduce) {
+ body {
+  transition: none;
+ }
 }
 
 html[lang='ar'] body {

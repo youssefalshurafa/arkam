@@ -27,17 +27,17 @@ function roleLabel(role: string, t: (key: string) => string) {
 function roleBadgeClass(role: string) {
  switch (role) {
   case 'owner':
-   return 'bg-amber-100 text-amber-700';
+   return 'bg-warn-bg text-warn-text';
   case 'admin':
-   return 'bg-blue-50 text-blue-700';
+   return 'bg-accent-weak text-accent';
   case 'member':
-   return 'bg-green-50 text-green-700';
+   return 'bg-good-bg text-good-text';
   default:
-   return 'bg-gray-100 text-gray-500';
+   return 'bg-surface-hover text-fg-faint';
  }
 }
 
-const panelClass = 'rounded-lg border border-gray-200 bg-white p-5 shadow-sm';
+const panelClass = 'rounded-lg border border-border bg-surface p-5 shadow-sm';
 
 export default function TeamSettings() {
  const { language } = useLanguage();
@@ -227,7 +227,7 @@ export default function TeamSettings() {
    {isSuperAdmin && (
     <div className={panelClass}>
      <h2 className="text-2xl font-semibold">{t('team_new_workspace_title')}</h2>
-     <p className="mt-2 text-sm text-slate-600">{t('team_new_workspace_desc')}</p>
+     <p className="mt-2 text-sm text-fg-muted">{t('team_new_workspace_desc')}</p>
 
      <form onSubmit={(e) => void onCreateWorkspace(e)} className="mt-5 flex flex-col gap-3 sm:flex-row">
       <input
@@ -236,7 +236,7 @@ export default function TeamSettings() {
        onChange={(e) => setNewWorkspaceName(e.target.value)}
        placeholder={t('team_new_workspace_placeholder')}
        required
-       className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+       className="flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
       />
       <button
        type="submit"
@@ -246,7 +246,7 @@ export default function TeamSettings() {
        {creatingWorkspace ? t('team_new_workspace_creating') : t('team_new_workspace_button')}
       </button>
      </form>
-     {createWorkspaceError && <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{createWorkspaceError}</p>}
+     {createWorkspaceError && <p className="mt-3 rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{createWorkspaceError}</p>}
     </div>
    )}
 
@@ -254,16 +254,16 @@ export default function TeamSettings() {
    {allWorkspaces.length > 0 && (
     <div className={panelClass}>
      <h2 className="text-2xl font-semibold">{t('team_workspaces_title')}</h2>
-     <p className="mt-2 text-sm text-slate-600">{t('team_workspaces_desc')}</p>
+     <p className="mt-2 text-sm text-fg-muted">{t('team_workspaces_desc')}</p>
 
-     <div className="mt-5 divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200">
+     <div className="mt-5 divide-y divide-border overflow-hidden rounded-lg border border-border">
       {allWorkspaces.map((ws) => {
        const isOwner = ws.role === 'owner';
        const busy = workspaceActionBusyId === ws.id;
        return (
         <div key={ws.id} className="flex items-center justify-between gap-3 px-4 py-3">
          <div>
-          <div className="font-medium text-gray-900">{ws.name}</div>
+          <div className="font-medium text-fg">{ws.name}</div>
           <span className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${roleBadgeClass(ws.role)}`}>{roleLabel(ws.role, t)}</span>
          </div>
          {isOwner && (
@@ -272,7 +272,7 @@ export default function TeamSettings() {
             type="button"
             onClick={() => void onRenameWorkspace(ws)}
             disabled={busy}
-            className="rounded border border-gray-300 px-3 py-1.5 text-xs text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+            className="rounded border border-border-strong px-3 py-1.5 text-xs text-fg-muted transition hover:bg-surface-hover disabled:opacity-50"
            >
             {t('team_workspace_rename')}
            </button>
@@ -280,7 +280,7 @@ export default function TeamSettings() {
             type="button"
             onClick={() => void onDeleteWorkspace(ws)}
             disabled={busy}
-            className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+            className="rounded border border-red-200 px-3 py-1.5 text-xs text-bad-text transition hover:bg-bad-bg disabled:opacity-50"
            >
             {t('team_workspace_delete')}
            </button>
@@ -290,7 +290,7 @@ export default function TeamSettings() {
        );
       })}
      </div>
-     {workspaceActionError && <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{workspaceActionError}</p>}
+     {workspaceActionError && <p className="mt-3 rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{workspaceActionError}</p>}
     </div>
    )}
 
@@ -298,7 +298,7 @@ export default function TeamSettings() {
    {canManage && (
     <div className={panelClass}>
      <h2 className="text-2xl font-semibold">{t('team_invite_title')}</h2>
-     <p className="mt-2 text-sm text-slate-600">{t('team_invite_desc')}</p>
+     <p className="mt-2 text-sm text-fg-muted">{t('team_invite_desc')}</p>
 
      <form onSubmit={(e) => void onInvite(e)} className="mt-5 grid gap-3 sm:grid-cols-4">
       <input
@@ -306,7 +306,7 @@ export default function TeamSettings() {
        value={inviteName}
        onChange={(e) => setInviteName(e.target.value)}
        placeholder={t('team_name')}
-       className="rounded border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+       className="rounded border border-border-strong px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
       />
       <input
        type="text"
@@ -314,12 +314,12 @@ export default function TeamSettings() {
        onChange={(e) => setInviteEmail(e.target.value)}
        placeholder={t('team_email')}
        required
-       className="rounded border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+       className="rounded border border-border-strong px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
       />
       <select
        value={inviteRole}
        onChange={(e) => setInviteRole(e.target.value as WorkspaceRole)}
-       className="rounded border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+       className="rounded border border-border-strong px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
       >
        {ROLE_OPTIONS.map((r) => (
         <option key={r} value={r}>
@@ -335,45 +335,45 @@ export default function TeamSettings() {
        {inviting ? t('team_inviting') : t('team_invite_button')}
       </button>
      </form>
-     {notice && <p className="mt-3 rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">{notice}</p>}
-     {error && <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+     {notice && <p className="mt-3 rounded border border-green-300 bg-good-bg px-3 py-2 text-sm text-good-text">{notice}</p>}
+     {error && <p className="mt-3 rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{error}</p>}
     </div>
    )}
 
    {/* Members */}
    <div className={panelClass}>
     <h2 className="text-2xl font-semibold">{t('team_members_title')}</h2>
-    <p className="mt-2 text-sm text-slate-600">
+    <p className="mt-2 text-sm text-fg-muted">
      {t('team_members_desc')}
      {workspaceName ? ` — ${workspaceName}` : ''}
     </p>
 
-    {!canManage && error && <p className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+    {!canManage && error && <p className="mt-3 rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{error}</p>}
 
-    <div className="mt-5 overflow-hidden rounded-lg border border-gray-200">
+    <div className="mt-5 overflow-hidden rounded-lg border border-border">
      {loading ? (
-      <div className="py-12 text-center text-sm text-gray-400">{t('loading')}</div>
+      <div className="py-12 text-center text-sm text-fg-faint">{t('loading')}</div>
      ) : members.length === 0 ? (
-      <div className="py-12 text-center text-sm text-gray-400">{t('team_no_members')}</div>
+      <div className="py-12 text-center text-sm text-fg-faint">{t('team_no_members')}</div>
      ) : (
       <table className="w-full text-sm">
        <thead>
-        <tr className="border-b border-gray-200 bg-gray-50">
-         <th className="px-4 py-3 text-left font-medium text-gray-500">{t('team_member')}</th>
-         <th className="px-4 py-3 text-left font-medium text-gray-500">{t('team_role')}</th>
+        <tr className="border-b border-border bg-surface-2">
+         <th className="px-4 py-3 text-left font-medium text-fg-faint">{t('team_member')}</th>
+         <th className="px-4 py-3 text-left font-medium text-fg-faint">{t('team_role')}</th>
          {canManage && <th className="px-4 py-3" />}
         </tr>
        </thead>
-       <tbody className="divide-y divide-gray-100">
+       <tbody className="divide-y divide-border">
         {members.map((member) => {
          const isOwnerRow = member.role === 'owner';
          const isSelf = member.id === currentUserId;
          const editable = canManage && !isOwnerRow && !isSelf;
          return (
-          <tr key={member.id} className="hover:bg-gray-50">
+          <tr key={member.id} className="hover:bg-surface-hover">
            <td className="px-4 py-3">
-            <div className="font-medium text-gray-900">{member.name || member.email}</div>
-            <div className="text-xs text-gray-400">{member.email}</div>
+            <div className="font-medium text-fg">{member.name || member.email}</div>
+            <div className="text-xs text-fg-faint">{member.email}</div>
            </td>
            <td className="px-4 py-3">
             {editable ? (
@@ -381,7 +381,7 @@ export default function TeamSettings() {
               value={member.role}
               disabled={busyUserId === member.id}
               onChange={(e) => void onChangeRole(member, e.target.value as WorkspaceRole)}
-              className="rounded border border-gray-300 px-2 py-1 text-xs outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="rounded border border-border-strong px-2 py-1 text-xs outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
              >
               {ROLE_OPTIONS.map((r) => (
                <option key={r} value={r}>
@@ -400,12 +400,12 @@ export default function TeamSettings() {
                type="button"
                onClick={() => void onRemove(member)}
                disabled={busyUserId === member.id}
-               className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+               className="rounded border border-red-200 px-3 py-1.5 text-xs text-bad-text transition hover:bg-bad-bg disabled:opacity-50"
               >
                {t('team_remove')}
               </button>
              ) : (
-              <span className="text-xs text-gray-300">—</span>
+              <span className="text-xs text-fg-faint">—</span>
              )}
             </td>
            )}
