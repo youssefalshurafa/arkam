@@ -66,6 +66,7 @@ import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import OverviewSection from '@/features/overview/components/OverviewSection';
 import LiveRatesSection from '@/features/live-rates/components/LiveRatesSection';
 import TreasurySection from '@/features/treasury/components/TreasurySection';
+import HarvestSection from '@/features/harvest/components/HarvestSection';
 import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadOnly';
 import OrganizationsReadOnly from '@/features/organizations/components/OrganizationsReadOnly';
 import OrganizationClientsSection from '@/features/organizations/components/OrganizationClientsSection';
@@ -154,6 +155,10 @@ function AuthenticatedHome() {
  // useWorkspaceData's cache read below.
  const { data: authSession } = useStableSession();
  const sessionUserId = authSession?.user?.id ?? null;
+ // Platform-level super-admin (single allowlisted email, resolved on the session).
+ // Gates the in-development حصاد اليوم (Today's Harvest) profit page — nav entry,
+ // URL→section resolution, and render guard all check this.
+ const isSuperAdminUser = authSession?.user?.isSuperAdmin === true;
  const queryClient = useQueryClient();
  useState(() => {
   if (ensureCacheOwner(sessionUserId)) {
@@ -552,8 +557,11 @@ function AuthenticatedHome() {
  };
 
  useEffect(() => {
-  setSection(getSectionFromPath(pathname).section);
- }, [pathname]);
+  const resolved = getSectionFromPath(pathname).section;
+  // Harvest is super-admin-only: a non-admin deep-linking to /harvest falls back to
+  // overview so they never see the section header or an empty page.
+  setSection(resolved === 'harvest' && !isSuperAdminUser ? 'overview' : resolved);
+ }, [pathname, isSuperAdminUser]);
 
  // Records a "section visit" activity event whenever the active section changes (covers
  // sidebar clicks, deep-links, and browser back/forward, since it keys off section state).
@@ -1247,6 +1255,7 @@ function AuthenticatedHome() {
   { key: 'archive', label: t('nav_archive'), icon: 'archive' },
   { key: 'live-rates', label: t('nav_live_rates'), icon: 'rates' },
   { key: 'treasury', label: t('nav_treasury'), icon: 'treasury' },
+  ...(isSuperAdminUser ? [{ key: 'harvest' as const, label: t('nav_harvest'), icon: 'harvest' as IconName }] : []),
  ];
 
  // Editors (workspace role 'member') don't get destructive/billing controls.
@@ -1764,6 +1773,11 @@ function AuthenticatedHome() {
    description: t('treasury_description'),
    accent: t('coming_soon_badge'),
   },
+  harvest: {
+   title: t('harvest_title'),
+   description: t('harvest_description'),
+   accent: t('nav_harvest'),
+  },
  };
 
  const activeSectionMeta = sectionMeta[section];
@@ -2220,6 +2234,15 @@ function AuthenticatedHome() {
 
        {section === 'live-rates' ? <LiveRatesSection /> : null}
        {section === 'treasury' ? <TreasurySection /> : null}
+       {section === 'harvest' && isSuperAdminUser ? (
+        <HarvestSection
+         clientAccounts={clientAccounts}
+         currencies={currencies}
+         transactions={transactions}
+         isLoading={isLoading}
+         navigateToSection={navigateToSection}
+        />
+       ) : null}
 
        {section === 'transactions' || section === 'archive' ? (
         <TransactionsSection

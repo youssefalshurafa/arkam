@@ -175,6 +175,31 @@ export function saveOverviewRates(rates: Record<string, string>) {
   /* ignore */
  }
 }
+
+// Daily reference rates for the حصاد اليوم (Today's Harvest) page, keyed by
+// `${yyyy-mm-dd}:${currencyId}` → main-currency-per-unit. Only needed to value
+// foreign-to-foreign trades (most deals price directly against the main currency).
+export const harvestRatesStorageKey = 'arkam:harvest-ref-rates';
+
+export function getStoredHarvestRates(): Record<string, string> {
+ if (typeof window === 'undefined') return {};
+ try {
+  const raw = window.localStorage.getItem(harvestRatesStorageKey);
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+ } catch {
+  return {};
+ }
+}
+
+export function saveHarvestRates(rates: Record<string, string>) {
+ try {
+  window.localStorage.setItem(harvestRatesStorageKey, JSON.stringify(rates));
+ } catch {
+  /* ignore */
+ }
+}
 export const dataCacheStorageKey = 'arkam:data-cache';
 
 // The snapshot is tagged with the id of the user who wrote it AND the workspace it
