@@ -102,7 +102,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const numLocale = language === 'fr' ? 'en-US' : language;
  const showToast = useAppStatusStore((s) => s.showToast);
  const setError = useAppStatusStore((s) => s.setError);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, ledgerTransactionDrafts, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
  // sit at the bottom of the scrollable table. Jump there on open (and whenever the
@@ -441,54 +441,50 @@ export default function LedgerSection(props: LedgerSectionProps) {
              >
               {t('adjustment_add')}
              </button>
-             {Object.keys(ledgerTransactionDrafts).length > 0 ? (
-              <>
-               <button
-                type="button"
-                title={t('undo')}
-                onClick={ledgerHistory.undo}
-                disabled={!ledgerHistory.canUndo}
-                className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-               >
-                <svg
-                 width="16"
-                 height="16"
-                 viewBox="0 0 24 24"
-                 fill="none"
-                 stroke="currentColor"
-                 strokeWidth="1.8"
-                 strokeLinecap="round"
-                 strokeLinejoin="round"
-                 aria-hidden
-                >
-                 <path d="M9 14 4 9l5-5" />
-                 <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
-                </svg>
-               </button>
-               <button
-                type="button"
-                title={t('redo')}
-                onClick={ledgerHistory.redo}
-                disabled={!ledgerHistory.canRedo}
-                className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-               >
-                <svg
-                 width="16"
-                 height="16"
-                 viewBox="0 0 24 24"
-                 fill="none"
-                 stroke="currentColor"
-                 strokeWidth="1.8"
-                 strokeLinecap="round"
-                 strokeLinejoin="round"
-                 aria-hidden
-                >
-                 <path d="m15 14 5-5-5-5" />
-                 <path d="M20 9H9a5 5 0 0 0 0 10h1" />
-                </svg>
-               </button>
-              </>
-             ) : null}
+             <button
+              type="button"
+              title={t('undo')}
+              onClick={ledgerHistory.undo}
+              disabled={!ledgerHistory.canUndo}
+              className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+             >
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M9 14 4 9l5-5" />
+               <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+              </svg>
+             </button>
+             <button
+              type="button"
+              title={t('redo')}
+              onClick={ledgerHistory.redo}
+              disabled={!ledgerHistory.canRedo}
+              className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+             >
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="m15 14 5-5-5-5" />
+               <path d="M20 9H9a5 5 0 0 0 0 10h1" />
+              </svg>
+             </button>
              <button
               type="button"
               title={t('nav_settings')}
@@ -872,7 +868,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
                 const showPager = visibleCount > 0 && totalLedgerPages > 1;
                 return (
-                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                 <div className="mt-3 mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-fg-muted">
                    {showPager
                     ? `${(currentLedgerPage - 1) * ledgerPageSize + 1}–${Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} ${t('pagination_of')} ${visibleCount}`

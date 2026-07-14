@@ -11,6 +11,9 @@ import type { LiveRatesResponse } from '@/shared/types';
 const UP = '#16c784';
 const DOWN = '#f0455a';
 
+// Poll the live-rates feed every 5s while this screen is open (see useQuery below).
+const LIVE_RATES_POLL_MS = 5000;
+
 async function fetchLiveRates(): Promise<LiveRatesResponse> {
  const res = await fetch('/api/live-rates', { cache: 'no-store' });
  const body = (await res.json()) as LiveRatesResponse;
@@ -52,12 +55,17 @@ export default function LiveRatesSection() {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
 
- // The feed is only ever hit when the user opens this page (mount) or clicks
- // refresh — never on a timer, window refocus, or network reconnect.
+ // The feed is fetched once when the user opens this page (mount) and then polled
+ // every 5s while it stays open. Because this component only mounts while the
+ // Live Rates section is active, navigating away stops the polling. And with
+ // refetchIntervalInBackground left at its default (false), the timer also pauses
+ // whenever the browser tab is hidden — so the API is only ever hit while this
+ // screen is actually being viewed. Manual refresh still works via the button.
  const { data, isLoading, isError, isFetching, refetch } = useQuery({
   queryKey: queryKeys.liveRates(),
   queryFn: fetchLiveRates,
-  refetchInterval: false,
+  refetchInterval: LIVE_RATES_POLL_MS,
+  refetchIntervalInBackground: false,
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
   refetchOnMount: 'always',
