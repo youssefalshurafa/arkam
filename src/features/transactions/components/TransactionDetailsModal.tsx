@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { formatDateValue } from '@/shared/utils/date';
+import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatRateValue } from '@/shared/utils/format';
 import { getCommissionAmount, exchangeToBase, parseChargesPayer, type ChargesPayerParty } from '@/shared/utils/commission';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
@@ -103,7 +104,7 @@ export default function TransactionDetailsModal({ transactions }: TransactionDet
      <div>
       <h3 className="text-lg font-semibold text-fg">{t('transaction_details_title')}</h3>
       <p className="mt-0.5 text-sm text-fg-faint">
-       {formatDateValue(tx.createdAt, dateFormat)} &middot; {t(isExchange ? 'transaction_type_exchange' : 'transaction_type_transfer')}
+       {formatDateValue(tx.createdAt, dateFormat)} &middot; {t(transactionTypeLabelKey(tx.type))}
       </p>
      </div>
      <button
@@ -121,6 +122,7 @@ export default function TransactionDetailsModal({ transactions }: TransactionDet
     </div>
 
     <div className="mt-4 divide-y divide-border rounded border border-border bg-surface-2 px-3">
+     {row(t('transaction_type'), t(transactionTypeLabelKey(tx.type)))}
      {row(t('transaction_amount'), <>{fmt(tx.amount)} <span className="text-fg-faint">{tx.currencySymbol || tx.currencyCode}</span></>)}
      {tx.description ? row(t('transaction_description'), tx.description) : null}
     </div>

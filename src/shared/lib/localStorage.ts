@@ -200,6 +200,35 @@ export function saveHarvestRates(rates: Record<string, string>) {
   /* ignore */
  }
 }
+
+// Opening inventory for the حصاد اليوم (Today's Harvest) profit engine: the quantity
+// and average cost (in the main currency) of each currency the house already held as
+// of `asOf`, used to seed the weighted-average cost pools before replaying tagged
+// buy/sell transactions. Load-bearing accounting input — flagged to move to a
+// per-workspace DB table once the page graduates from super-admin-only.
+export type StoredHarvestOpening = { asOf: string; byCurrency: Record<string, { qty: string; avgCost: string }> };
+export const harvestOpeningStorageKey = 'arkam:harvest-opening-costs';
+
+export function getStoredHarvestOpening(): StoredHarvestOpening {
+ if (typeof window === 'undefined') return { asOf: '', byCurrency: {} };
+ try {
+  const raw = window.localStorage.getItem(harvestOpeningStorageKey);
+  if (!raw) return { asOf: '', byCurrency: {} };
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== 'object') return { asOf: '', byCurrency: {} };
+  return { asOf: typeof parsed.asOf === 'string' ? parsed.asOf : '', byCurrency: parsed.byCurrency && typeof parsed.byCurrency === 'object' ? parsed.byCurrency : {} };
+ } catch {
+  return { asOf: '', byCurrency: {} };
+ }
+}
+
+export function saveHarvestOpening(value: StoredHarvestOpening) {
+ try {
+  window.localStorage.setItem(harvestOpeningStorageKey, JSON.stringify(value));
+ } catch {
+  /* ignore */
+ }
+}
 export const dataCacheStorageKey = 'arkam:data-cache';
 
 // The snapshot is tagged with the id of the user who wrote it AND the workspace it

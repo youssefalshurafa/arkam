@@ -10,6 +10,7 @@ import { normalizeDecimalInput } from '@/shared/utils/decimal';
 import type { ClientAccount, Currency, Section, Transaction } from '@/shared/types';
 import { computeHarvest, type HarvestTxKind } from '../utils/harvestProfit';
 import { useHarvestRatesStore, harvestRateKey, localDateKey } from '../store/harvestRatesStore';
+import { useHarvestOpeningStore } from '../store/harvestOpeningStore';
 
 type HarvestSectionProps = {
   clientAccounts: ClientAccount[];
@@ -22,8 +23,8 @@ type HarvestSectionProps = {
 const KIND_TONE: Record<HarvestTxKind, string> = {
   sell: 'bg-good-bg text-good-text',
   buy: 'bg-info-bg text-info-text',
-  cost: 'bg-bad-bg text-bad-text',
-  mixed: 'bg-violet-bg text-violet-text',
+  exchange: 'bg-violet-bg text-violet-text',
+  transfer: 'bg-surface-2 text-fg-faint',
   neutral: 'bg-surface-2 text-fg-faint',
 };
 
@@ -34,8 +35,13 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
 
   const mainCurrency = useMemo(() => currencies.find((c) => c.isMain === 1) ?? null, [currencies]);
   const currencyById = useMemo(() => new Map(currencies.map((c) => [c.id, c])), [currencies]);
+  const openingCurrencies = useMemo(
+    () => currencies.filter((c) => c.isMain !== 1 && c.isEnabled !== 0),
+    [currencies],
+  );
   const dateKey = localDateKey();
   const { rates, updateRate } = useHarvestRatesStore();
+  const { asOf, byCurrency, setAsOf, setEntry } = useHarvestOpeningStore();
 
   const refRate = useCallback(
     (currencyId: number) => {
@@ -47,9 +53,19 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
     [rates, dateKey, mainCurrency],
   );
 
+  const opening = useMemo(
+    () => ({
+      asOf: asOf || null,
+      pools: Object.entries(byCurrency)
+        .map(([cid, e]) => ({ currencyId: Number(cid), qty: Number(e.qty) || 0, avgCost: Number(e.avgCost) || 0 }))
+        .filter((p) => Number.isFinite(p.currencyId) && Math.abs(p.qty) > 0),
+    }),
+    [asOf, byCurrency],
+  );
+
   const harvest = useMemo(
-    () => computeHarvest({ transactions, clientAccounts, currencies, refRate }),
-    [transactions, clientAccounts, currencies, refRate],
+    () => computeHarvest({ transactions, clientAccounts, currencies, refRate, opening }),
+    [transactions, clientAccounts, currencies, refRate, opening],
   );
 
   const mainCode = harvest.mainCurrencyCode;
@@ -150,6 +166,52 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
           </div>
         ))}
       </div>
+
+      {openingCurrencies.length > 0 ? (
+        <div className={panelClassName}>
+          <h3 className="text-sm font-semibold text-fg">{t('harvest_opening_title')}</h3>
+          <p className="mt-1 text-xs text-fg-faint">{t('harvest_opening_hint')}</p>
+          <div className="mt-3 flex flex-wrap items-end gap-4">
+            <label className="flex flex-col gap-1 text-xs text-fg-muted">
+              <span>{t('harvest_opening_asof')}</span>
+              <input
+                type="date"
+                value={asOf}
+                onChange={(e) => setAsOf(e.target.value)}
+                className="rounded border border-border-strong bg-surface px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+              />
+            </label>
+            {openingCurrencies.map((c) => {
+              const entry = byCurrency[String(c.id)] ?? { qty: '', avgCost: '' };
+              return (
+                <div key={c.id} className="flex items-end gap-2 rounded border border-border bg-surface-2 px-2.5 py-2">
+                  <span className="pb-1.5 text-xs font-semibold text-fg">{c.code}</span>
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-faint">
+                    <span>{t('harvest_opening_qty')}</span>
+                    <input
+                      dir="ltr"
+                      inputMode="decimal"
+                      value={entry.qty}
+                      onChange={(e) => setEntry(c.id, { qty: normalizeDecimalInput(e.target.value) })}
+                      className="w-24 rounded border border-border-strong bg-surface px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] text-fg-faint">
+                    <span>{t('harvest_opening_avgcost', { currency: mainCode })}</span>
+                    <input
+                      dir="ltr"
+                      inputMode="decimal"
+                      value={entry.avgCost}
+                      onChange={(e) => setEntry(c.id, { avgCost: normalizeDecimalInput(e.target.value) })}
+                      className="w-20 rounded border border-border-strong bg-surface px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
+                    />
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {harvest.neededRateCurrencyIds.length > 0 ? (
         <div className={panelClassName}>
@@ -257,7 +319,7 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
                       {units(row.amount)} {row.currencySymbol || row.currencyCode}
                     </td>
                     <td dir="ltr" className={`px-3 py-2 text-right font-bold ${signCls(row.realizedProfitMain)}`}>
-                      {row.kind === 'buy' || row.kind === 'neutral' || Math.abs(row.realizedProfitMain) < 0.005 ? '—' : money(row.realizedProfitMain)}
+                      {row.kind === 'buy' || row.kind === 'transfer' || row.kind === 'neutral' || Math.abs(row.realizedProfitMain) < 0.005 ? '—' : money(row.realizedProfitMain)}
                       {row.hasMissingRate ? <span className="text-warn-text" title={t('harvest_row_missing_rate')}> *</span> : null}
                       {row.hasShortInventory ? <span className="text-warn-text" title={t('harvest_row_short_inventory')}> ⚠</span> : null}
                     </td>

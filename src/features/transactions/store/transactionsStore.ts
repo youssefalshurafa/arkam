@@ -97,6 +97,10 @@ type TransactionsStore = {
  setExpensesExpandedTxns: Dispatch<SetStateAction<Set<number>>>;
  isNewTransactionSectionOpen: boolean;
  setIsNewTransactionSectionOpen: Dispatch<SetStateAction<boolean>>;
+ // Archive keeps its own collapse state (defaults closed — creating an archived
+ // transaction is rare) so it doesn't inherit the Transactions form's open state.
+ isNewArchiveSectionOpen: boolean;
+ setIsNewArchiveSectionOpen: Dispatch<SetStateAction<boolean>>;
  isNewTransactionExpensesOpen: boolean;
  setIsNewTransactionExpensesOpen: Dispatch<SetStateAction<boolean>>;
  transactionTableDrafts: Record<number, TransactionTableDraft>;
@@ -111,6 +115,11 @@ type TransactionsStore = {
  setNewTransactionDate: Dispatch<SetStateAction<string>>;
  copiedTransaction: TransactionTableRow | null;
  setCopiedTransaction: Dispatch<SetStateAction<TransactionTableRow | null>>;
+ // When set, the new-transaction form is in "update" mode for this existing row
+ // (id = transaction id, or adjustment id when isAdjustment). createdAt is the
+ // original timestamp, preserved for ordering unless the user changes the date.
+ editingTransaction: { id: number; isAdjustment: boolean; createdAt: string } | null;
+ setEditingTransaction: Dispatch<SetStateAction<{ id: number; isAdjustment: boolean; createdAt: string } | null>>;
  txFromQuery: string;
  setTxFromQuery: Dispatch<SetStateAction<string>>;
  txFromOpen: boolean;
@@ -221,6 +230,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setExpensesExpandedTxns: setter('expensesExpandedTxns'),
   isNewTransactionSectionOpen: false,
   setIsNewTransactionSectionOpen: setter('isNewTransactionSectionOpen'),
+  isNewArchiveSectionOpen: false,
+  setIsNewArchiveSectionOpen: setter('isNewArchiveSectionOpen'),
   isNewTransactionExpensesOpen: false,
   setIsNewTransactionExpensesOpen: setter('isNewTransactionExpensesOpen'),
   transactionTableDrafts: {},
@@ -235,6 +246,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setNewTransactionDate: setter('newTransactionDate'),
   copiedTransaction: null,
   setCopiedTransaction: setter('copiedTransaction'),
+  editingTransaction: null,
+  setEditingTransaction: setter('editingTransaction'),
   txFromQuery: '',
   setTxFromQuery: setter('txFromQuery'),
   txFromOpen: false,

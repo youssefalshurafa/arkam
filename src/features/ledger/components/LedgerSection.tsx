@@ -4,6 +4,7 @@ import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
+import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -1921,14 +1922,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                <select
                                 value={draft.type}
                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
-                                style={{ width: ledgerSelectWidth(draft.type === 'transfer' ? t('transaction_type_transfer') : t('transaction_type_exchange'), 7, 2) }}
+                                style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(draft.type)), 7, 2) }}
                                 className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
                                >
+                                <option value="buy">{t('transaction_type_buy')}</option>
+                                <option value="sell">{t('transaction_type_sell')}</option>
                                 <option value="exchange">{t('transaction_type_exchange')}</option>
                                 <option value="transfer">{t('transaction_type_transfer')}</option>
                                </select>
                               ) : (
-                               t(entry.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')
+                               t(transactionTypeLabelKey(entry.type))
                               )}
                              </td>
                             );

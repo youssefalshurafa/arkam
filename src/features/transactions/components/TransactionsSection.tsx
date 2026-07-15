@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
@@ -135,6 +135,8 @@ type TransactionsSectionProps = {
  openArchiveExportModal: () => void;
  onImportTransactionsFile: (event: ChangeEvent<HTMLInputElement>) => void;
  onPasteCopiedTransaction: () => void;
+ onEditTransactionInForm: (row: TransactionTableRow) => void;
+ onCancelEditTransaction: () => void;
  onSaveAllTransactions: () => void;
  onSaveTransactionTableRow: (transactionId: number, opts?: { skipReload?: boolean }) => void;
  onToggleSelectAllTransactions: () => void;
@@ -159,7 +161,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
   txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopyTransactionRow, onDeleteSelectedTransactions,
-  onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction,
+  onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction, onEditTransactionInForm, onCancelEditTransaction,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
   setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry,
@@ -175,11 +177,21 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // single context menu when not editing.
  const rowContextMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
  const transactionTableSettings = section === 'archive' ? archiveTableSettings : transactionTableSettingsStore;
+ // Archive keeps its own collapse flag (defaults closed — creating an archived transaction
+ // is rare) so it doesn't inherit the Transactions form's open state when switching sections.
+ const newSectionOpen = section === 'archive' ? isNewArchiveSectionOpen : isNewTransactionSectionOpen;
+ const setNewSectionOpen = section === 'archive' ? setIsNewArchiveSectionOpen : setIsNewTransactionSectionOpen;
+ // When a row is loaded into the form for editing, bring the form into view.
+ const editFormRef = useRef<HTMLDivElement | null>(null);
+ const editingId = editingTransaction?.id;
+ useEffect(() => {
+  if (editingId != null) editFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+ }, [editingId]);
  const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
  // Exchange (صرف) transactions get the الفعلي (actual settled destination amount) section in
  // place of the "Extra Expenses" block. Archive-only records never touch a ledger, so they keep
@@ -215,11 +227,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
    return next;
   });
  };
- const openRowMenu = (event: ReactMouseEvent, txn: Transaction) => {
+ const openRowMenu = (event: ReactMouseEvent, txn: TransactionTableRow) => {
   if (editingRowIds.has(txn.id)) return;
   setContextMenuRowId(txn.id);
   rowContextMenu.open(event, [
-   { key: 'edit', label: t('edit'), onSelect: () => setEditingRowIds((prev) => new Set([...prev, txn.id])) },
+   { key: 'edit', label: t('edit'), onSelect: () => onEditTransactionInForm(txn) },
    { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(txn.id) },
    { key: 'copy', label: t('copy_transaction'), onSelect: () => onCopyTransactionRow(txn) },
    { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const },
@@ -377,12 +389,22 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   <>
         {transactionRowDrag.dragGhost}
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
-         {(section === 'transactions' || section === 'archive') && isNewTransactionSectionOpen ? (
-          <div className={`${panelClassName} xl:w-96 xl:shrink-0`}>
+         {(section === 'transactions' || section === 'archive') && newSectionOpen ? (
+          <div ref={editFormRef} className={`${panelClassName} xl:w-96 xl:shrink-0`}>
            <div className="flex items-start justify-between gap-3">
-            <h2 className="text-xl font-semibold">{section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
+            <h2 className="text-xl font-semibold">{editingTransaction ? t('update_transaction') : section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
             <div className="flex shrink-0 items-center gap-2">
-             {copiedTransaction ? (
+             {editingTransaction ? (
+              <button
+               type="button"
+               onClick={onCancelEditTransaction}
+               title={t('cancel_edit')}
+               className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border-strong bg-surface-2 px-2.5 py-1.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover"
+              >
+               {t('cancel_edit')}
+              </button>
+             ) : null}
+             {copiedTransaction && !editingTransaction ? (
               <button
                type="button"
                onClick={onPasteCopiedTransaction}
@@ -415,7 +437,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              ) : null}
              <button
               type="button"
-              onClick={() => setIsNewTransactionSectionOpen(false)}
+              onClick={() => setNewSectionOpen(false)}
               title={t('transactions_hide_new')}
               aria-label={t('transactions_hide_new')}
               className="inline-flex shrink-0 items-center justify-center rounded border border-border-strong p-1.5 text-fg-faint transition hover:bg-surface-hover hover:text-fg"
@@ -454,6 +476,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              }
              className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             >
+             <option value="buy">{t('transaction_type_buy')}</option>
+             <option value="sell">{t('transaction_type_sell')}</option>
              <option value="exchange">{t('transaction_type_exchange')}</option>
              <option value="transfer">{t('transaction_type_transfer')}</option>
              {section === 'archive' ? null : <option value="adjustment">{t('transaction_type_adjustment')}</option>}
@@ -1263,7 +1287,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              disabled={isSubmittingTransaction}
              className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-             {isAdjustmentTransaction ? t('adjustment_add') : t('save_transaction')}
+             {editingTransaction ? t('update_transaction') : isAdjustmentTransaction ? t('adjustment_add') : t('save_transaction')}
             </button>
            </form>
           </div>
@@ -1497,11 +1521,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </button>
              </>
             ) : null}
-            {(section === 'transactions' || section === 'archive') && !isNewTransactionSectionOpen ? (
+            {(section === 'transactions' || section === 'archive') && !newSectionOpen ? (
              <button
               type="button"
-              onClick={() => setIsNewTransactionSectionOpen(true)}
-              aria-expanded={isNewTransactionSectionOpen}
+              onClick={() => setNewSectionOpen(true)}
+              aria-expanded={newSectionOpen}
               title={t('transactions_show_new')}
               className="cursor-pointer rounded border border-blue-600 bg-blue-700 p-2 text-white transition hover:bg-blue-800"
              >
