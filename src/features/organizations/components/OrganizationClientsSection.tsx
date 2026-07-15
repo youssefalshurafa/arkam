@@ -15,6 +15,7 @@ type OrganizationClientsSectionProps = {
  selectedOrganizationClients: Client[];
  clientPageBalances: Map<number, BalanceEntry[]>;
  clientPendingPricingCounts: Map<number, number>;
+ clientReconciledStatus: Set<number>;
  numLocale: string;
  isRTL: boolean;
  openAddClientForOrganization: (organization: Organization) => void;
@@ -30,6 +31,7 @@ export default function OrganizationClientsSection({
  selectedOrganizationClients,
  clientPageBalances,
  clientPendingPricingCounts,
+ clientReconciledStatus,
  numLocale,
  isRTL,
  openAddClientForOrganization,
@@ -39,6 +41,69 @@ export default function OrganizationClientsSection({
 }: OrganizationClientsSectionProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
+
+ // Per-client cell pieces shared by the desktop table and the mobile card list (below md).
+ // Plain render functions (not components) so reusing them in both layouts doesn't trip the
+ // "components created during render" lint rule.
+ const renderNameLink = (client: Client) => (
+  <a
+   href={`/clients/${client.id}`}
+   onClick={(e) => {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    openClientLedger(client, 'organization-clients');
+   }}
+   className="cursor-pointer text-left font-medium text-fg transition hover:text-accent"
+  >
+   {client.name}
+  </a>
+ );
+
+ const renderBalanceChips = (client: Client) => (
+  <div className="flex flex-wrap gap-1">
+   {(clientPageBalances.get(client.id) ?? []).map((entry) => (
+    <span
+     key={entry.accountId}
+     className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${entry.balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}
+    >
+     {entry.currencySymbol || entry.currencyCode} {entry.balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+    </span>
+   ))}
+  </div>
+ );
+
+ // The pending-count button, the reconciled check, or null (a client with rows awaiting
+ // pricing can't be reconciled, so the two states never collide and share this slot). The
+ // table cell substitutes an em-dash for null; the card shows nothing.
+ const renderStatusMark = (client: Client) => {
+  const pendingCount = clientPendingPricingCounts.get(client.id) ?? 0;
+  if (pendingCount > 0) {
+   return (
+    <button
+     type="button"
+     onClick={() => setPendingPricingModalClientId(client.id)}
+     title={t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
+     className="cursor-pointer rounded bg-warn-bg px-1.5 py-0.5 font-mono text-xs font-semibold text-warn-text transition hover:bg-warn-bg"
+    >
+     {pendingCount}
+    </button>
+   );
+  }
+  if (clientReconciledStatus.has(client.id)) {
+   return (
+    <span
+     title={t('client_reconciled_mark')}
+     aria-label={t('client_reconciled_mark')}
+     className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-good-bg text-good-text"
+    >
+     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="20 6 9 17 4 12" />
+     </svg>
+    </span>
+   );
+  }
+  return null;
+ };
 
  return (
   <>
@@ -117,7 +182,9 @@ export default function OrganizationClientsSection({
         ) : (
          <div className={panelClassName}>
           <h3 className="text-xl font-semibold text-fg">{t('organization_clients_title')}</h3>
-          <div className={tableWrapClassName}>
+
+          {/* Desktop / tablet: the full table. Hidden below md, where the card list takes over. */}
+          <div className={`${tableWrapClassName} hidden md:block`}>
            <table className="w-full text-sm">
             <thead className="bg-surface-hover text-fg-muted">
              <tr>
@@ -132,51 +199,30 @@ export default function OrganizationClientsSection({
                key={client.id}
                className="border-t border-border align-top"
               >
-               <td className="whitespace-nowrap px-4 py-3 font-medium text-fg">
-                <a
-                 href={`/clients/${client.id}`}
-                 onClick={(e) => {
-                  if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-                  e.preventDefault();
-                  openClientLedger(client, 'organization-clients');
-                 }}
-                 className="cursor-pointer text-left text-fg transition hover:text-accent"
-                >
-                 {client.name}
-                </a>
-               </td>
-               <td className="px-4 py-3">
-                <div className="flex flex-wrap gap-1">
-                 {(clientPageBalances.get(client.id) ?? []).map((entry) => (
-                  <span
-                   key={entry.accountId}
-                   className={`whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${entry.balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}
-                  >
-                   {entry.currencySymbol || entry.currencyCode} {entry.balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
-                  </span>
-                 ))}
-                </div>
-               </td>
-               <td className="px-4 py-3">
-                {(() => {
-                 const pendingCount = clientPendingPricingCounts.get(client.id) ?? 0;
-                 if (pendingCount === 0) return <span className="text-fg-faint">—</span>;
-                 return (
-                  <button
-                   type="button"
-                   onClick={() => setPendingPricingModalClientId(client.id)}
-                   title={t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
-                   className="cursor-pointer rounded bg-warn-bg px-1.5 py-0.5 font-mono text-xs font-semibold text-warn-text transition hover:bg-warn-bg"
-                  >
-                   {pendingCount}
-                  </button>
-                 );
-                })()}
-               </td>
+               <td className="whitespace-nowrap px-4 py-3">{renderNameLink(client)}</td>
+               <td className="px-4 py-3">{renderBalanceChips(client)}</td>
+               <td className="px-4 py-3">{renderStatusMark(client) ?? <span className="text-fg-faint">—</span>}</td>
               </tr>
              ))}
             </tbody>
            </table>
+          </div>
+
+          {/* Mobile (below md): each client as a stacked card so everything fits with no
+              horizontal scroll. */}
+          <div className="mt-3 flex flex-col gap-2 md:hidden">
+           {selectedOrganizationClients.map((client) => (
+            <div
+             key={client.id}
+             className="rounded border border-border bg-surface-2 p-3"
+            >
+             <div className="flex items-start justify-between gap-3">
+              {renderNameLink(client)}
+              {renderStatusMark(client)}
+             </div>
+             <div className="mt-2">{renderBalanceChips(client)}</div>
+            </div>
+           ))}
           </div>
          </div>
         )}

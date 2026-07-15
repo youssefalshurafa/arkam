@@ -507,6 +507,7 @@
  "adjustment_amount_required": "Enter a valid amount greater than zero.",
  "adjustment_delete_confirm": "Delete this expense entry?",
  "reconcile_action": "Mark reconciled",
+ "client_reconciled_mark": "Last transaction reconciled",
  "reconcile_remove_action": "Remove reconciliation",
  "reconcile_badge": "Reconciled",
  "reconcile_remove_confirm": "Remove this reconciliation mark? The lock protecting earlier rows will be lifted.",

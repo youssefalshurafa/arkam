@@ -1,5 +1,6 @@
 import { computeAccountBalances, isPendingAdjustment, isPendingTransactionFrom, isPendingTransactionTo } from '@/shared/utils/accountBalances';
-import type { ClientAccount, ClientAdjustment, Transaction } from '@/shared/types';
+import { buildLockBoundaries, isAtOrBeforeBoundary } from '@/features/ledger/utils/reconciliation';
+import type { ClientAccount, ClientAdjustment, Reconciliation, Transaction } from '@/shared/types';
 
 export type ClientBalanceEntry = { accountId: number; currencyCode: string; currencySymbol: string; balance: number };
 
@@ -48,6 +49,60 @@ export function computeClientPendingPricingCounts({ clientAccounts, transactions
  }
 
  return countByClient;
+}
+
+// Client ids whose single most-recent ledger entry (across all their currency accounts) is
+// reconciled — i.e. sits at or before that account's lock line. Reconciliation is per account,
+// so "the client's last transaction is reconciled" means: find the newest entry the client has
+// anywhere, and check whether it's locked in its own account. Drives the organization page's
+// per-client "reconciled" mark. Entry ordering mirrors the ledger's (createdAt, then id).
+export function computeClientReconciledStatus({ clientAccounts, transactions, adjustments, reconciliations }: {
+ clientAccounts: ClientAccount[];
+ transactions: Transaction[];
+ adjustments: ClientAdjustment[];
+ reconciliations: Reconciliation[];
+}): Set<number> {
+ const boundaries = buildLockBoundaries(reconciliations);
+ const accountClientId = new Map(clientAccounts.map((account) => [account.id, account.clientId]));
+
+ type EntryRef = { createdAt: string; refId: number };
+ // Newest wins, breaking a same-timestamp tie by the higher id — matching computeClientLedgers'
+ // sort so "last entry" here is the same row the ledger shows at the bottom.
+ const isNewer = (candidate: EntryRef, current: EntryRef) => {
+  const a = new Date(candidate.createdAt).getTime();
+  const b = new Date(current.createdAt).getTime();
+  return a !== b ? a > b : candidate.refId > current.refId;
+ };
+ const lastByAccount = new Map<number, EntryRef>();
+ const consider = (accountId: number | null | undefined, entry: EntryRef) => {
+  if (accountId == null || !accountClientId.has(accountId)) return;
+  const current = lastByAccount.get(accountId);
+  if (!current || isNewer(entry, current)) lastByAccount.set(accountId, entry);
+ };
+
+ for (const transaction of transactions) {
+  if (transaction.isArchived) continue;
+  consider(transaction.accountFromId, { createdAt: transaction.createdAt, refId: transaction.id });
+  consider(transaction.accountToId, { createdAt: transaction.createdAt, refId: transaction.id });
+ }
+ for (const adj of adjustments) {
+  consider(adj.accountId, { createdAt: adj.createdAt, refId: adj.id });
+ }
+
+ // Per client, pick the newest entry across their accounts and test it against that account's lock.
+ const latestByClient = new Map<number, { accountId: number; entry: EntryRef }>();
+ for (const [accountId, entry] of lastByAccount) {
+  const clientId = accountClientId.get(accountId);
+  if (clientId == null) continue;
+  const current = latestByClient.get(clientId);
+  if (!current || isNewer(entry, current.entry)) latestByClient.set(clientId, { accountId, entry });
+ }
+
+ const reconciledClients = new Set<number>();
+ for (const [clientId, { accountId, entry }] of latestByClient) {
+  if (isAtOrBeforeBoundary(entry.createdAt, entry.refId, boundaries.get(accountId) ?? null)) reconciledClients.add(clientId);
+ }
+ return reconciledClients;
 }
 
 // One "waiting for pricing" row surfaced for the organization page's popup: enough

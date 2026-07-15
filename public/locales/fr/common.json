@@ -506,6 +506,7 @@
  "adjustment_amount_required": "Saisissez un montant valide superieur a zero.",
  "adjustment_delete_confirm": "Supprimer cette depense ?",
  "reconcile_action": "Marquer rapproche",
+ "client_reconciled_mark": "Dernière transaction rapprochée",
  "reconcile_remove_action": "Retirer le rapprochement",
  "reconcile_badge": "Rapproche",
  "reconcile_remove_confirm": "Retirer ce marqueur de rapprochement ? Le verrou protegeant les lignes anterieures sera leve.",

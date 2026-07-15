@@ -507,6 +507,7 @@
  "adjustment_amount_required": "أدخل مبلغاً صالحاً أكبر من صفر.",
  "adjustment_delete_confirm": "هل تريد حذف هذا المصروف؟",
  "reconcile_action": "تمييز كمُسوَّى",
+ "client_reconciled_mark": "آخر معاملة مُسوَّاة",
  "reconcile_remove_action": "إزالة التسوية",
  "reconcile_badge": "مُسوَّى",
  "reconcile_remove_confirm": "إزالة علامة التسوية؟ سيتم رفع القفل الذي يحمي الصفوف السابقة.",
