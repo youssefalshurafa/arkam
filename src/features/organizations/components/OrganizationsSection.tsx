@@ -19,6 +19,53 @@ export default function OrganizationsSection({ organizations, organizationForm, 
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
 
+ // Per-organization cell pieces shared by the desktop table and the mobile card list (below md).
+ // Plain render functions (not components) so reusing them in both layouts doesn't trip the
+ // "components created during render" lint rule.
+ const renderNameLink = (organization: Organization) => (
+  <a
+   href={`/organizations/${organization.id}`}
+   onClick={(e) => {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    openOrganizationClientsPage(organization);
+   }}
+   className="cursor-pointer text-left font-medium text-fg transition hover:text-accent"
+  >
+   {organization.name}
+  </a>
+ );
+
+ const renderActions = (organization: Organization) => (
+  <div className="flex flex-wrap gap-2">
+   <a
+    href={`/organizations/${organization.id}`}
+    onClick={(e) => {
+     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+     e.preventDefault();
+     openOrganizationClientsPage(organization);
+    }}
+    className="cursor-pointer rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-weak"
+   >
+    {t('organization_page_open')}
+   </a>
+   <button
+    type="button"
+    onClick={() => setOrganizationForm({ id: organization.id, name: organization.name })}
+    className="rounded border border-border-strong px-3 py-1.5 text-xs font-semibold text-fg-muted hover:bg-surface-hover"
+   >
+    {t('edit')}
+   </button>
+   <button
+    type="button"
+    onClick={() => onDeleteOrganization(organization.id)}
+    className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-bad-text hover:bg-bad-bg"
+   >
+    {t('delete')}
+   </button>
+  </div>
+ );
+
  return (
   <section className="grid gap-6 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
    <div className={panelClassName}>
@@ -50,7 +97,9 @@ export default function OrganizationsSection({ organizations, organizationForm, 
 
    <div className={panelClassName}>
     <h2 className="text-xl font-semibold">{t('organizations_title')}</h2>
-    <div className={tableWrapClassName}>
+
+    {/* Desktop / tablet: the full table. Hidden below md, where the card list takes over. */}
+    <div className={`${tableWrapClassName} hidden md:block`}>
      <table className="w-full text-sm">
       <thead className="bg-surface-hover text-fg-muted">
        <tr>
@@ -64,53 +113,8 @@ export default function OrganizationsSection({ organizations, organizationForm, 
          key={organization.id}
          className="border-t border-border align-top"
         >
-         <td className="px-4 py-3 font-medium text-fg">
-          <a
-           href={`/organizations/${organization.id}`}
-           onClick={(e) => {
-            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-            e.preventDefault();
-            openOrganizationClientsPage(organization);
-           }}
-           className="cursor-pointer text-left text-fg transition hover:text-accent"
-          >
-           {organization.name}
-          </a>
-         </td>
-         <td className="px-4 py-3">
-          <div className="flex flex-wrap gap-2">
-           <a
-            href={`/organizations/${organization.id}`}
-            onClick={(e) => {
-             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-             e.preventDefault();
-             openOrganizationClientsPage(organization);
-            }}
-            className="cursor-pointer rounded border border-blue-200 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent-weak"
-           >
-            {t('organization_page_open')}
-           </a>
-           <button
-            type="button"
-            onClick={() =>
-             setOrganizationForm({
-              id: organization.id,
-              name: organization.name,
-             })
-            }
-            className="rounded border border-border-strong px-3 py-1.5 text-xs font-semibold text-fg-muted hover:bg-surface-hover"
-           >
-            {t('edit')}
-           </button>
-           <button
-            type="button"
-            onClick={() => onDeleteOrganization(organization.id)}
-            className="rounded border border-red-200 px-3 py-1.5 text-xs font-semibold text-bad-text hover:bg-bad-bg"
-           >
-            {t('delete')}
-           </button>
-          </div>
-         </td>
+         <td className="px-4 py-3">{renderNameLink(organization)}</td>
+         <td className="px-4 py-3">{renderActions(organization)}</td>
         </tr>
        ))}
        {organizations.length === 0 ? (
@@ -125,6 +129,24 @@ export default function OrganizationsSection({ organizations, organizationForm, 
        ) : null}
       </tbody>
      </table>
+    </div>
+
+    {/* Mobile (below md): each organization as a stacked card so the actions fit with no
+        horizontal scroll. */}
+    <div className="mt-3 flex flex-col gap-2 md:hidden">
+     {organizations.length === 0 ? (
+      <p className="text-sm text-fg-faint">{t('no_organizations')}</p>
+     ) : (
+      organizations.map((organization) => (
+       <div
+        key={organization.id}
+        className="rounded border border-border bg-surface-2 p-3"
+       >
+        {renderNameLink(organization)}
+        <div className="mt-2">{renderActions(organization)}</div>
+       </div>
+      ))
+     )}
     </div>
    </div>
   </section>

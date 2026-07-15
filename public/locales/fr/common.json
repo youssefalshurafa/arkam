@@ -105,6 +105,7 @@
  "clients_drag_org_hint": "Glisser pour réorganiser",
  "overview_organizations": "Organisations",
  "overview_clients": "Clients",
+ "clients_count_singular": "client",
  "overview_currencies": "Devises",
  "organizations_title": "Organisations",
  "organizations_description": "Créez et gérez les organisations que vous suivez dans l'application.",

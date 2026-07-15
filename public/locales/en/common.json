@@ -106,6 +106,7 @@
  "clients_drag_org_hint": "Drag to rearrange",
  "overview_organizations": "Organizations",
  "overview_clients": "Clients",
+ "clients_count_singular": "client",
  "overview_currencies": "Currencies",
  "organizations_title": "Organizations",
  "organizations_description": "Create and maintain the organizations you manage inside the app.",

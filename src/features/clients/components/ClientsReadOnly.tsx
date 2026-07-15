@@ -38,15 +38,44 @@ export default function ClientsReadOnly({
  const numLocale = language === 'fr' ? 'en-US' : language;
  const { clientSearch, setClientSearch, clientsGroupByOrg, setClientsGroupByOrg, draggedOrgKey, setDraggedOrgKey, dragOverOrgKey, setDragOverOrgKey } = useClientsStore();
 
+ // Per-client balance chips (with the inline write-off button for near-zero balances), shared
+ // by the list-view table cell and its mobile card. Plain render function (not a component).
+ const renderBalanceChips = (clientId: number) => (
+  <div className="flex flex-wrap gap-1">
+   {(clientPageBalances.get(clientId) ?? []).map(({ accountId, currencyCode, currencySymbol, balance }) => (
+    <span
+     key={accountId}
+     className="inline-flex items-center gap-1"
+    >
+     <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}>
+      {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
+     </span>
+     {balance !== 0 && Math.abs(balance) <= SMALL_BALANCE_THRESHOLD ? (
+      <button
+       type="button"
+       title={t('write_off_button')}
+       onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onWriteOffBalance(accountId, balance);
+       }}
+       className="rounded border border-amber-300 bg-warn-bg px-1 py-0.5 text-[10px] font-semibold text-warn-text transition hover:bg-warn-bg"
+      >
+       {t('write_off_button')}
+      </button>
+     ) : null}
+    </span>
+   ))}
+  </div>
+ );
+
  return (
   <section className="flex flex-col gap-4">
    <div className={panelClassName}>
-    <div className="mb-4 flex items-start justify-between gap-4">
-     <div>
-      <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
-     </div>
-     <div className="flex items-center gap-2">
-      <div className="relative">
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+     <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
+     <div className="flex flex-wrap items-center gap-2">
+      <div className="relative min-w-0 flex-1 sm:flex-none">
        <svg
         className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint"
         width="14"
@@ -76,13 +105,13 @@ export default function ClientsReadOnly({
         value={clientSearch}
         onChange={(e) => setClientSearch(e.target.value)}
         placeholder={t('search')}
-        className="rounded border border-border-strong py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring"
+        className="w-full rounded border border-border-strong py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring sm:w-56"
        />
       </div>
       <button
        type="button"
        onClick={() => setClientsGroupByOrg((current) => !current)}
-       className="rounded border border-border-strong px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
+       className="shrink-0 rounded border border-border-strong px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
       >
        {clientsGroupByOrg ? t('clients_view_as_list') : t('clients_group_by_org')}
       </button>
@@ -92,9 +121,14 @@ export default function ClientsReadOnly({
         setSettingsTab('clients');
         navigateToSection('settings');
        }}
-       className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-accent hover:bg-accent-weak"
+       title={t('open_in_settings')}
+       aria-label={t('open_in_settings')}
+       className="shrink-0 rounded border border-blue-200 p-2 text-accent transition hover:bg-accent-weak"
       >
-       {t('open_in_settings')}
+       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+       </svg>
       </button>
      </div>
     </div>
@@ -228,70 +262,73 @@ export default function ClientsReadOnly({
       })}
      </div>
     ) : (
-     <div className={tableWrapClassName}>
-      <table className="w-full text-sm">
-       <thead className="bg-surface-hover text-fg-muted">
-        <tr>
-         {clientSortHeader('name', t('name'))}
-         {clientSortHeader('organization', t('client_organization'))}
-         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
-         <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_page_current_balance')}</th>
-        </tr>
-       </thead>
-       <tbody>
-        {sortedClients.map((client) => (
-         <tr
-          key={client.id}
-          className="border-t border-border align-top"
-         >
-          <td className="px-4 py-3 font-medium text-fg">
-           <a
-            href={`/clients/${client.id}`}
-            onClick={(e) => {
-             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-             e.preventDefault();
-             openClientLedger(client, 'clients');
-            }}
-            className="cursor-pointer text-left text-fg transition hover:text-accent"
-           >
-            {client.name}
-           </a>
-          </td>
-          <td className="px-4 py-3 text-fg-muted">{client.organizationName || t('unassigned')}</td>
-          <td className="px-4 py-3 text-fg-muted">{client.accountCount}</td>
-          <td className="px-4 py-3">
-           <div className="flex flex-wrap gap-1">
-            {(clientPageBalances.get(client.id) ?? []).map(({ accountId, currencyCode, currencySymbol, balance }) => (
-             <span
-              key={accountId}
-              className="inline-flex items-center gap-1"
-             >
-              <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}>
-               {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
-              </span>
-              {balance !== 0 && Math.abs(balance) <= SMALL_BALANCE_THRESHOLD ? (
-               <button
-                type="button"
-                title={t('write_off_button')}
-                onClick={(event) => {
-                 event.preventDefault();
-                 event.stopPropagation();
-                 onWriteOffBalance(accountId, balance);
-                }}
-                className="rounded border border-amber-300 bg-warn-bg px-1 py-0.5 text-[10px] font-semibold text-warn-text transition hover:bg-warn-bg"
-               >
-                {t('write_off_button')}
-               </button>
-              ) : null}
-             </span>
-            ))}
-           </div>
-          </td>
+     <>
+      {/* Desktop / tablet: the full table. Hidden below md, where the card list takes over. */}
+      <div className={`${tableWrapClassName} hidden md:block`}>
+       <table className="w-full text-sm">
+        <thead className="bg-surface-hover text-fg-muted">
+         <tr>
+          {clientSortHeader('name', t('name'))}
+          {clientSortHeader('organization', t('client_organization'))}
+          <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_accounts')}</th>
+          <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('client_page_current_balance')}</th>
          </tr>
-        ))}
-       </tbody>
-      </table>
-     </div>
+        </thead>
+        <tbody>
+         {sortedClients.map((client) => (
+          <tr
+           key={client.id}
+           className="border-t border-border align-top"
+          >
+           <td className="px-4 py-3 font-medium text-fg">
+            <a
+             href={`/clients/${client.id}`}
+             onClick={(e) => {
+              if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+              e.preventDefault();
+              openClientLedger(client, 'clients');
+             }}
+             className="cursor-pointer text-left text-fg transition hover:text-accent"
+            >
+             {client.name}
+            </a>
+           </td>
+           <td className="px-4 py-3 text-fg-muted">{client.organizationName || t('unassigned')}</td>
+           <td className="px-4 py-3 text-fg-muted">{client.accountCount}</td>
+           <td className="px-4 py-3">{renderBalanceChips(client.id)}</td>
+          </tr>
+         ))}
+        </tbody>
+       </table>
+      </div>
+
+      {/* Mobile (below md): each client as a stacked card so everything fits with no
+          horizontal scroll. */}
+      <div className="mt-3 flex flex-col gap-2 md:hidden">
+       {sortedClients.map((client) => (
+        <div
+         key={client.id}
+         className="rounded border border-border bg-surface-2 p-3"
+        >
+         <div className="flex items-start justify-between gap-3">
+          <a
+           href={`/clients/${client.id}`}
+           onClick={(e) => {
+            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+            e.preventDefault();
+            openClientLedger(client, 'clients');
+           }}
+           className="min-w-0 flex-1 truncate font-medium text-fg transition hover:text-accent"
+          >
+           {client.name}
+          </a>
+          <span className="shrink-0 text-xs text-fg-faint">{client.organizationName || t('unassigned')}</span>
+         </div>
+         <div className="mt-2">{renderBalanceChips(client.id)}</div>
+        </div>
+       ))}
+      </div>
+     </>
     )}
    </div>
 
