@@ -62,6 +62,8 @@ export type ClientAccount = {
  currencyCode: string;
  currencySymbol: string;
  startingBalance: number;
+ note: string;
+ noteShowInPdf: boolean;
  createdAt: string;
 };
 
@@ -296,6 +298,10 @@ export type ClientAccountLedger = {
  startingBalance: number;
  currentBalance: number;
  transactionCount: number;
+ // Free-text sticky note attached to this specific client-currency ledger; noteShowInPdf
+ // controls whether it appears on the exported PDF statement.
+ note: string;
+ noteShowInPdf: boolean;
  entries: ClientLedgerEntry[];
  // The newest reconciliation on this account (the effective lock line), or null. Its
  // (createdAt, refId) is the boundary; entries at or before it are locked.

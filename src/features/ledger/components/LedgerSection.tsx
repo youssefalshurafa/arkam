@@ -204,6 +204,28 @@ export default function LedgerSection(props: LedgerSectionProps) {
   renderGhost: (key) => orderedLedgerColumnOptions.find((o) => o.key === key)?.label ?? key,
  });
 
+ // Per-ledger sticky note editing. editingNoteAccountId is the account whose note is currently
+ // in edit mode (textarea shown); noteDraft/noteShowInPdfDraft hold the unsaved edits. Saving
+ // persists both fields together; the view-mode "Show in PDF" toggle persists immediately.
+ const [editingNoteAccountId, setEditingNoteAccountId] = useState<number | null>(null);
+ const [noteDraft, setNoteDraft] = useState('');
+ const [noteShowInPdfDraft, setNoteShowInPdfDraft] = useState(false);
+ const beginEditNote = (ledger: ClientAccountLedger) => {
+  setEditingNoteAccountId(ledger.accountId);
+  setNoteDraft(ledger.note);
+  setNoteShowInPdfDraft(ledger.noteShowInPdf);
+ };
+ const saveLedgerNote = async (accountId: number, note: string, noteShowInPdf: boolean) => {
+  if (!accountingApi) return;
+  try {
+   await accountingApi.updateClientAccountNote({ accountId, note, noteShowInPdf });
+   setClientAccounts((prev) => prev.map((account) => (account.id === accountId ? { ...account, note, noteShowInPdf } : account)));
+   void loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+ };
+
  // Tracks which account's "entries awaiting an exchange rate" note has been expanded to list
  // the specific pending entries. Ephemeral UI state — no need to persist across sessions.
  const [pendingEntriesOpenAccountIds, setPendingEntriesOpenAccountIds] = useState<Set<number>>(new Set());
@@ -687,6 +709,102 @@ export default function LedgerSection(props: LedgerSectionProps) {
                </div>
               </div>
              </div>
+
+             {/* Sticky note for this client-currency ledger. Free text plus an opt-in toggle for
+                 whether it appears on the exported PDF statement (see generateLedgerHtml). */}
+             {(() => {
+              const isEditingNote = editingNoteAccountId === ledger.accountId;
+              const hasNote = !!ledger.note.trim();
+              if (isEditingNote) {
+               return (
+                <div className="mt-4 rounded border-l-4 border-amber-400 bg-amber-50 p-3 dark:bg-amber-500/10">
+                 <textarea
+                  autoFocus
+                  rows={3}
+                  value={noteDraft}
+                  onChange={(event) => setNoteDraft(event.target.value)}
+                  placeholder={t('ledger_note_placeholder')}
+                  className="w-full resize-y rounded border border-border-strong bg-surface px-2 py-1.5 text-sm text-fg outline-none ring-blue-300 focus:ring"
+                 />
+                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-fg-muted">
+                   <input
+                    type="checkbox"
+                    checked={noteShowInPdfDraft}
+                    onChange={(event) => setNoteShowInPdfDraft(event.target.checked)}
+                    className="cursor-pointer"
+                   />
+                   {t('ledger_note_show_in_pdf')}
+                  </label>
+                  <div className="flex items-center gap-2">
+                   <button
+                    type="button"
+                    onClick={() => setEditingNoteAccountId(null)}
+                    className="rounded border border-border-strong px-3 py-1.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover"
+                   >
+                    {t('cancel')}
+                   </button>
+                   <button
+                    type="button"
+                    onClick={() => {
+                     void saveLedgerNote(ledger.accountId, noteDraft.trim(), noteDraft.trim() ? noteShowInPdfDraft : false);
+                     setEditingNoteAccountId(null);
+                    }}
+                    className="rounded bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600"
+                   >
+                    {t('save_changes')}
+                   </button>
+                  </div>
+                 </div>
+                </div>
+               );
+              }
+              if (!hasNote) {
+               return (
+                <button
+                 type="button"
+                 onClick={() => beginEditNote(ledger)}
+                 className="mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded border border-dashed border-border-strong px-3 py-2 text-sm text-fg-muted transition hover:bg-surface-hover"
+                >
+                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 5v14M5 12h14" />
+                 </svg>
+                 {t('ledger_note_add')}
+                </button>
+               );
+              }
+              return (
+               <div className="mt-4 rounded border-l-4 border-amber-400 bg-amber-50 p-3 dark:bg-amber-500/10">
+                <div className="flex items-start justify-between gap-3">
+                 <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">{t('ledger_note_title')}</p>
+                  <p className="mt-1 whitespace-pre-wrap break-words text-sm text-fg">{ledger.note}</p>
+                 </div>
+                 <button
+                  type="button"
+                  onClick={() => beginEditNote(ledger)}
+                  title={t('edit')}
+                  aria-label={t('edit')}
+                  className="shrink-0 rounded p-1 text-amber-700 transition hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-500/20"
+                 >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                   <path d="M12 20h9" />
+                   <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                 </button>
+                </div>
+                <label className="mt-2 flex w-fit cursor-pointer items-center gap-1.5 border-t border-amber-200 pt-2 text-xs font-medium text-fg-muted dark:border-amber-500/30">
+                 <input
+                  type="checkbox"
+                  checked={ledger.noteShowInPdf}
+                  onChange={(event) => void saveLedgerNote(ledger.accountId, ledger.note, event.target.checked)}
+                  className="cursor-pointer"
+                 />
+                 {t('ledger_note_show_in_pdf')}
+                </label>
+               </div>
+              );
+             })()}
 
              {ledger.entries.length === 0 ? (
               <p className="mt-5 text-sm text-fg-faint">{t('client_page_no_transactions')}</p>

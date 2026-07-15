@@ -329,6 +329,8 @@ async function listAllClientAccounts(app) {
             cur.code AS "currencyCode",
             cur.symbol AS "currencySymbol",
             ca.starting_balance AS "startingBalance",
+            ca.note AS "note",
+            ca.note_show_in_pdf AS "noteShowInPdf",
             ca.created_at AS "createdAt"
         FROM ${schema}.client_accounts ca
         JOIN ${schema}.clients c ON c.id = ca.client_id
@@ -349,6 +351,8 @@ async function listClientAccounts(app, clientId) {
             cur.code AS "currencyCode",
             cur.symbol AS "currencySymbol",
             ca.starting_balance AS "startingBalance",
+            ca.note AS "note",
+            ca.note_show_in_pdf AS "noteShowInPdf",
             ca.created_at AS "createdAt"
         FROM ${schema}.client_accounts ca
         JOIN ${schema}.clients c ON c.id = ca.client_id
@@ -382,6 +386,18 @@ async function updateClientAccountStartingBalance(app, { accountId, startingBala
 
     const { schema } = await getSchemaInfo(app);
     await query(`UPDATE ${schema}.client_accounts SET starting_balance = $1 WHERE id = $2`, [startingBalance ?? 0, accountId]);
+}
+
+async function updateClientAccountNote(app, { accountId, note, noteShowInPdf }) {
+    if (!accountId) {
+        throw new Error('Account id is required.');
+    }
+
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `UPDATE ${schema}.client_accounts SET note = $1, note_show_in_pdf = $2 WHERE id = $3`,
+        [note ?? '', Boolean(noteShowInPdf), accountId],
+    );
 }
 
 async function updateClientAccount(app, { accountId, currencyId, startingBalance }) {
@@ -1261,6 +1277,7 @@ module.exports = {
     listClientAccounts,
     createClientAccount,
     updateClientAccountStartingBalance,
+    updateClientAccountNote,
     updateClientAccount,
     deleteClientAccount,
     moveAccountTransactions,

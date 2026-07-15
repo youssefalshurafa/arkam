@@ -391,6 +391,11 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   commissionTo: draft.direction === 'incoming' ? commission : transaction.commissionTo,
   exchangeRateFromReversed: draft.direction === 'outgoing' ? (rateIsReversed ? 1 : 0) : counterpartyReversedFrom,
   exchangeRateToReversed: draft.direction === 'incoming' ? (rateIsReversed ? 1 : 0) : counterpartyReversedTo,
+  // The actual (الفعلي) settled destination amount isn't editable from a ledger row, so carry it
+  // through unchanged. Omitting it made the reconciliation guard's per-side net-change comparison
+  // treat the untouched exchange "to" side as changed (old value vs. undefined), producing a
+  // spurious "you may affect the reconciled balance" warning when editing only the commission.
+  exchangeActualAmount: transaction.exchangeActualAmount,
   charges: parseFloat(draft.charges) || 0,
   chargesCurrencyId: draft.chargesCurrencyId,
   chargesPayer: draft.chargesPayer,

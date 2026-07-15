@@ -423,6 +423,13 @@ export function generateLedgerHtml(
   ].filter(Boolean);
   const metaColCount = metaCards.length;
 
+  // Sticky note: a per-ledger free-text note, shown only when the user opted it into the PDF.
+  // Newlines are preserved (white-space: pre-wrap) so multi-line notes keep their shape.
+  const noteHtml =
+   ledger.noteShowInPdf && ledger.note.trim()
+    ? `<div class="sticky-note"><div class="note-label">${esc(t('ledger_note_title'))}</div><div class="note-body">${esc(ledger.note)}</div></div>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="${language}" dir="${dir}">
 <head>
@@ -469,6 +476,9 @@ export function generateLedgerHtml(
  .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
  .charges-line { font-size: calc(${pdfSettings.fontSize}px - 1px); font-weight: 600; margin-top: 2px; }
  .charges-desc { font-weight: 400; font-style: italic; color: #94a3b8; }
+ .sticky-note { background: #fef9c3; border: 1px solid #fde047; border-${isRTL ? 'right' : 'left'}: 4px solid #eab308; border-radius: 6px; padding: 10px 14px; margin-bottom: 20px; }
+ .sticky-note .note-label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #a16207; font-weight: 700; margin-bottom: 4px; }
+ .sticky-note .note-body { font-size: ${pdfSettings.fontSize}px; color: #422006; white-space: pre-wrap; word-break: break-word; }
 </style>
 </head>
 <body>
@@ -484,6 +494,7 @@ export function generateLedgerHtml(
  ${pdfSettings.showGeneratedOn ? `<div class="header-right"><div>${t('export_generated_on')}: ${exportDate}</div></div>` : ''}
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
+${noteHtml}
 ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
