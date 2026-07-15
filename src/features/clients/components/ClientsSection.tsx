@@ -179,7 +179,7 @@ export default function ClientsSection({
               const currencyId = event.target.value ? Number(event.target.value) : null;
               setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, currencyId } : row)));
              }}
-             className="flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+             className="w-full min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             >
              <option value="">{t('client_account_currency_placeholder')}</option>
              {enabledCurrencies
@@ -196,8 +196,8 @@ export default function ClientsSection({
            </div>
            <div className="mt-2">
             <p className="text-xs font-medium text-fg-faint">{t('starting_balance')}</p>
-            <div className="mt-1 flex items-center gap-2">
-             <div className="flex rounded border border-border-strong overflow-hidden text-xs font-semibold">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+             <div className="flex shrink-0 rounded border border-border-strong overflow-hidden text-xs font-semibold">
               <button
                type="button"
                onClick={() => setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, balanceType: 'debit' } : row)))}
@@ -222,7 +222,7 @@ export default function ClientsSection({
                setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, startingBalance: nextBalance } : row)));
               }}
               placeholder="0"
-              className="w-36 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring sm:max-w-36"
              />
             </div>
             <p className="mt-1 text-xs text-fg-faint">{t('balance_type_hint')}</p>
@@ -327,7 +327,7 @@ export default function ClientsSection({
               <select
                value={editingAccountCurrencyId ?? ''}
                onChange={(event) => setEditingAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-               className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               className="w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
               >
                <option value="">{t('client_account_currency_placeholder')}</option>
                {enabledCurrencies.map((cur) => (
@@ -341,8 +341,8 @@ export default function ClientsSection({
               </select>
               <div>
                <p className="text-xs font-medium text-fg-faint">{t('starting_balance')}</p>
-               <div className="mt-1 flex items-center gap-2">
-                <div className="flex rounded border border-border-strong overflow-hidden text-xs font-semibold">
+               <div className="mt-1 flex flex-wrap items-center gap-2">
+                <div className="flex shrink-0 rounded border border-border-strong overflow-hidden text-xs font-semibold">
                  <button
                   type="button"
                   onClick={() => setEditingAccountBalanceType('debit')}
@@ -367,7 +367,7 @@ export default function ClientsSection({
                   if (event.key === 'Enter' && editingAccountCurrencyId) void onSaveEditAccount();
                  }}
                  placeholder="0"
-                 className="w-36 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring sm:max-w-36"
                 />
                </div>
                <p className="mt-1 text-xs text-fg-faint">{t('balance_type_hint')}</p>
@@ -466,7 +466,7 @@ export default function ClientsSection({
          <select
           value={newAccountCurrencyId ?? ''}
           onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
-          className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          className="w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('client_account_currency_placeholder')}</option>
           {enabledCurrencies

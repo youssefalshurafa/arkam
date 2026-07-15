@@ -128,7 +128,7 @@ export default function SettingsSection({
  return (
  <section className="flex flex-col gap-0">
   {/* Settings section header */}
-  <div className="border-b-2 border-blue-800 bg-surface px-5 py-4">
+  <div className="border-b-2 border-blue-800 bg-surface px-4 py-3 sm:px-5 sm:py-4">
    <div className="flex items-center gap-3">
     <span className="inline-flex h-8 w-8 items-center justify-center rounded bg-blue-800 text-white">{renderIcon('settings', 'h-4 w-4')}</span>
     <div>
@@ -136,8 +136,12 @@ export default function SettingsSection({
      <p className="text-xs text-fg-faint">{t('settings_description')}</p>
     </div>
    </div>
-   {/* Tab strip */}
-   <div className="mt-4 flex flex-wrap gap-0 border-b border-border -mb-px">
+   {/* Tab strip — mobile only: the desktop Sidebar already renders these same tabs as a
+       vertical sub-nav (lg+), so this row would just duplicate it there. A single
+       horizontally-scrollable row (never wraps) keeps the settings header short and never
+       forces the page itself to scroll sideways — only this strip scrolls, same pattern as
+       the live-rates ticker. */}
+   <div className="mt-4 flex gap-1 overflow-x-auto border-b border-border -mb-px pb-px lg:hidden">
     {settingsTabs.map((tab) => {
      const isActive = settingsTab === tab.key;
      return (
@@ -145,7 +149,7 @@ export default function SettingsSection({
        key={tab.key}
        type="button"
        onClick={() => setSettingsTab(tab.key)}
-       className={`inline-flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition ${
+       className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition ${
         isActive ? 'border-blue-700 text-accent' : 'border-transparent text-fg-faint hover:border-border-strong hover:text-fg-muted'
        }`}
       >

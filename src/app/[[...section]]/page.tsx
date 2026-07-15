@@ -78,7 +78,7 @@ import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
-import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
+import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, computeClientReconciledStatus, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
@@ -102,6 +102,7 @@ import AppHeader from '@/shared/components/AppHeader';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
 import AdjustmentModal from '@/features/ledger/components/AdjustmentModal';
 import PdfExportModal from '@/features/ledger/components/PdfExportModal';
+import TransactionDetailsModal from '@/features/transactions/components/TransactionDetailsModal';
 import TransactionExportModal from '@/features/transactions/components/TransactionExportModal';
 import TransactionTableSettingsModal from '@/features/transactions/components/TransactionTableSettingsModal';
 
@@ -1360,6 +1361,13 @@ function AuthenticatedHome() {
   () => computeClientPendingPricingCounts({ clientAccounts, transactions, adjustments }),
   [clientAccounts, transactions, adjustments],
  );
+
+ // Client ids whose most recent transaction is reconciled — drives the org page's per-client
+ // "reconciled" mark.
+ const clientReconciledStatus = useMemo(
+  () => computeClientReconciledStatus({ clientAccounts, transactions, adjustments, reconciliations }),
+  [clientAccounts, transactions, adjustments, reconciliations],
+ );
  // The actual pending rows behind those counts, keyed by client — drives the
  // org page's "waiting for pricing" popup (opened by clicking the count).
  const clientPendingPricingEntries = useMemo(
@@ -2135,6 +2143,7 @@ function AuthenticatedHome() {
        selectedOrganizationClients={selectedOrganizationClients}
        clientPageBalances={clientPageBalances}
        clientPendingPricingCounts={clientPendingPricingCounts}
+       clientReconciledStatus={clientReconciledStatus}
        numLocale={numLocale}
        isRTL={isRTL}
        openAddClientForOrganization={openAddClientForOrganization}
@@ -2346,6 +2355,8 @@ function AuthenticatedHome() {
    <AdjustmentModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} localizedCurrencies={localizedCurrencies} clientAccounts={clientAccounts} currencyMap={currencyMap} enabledCurrencies={enabledCurrencies} adjustments={adjustments} onSubmitAdjustment={onSubmitAdjustment} onDeleteAdjustment={onDeleteAdjustment} />
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />
+
+   <TransactionDetailsModal transactions={transactions} />
 
    {showLedgerSettingsModal ? (
     <LedgerSettingsModal

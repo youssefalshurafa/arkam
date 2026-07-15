@@ -145,6 +145,11 @@ type TransactionsStore = {
  setImportRowOverrides: Dispatch<SetStateAction<Record<number, ImportRowOverride>>>;
  isImportingTransactions: boolean;
  setIsImportingTransactions: Dispatch<SetStateAction<boolean>>;
+ // Id of the transaction whose read-only "More info" details modal is open (both sides'
+ // full data), or null when closed. Set from the ledger and transactions-table row menus;
+ // the modal itself is mounted once at page level where the full transaction list lives.
+ infoTransactionId: number | null;
+ setInfoTransactionId: Dispatch<SetStateAction<number | null>>;
 };
 
 export const useTransactionsStore = create<TransactionsStore>((set) => {
@@ -264,5 +269,7 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setImportRowOverrides: setter('importRowOverrides'),
   isImportingTransactions: false,
   setIsImportingTransactions: setter('isImportingTransactions'),
+  infoTransactionId: null,
+  setInfoTransactionId: setter('infoTransactionId'),
  };
 });

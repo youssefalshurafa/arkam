@@ -73,7 +73,7 @@ export default function PendingPricingModal({
     className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-border bg-surface shadow-xl"
     onClick={(e) => e.stopPropagation()}
    >
-    <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+    <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3 sm:px-5 sm:py-4">
      <div>
       <h2 className="text-lg font-semibold text-fg">{t('pending_pricing_modal_title')}</h2>
       {clientName ? <p className="mt-0.5 text-sm text-fg-faint">{clientName}</p> : null}
@@ -89,7 +89,7 @@ export default function PendingPricingModal({
       </svg>
      </button>
     </div>
-    <div className="overflow-y-auto px-5 py-4">
+    <div className="overflow-y-auto px-3 py-3 sm:px-5 sm:py-4">
      {entries.length === 0 ? (
       <p className="text-sm text-fg-faint">{t('client_page_no_transactions')}</p>
      ) : (
@@ -113,49 +113,52 @@ export default function PendingPricingModal({
             {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
            </span>
           </div>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
            <button
             type="button"
             title={t('reverse_rate')}
             onClick={() =>
              setReversedInputs((current) => ({ ...current, [entry.key]: !current[entry.key] }))
             }
-            className="inline-flex shrink-0 items-center gap-1 rounded p-1 text-xs text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+            className="inline-flex shrink-0 items-center gap-1 rounded p-1 text-[10px] leading-none text-fg-faint transition hover:bg-surface-hover hover:text-fg"
            >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
              <path d="M7 4 3 8l4 4M3 8h13.5" />
              <path d="M17 20l4-4-4-4m4 4H7.5" />
             </svg>
             {isReversed ? t('rate_division') : t('rate_multiplication')}
            </button>
-           <span className="shrink-0 text-xs text-fg-faint">
+           <span className="shrink-0 text-[10px] leading-none text-fg-faint">
             {isReversed
              ? ltrIsolate(t('pending_pricing_rate_hint', { from: entry.accountCurrencyCode, to: entry.currencyCode }))
              : ltrIsolate(t('pending_pricing_rate_hint', { from: entry.currencyCode, to: entry.accountCurrencyCode }))}
            </span>
-           <input
-            type="text"
-            inputMode="decimal"
-            value={rateValue}
-            onChange={(e) => setRateInputs((current) => ({ ...current, [entry.key]: e.target.value }))}
-            onKeyDown={(e) => {
-             if (e.key === 'Enter') {
-              e.preventDefault();
-              void saveEntry(entry);
-             }
-            }}
-            placeholder={t('pending_pricing_rate_placeholder')}
-            disabled={isSaving}
-            className="w-24 rounded-lg border border-border-strong px-2 py-1 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
-           />
-           <button
-            type="button"
-            onClick={() => void saveEntry(entry)}
-            disabled={isSaving || !rateValue.trim()}
-            className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
-           >
-            {isSaving ? t('saving') : t('pending_pricing_set_rate')}
-           </button>
+           {/* input + save grouped so they never split across a wrap, and pushed to the row end */}
+           <div className="ms-auto flex items-center gap-2">
+            <input
+             type="text"
+             inputMode="decimal"
+             value={rateValue}
+             onChange={(e) => setRateInputs((current) => ({ ...current, [entry.key]: e.target.value }))}
+             onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+               e.preventDefault();
+               void saveEntry(entry);
+              }
+             }}
+             placeholder={t('pending_pricing_rate_placeholder')}
+             disabled={isSaving}
+             className="w-20 rounded-lg border border-border-strong px-2 py-1 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50 sm:w-24"
+            />
+            <button
+             type="button"
+             onClick={() => void saveEntry(entry)}
+             disabled={isSaving || !rateValue.trim()}
+             className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+            >
+             {isSaving ? t('saving') : t('pending_pricing_set_rate')}
+            </button>
+           </div>
           </div>
          </li>
         );
