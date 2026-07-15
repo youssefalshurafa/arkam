@@ -66,6 +66,7 @@ import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import OverviewSection from '@/features/overview/components/OverviewSection';
 import LiveRatesSection from '@/features/live-rates/components/LiveRatesSection';
 import TreasurySection from '@/features/treasury/components/TreasurySection';
+import HarvestSection from '@/features/harvest/components/HarvestSection';
 import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadOnly';
 import OrganizationsReadOnly from '@/features/organizations/components/OrganizationsReadOnly';
 import OrganizationClientsSection from '@/features/organizations/components/OrganizationClientsSection';
@@ -154,6 +155,10 @@ function AuthenticatedHome() {
  // useWorkspaceData's cache read below.
  const { data: authSession } = useStableSession();
  const sessionUserId = authSession?.user?.id ?? null;
+ // Platform-level super-admin (single allowlisted email, resolved on the session).
+ // Gates the in-development حصاد اليوم (Today's Harvest) profit page — nav entry,
+ // URL→section resolution, and render guard all check this.
+ const isSuperAdminUser = authSession?.user?.isSuperAdmin === true;
  const queryClient = useQueryClient();
  useState(() => {
   if (ensureCacheOwner(sessionUserId)) {
@@ -552,8 +557,11 @@ function AuthenticatedHome() {
  };
 
  useEffect(() => {
-  setSection(getSectionFromPath(pathname).section);
- }, [pathname]);
+  const resolved = getSectionFromPath(pathname).section;
+  // Harvest is super-admin-only: a non-admin deep-linking to /harvest falls back to
+  // overview so they never see the section header or an empty page.
+  setSection(resolved === 'harvest' && !isSuperAdminUser ? 'overview' : resolved);
+ }, [pathname, isSuperAdminUser]);
 
  // Records a "section visit" activity event whenever the active section changes (covers
  // sidebar clicks, deep-links, and browser back/forward, since it keys off section state).
@@ -1247,6 +1255,7 @@ function AuthenticatedHome() {
   { key: 'archive', label: t('nav_archive'), icon: 'archive' },
   { key: 'live-rates', label: t('nav_live_rates'), icon: 'rates' },
   { key: 'treasury', label: t('nav_treasury'), icon: 'treasury' },
+  ...(isSuperAdminUser ? [{ key: 'harvest' as const, label: t('nav_harvest'), icon: 'harvest' as IconName }] : []),
  ];
 
  // Editors (workspace role 'member') don't get destructive/billing controls.
@@ -1365,18 +1374,22 @@ function AuthenticatedHome() {
  const { confirmIfTransactionEditLocked, confirmIfEditLocked } = useReconciliationLocks({ reconciliations, clientAccountMap });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
- // reusing the same update endpoints the ledger edit uses. The rate multiplies the entry's
- // amount into its account currency (1 <entry currency> = rate <account currency>). Only the
+ // reusing the same update endpoints the ledger edit uses. When not reversed the rate
+ // multiplies the entry's amount into its account currency (1 <entry currency> = rate
+ // <account currency>); when reversed the user typed "1 <account currency> = rate <entry
+ // currency>", so the stored multiplier is 1/rate (mirroring the ledger/adjustment edit
+ // paths, which persist the effective multiplier plus a reversed flag for display). Only the
  // pending side's rate is touched; every other field is preserved from the stored record.
  const onSavePendingPricingRate = useCallback(
-  async (entry: PendingPricingEntry, rateInput: string): Promise<boolean> => {
+  async (entry: PendingPricingEntry, rateInput: string, reversed: boolean): Promise<boolean> => {
    // Plain-decimal normalization: a rate has no thousands grouping, so a comma is the
    // user's decimal separator ("10,85" → 10.85), not a group separator to strip.
-   const rate = parseFloat(normalizePlainDecimalInput(rateInput));
-   if (!Number.isFinite(rate) || rate <= 0) {
+   const rawRate = parseFloat(normalizePlainDecimalInput(rateInput));
+   if (!Number.isFinite(rawRate) || rawRate <= 0) {
     setError(t('pending_pricing_invalid_rate'));
     return false;
    }
+   const rate = reversed ? 1 / rawRate : rawRate;
    try {
     if (entry.kind === 'adjustment' && entry.adjustmentId != null) {
      const adj = adjustments.find((a) => a.id === entry.adjustmentId);
@@ -1384,7 +1397,7 @@ function AuthenticatedHome() {
      if (!(await confirmIfEditLocked([adj.accountId], adj.createdAt, [adj.accountId], adj.createdAt, adj.id))) {
       return false;
      }
-     await accountingApi.updateClientAdjustment({ ...adj, exchangeRate: rate, exchangeRateReversed: false });
+     await accountingApi.updateClientAdjustment({ ...adj, exchangeRate: rate, exchangeRateReversed: reversed });
     } else if (entry.kind === 'transaction' && entry.transactionId != null) {
      const tx = transactions.find((x) => x.id === entry.transactionId);
      if (!tx) return false;
@@ -1399,8 +1412,8 @@ function AuthenticatedHome() {
       commissionFrom: tx.commissionFrom,
       exchangeRateTo: entry.side === 'to' ? rate : tx.exchangeRateTo,
       commissionTo: tx.commissionTo,
-      exchangeRateFromReversed: entry.side === 'from' ? 0 : tx.exchangeRateFromReversed,
-      exchangeRateToReversed: entry.side === 'to' ? 0 : tx.exchangeRateToReversed,
+      exchangeRateFromReversed: entry.side === 'from' ? (reversed ? 1 : 0) : tx.exchangeRateFromReversed,
+      exchangeRateToReversed: entry.side === 'to' ? (reversed ? 1 : 0) : tx.exchangeRateToReversed,
       charges: tx.charges,
       chargesCurrencyId: tx.chargesCurrencyId,
       chargesPayer: tx.chargesPayer,
@@ -1763,6 +1776,11 @@ function AuthenticatedHome() {
    title: t('treasury_title'),
    description: t('treasury_description'),
    accent: t('coming_soon_badge'),
+  },
+  harvest: {
+   title: t('harvest_title'),
+   description: t('harvest_description'),
+   accent: t('nav_harvest'),
   },
  };
 
@@ -2220,6 +2238,15 @@ function AuthenticatedHome() {
 
        {section === 'live-rates' ? <LiveRatesSection /> : null}
        {section === 'treasury' ? <TreasurySection /> : null}
+       {section === 'harvest' && isSuperAdminUser ? (
+        <HarvestSection
+         clientAccounts={clientAccounts}
+         currencies={currencies}
+         transactions={transactions}
+         isLoading={isLoading}
+         navigateToSection={navigateToSection}
+        />
+       ) : null}
 
        {section === 'transactions' || section === 'archive' ? (
         <TransactionsSection

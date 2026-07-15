@@ -135,5 +135,16 @@ export function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="M7 20v1.5M17 20v1.5" />
     </svg>
    );
+  case 'harvest':
+   return (
+    <svg {...commonProps}>
+     <path d="M12 21V9" />
+     <path d="M12 9c0-2.5-1.8-4.5-4-4.5C8 7 9.8 9 12 9Z" />
+     <path d="M12 9c0-2.5 1.8-4.5 4-4.5C16 7 14.2 9 12 9Z" />
+     <path d="M12 13c0-2.2-1.6-4-3.5-4C8.5 11.3 10.1 13 12 13Z" />
+     <path d="M12 13c0-2.2 1.6-4 3.5-4C15.5 11.3 13.9 13 12 13Z" />
+     <path d="M6 21h12" />
+    </svg>
+   );
  }
 }

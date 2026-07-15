@@ -266,6 +266,8 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
      startingBalance: account.startingBalance ?? 0,
      currentBalance: runningBalance,
      transactionCount: entriesWithBalance.length,
+     note: account.note ?? '',
+     noteShowInPdf: Boolean(account.noteShowInPdf),
      entries: entriesWithBalance,
      lockBoundary: boundary ? { anchorCreatedAt: boundary.anchorCreatedAt, anchorRefId: boundary.anchorRefId, balance: boundary.balance } : null,
     };

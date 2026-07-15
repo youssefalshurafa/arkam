@@ -16,9 +16,10 @@ type PendingPricingModalProps = {
  ledgerDateFormat: PdfSettings['dateFormat'];
  onClose: () => void;
  // Persists a rate for one pending entry. Resolves true on success (parent reloads,
- // dropping the now-priced entry from the list). The rate means "1 <entry currency> =
- // rate <account currency>".
- onSaveRate: (entry: PendingPricingEntry, rate: string) => Promise<boolean>;
+ // dropping the now-priced entry from the list). When `reversed` is false the rate means
+ // "1 <entry currency> = rate <account currency>" (multiply); when true it means
+ // "1 <account currency> = rate <entry currency>" (divide).
+ onSaveRate: (entry: PendingPricingEntry, rate: string, reversed: boolean) => Promise<boolean>;
 };
 
 // Organization-page popup listing a client's cross-currency rows that still have no
@@ -37,6 +38,7 @@ export default function PendingPricingModal({
  const { t } = useTranslation(language);
 
  const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
+ const [reversedInputs, setReversedInputs] = useState<Record<string, boolean>>({});
  const [savingKey, setSavingKey] = useState<string | null>(null);
 
  const saveEntry = async (entry: PendingPricingEntry) => {
@@ -44,9 +46,14 @@ export default function PendingPricingModal({
   if (!value) return;
   setSavingKey(entry.key);
   try {
-   const ok = await onSaveRate(entry, value);
+   const ok = await onSaveRate(entry, value, !!reversedInputs[entry.key]);
    if (ok) {
     setRateInputs((current) => {
+     const next = { ...current };
+     delete next[entry.key];
+     return next;
+    });
+    setReversedInputs((current) => {
      const next = { ...current };
      delete next[entry.key];
      return next;
@@ -89,6 +96,7 @@ export default function PendingPricingModal({
       <ul className="space-y-2 text-sm text-fg-muted">
        {entries.map((entry) => {
         const rateValue = rateInputs[entry.key] ?? '';
+        const isReversed = !!reversedInputs[entry.key];
         const isSaving = savingKey === entry.key;
         return (
          <li
@@ -106,7 +114,25 @@ export default function PendingPricingModal({
            </span>
           </div>
           <div className="mt-2 flex items-center gap-2">
-           <span className="shrink-0 text-xs text-fg-faint">{ltrIsolate(t('pending_pricing_rate_hint', { from: entry.currencyCode, to: entry.accountCurrencyCode }))}</span>
+           <button
+            type="button"
+            title={t('reverse_rate')}
+            onClick={() =>
+             setReversedInputs((current) => ({ ...current, [entry.key]: !current[entry.key] }))
+            }
+            className="inline-flex shrink-0 items-center gap-1 rounded p-1 text-xs text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <path d="M7 4 3 8l4 4M3 8h13.5" />
+             <path d="M17 20l4-4-4-4m4 4H7.5" />
+            </svg>
+            {isReversed ? t('rate_division') : t('rate_multiplication')}
+           </button>
+           <span className="shrink-0 text-xs text-fg-faint">
+            {isReversed
+             ? ltrIsolate(t('pending_pricing_rate_hint', { from: entry.accountCurrencyCode, to: entry.currencyCode }))
+             : ltrIsolate(t('pending_pricing_rate_hint', { from: entry.currencyCode, to: entry.accountCurrencyCode }))}
+           </span>
            <input
             type="text"
             inputMode="decimal"

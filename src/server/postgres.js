@@ -380,6 +380,8 @@ async function ensureWorkspaceSchema(workspaceId) {
                     client_id INTEGER NOT NULL REFERENCES ${schema}.clients(id) ON DELETE CASCADE,
                     currency_id INTEGER NOT NULL REFERENCES ${schema}.currencies(id) ON DELETE CASCADE,
                     starting_balance DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    note TEXT NOT NULL DEFAULT '',
+                    note_show_in_pdf BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     UNIQUE (client_id, currency_id)
                 );
@@ -427,6 +429,11 @@ async function ensureWorkspaceSchema(workspaceId) {
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS currency_symbol TEXT NOT NULL DEFAULT '';
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1;
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate_reversed BOOLEAN NOT NULL DEFAULT FALSE;
+
+                -- Free-text "sticky note" attached to a single client-currency ledger. note_show_in_pdf
+                -- controls whether it's rendered on that ledger's exported PDF statement.
+                ALTER TABLE ${schema}.client_accounts ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
+                ALTER TABLE ${schema}.client_accounts ADD COLUMN IF NOT EXISTS note_show_in_pdf BOOLEAN NOT NULL DEFAULT FALSE;
 
                 -- A transaction may be missing one party (e.g. money received from an unknown sender);
                 -- such incomplete transactions surface in the Archive until both parties are filled in.

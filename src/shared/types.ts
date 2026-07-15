@@ -62,6 +62,8 @@ export type ClientAccount = {
  currencyCode: string;
  currencySymbol: string;
  startingBalance: number;
+ note: string;
+ noteShowInPdf: boolean;
  createdAt: string;
 };
 
@@ -296,6 +298,10 @@ export type ClientAccountLedger = {
  startingBalance: number;
  currentBalance: number;
  transactionCount: number;
+ // Free-text sticky note attached to this specific client-currency ledger; noteShowInPdf
+ // controls whether it appears on the exported PDF statement.
+ note: string;
+ noteShowInPdf: boolean;
  entries: ClientLedgerEntry[];
  // The newest reconciliation on this account (the effective lock line), or null. Its
  // (createdAt, refId) is the boundary; entries at or before it are locked.
@@ -368,7 +374,7 @@ export type ImportRowOverride = {
  swap: boolean; // transaction mode: swap the sheet's from/to direction
 };
 export type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'currency' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
-export type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'charges' | 'commission';
+export type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'exchangeRate' | 'charges' | 'commission';
 export type DataCache = {
  organizations: Organization[];
  clients: Client[];
@@ -392,7 +398,6 @@ export type TransactionColumnVisibility = Record<TransactionColumnKey, boolean>;
 
 export type TransactionTableSettings = {
  columns: TransactionColumnVisibility;
- showExchangeRate: boolean;
  dateFormat: PdfSettings['dateFormat'];
 };
 // Workspace-wide rules for exchange (صرف) transactions. `tolerance` is the maximum the
@@ -420,8 +425,8 @@ export type PdfSettings = {
 };
 export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf' | 'live-rates';
 
-export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury';
-export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury';
+export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury' | 'harvest';
+export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest';
 
 // A normalized live FX/gold quote, as returned by the /api/live-rates proxy.
 export type LiveRate = {
