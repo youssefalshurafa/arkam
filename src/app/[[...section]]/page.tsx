@@ -1940,9 +1940,6 @@ function AuthenticatedHome() {
      activeWorkspaceId={activeWorkspaceId}
      onSwitchWorkspace={onSwitchWorkspace}
      navigateToSection={navigateToSection}
-     settingsTab={settingsTab}
-     setSettingsTab={setSettingsTab}
-     settingsTabs={settingsTabs}
      section={section}
     />
 

@@ -8,7 +8,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { renderIcon } from '@/shared/utils/icons';
-import type { IconName, Section, SettingsTab } from '@/shared/types';
+import type { IconName, Section } from '@/shared/types';
 
 type SidebarItem = { id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void };
 type Workspace = { id: string; name: string; role: string };
@@ -21,15 +21,12 @@ type SidebarProps = {
  activeWorkspaceId: string | null;
  onSwitchWorkspace: (id: string) => void;
  navigateToSection: (section: Section) => void;
- settingsTab: SettingsTab;
- setSettingsTab: Dispatch<SetStateAction<SettingsTab>>;
- settingsTabs: Array<{ key: SettingsTab; label: string; icon: IconName }>;
  section: Section;
 };
 
 export default function Sidebar({
  sidebarItems, isSidebarCollapsed, setIsSidebarCollapsed, userWorkspaces, activeWorkspaceId, onSwitchWorkspace,
- navigateToSection, settingsTab, setSettingsTab, settingsTabs, section,
+ navigateToSection, section,
 }: SidebarProps) {
  const { language, setLanguage, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -105,7 +102,7 @@ export default function Sidebar({
        );
       })}
 
-      {/* Settings entry — expands its sub-tabs in place instead of swapping the sidebar. */}
+      {/* Settings entry */}
       <button
        type="button"
        onClick={() => navigateToSection('settings')}
@@ -119,23 +116,6 @@ export default function Sidebar({
        <span className="shrink-0">{renderIcon('settings', 'h-4 w-4')}</span>
        {isSidebarCollapsed ? null : <span className="truncate">{t('settings_title')}</span>}
       </button>
-      {section === 'settings' && !isSidebarCollapsed
-       ? settingsTabs.map((tab) => (
-          <button
-           key={tab.key}
-           type="button"
-           onClick={() => setSettingsTab(tab.key)}
-           aria-pressed={settingsTab === tab.key}
-           title={tab.label}
-           className={`flex w-full items-center gap-2.5 py-2 pl-9 pr-3 text-sm transition ${
-            settingsTab === tab.key ? 'bg-purple-600/70 text-white' : 'text-blue-200 hover:bg-white/10 hover:text-white'
-           }`}
-          >
-           <span className="shrink-0">{renderIcon(tab.icon, 'h-3.5 w-3.5')}</span>
-           <span className="truncate">{tab.label}</span>
-          </button>
-         ))
-       : null}
      </nav>
      {/* Footer */}
      <div className="border-t border-white/10 py-1">

@@ -136,12 +136,10 @@ export default function SettingsSection({
      <p className="text-xs text-fg-faint">{t('settings_description')}</p>
     </div>
    </div>
-   {/* Tab strip — mobile only: the desktop Sidebar already renders these same tabs as a
-       vertical sub-nav (lg+), so this row would just duplicate it there. A single
-       horizontally-scrollable row (never wraps) keeps the settings header short and never
-       forces the page itself to scroll sideways — only this strip scrolls, same pattern as
-       the live-rates ticker. */}
-   <div className="mt-4 flex gap-1 overflow-x-auto border-b border-border -mb-px pb-px lg:hidden">
+   {/* Tab strip — a single horizontally-scrollable row (never wraps) keeps the settings
+       header short and never forces the page itself to scroll sideways — only this strip
+       scrolls, same pattern as the live-rates ticker. */}
+   <div className="mt-4 flex gap-1 overflow-x-auto border-b border-border -mb-px pb-px">
     {settingsTabs.map((tab) => {
      const isActive = settingsTab === tab.key;
      return (
