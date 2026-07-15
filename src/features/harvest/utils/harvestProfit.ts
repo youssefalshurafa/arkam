@@ -23,18 +23,15 @@ import type { ClientAccount, Currency, Transaction } from '@/shared/types';
 // already inside those net-changes, so they fold naturally into buy cost and
 // sell proceeds.
 //
-// Pools are seeded from an OPENING inventory (quantity + average cost per
-// currency, as of a date the user enters) so currency accumulated before tagging
-// began has a correct cost; only transactions on/after that date are replayed.
+// The pools are built purely by replaying tagged buy/sell/exchange transactions in
+// chronological order. Currency the house held before it started tagging simply has
+// no cost until the relevant buys are tagged (a sell against an untagged/empty pool
+// surfaces the short-inventory ⚠ marker); this converges as history gets tagged.
 // ---------------------------------------------------------------------------
 
 // main-currency value of 1 unit of `currencyId`. 1 for the main currency, NaN when
 // a foreign currency has no reference rate (only needed for foreign-to-foreign deals).
 export type RefRateResolver = (currencyId: number) => number;
-
-// One opening pool: `qty` units of `currencyId` held at `avgCost` (main per unit).
-export type HarvestOpeningPool = { currencyId: number; qty: number; avgCost: number };
-export type HarvestOpening = { asOf: string | null; pools: HarvestOpeningPool[] };
 
 const EPS = 1e-6;
 
@@ -181,6 +178,34 @@ function processTransaction(
     refNeededCurrencyIds,
   });
 
+  // Back-to-back pass-through: both counterparties settle in the MAIN currency while the
+  // deal is denominated in a foreign currency at a buy/sell spread (e.g. bought from A
+  // @10.60, sold to B @10.70, both in MAD). The foreign currency never enters inventory,
+  // so profit is simply the spread — the from side's main amount is the cost, the to
+  // side's is the proceeds. Gated on the buy/sell tag so a both-main `transfer` (paying
+  // someone their balance) stays at 0.
+  if ((tx.type === 'buy' || tx.type === 'sell') && fromCcy === mainCurrencyId && toCcy === mainCurrencyId) {
+    const buySide = computeTransactionSideNetChange(tx, mainCurrencyId, 'from'); // main committed (cost)
+    // Sell side: if a rate was entered on the to-side, realize at it. If the sell rate
+    // was left blank (unpriced), MARK the delivered amount to "today's price" (the
+    // top-of-page rate for the traded currency), net of the receiver's commission —
+    // this is the "value 69,720 EUR at today's price" the user wants.
+    const toUnpriced = tx.currencyId !== toCcy && tx.exchangeRateTo === 0;
+    const netUnits = tx.amount * (1 - (tx.commissionTo || 0) / 100);
+    const sellSide = toUnpriced ? refValue(tx.currencyId, netUnits) : -computeTransactionSideNetChange(tx, mainCurrencyId, 'to');
+    const soldUnits = toUnpriced ? netUnits : tx.amount;
+    const legs: TxLeg[] = [];
+    if (buySide > EPS) legs.push({ currencyId: tx.currencyId, kind: 'buy', units: tx.amount, mainValue: buySide });
+    if (sellSide > EPS) legs.push({ currencyId: tx.currencyId, kind: 'sell', units: soldUnits, mainValue: sellSide });
+    return result({
+      kind: 'sell',
+      boughtMain: Math.max(buySide, 0),
+      soldMain: Math.max(sellSide, 0),
+      realizedProfitMain: sellSide - buySide,
+      legs,
+    });
+  }
+
   switch (tx.type) {
     case 'buy': {
       // The house acquires a currency. The acquired currency is the one whose
@@ -241,23 +266,21 @@ function processTransaction(
 }
 
 /**
- * Seeds each currency's WAC pool from the opening inventory, replays every tagged
- * transaction on/after the opening date in chronological order to keep the pools
- * current, and surfaces only TODAY's transactions and the profit they realized.
+ * Replays every tagged transaction in chronological order to build each currency's
+ * weighted-average-cost pool, then surfaces only TODAY's transactions and the profit
+ * they realized (earlier days still update the pools, they just aren't displayed).
  */
 export function computeHarvest({
   transactions,
   clientAccounts,
   currencies,
   refRate,
-  opening = { asOf: null, pools: [] },
   now = new Date(),
 }: {
   transactions: Transaction[];
   clientAccounts: ClientAccount[];
   currencies: Currency[];
   refRate: RefRateResolver;
-  opening?: HarvestOpening;
   now?: Date;
 }): HarvestResult {
   const main = currencies.find((c) => c.isMain === 1) ?? null;
@@ -279,17 +302,10 @@ export function computeHarvest({
   const accountCurrencyOf = (id: number | null) => (id == null ? null : accountCurrency.get(id) ?? null);
   const currencyById = new Map(currencies.map((c) => [c.id, c]));
 
-  // Seed pools from the opening inventory.
   const pools = new Map<number, CurrencyPool>();
-  for (const p of opening.pools) {
-    if (!Number.isFinite(p.qty) || !Number.isFinite(p.avgCost) || Math.abs(p.qty) < EPS) continue;
-    pools.set(p.currencyId, { holding: p.qty, costBasisMain: p.qty * p.avgCost });
-  }
-  const asOfTime = opening.asOf ? new Date(`${opening.asOf}T00:00:00`).getTime() : -Infinity;
 
   const ordered = transactions
     .filter(isTradeable)
-    .filter((tx) => new Date(tx.createdAt).getTime() >= asOfTime)
     .slice()
     .sort((a, b) => {
       const d = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
