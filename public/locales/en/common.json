@@ -131,6 +131,8 @@
  "toast_expense_deleted": "Expense deleted",
  "row_actions_menu": "More actions",
  "copy_transaction": "Copy transaction",
+ "transaction_more_info_action": "More info",
+ "transaction_details_title": "Transaction details",
  "paste_transaction": "Paste",
  "cancel": "Cancel",
  "confirm": "Confirm",

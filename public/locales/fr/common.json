@@ -130,6 +130,8 @@
  "toast_expense_deleted": "Dépense supprimée",
  "row_actions_menu": "Plus d'actions",
  "copy_transaction": "Copier la transaction",
+ "transaction_more_info_action": "Plus d'infos",
+ "transaction_details_title": "Détails de la transaction",
  "paste_transaction": "Coller",
  "cancel": "Annuler",
  "confirm": "Confirmer",

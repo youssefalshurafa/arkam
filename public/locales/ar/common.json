@@ -130,6 +130,8 @@
  "toast_expense_deleted": "تم حذف المصروف",
  "row_actions_menu": "المزيد من الإجراءات",
  "copy_transaction": "نسخ المعاملة",
+ "transaction_more_info_action": "مزيد من المعلومات",
+ "transaction_details_title": "تفاصيل المعاملة",
  "paste_transaction": "لصق",
  "cancel": "إلغاء",
  "confirm": "تأكيد",

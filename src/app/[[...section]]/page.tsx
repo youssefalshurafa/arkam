@@ -102,6 +102,7 @@ import AppHeader from '@/shared/components/AppHeader';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
 import AdjustmentModal from '@/features/ledger/components/AdjustmentModal';
 import PdfExportModal from '@/features/ledger/components/PdfExportModal';
+import TransactionDetailsModal from '@/features/transactions/components/TransactionDetailsModal';
 import TransactionExportModal from '@/features/transactions/components/TransactionExportModal';
 import TransactionTableSettingsModal from '@/features/transactions/components/TransactionTableSettingsModal';
 
@@ -2346,6 +2347,8 @@ function AuthenticatedHome() {
    <AdjustmentModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} localizedCurrencies={localizedCurrencies} clientAccounts={clientAccounts} currencyMap={currencyMap} enabledCurrencies={enabledCurrencies} adjustments={adjustments} onSubmitAdjustment={onSubmitAdjustment} onDeleteAdjustment={onDeleteAdjustment} />
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />
+
+   <TransactionDetailsModal transactions={transactions} />
 
    {showLedgerSettingsModal ? (
     <LedgerSettingsModal
