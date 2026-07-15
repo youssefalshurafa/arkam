@@ -22,8 +22,8 @@ type HarvestSectionProps = {
 const KIND_TONE: Record<HarvestTxKind, string> = {
   sell: 'bg-good-bg text-good-text',
   buy: 'bg-info-bg text-info-text',
-  cost: 'bg-bad-bg text-bad-text',
-  mixed: 'bg-violet-bg text-violet-text',
+  exchange: 'bg-violet-bg text-violet-text',
+  transfer: 'bg-surface-2 text-fg-faint',
   neutral: 'bg-surface-2 text-fg-faint',
 };
 
@@ -33,7 +33,7 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
   const numLocale = language === 'fr' ? 'en-US' : language;
 
   const mainCurrency = useMemo(() => currencies.find((c) => c.isMain === 1) ?? null, [currencies]);
-  const currencyById = useMemo(() => new Map(currencies.map((c) => [c.id, c])), [currencies]);
+  const pricedCurrencies = useMemo(() => currencies.filter((c) => c.isMain !== 1 && c.isEnabled !== 0), [currencies]);
   const dateKey = localDateKey();
   const { rates, updateRate } = useHarvestRatesStore();
 
@@ -57,10 +57,6 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
     Number.isFinite(n) ? n.toLocaleString(numLocale, { maximumFractionDigits: 2 }) : '—';
   const units = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 2 });
   const signCls = (n: number) => (n > 0 ? 'text-good-text' : n < 0 ? 'text-bad-text' : 'text-fg-muted');
-  const timeOf = (iso: string) => {
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString(numLocale, { hour: '2-digit', minute: '2-digit' });
-  };
 
   const header = (
     <div className={`${panelClassName} flex flex-wrap items-start justify-between gap-4`}>
@@ -140,6 +136,38 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
     <div className="flex flex-col gap-6">
       {header}
 
+      {pricedCurrencies.length > 0 ? (
+        <div className={panelClassName}>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-fg">{t('harvest_todays_price_title')}</h3>
+            {harvest.missingRateCount > 0 ? (
+              <span className="rounded-full bg-warn-bg px-2 py-0.5 text-xs font-semibold text-warn-text">
+                {t('harvest_missing_rate_warning', { count: harvest.missingRateCount })}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-fg-faint">{t('harvest_todays_price_hint', { currency: mainCode })}</p>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {pricedCurrencies.map((c) => (
+              <label key={c.id} className="flex items-center gap-2 rounded border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-fg-muted">
+                <span dir="ltr" className="font-semibold text-fg">
+                  1 {c.symbol || c.code} =
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={rates[harvestRateKey(dateKey, c.id)] ?? ''}
+                  onChange={(e) => updateRate(dateKey, c.id, normalizeDecimalInput(e.target.value))}
+                  className="w-24 rounded border border-border-strong bg-surface px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                />
+                <span className="text-fg-faint">{mainCode}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-4">
         {kpis.map((k) => (
           <div key={k.label} className={mutedPanelClassName}>
@@ -150,42 +178,6 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
           </div>
         ))}
       </div>
-
-      {harvest.neededRateCurrencyIds.length > 0 ? (
-        <div className={panelClassName}>
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-fg">{t('harvest_ref_rates_title')}</h3>
-            {harvest.missingRateCount > 0 ? (
-              <span className="rounded-full bg-warn-bg px-2 py-0.5 text-xs font-semibold text-warn-text">
-                {t('harvest_missing_rate_warning', { count: harvest.missingRateCount })}
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 text-xs text-fg-faint">{t('harvest_ref_rates_hint', { currency: mainCode })}</p>
-          <div className="mt-3 flex flex-wrap gap-3">
-            {harvest.neededRateCurrencyIds.map((ccyId) => {
-              const meta = currencyById.get(ccyId);
-              const code = meta?.code ?? String(ccyId);
-              return (
-                <label key={ccyId} className="flex items-center gap-2 rounded border border-border bg-surface-2 px-2.5 py-1.5 text-xs text-fg-muted">
-                  <span dir="ltr" className="font-semibold">
-                    1 {meta?.symbol || code} =
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    dir="ltr"
-                    value={rates[harvestRateKey(dateKey, ccyId)] ?? ''}
-                    onChange={(e) => updateRate(dateKey, ccyId, normalizeDecimalInput(e.target.value))}
-                    className="w-20 rounded border border-border-strong bg-surface px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
-                  />
-                  <span className="text-fg-faint">{mainCode}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
 
       {harvest.turnover.length > 0 ? (
         <div className={panelClassName}>
@@ -233,8 +225,8 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-fg-faint">
-                  <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('date')}</th>
-                  <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('counterparty')}</th>
+                  <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
+                  <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
                   <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
                   <th className="px-3 py-2 text-right font-semibold">{t('amount')}</th>
                   <th className="px-3 py-2 text-right font-semibold">{t('harvest_profit_column')} ({mainCode})</th>
@@ -243,11 +235,8 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
               <tbody>
                 {harvest.rows.map((row) => (
                   <tr key={row.transactionId} className="border-b border-border/60 last:border-0">
-                    <td dir="ltr" className={`px-3 py-2 text-fg-faint ${isRTL ? 'text-right' : 'text-left'}`}>{timeOf(row.createdAt)}</td>
-                    <td className={`px-3 py-2 text-fg-muted ${isRTL ? 'text-right' : 'text-left'}`}>
-                      <span className="font-semibold text-fg">{row.clientFromName || '—'}</span>
-                      <span className="text-fg-faint"> → {row.clientToName || '—'}</span>
-                    </td>
+                    <td className={`px-3 py-2 font-semibold text-fg ${isRTL ? 'text-right' : 'text-left'}`}>{row.clientFromName || '—'}</td>
+                    <td className={`px-3 py-2 text-fg-muted ${isRTL ? 'text-right' : 'text-left'}`}>{row.clientToName || '—'}</td>
                     <td className={`px-3 py-2 ${isRTL ? 'text-right' : 'text-left'}`}>
                       <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold ${KIND_TONE[row.kind]}`}>
                         {t(`harvest_kind_${row.kind}`)}
@@ -257,7 +246,7 @@ export default function HarvestSection({ clientAccounts, currencies, transaction
                       {units(row.amount)} {row.currencySymbol || row.currencyCode}
                     </td>
                     <td dir="ltr" className={`px-3 py-2 text-right font-bold ${signCls(row.realizedProfitMain)}`}>
-                      {row.kind === 'buy' || row.kind === 'neutral' || Math.abs(row.realizedProfitMain) < 0.005 ? '—' : money(row.realizedProfitMain)}
+                      {row.kind === 'buy' || row.kind === 'transfer' || row.kind === 'neutral' || Math.abs(row.realizedProfitMain) < 0.005 ? '—' : money(row.realizedProfitMain)}
                       {row.hasMissingRate ? <span className="text-warn-text" title={t('harvest_row_missing_rate')}> *</span> : null}
                       {row.hasShortInventory ? <span className="text-warn-text" title={t('harvest_row_short_inventory')}> ⚠</span> : null}
                     </td>

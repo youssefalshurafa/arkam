@@ -1515,6 +1515,8 @@ function AuthenticatedHome() {
    onToggleSelectAllTransactions,
    onCopyTransactionRow,
    onPasteCopiedTransaction,
+   onEditTransactionInForm,
+   onCancelEditTransaction,
    onDeleteSelectedTransactions,
    onTransactionRowDrop,
    onSaveTransactionTableRow,
@@ -1940,9 +1942,6 @@ function AuthenticatedHome() {
      activeWorkspaceId={activeWorkspaceId}
      onSwitchWorkspace={onSwitchWorkspace}
      navigateToSection={navigateToSection}
-     settingsTab={settingsTab}
-     setSettingsTab={setSettingsTab}
-     settingsTabs={settingsTabs}
      section={section}
     />
 
@@ -2299,6 +2298,8 @@ function AuthenticatedHome() {
          openArchiveExportModal={openArchiveExportModal}
          onImportTransactionsFile={onImportTransactionsFile}
          onPasteCopiedTransaction={onPasteCopiedTransaction}
+         onEditTransactionInForm={onEditTransactionInForm}
+         onCancelEditTransaction={onCancelEditTransaction}
          onSaveAllTransactions={onSaveAllTransactions}
          onSaveTransactionTableRow={onSaveTransactionTableRow}
          onToggleSelectAllTransactions={onToggleSelectAllTransactions}

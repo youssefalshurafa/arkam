@@ -179,6 +179,10 @@ export function useTransactionActions({
  const setIsEditAllTransactions = useTransactionsStore((s) => s.setIsEditAllTransactions);
  const copiedTransaction = useTransactionsStore((s) => s.copiedTransaction);
  const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
+ const editingTransaction = useTransactionsStore((s) => s.editingTransaction);
+ const setEditingTransaction = useTransactionsStore((s) => s.setEditingTransaction);
+ const setIsNewTransactionSectionOpen = useTransactionsStore((s) => s.setIsNewTransactionSectionOpen);
+ const setIsNewArchiveSectionOpen = useTransactionsStore((s) => s.setIsNewArchiveSectionOpen);
  const manualRowOrder = useTransactionsStore((s) => s.manualRowOrder);
  const setManualRowOrder = useTransactionsStore((s) => s.setManualRowOrder);
  const isExportingTransactions = useTransactionsStore((s) => s.isExportingTransactions);
@@ -386,9 +390,12 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
 
  const amount = parseFloat(normalizeDecimalInput(transactionForm.amount));
  const isArchiveCreate = section === 'archive';
+ // When editing an existing row, the same submit updates it in place. Kept updates keep
+ // the original timestamp (order) unless the user changed the date field.
+ const editing = editingTransaction;
  // A new entry lands at the end of its date's sequence (top of the table / bottom of the
  // ledger), after any same-day rows the user manually reordered.
- const newTransactionCreatedAt = nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
+ const newTransactionCreatedAt = editing ? resolveCreatedAt(newTransactionDate, editing.createdAt) : nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
 
  if (isAdjustmentTransaction && !isArchiveCreate) {
   if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
@@ -418,6 +425,30 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
    description: transactionForm.description,
    createdAt: newTransactionCreatedAt,
   };
+
+  // Editing an existing adjustment via the form → update in place instead of creating.
+  if (editing && editing.isAdjustment) {
+   const original = adjustments.find((a) => a.id === editing.id);
+   const updatedAdj = { ...adjPayload, id: editing.id } as ClientAdjustment;
+   if (original && !(await confirmIfEditLocked([original.accountId], original.createdAt, [updatedAdj.accountId], updatedAdj.createdAt, updatedAdj.id))) {
+    return;
+   }
+   transactionSubmitLock.current = true;
+   setIsSubmittingTransaction(true);
+   try {
+    await accountingApi.updateClientAdjustment(updatedAdj);
+    applyAdjustmentPatch(updatedAdj);
+    onCancelEditTransaction();
+    showToast(t('toast_transaction_updated'));
+    void loadData();
+   } catch (e) {
+    setError(e instanceof Error ? e.message : t('error_failed_update'));
+   } finally {
+    transactionSubmitLock.current = false;
+    setIsSubmittingTransaction(false);
+   }
+   return;
+  }
 
   // Reconciliation guard: a new expense dated at or before the lock line rewrites history.
   if (!(await confirmIfLocked([adjPayload.accountId], adjPayload.createdAt, NEW_ROW_REF_ID))) {
@@ -540,6 +571,54 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   exchangeActualAmount: exchangeActualAmountValue,
   createdAt: newTransactionCreatedAt,
  };
+
+ // Editing an existing transaction via the form → update in place instead of creating.
+ if (editing && !editing.isAdjustment) {
+  const original = transactions.find((tx) => tx.id === editing.id);
+  const updatePayload: TransactionUpdateInput = {
+   id: editing.id,
+   accountFromId: txPayload.accountFromId,
+   accountToId: txPayload.accountToId,
+   currencyId: txPayload.currencyId,
+   amount: txPayload.amount,
+   type: txPayload.type,
+   exchangeRateFrom: txPayload.exchangeRateFrom,
+   commissionFrom: txPayload.commissionFrom,
+   exchangeRateTo: txPayload.exchangeRateTo,
+   commissionTo: txPayload.commissionTo,
+   exchangeRateFromReversed: txPayload.exchangeRateFromReversed,
+   exchangeRateToReversed: txPayload.exchangeRateToReversed,
+   charges: txPayload.charges,
+   chargesCurrencyId: txPayload.chargesCurrencyId,
+   chargesPayer: txPayload.chargesPayer,
+   chargesExchangeRate: txPayload.chargesExchangeRate,
+   chargesDescription: txPayload.chargesDescription,
+   description: txPayload.description,
+   descriptionFrom: txPayload.descriptionFrom,
+   descriptionTo: txPayload.descriptionTo,
+   exchangeActualAmount: txPayload.exchangeActualAmount,
+   archiveNote: original?.archiveNote,
+   createdAt: txPayload.createdAt,
+  };
+  if (original && !(await confirmIfTransactionEditLocked(original, updatePayload))) {
+   return;
+  }
+  transactionSubmitLock.current = true;
+  setIsSubmittingTransaction(true);
+  try {
+   await accountingApi.updateTransaction(updatePayload);
+   applyTransactionPatch(updatePayload);
+   onCancelEditTransaction();
+   showToast(t('toast_transaction_updated'));
+   void loadData();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  } finally {
+   transactionSubmitLock.current = false;
+   setIsSubmittingTransaction(false);
+  }
+  return;
+ }
 
  // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled
  // history. Archive-only records never touch any ledger, so they are exempt.
@@ -1461,6 +1540,64 @@ function onPasteCopiedTransaction() {
  setIsNewTransactionExpensesOpen(true);
 }
 
+// Loads an existing row into the new-transaction form in "update" mode: the form is
+// prefilled and the next submit updates this row in place (rather than creating a new
+// one). Mirrors onPasteCopiedTransaction's fill but keeps the destination account and
+// remembers which row is being edited (see onTransactionSubmit's update branches).
+function onEditTransactionInForm(row: TransactionTableRow) {
+ const fromReversed = !!row.exchangeRateFromReversed;
+ const toReversed = !!row.exchangeRateToReversed;
+ const isAdjustment = !!row.isAdjustment;
+ setTransactionForm({
+  accountFromId: row.accountFromId,
+  accountToId: isAdjustment ? null : row.accountToId,
+  currencyId: row.currencyId,
+  amount: row.amount ? formatAmountInput(String(row.amount)) : '',
+  type: isAdjustment ? 'adjustment' : row.type,
+  adjustmentDirection: row.adjustmentDirection ?? 'debit',
+  exchangeRateFrom: fromReversed ? formatRateValue(1 / row.exchangeRateFrom) : String(row.exchangeRateFrom),
+  commissionFrom: String(row.commissionFrom),
+  exchangeRateTo: isAdjustment ? '1' : toReversed ? formatRateValue(1 / row.exchangeRateTo) : String(row.exchangeRateTo),
+  commissionTo: String(row.commissionTo),
+  charges: row.charges ? String(row.charges) : '',
+  chargesCurrencyId: row.chargesCurrencyId,
+  chargesPayer: row.chargesPayer,
+  chargesExchangeRate: String(row.chargesExchangeRate),
+  chargesDescription: row.chargesDescription,
+  description: row.description,
+  descriptionFrom: row.descriptionFrom ?? '',
+  descriptionTo: row.descriptionTo ?? '',
+  exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
+ });
+ setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
+ setTxFromRateReversed(fromReversed);
+ setTxToRateReversed(toReversed);
+ setTxFromQuery('');
+ setTxToQuery('');
+ setIsNewTransactionExpensesOpen(Boolean(row.charges) || Boolean(row.chargesPayer));
+ setEditingTransaction({ id: isAdjustment ? (row.adjustmentId ?? row.id) : row.id, isAdjustment, createdAt: row.createdAt });
+ setNewTransactionDate(row.createdAt.slice(0, 10));
+ if (section === 'archive') setIsNewArchiveSectionOpen(true);
+ else setIsNewTransactionSectionOpen(true);
+ setError('');
+}
+
+// Leaves update mode and clears the form back to a blank create form.
+function onCancelEditTransaction() {
+ setEditingTransaction(null);
+ setTransactionForm(emptyTransactionForm());
+ setTxSplitDescription(false);
+ setTxFromQuery('');
+ setTxFromOpen(false);
+ setTxToQuery('');
+ setTxToOpen(false);
+ setTxFromRateReversed(false);
+ setTxToRateReversed(false);
+ setIsNewTransactionExpensesOpen(false);
+ setNewTransactionDate(new Date().toISOString().slice(0, 10));
+ setError('');
+}
+
 async function onDeleteSelectedTransactions() {
  if (!accountingApi) {
   setError(t('error_bridge'));
@@ -2029,6 +2166,8 @@ async function onExportTransactionsExcel() {
   onToggleSelectAllTransactions,
   onCopyTransactionRow,
   onPasteCopiedTransaction,
+  onEditTransactionInForm,
+  onCancelEditTransaction,
   onDeleteSelectedTransactions,
   onTransactionRowDrop,
   onSaveTransactionTableRow,
