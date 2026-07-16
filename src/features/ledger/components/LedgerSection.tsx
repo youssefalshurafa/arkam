@@ -11,7 +11,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { resolveHighlightBg } from '@/shared/utils/highlightColor';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
-import { panelClassName, tableWrapClassName } from '@/shared/styles';
+import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkBar, SkTablePanel, SK_LEDGER } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
@@ -1429,7 +1429,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         ...(isEditing || !ledgerRowClickActive ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                        };
                       })()}
-                      className={`border-t border-border align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} hover:bg-surface-hover ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''} ${contextMenuRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? 'ring-2 ring-inset ring-indigo-400' : ''}`}
+                      className={`border-t border-border align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} hover:bg-surface-hover ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''} ${
+                       contextMenuRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
+                        ? 'ring-2 ring-inset ring-indigo-400'
+                        : editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))
+                          ? editingRowRingClassName
+                          : ''
+                      }`}
                      >
                       {(() => {
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -1607,7 +1613,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 value={draft.createdDate}
                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
                                 style={{ width: '8.5rem' }}
-                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className={`${seamlessInputClassName} text-xs text-fg`}
                                />
                               ) : (
                                formatDateValue(entry.createdAt, ledgerDateFormat)
@@ -1678,7 +1684,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     }}
                                     placeholder={t('transaction_account_placeholder')}
                                     style={{ width: '12rem' }}
-                                    className="rounded border border-border-strong py-1.5 pe-6 ps-2 text-xs outline-none ring-blue-300 focus:ring"
+                                    className={`${seamlessInputClassName} pe-6 text-xs text-fg`}
                                     autoComplete="off"
                                    />
                                    {draft.counterpartyAccountId && ledgerCounterpartyOpen !== rowKey ? (
@@ -1896,7 +1902,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: event.target.value as 'incoming' | 'outgoing' })
                                 }
                                 style={{ width: ledgerSelectWidth(draft.direction === 'outgoing' ? t('outgoing') : t('incoming'), 6, 2) }}
-                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className={`${seamlessSelectClassName} text-xs text-fg`}
                                >
                                 <option value="incoming">{t('incoming')}</option>
                                 <option value="outgoing">{t('outgoing')}</option>
@@ -1923,7 +1929,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 value={draft.type}
                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
                                 style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(draft.type)), 7, 2) }}
-                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className={`${seamlessSelectClassName} text-xs text-fg`}
                                >
                                 <option value="buy">{t('transaction_type_buy')}</option>
                                 <option value="sell">{t('transaction_type_sell')}</option>
@@ -1957,7 +1963,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { amount: normalizeDecimalInput(event.target.value) })}
                                  onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'amount', entry, ledger.accountId, pagedEntries, entryIdx)}
                                  style={{ width: ledgerFieldWidth(formatAmountInput(draft.amount), 5, 2) }}
-                                 className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                 className={`${seamlessInputClassName} text-xs text-fg`}
                                 />
                                 {/* Expenses (adjustments) can be in any currency, but the dedicated
                                     "currency" column defaults to hidden — show a fallback selector
@@ -1970,7 +1976,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })
                                   }
                                   style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
-                                  className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                  className={`${seamlessSelectClassName} text-xs text-fg`}
                                  >
                                   {enabledCurrencies.map((cur) => (
                                    <option
@@ -2103,7 +2109,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      }}
                                      onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'exchangeRate', entry, ledger.accountId, pagedEntries, entryIdx)}
                                      style={{ width: ledgerFieldWidth(draft.exchangeRate, 5, 2) }}
-                                     className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                     className={`${seamlessInputClassName} text-xs text-fg`}
                                     />
                                     {txCurr && accCurr && txCurr !== accCurr && (
                                      <button
@@ -2266,7 +2272,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    }}
                                    onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'commission', entry, ledger.accountId, pagedEntries, entryIdx)}
                                    style={{ width: ledgerFieldWidth(draft.commission, 4, 2) }}
-                                   className={`rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring ${commVal > 0 ? 'text-good-text font-semibold' : commVal < 0 ? 'text-bad-text font-semibold' : ''}`}
+                                   className={`${seamlessInputClassName} text-xs ${commVal > 0 ? 'text-good-text font-semibold' : commVal < 0 ? 'text-bad-text font-semibold' : 'text-fg'}`}
                                    placeholder="0"
                                   />
                                   <button
@@ -2435,7 +2441,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })
                                 }
                                 style={{ width: ledgerSelectWidth(enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? '', 5, 2) }}
-                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className={`${seamlessSelectClassName} text-xs text-fg`}
                                >
                                 {enabledCurrencies.map((cur) => (
                                  <option
@@ -2463,7 +2469,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 value={draft.description}
                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
                                 style={{ width: ledgerFieldWidth(draft.description, 6, 3) }}
-                                className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                                className={`${seamlessInputClassName} text-xs text-fg`}
                                />
                               ) : (
                                entry.description || '-'
@@ -2537,7 +2543,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             dir="ltr"
                             value={formatAmountInput(chargesDraft.charges)}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: normalizeDecimalInput(event.target.value) })}
-                            className="field-sizing-content min-w-16 rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            className={`${seamlessInputClassName} min-w-16 text-xs text-fg`}
                             placeholder="0"
                            />
                            <select
@@ -2545,7 +2551,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             onChange={(event) =>
                              updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })
                             }
-                            className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            className={`${seamlessSelectClassName} text-xs text-fg`}
                            >
                             <option value="">{t('currency')}</option>
                             {enabledCurrencies.map((cur) => (
@@ -2565,7 +2571,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             meLabel={t('charges_payer_me')}
                             paidByPlaceholder={t('charges_payer_placeholder')}
                             paidToPlaceholder={t('charges_payer_to_placeholder')}
-                            className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            className={`${seamlessSelectClassName} text-xs text-fg`}
                            />
                            {showRate && (
                             <div className="flex items-center gap-1">
@@ -2580,7 +2586,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               onChange={(event) =>
                                updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })
                               }
-                              className="field-sizing-content min-w-16 rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                              className={`${seamlessInputClassName} min-w-16 text-xs text-fg`}
                               placeholder="1"
                              />
                             </div>
@@ -2589,7 +2595,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             type="text"
                             value={chargesDraft.chargesDescription}
                             onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: event.target.value })}
-                            className="field-sizing-content min-w-28 rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                            className={`${seamlessInputClassName} min-w-28 text-xs text-fg`}
                             placeholder={t('charges_description_placeholder')}
                            />
                           </div>

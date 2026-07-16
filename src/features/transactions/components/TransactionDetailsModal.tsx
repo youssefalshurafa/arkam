@@ -8,6 +8,7 @@ import { formatDateValue } from '@/shared/utils/date';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatRateValue } from '@/shared/utils/format';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
+import { seamlessInputClassName, seamlessSelectClassName } from '@/shared/styles';
 import { getCommissionAmount, exchangeToBase, parseChargesPayer, type ChargesPayerParty } from '@/shared/utils/commission';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import type { Transaction, TransactionUpdateInput } from '@/shared/types';
@@ -90,7 +91,7 @@ function EditableField({
      setEditing(false);
     }
    }}
-   className={`field-sizing-content max-w-full border-0 border-b border-dashed border-accent bg-transparent text-sm font-medium text-fg outline-none ${alignCls}`}
+   className={`${seamlessInputClassName} max-w-full text-sm text-fg ${alignCls}`}
   />
  );
 }
@@ -234,7 +235,7 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
        <select
         value={tx.type}
         onChange={(e) => update({ type: e.target.value })}
-        className="cursor-pointer appearance-none border-0 bg-transparent p-0 text-right text-sm font-medium text-fg outline-none"
+        className={`${seamlessSelectClassName} text-sm text-fg text-right`}
        >
         <option value="buy">{t('transaction_type_buy')}</option>
         <option value="sell">{t('transaction_type_sell')}</option>

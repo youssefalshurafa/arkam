@@ -8,7 +8,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { resolveHighlightBg } from '@/shared/utils/highlightColor';
 import { useTranslation } from '@/hooks/useTranslation';
-import { panelClassName, tableWrapClassName } from '@/shared/styles';
+import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings } from '@/shared/lib/localStorage';
@@ -2004,7 +2004,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
-               } ${contextMenuRowId === txn.id ? 'ring-2 ring-inset ring-indigo-400' : ''}`}
+               } ${contextMenuRowId === txn.id ? 'ring-2 ring-inset ring-indigo-400' : editingRowIds.has(txn.id) ? editingRowRingClassName : ''}`}
                style={(() => {
                 const color = highlightedTxRows.get(txn.id);
                 const isEditingRow = editingRowIds.has(txn.id);
@@ -2296,7 +2296,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       type="date"
                       value={draft.createdDate}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
-                      className="w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      className={`${seamlessInputClassName} w-full text-sm text-fg`}
                      />
                     ) : (
                      <span className="inline-flex items-center gap-1.5">
@@ -2312,7 +2312,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       type="text"
                       value={draft.description}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
-                      className="field-sizing-content min-w-28 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                      className={`${seamlessInputClassName} min-w-28 text-sm text-fg`}
                       placeholder={t('transaction_description_placeholder')}
                      />
                     ) : (
@@ -2329,7 +2329,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       value={draft.type}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { type: event.target.value })}
                       style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(draft.type)), 7, 2) }}
-                      className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                      className={`${seamlessSelectClassName} text-xs text-fg`}
                      >
                       <option value="buy">{t('transaction_type_buy')}</option>
                       <option value="sell">{t('transaction_type_sell')}</option>
@@ -2485,12 +2485,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        dir="ltr"
                        value={formatAmountInput(draft.amount)}
                        onChange={(event) => updateTransactionTableDraft(txn.id, { amount: normalizeDecimalInput(event.target.value) })}
-                       className="field-sizing-content min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       className={`${seamlessInputClassName} min-w-16 text-sm text-fg`}
                       />
                       <select
                        value={draft.currencyId ?? ''}
                        onChange={(event) => updateTransactionTableDraft(txn.id, { currencyId: event.target.value ? Number(event.target.value) : null })}
-                       className="w-20 rounded border border-border-strong px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                       className={`${seamlessSelectClassName} w-20 text-sm text-fg`}
                       >
                        <option value="">{t('transaction_currency_placeholder')}</option>
                        {enabledCurrencies.map((currency) => (
@@ -2560,7 +2560,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          dir="ltr"
                          value={draft.exchangeRateFrom}
                          onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateFrom: normalizePlainDecimalInput(event.target.value) })}
-                         className="field-sizing-content w-full min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         className={`${seamlessInputClassName} w-full min-w-16 text-sm text-fg`}
                          placeholder={t('transaction_exchange_rate')}
                         />
                        </div>
@@ -2598,7 +2598,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          dir="ltr"
                          value={draft.exchangeRateTo}
                          onChange={(event) => updateTransactionTableDraft(txn.id, { exchangeRateTo: normalizePlainDecimalInput(event.target.value) })}
-                         className="field-sizing-content w-full min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         className={`${seamlessInputClassName} w-full min-w-16 text-sm text-fg`}
                          placeholder={t('transaction_exchange_rate')}
                         />
                        </div>
@@ -2663,13 +2663,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          dir="ltr"
                          value={formatAmountInput(draft.charges)}
                          onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
-                         className="field-sizing-content min-w-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                         className={`${seamlessInputClassName} min-w-16 text-sm text-fg`}
                          placeholder="0"
                         />
                         <select
                          value={draft.chargesCurrencyId ?? ''}
                          onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
-                         className="w-full rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                         className={`${seamlessSelectClassName} w-full text-sm text-fg`}
                         >
                          <option value="">{t('currency')}</option>
                          {enabledCurrencies.map((cur) => (
@@ -2689,7 +2689,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          meLabel={t('charges_payer_me')}
                          paidByPlaceholder={t('charges_payer_placeholder')}
                          paidToPlaceholder={t('charges_payer_to_placeholder')}
-                         className="w-full rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                         className={`${seamlessSelectClassName} w-full text-sm text-fg`}
                         />
                         {(() => {
                          const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
@@ -2707,7 +2707,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                             dir="ltr"
                             value={draft.chargesExchangeRate}
                             onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })}
-                            className="mt-1 field-sizing-content min-w-16 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                            className={`${seamlessInputClassName} mt-1 min-w-16 text-sm text-fg`}
                             placeholder="1"
                            />
                           </div>
@@ -2718,7 +2718,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           type="text"
                           value={draft.chargesDescription}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
-                          className="field-sizing-content min-w-28 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className={`${seamlessInputClassName} min-w-28 text-sm text-fg`}
                           placeholder={t('charges_description_placeholder')}
                          />
                         </div>
@@ -2785,7 +2785,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           dir="ltr"
                           value={draft.commissionFrom}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionFrom: normalizePlainDecimalInput(event.target.value) })}
-                          className="field-sizing-content min-w-12 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className={`${seamlessInputClassName} min-w-12 text-sm text-fg`}
                           placeholder="0"
                          />
                          <span className="text-xs text-fg-faint">%</span>
@@ -2798,7 +2798,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           dir="ltr"
                           value={draft.commissionTo}
                           onChange={(event) => updateTransactionTableDraft(txn.id, { commissionTo: normalizePlainDecimalInput(event.target.value) })}
-                          className="field-sizing-content min-w-12 rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                          className={`${seamlessInputClassName} min-w-12 text-sm text-fg`}
                           placeholder="0"
                          />
                          <span className="text-xs text-fg-faint">%</span>
@@ -2833,7 +2833,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       value={draft.archiveNote}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { archiveNote: event.target.value })}
                       placeholder={t('archive_more_info_placeholder')}
-                      className="w-full rounded border border-border-strong px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
+                      className={`${seamlessInputClassName} w-full text-sm text-fg`}
                      />
                     ) : txn.archiveNote ? (
                      <span className="min-w-0 flex-1 truncate" title={txn.archiveNote}>{txn.archiveNote}</span>
