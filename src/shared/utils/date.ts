@@ -16,3 +16,11 @@ export function formatDateValue(value: string, dateFormat: PdfSettings['dateForm
    return iso;
  }
 }
+
+// Extracts "HH:mm" from a raw local-time createdAt string ("YYYY-MM-DD HH:mm:ss" or
+// "YYYY-MM-DDTHH:mm:ss") without going through Date/timezone conversion.
+export function formatTimeValue(value: string): string {
+ const sep = value.includes('T') ? 'T' : ' ';
+ const timePart = value.split(sep)[1] ?? '';
+ return timePart.slice(0, 5);
+}

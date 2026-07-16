@@ -374,7 +374,7 @@ export type ImportRowOverride = {
  swap: boolean; // transaction mode: swap the sheet's from/to direction
 };
 export type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'currency' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
-export type TransactionColumnKey = 'created' | 'description' | 'accountFrom' | 'accountTo' | 'amount' | 'exchangeRate' | 'charges' | 'commission';
+export type TransactionColumnKey = 'created' | 'description' | 'type' | 'accountFrom' | 'accountTo' | 'amount' | 'exchangeRate' | 'charges' | 'commission';
 export type DataCache = {
  organizations: Organization[];
  clients: Client[];

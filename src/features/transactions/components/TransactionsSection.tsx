@@ -13,7 +13,8 @@ import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
-import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ltrIsolate } from '@/shared/utils/format';
+import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
+import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatDateValue } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
@@ -294,6 +295,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const columnWeights: Array<[boolean, number]> = [
   [transactionTableSettings.columns.created, 10],
   [transactionTableSettings.columns.description, 15],
+  [transactionTableSettings.columns.type, 10],
   [transactionTableSettings.columns.accountFrom, 17],
   [transactionTableSettings.columns.accountTo, 17],
   [transactionTableSettings.columns.amount, 13],
@@ -1828,6 +1830,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              {selectionMode ? <col className="w-12" /> : null}
              {transactionTableSettings.columns.created ? <col style={{ width: colWidthPercent(10) }} /> : null}
              {transactionTableSettings.columns.description ? <col style={{ width: colWidthPercent(15) }} /> : null}
+             {transactionTableSettings.columns.type ? <col style={{ width: colWidthPercent(10) }} /> : null}
              {transactionTableSettings.columns.accountFrom ? <col style={{ width: colWidthPercent(17) }} /> : null}
              {transactionTableSettings.columns.accountTo ? <col style={{ width: colWidthPercent(17) }} /> : null}
              {transactionTableSettings.columns.amount ? <col style={{ width: colWidthPercent(13) }} /> : null}
@@ -1965,6 +1968,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               ) : null}
               {transactionTableSettings.columns.description ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
+              ) : null}
+              {transactionTableSettings.columns.type ? (
+               <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
               ) : null}
               {transactionTableSettings.columns.accountFrom ? (
                <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
@@ -2311,6 +2317,27 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      />
                     ) : (
                      txn.description || <span className="text-fg-faint">-</span>
+                    )}
+                   </td>
+                  ) : null}
+                  {transactionTableSettings.columns.type ? (
+                   <td className="px-4 py-3 text-fg-muted whitespace-nowrap">
+                    {txn.isAdjustment ? (
+                     <span className="inline-flex rounded bg-violet-bg px-2.5 py-1 text-xs font-semibold text-violet-text">{t('adjustment_label')}</span>
+                    ) : isEditingRow && draft ? (
+                     <select
+                      value={draft.type}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { type: event.target.value })}
+                      style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(draft.type)), 7, 2) }}
+                      className="rounded border border-border-strong px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                     >
+                      <option value="buy">{t('transaction_type_buy')}</option>
+                      <option value="sell">{t('transaction_type_sell')}</option>
+                      <option value="exchange">{t('transaction_type_exchange')}</option>
+                      <option value="transfer">{t('transaction_type_transfer')}</option>
+                     </select>
+                    ) : (
+                     t(transactionTypeLabelKey(txn.type))
                     )}
                    </td>
                   ) : null}

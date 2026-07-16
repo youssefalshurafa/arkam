@@ -16,6 +16,18 @@ import type { ClientAccount, Currency, Transaction } from '@/shared/types';
 //   • transfer → debt settlement / money movement: touches no pool, never profit.
 //   • adjustment / legacy transfer/exchange → treated as transfer/exchange above.
 //
+// buy/sell also has a pool-bypassing special case: a PASS-THROUGH SPREAD TRADE, where
+// each side either settles in the MAIN currency (a real rate was dealt) or directly in
+// the traded currency itself (that account already holds it, so there's no MAIN-currency
+// figure for that leg — it's marked to today's reference rate instead; both legs can be
+// traded-currency, e.g. a EUR client paying another EUR client through the house).
+// Neither leg ever touches a pool; profit is simply proceeds − cost.
+//
+// Today's reference rate is looked up PER ACCOUNT, not once globally per currency —
+// different organizations (or standalone clients with no organization) trade the same
+// currency at different rates, so RefRateResolver takes the specific account being
+// priced and resolves that account's own rate-group (see harvestRatesStore.ts).
+//
 // Magnitudes come from the balance engine's signed net-change
 // (computeTransactionSideNetChange), negated to express the house's POSITION
 // change (a negative account balance means the client owes the house, i.e. the
@@ -29,9 +41,11 @@ import type { ClientAccount, Currency, Transaction } from '@/shared/types';
 // surfaces the short-inventory ⚠ marker); this converges as history gets tagged.
 // ---------------------------------------------------------------------------
 
-// main-currency value of 1 unit of `currencyId`. 1 for the main currency, NaN when
-// a foreign currency has no reference rate (only needed for foreign-to-foreign deals).
-export type RefRateResolver = (currencyId: number) => number;
+// main-currency value of 1 unit of `currencyId`, as traded by the client account
+// `accountId` (different organizations/standalone clients can trade the same currency
+// at different rates). 1 for the main currency, NaN when no reference rate is set for
+// that account's rate-group (only needed for foreign-to-foreign deals).
+export type RefRateResolver = (currencyId: number, accountId: number | null) => number;
 
 const EPS = 1e-6;
 
@@ -143,15 +157,20 @@ function processTransaction(
   const refNeededCurrencyIds: number[] = [];
   let hasMissingRate = false;
   let hasShortInventory = false;
-  const refValue = (ccy: number, units: number): number => {
+  const refValue = (ccy: number, units: number, accountId: number | null): number => {
     refNeededCurrencyIds.push(ccy);
-    const r = refRate(ccy);
+    const r = refRate(ccy, accountId);
     if (!Number.isFinite(r) || r <= 0) {
       hasMissingRate = true;
       return 0;
     }
     return units * r;
   };
+  // The generic WAC-pool buy/sell cases only track a net delta per currency (both
+  // sides can share a currency in the pass-through branch above, but not here — a
+  // pool trade always has exactly one foreign side), so the currency alone identifies
+  // which account's rate-group to price it at.
+  const accountFor = (ccy: number): number | null => (fromCcy === ccy ? tx.accountFromId : toCcy === ccy ? tx.accountToId : null);
   const poolOf = (ccy: number): CurrencyPool => {
     let p = pools.get(ccy);
     if (!p) {
@@ -178,24 +197,38 @@ function processTransaction(
     refNeededCurrencyIds,
   });
 
-  // Back-to-back pass-through: both counterparties settle in the MAIN currency while the
-  // deal is denominated in a foreign currency at a buy/sell spread (e.g. bought from A
-  // @10.60, sold to B @10.70, both in MAD). The foreign currency never enters inventory,
-  // so profit is simply the spread — the from side's main amount is the cost, the to
-  // side's is the proceeds. Gated on the buy/sell tag so a both-main `transfer` (paying
-  // someone their balance) stays at 0.
-  if ((tx.type === 'buy' || tx.type === 'sell') && fromCcy === mainCurrencyId && toCcy === mainCurrencyId) {
-    const buySide = computeTransactionSideNetChange(tx, mainCurrencyId, 'from'); // main committed (cost)
-    // Sell side: if a rate was entered on the to-side, realize at it. If the sell rate
-    // was left blank (unpriced), MARK the delivered amount to "today's price" (the
-    // top-of-page rate for the traded currency), net of the receiver's commission —
-    // this is the "value 69,720 EUR at today's price" the user wants.
-    const toUnpriced = tx.currencyId !== toCcy && tx.exchangeRateTo === 0;
-    const netUnits = tx.amount * (1 - (tx.commissionTo || 0) / 100);
-    const sellSide = toUnpriced ? refValue(tx.currencyId, netUnits) : -computeTransactionSideNetChange(tx, mainCurrencyId, 'to');
-    const soldUnits = toUnpriced ? netUnits : tx.amount;
+  // Pass-through spread trade: one side settles in the MAIN currency (a real MAD
+  // amount was dealt) and the other side settles either in MAIN too — the deal
+  // currency is only implied via the entered rate, e.g. "bought from A @10.60, sold
+  // to B @10.70, both in MAD" — or directly in the DEAL currency itself (the
+  // client's account already holds that currency, so there's no MAD figure for that
+  // leg at all; it must be marked to today's reference rate instead). Either way the
+  // traded currency never enters inventory: profit is simply proceeds − cost. Gated
+  // on the buy/sell tag so a both-main `transfer` (paying someone their balance)
+  // stays at 0.
+  const fromIsMain = fromCcy === mainCurrencyId;
+  const toIsMain = toCcy === mainCurrencyId;
+  const fromIsDealCcy = !fromIsMain && fromCcy === tx.currencyId;
+  const toIsDealCcy = !toIsMain && toCcy === tx.currencyId;
+  if ((tx.type === 'buy' || tx.type === 'sell') && (fromIsMain || fromIsDealCcy) && (toIsMain || toIsDealCcy)) {
+    const netUnitsFrom = tx.amount * (1 - (tx.commissionFrom || 0) / 100);
+    const netUnitsTo = tx.amount * (1 - (tx.commissionTo || 0) / 100);
+
+    // Cost: the real MAD amount dealt on the from-side, or — when that side settles
+    // directly in the deal currency — its value marked to today's price.
+    const buySide = fromIsMain ? computeTransactionSideNetChange(tx, mainCurrencyId, 'from') : refValue(tx.currencyId, netUnitsFrom, tx.accountFromId);
+
+    // Proceeds: if a MAD rate was entered on the to-side, realize at it. If the
+    // to-side settles directly in the deal currency, or the MAD rate was left blank
+    // (unpriced), MARK the delivered amount to "today's price" instead.
+    const toUnpriced = toIsMain && tx.currencyId !== mainCurrencyId && tx.exchangeRateTo === 0;
+    const sellSide = toIsDealCcy || toUnpriced ? refValue(tx.currencyId, netUnitsTo, tx.accountToId) : -computeTransactionSideNetChange(tx, mainCurrencyId, 'to');
+
+    const boughtUnits = fromIsMain ? tx.amount : netUnitsFrom;
+    const soldUnits = toIsDealCcy || toUnpriced ? netUnitsTo : tx.amount;
+
     const legs: TxLeg[] = [];
-    if (buySide > EPS) legs.push({ currencyId: tx.currencyId, kind: 'buy', units: tx.amount, mainValue: buySide });
+    if (buySide > EPS) legs.push({ currencyId: tx.currencyId, kind: 'buy', units: boughtUnits, mainValue: buySide });
     if (sellSide > EPS) legs.push({ currencyId: tx.currencyId, kind: 'sell', units: soldUnits, mainValue: sellSide });
     return result({
       kind: 'sell',
@@ -215,7 +248,7 @@ function processTransaction(
       if (!target) return result({ kind: 'buy' });
       const [ccy, delta] = target;
       const units = Math.abs(delta);
-      const cost = mainInvolved && mainDelta < 0 ? Math.abs(mainDelta) : refValue(ccy, units);
+      const cost = mainInvolved && mainDelta < 0 ? Math.abs(mainDelta) : refValue(ccy, units, accountFor(ccy));
       const pool = poolOf(ccy);
       pool.holding += delta; // (delta>0 for a normal buy)
       pool.costBasisMain += cost;
@@ -229,7 +262,7 @@ function processTransaction(
       const [ccy, delta] = target;
       const units = Math.abs(delta);
       const basisReleased = disposeAtCost(ccy, units);
-      const proceeds = mainInvolved && mainDelta > 0 ? mainDelta : refValue(ccy, units);
+      const proceeds = mainInvolved && mainDelta > 0 ? mainDelta : refValue(ccy, units, accountFor(ccy));
       return result({
         kind: 'sell',
         soldMain: proceeds,
@@ -355,7 +388,7 @@ export function computeHarvest({
     for (const ccy of outcome.refNeededCurrencyIds) neededRates.add(ccy);
   }
 
-  rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || b.transactionId - a.transactionId);
+  rows.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.transactionId - b.transactionId);
 
   const totalProfitMain = rows.reduce((s, r) => s + (Number.isFinite(r.realizedProfitMain) ? r.realizedProfitMain : 0), 0);
   const totalBoughtMain = rows.reduce((s, r) => s + r.boughtMain, 0);

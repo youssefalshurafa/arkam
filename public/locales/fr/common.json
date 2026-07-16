@@ -320,6 +320,7 @@
  "harvest_tx_count": "Transactions",
  "harvest_turnover": "Acheté vs vendu par devise",
  "harvest_transactions_title": "Transactions du jour",
+ "harvest_time_column": "Heure",
  "harvest_profit_column": "Bénéfice",
  "harvest_no_transactions_today": "Aucune transaction aujourd'hui pour l'instant.",
  "harvest_no_main_currency": "Définissez une devise principale pour voir le bénéfice.",

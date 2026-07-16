@@ -347,6 +347,7 @@ export const defaultPdfColVisibility: PdfColVisibility = {
 export const defaultTransactionColumnVisibility: TransactionColumnVisibility = {
  created: true,
  description: true,
+ type: true,
  accountFrom: true,
  accountTo: true,
  amount: true,

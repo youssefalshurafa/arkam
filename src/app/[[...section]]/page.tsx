@@ -1449,6 +1449,53 @@ function AuthenticatedHome() {
   [adjustments, transactions, confirmIfEditLocked, confirmIfTransactionEditLocked, loadData, setError, t],
  );
 
+ // Applies a partial field patch to a stored transaction — every field not in `patch` is
+ // preserved from the record. Backs both حصاد اليوم's inline type-select and the
+ // "More info" popup's seamless inline edits (TransactionDetailsModal).
+ const onUpdateTransactionFields = useCallback(
+  async (transactionId: number, patch: Partial<TransactionUpdateInput>) => {
+   const tx = transactions.find((x) => x.id === transactionId);
+   if (!tx) return;
+   const payload: TransactionUpdateInput = {
+    id: tx.id,
+    accountFromId: tx.accountFromId,
+    accountToId: tx.accountToId,
+    currencyId: tx.currencyId,
+    amount: tx.amount,
+    type: tx.type,
+    exchangeRateFrom: tx.exchangeRateFrom,
+    commissionFrom: tx.commissionFrom,
+    exchangeRateTo: tx.exchangeRateTo,
+    commissionTo: tx.commissionTo,
+    exchangeRateFromReversed: tx.exchangeRateFromReversed,
+    exchangeRateToReversed: tx.exchangeRateToReversed,
+    charges: tx.charges,
+    chargesCurrencyId: tx.chargesCurrencyId,
+    chargesPayer: tx.chargesPayer,
+    chargesExchangeRate: tx.chargesExchangeRate,
+    chargesDescription: tx.chargesDescription,
+    description: tx.description,
+    descriptionFrom: tx.descriptionFrom,
+    descriptionTo: tx.descriptionTo,
+    exchangeActualAmount: tx.exchangeActualAmount,
+    archiveNote: tx.archiveNote,
+    createdAt: tx.createdAt,
+    ...patch,
+   };
+   if (!(await confirmIfTransactionEditLocked(tx, payload))) {
+    return;
+   }
+   try {
+    await accountingApi.updateTransaction(payload);
+    setError('');
+    await loadData();
+   } catch (e) {
+    setError(e instanceof Error ? e.message : t('error_failed_update'));
+   }
+  },
+  [transactions, confirmIfTransactionEditLocked, loadData, setError, t],
+ );
+
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
  const transactionTableRowMap = useMemo(() => new Map(transactionTableRows.map((transaction) => [transaction.id, transaction])), [transactionTableRows]);
 
@@ -2249,10 +2296,12 @@ function AuthenticatedHome() {
        {section === 'harvest' && isSuperAdminUser ? (
         <HarvestSection
          clientAccounts={clientAccounts}
+         clients={clients}
          currencies={currencies}
          transactions={transactions}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
+         onSaveHarvestRowType={(id, type) => onUpdateTransactionFields(id, { type })}
         />
        ) : null}
 
@@ -2357,7 +2406,7 @@ function AuthenticatedHome() {
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />
 
-   <TransactionDetailsModal transactions={transactions} />
+   <TransactionDetailsModal transactions={transactions} onUpdateTransactionFields={onUpdateTransactionFields} />
 
    {showLedgerSettingsModal ? (
     <LedgerSettingsModal
