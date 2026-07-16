@@ -17,7 +17,7 @@ import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
-import { formatDateValue } from '@/shared/utils/date';
+import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
@@ -414,7 +414,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  ? selectedClientLedgers[0]
                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
                if (!targetLedger) return;
-               const today = new Date().toISOString().slice(0, 10);
+               const today = localDateKey();
                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
                // Reuse the last date range chosen for this account, if any.
                const storedRange = getStoredPdfDateRange(targetLedger.accountId);
@@ -1411,6 +1411,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                       }}
                       onContextMenu={openRowMenu}
+                      onDoubleClick={(e) => {
+                       // Double-click / double-tap a row to edit it inline (a quick alternative to
+                       // the ⋮ menu). Ignore when it lands on a control or the row is already editing.
+                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                       if (editingLedgerRowKeys.has(rowKey)) return;
+                       if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+                       e.preventDefault();
+                       openLedgerRowForEdit(entry, ledger.accountId);
+                      }}
                       onKeyDown={(e) => {
                        // Enter saves the row being edited (ignore Enter inside multi-line fields).
                        if (e.key !== 'Enter') return;

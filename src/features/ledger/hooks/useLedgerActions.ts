@@ -10,7 +10,7 @@ import { NEW_ROW_REF_ID, violatedLock } from '@/features/ledger/utils/reconcilia
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
 import { formatRateValue } from '@/shared/utils/format';
-import { formatDateValue } from '@/shared/utils/date';
+import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { ledgerColumnOrderStorageKeyPrefix } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
@@ -135,7 +135,7 @@ function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
    exchangeRate: '',
    exchangeRateReversed: false,
    description: '',
-   date: new Date().toISOString().slice(0, 10),
+   date: localDateKey(),
   });
  }
 }
@@ -1002,10 +1002,15 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   const oldAnchorIdx = dateGroup.findIndex((k) => refOf(k) === boundary.anchorRefId);
   const newAnchorIdx = next.findIndex((k) => refOf(k) === boundary.anchorRefId);
   const anchorMoved = orderedDragged.some((k) => refOf(k) === boundary.anchorRefId);
+  // A crossing only shifts the reconciled balance if the row that crosses carries a non-zero
+  // net change; moving a zero-net row (e.g. a pending/0-rate transaction) across the anchor
+  // leaves the balance untouched and must NOT warn.
   const crosses =
    oldAnchorIdx !== -1 &&
    newAnchorIdx !== -1 &&
-   orderedDragged.some((k) => (dateGroup.indexOf(k) <= oldAnchorIdx) !== (next.indexOf(k) <= newAnchorIdx));
+   orderedDragged.some(
+    (k) => (dateGroup.indexOf(k) <= oldAnchorIdx) !== (next.indexOf(k) <= newAnchorIdx) && Math.abs(entryMap.get(k)?.netChange ?? 0) > 1e-6,
+   );
   if ((anchorMoved || crosses) && !(await confirmIfLocked([accountId], boundary.anchorCreatedAt, boundary.anchorRefId))) return;
  }
 

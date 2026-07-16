@@ -9,12 +9,13 @@ import { renderIcon } from '@/shared/utils/icons';
 import { normalizeDecimalInput } from '@/shared/utils/decimal';
 import { ledgerSelectWidth } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { formatTimeValue } from '@/shared/utils/date';
+import { formatTimeValue, formatDateValue, localDateKey } from '@/shared/utils/date';
+import { getStoredHarvestSortDir, saveHarvestSortDir } from '@/shared/lib/localStorage';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import type { Client, ClientAccount, Currency, Section, Transaction } from '@/shared/types';
 import { computeHarvest } from '../utils/harvestProfit';
-import { useHarvestRatesStore, harvestRateKey, localDateKey } from '../store/harvestRatesStore';
+import { useHarvestRatesStore, harvestRateKey } from '../store/harvestRatesStore';
 
 type HarvestSectionProps = {
   clientAccounts: ClientAccount[];
@@ -30,9 +31,33 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   const { language, isRTL } = useLanguage();
   const { t } = useTranslation(language);
   const numLocale = language === 'fr' ? 'en-US' : language;
-  const [rowSortDir, setRowSortDir] = useState<'asc' | 'desc'>('asc');
+  const [rowSortDir, setRowSortDir] = useState<'asc' | 'desc'>(() => getStoredHarvestSortDir());
+  // The harvest day being viewed, as local `yyyy-mm-dd`. Defaults to today; the day
+  // navigator lets the user step back to earlier days (and forward, up to today).
+  const [selectedDay, setSelectedDay] = useState<string>(() => localDateKey());
+  const today = localDateKey();
   const setInfoTransactionId = useTransactionsStore((s) => s.setInfoTransactionId);
   const rowContextMenu = useContextMenu();
+
+  const toggleSortDir = useCallback(
+    () => setRowSortDir((d) => {
+      const next = d === 'asc' ? 'desc' : 'asc';
+      saveHarvestSortDir(next);
+      return next;
+    }),
+    [],
+  );
+
+  // Step the viewed day by whole days; clamp forward navigation at today (no future harvest).
+  const shiftDay = useCallback(
+    (deltaDays: number) => {
+      const d = new Date(`${selectedDay}T12:00:00`);
+      d.setDate(d.getDate() + deltaDays);
+      const next = localDateKey(d);
+      setSelectedDay(next > today ? today : next);
+    },
+    [selectedDay, today],
+  );
 
   const mainCurrency = useMemo(() => currencies.find((c) => c.isMain === 1) ?? null, [currencies]);
   const accountMap = useMemo(() => new Map(clientAccounts.map((a) => [a.id, a])), [clientAccounts]);
@@ -55,7 +80,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     [accountMap, clientMap, t],
   );
 
-  const dateKey = localDateKey();
+  const dateKey = selectedDay;
   const { rates, updateRate } = useHarvestRatesStore();
 
   const refRate = useCallback(
@@ -71,8 +96,8 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   );
 
   const harvest = useMemo(
-    () => computeHarvest({ transactions, clientAccounts, currencies, refRate }),
-    [transactions, clientAccounts, currencies, refRate],
+    () => computeHarvest({ transactions, clientAccounts, currencies, refRate, day: selectedDay }),
+    [transactions, clientAccounts, currencies, refRate, selectedDay],
   );
 
   // Only organizations/standalone clients that actually appear in today's transactions
@@ -125,13 +150,49 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
           <p className="mt-0.5 max-w-xl text-sm text-fg-faint">{t('harvest_description')}</p>
         </div>
       </div>
-      <button
-        type="button"
-        onClick={() => navigateToSection('transactions')}
-        className="inline-flex h-9 items-center rounded border border-border-strong bg-surface-2 px-3 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
-      >
-        {t('nav_transactions')}
-      </button>
+      <div className="flex items-center gap-2">
+        <div className="inline-flex items-center gap-0.5 rounded border border-border-strong bg-surface-2 p-0.5">
+          <button
+            type="button"
+            onClick={() => shiftDay(-1)}
+            title={t('harvest_prev_day')}
+            aria-label={t('harvest_prev_day')}
+            className="rounded p-1.5 text-fg-muted transition hover:bg-surface-hover"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d={isRTL ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6'} />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedDay(today)}
+            disabled={selectedDay === today}
+            title={selectedDay === today ? undefined : t('harvest_day_today')}
+            className="min-w-[5.5rem] rounded px-2 py-1 text-center text-sm font-semibold text-fg tabular-nums transition hover:bg-surface-hover disabled:cursor-default disabled:hover:bg-transparent"
+          >
+            {selectedDay === today ? t('harvest_day_today') : formatDateValue(selectedDay, 'day-month-year-2')}
+          </button>
+          <button
+            type="button"
+            onClick={() => shiftDay(1)}
+            disabled={selectedDay >= today}
+            title={t('harvest_next_day')}
+            aria-label={t('harvest_next_day')}
+            className="rounded p-1.5 text-fg-muted transition hover:bg-surface-hover disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d={isRTL ? 'M15 18l-6-6 6-6' : 'M9 18l6-6-6-6'} />
+            </svg>
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigateToSection('transactions')}
+          className="inline-flex h-9 items-center rounded border border-border-strong bg-surface-2 px-3 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
+        >
+          {t('nav_transactions')}
+        </button>
+      </div>
     </div>
   );
 
@@ -291,7 +352,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
                   <th className={`w-16 px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
                     <button
                       type="button"
-                      onClick={() => setRowSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                      onClick={toggleSortDir}
                       className="inline-flex items-center gap-1 hover:text-accent transition-colors"
                       title={rowSortDir === 'asc' ? t('sort_desc') : t('sort_asc')}
                     >
