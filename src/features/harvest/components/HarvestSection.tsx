@@ -360,8 +360,12 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
                       {units(row.amount)} {row.currencySymbol || row.currencyCode}
                     </td>
                     <td dir="ltr" className={`px-3 py-2 text-right font-bold ${signCls(row.realizedProfitMain)}`}>
-                      {row.kind === 'buy' || row.kind === 'transfer' || row.kind === 'neutral' || Math.abs(row.realizedProfitMain) < 0.005 ? '—' : money(row.realizedProfitMain)}
-                      {row.hasMissingRate ? <span className="text-warn-text" title={t('harvest_row_missing_rate')}> *</span> : null}
+                      {row.hasMissingRate
+                        ? null
+                        : row.kind === 'buy' || row.kind === 'transfer' || row.kind === 'neutral' || Math.abs(row.realizedProfitMain) < 0.005
+                          ? '—'
+                          : money(row.realizedProfitMain)}
+                      {row.hasMissingRate ? <span className="text-warn-text" title={t('harvest_row_missing_rate')}>*</span> : null}
                       {row.hasShortInventory ? <span className="text-warn-text" title={t('harvest_row_short_inventory')}> ⚠</span> : null}
                     </td>
                   </tr>

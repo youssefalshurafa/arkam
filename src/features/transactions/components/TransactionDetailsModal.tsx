@@ -372,16 +372,6 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
       )}
      </div>
     ) : null}
-
-    <div className="mt-5 flex justify-end">
-     <button
-      type="button"
-      onClick={close}
-      className="rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
-     >
-      {t('close')}
-     </button>
-    </div>
    </div>
   </div>
  );

@@ -189,6 +189,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const setNewSectionOpen = section === 'archive' ? setIsNewArchiveSectionOpen : setIsNewTransactionSectionOpen;
  // When a row is loaded into the form for editing, bring the form into view.
  const editFormRef = useRef<HTMLDivElement | null>(null);
+ const transactionFormRef = useRef<HTMLFormElement | null>(null);
  const editingId = editingTransaction?.id;
  useEffect(() => {
   if (editingId != null) editFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -392,7 +393,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
         {transactionRowDrag.dragGhost}
         <section className="flex flex-col gap-6 xl:flex-row xl:items-start">
          {(section === 'transactions' || section === 'archive') && newSectionOpen ? (
-          <div ref={editFormRef} className={`${panelClassName} xl:w-96 xl:shrink-0`}>
+          <div
+           ref={editFormRef}
+           className={`border p-5 shadow-sm xl:w-96 xl:shrink-0 ${editingTransaction ? 'border-accent bg-surface-2' : 'border-border bg-surface'}`}
+          >
            <div className="flex items-start justify-between gap-3">
             <h2 className="text-xl font-semibold">{editingTransaction ? t('update_transaction') : section === 'archive' ? t('archive_new_transaction') : t('new_transaction')}</h2>
             <div className="flex shrink-0 items-center gap-2">
@@ -434,7 +438,32 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  rx="1"
                 />
                </svg>
-               {t('paste_transaction')}
+              </button>
+             ) : null}
+             {newSectionOpen ? (
+              <button
+               type="button"
+               onClick={() => transactionFormRef.current?.requestSubmit()}
+               disabled={isSubmittingTransaction}
+               title={editingTransaction ? t('update_transaction') : t('save_transaction')}
+               aria-label={editingTransaction ? t('update_transaction') : t('save_transaction')}
+               className="inline-flex shrink-0 items-center justify-center rounded border border-border-strong bg-surface-2 p-1.5 text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+               <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+                <path d="M17 21v-8H7v8" />
+                <path d="M7 3v5h8" />
+               </svg>
               </button>
              ) : null}
              <button
@@ -463,6 +492,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
            <p className="mt-1 text-sm text-fg-muted">{section === 'archive' ? t('archive_new_transaction_hint') : t('transactions_description')}</p>
 
            <form
+            ref={transactionFormRef}
             onSubmit={onTransactionSubmit}
             className="mt-5 max-w-md"
            >
@@ -2004,7 +2034,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''
-               } ${contextMenuRowId === txn.id ? 'ring-2 ring-inset ring-indigo-400' : editingRowIds.has(txn.id) ? editingRowRingClassName : ''}`}
+               } ${
+                contextMenuRowId === txn.id
+                 ? 'ring-2 ring-inset ring-indigo-400'
+                 : editingRowIds.has(txn.id) || editingTransaction?.id === txn.id
+                   ? editingRowRingClassName
+                   : ''
+               }`}
                style={(() => {
                 const color = highlightedTxRows.get(txn.id);
                 const isEditingRow = editingRowIds.has(txn.id);
