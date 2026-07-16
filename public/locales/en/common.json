@@ -321,6 +321,7 @@
  "harvest_tx_count": "Transactions",
  "harvest_turnover": "Bought vs sold by currency",
  "harvest_transactions_title": "Today's transactions",
+ "harvest_time_column": "Time",
  "harvest_profit_column": "Profit",
  "harvest_no_transactions_today": "No transactions today yet.",
  "harvest_no_main_currency": "Set a main currency to see profit.",

@@ -40,6 +40,7 @@ export default function TransactionTableSettingsModal({ section, closeTransactio
           [
            { key: 'created', label: t('date') },
            { key: 'description', label: t('transaction_description') },
+           { key: 'type', label: t('transaction_type') },
            { key: 'accountFrom', label: t('transaction_account_from') },
            { key: 'accountTo', label: t('transaction_account_to') },
            { key: 'amount', label: t('transaction_amount') },

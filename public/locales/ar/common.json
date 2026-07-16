@@ -323,6 +323,7 @@
  "harvest_tx_count": "المعاملات",
  "harvest_turnover": "الشراء مقابل البيع حسب العملة",
  "harvest_transactions_title": "معاملات اليوم",
+ "harvest_time_column": "الوقت",
  "harvest_profit_column": "الربح",
  "harvest_no_transactions_today": "لا توجد معاملات اليوم بعد.",
  "harvest_no_main_currency": "حدّد عملة رئيسية لعرض الأرباح.",
