@@ -4,9 +4,11 @@ import { useCallback, useMemo, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SkBar } from '@/shared/components/skeletons/Skeletons';
-import { panelClassName, mutedPanelClassName, tableWrapClassName } from '@/shared/styles';
+import { panelClassName, mutedPanelClassName, tableWrapClassName, seamlessSelectClassName } from '@/shared/styles';
 import { renderIcon } from '@/shared/utils/icons';
 import { normalizeDecimalInput } from '@/shared/utils/decimal';
+import { ledgerSelectWidth } from '@/shared/utils/format';
+import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatTimeValue } from '@/shared/utils/date';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
@@ -347,7 +349,8 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
                         <select
                           value={row.type}
                           onChange={(e) => void onSaveHarvestRowType(row.transactionId, e.target.value)}
-                          className="rounded border border-border-strong bg-surface px-2 py-1.5 text-xs outline-none ring-blue-300 focus:ring"
+                          style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(row.type)), 7, 2) }}
+                          className={`${seamlessSelectClassName} text-xs text-fg`}
                         >
                           <option value="buy">{t('transaction_type_buy')}</option>
                           <option value="sell">{t('transaction_type_sell')}</option>
