@@ -13,6 +13,7 @@ import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { clientsOrgOrderStorageKey } from '@/shared/lib/localStorage';
 import { nextCreatedAtForDate } from '@/shared/utils/createdAt';
+import { localDateKey } from '@/shared/utils/date';
 import type { Client, ClientAccount, ClientAdjustment, Currency, Section, Transaction } from '@/shared/types';
 
 type ClientsByOrganizationGroup = { id: number | null; clients: Client[] };
@@ -271,7 +272,7 @@ async function onWriteOffBalance(accountId: number, balance: number) {
    exchangeRate: 1,
    exchangeRateReversed: false,
    description: t('write_off_description'),
-   createdAt: nextCreatedAtForDate(new Date().toISOString().slice(0, 10), transactions, adjustments),
+   createdAt: nextCreatedAtForDate(localDateKey(), transactions, adjustments),
   });
   setError('');
   await loadData();

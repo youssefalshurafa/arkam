@@ -1,9 +1,13 @@
-1. more info popup remove `close` button we have an x.
+1. if a transaction is reconciled and behind it is a transaction that has 0 exchange rate meaning it does not affect the reconciled balance in any way , i then draged and moved it past the reconciled balance this didnt affect it as well , now when i add an exchange rate to it a warning appears that it may affect the reconciled balance but it wont , this thing we need fixing may be save the reconciled balance somewhere in the db related to the client and any change happening only if it affects this saved balance show the warning.
 
-2. create new transaction form remove the word `paste` just the icon is enough.and add a save icon next to it to save the transaction without removing the save at the bottom.
+2. not all transactions are visible in harvest page , i add a new one and i go check and it is not there.
 
-3. transactions table add a border to the transaction that is in edit mode.
+3. Harvest day should begin from 10 am to 10 pm, also times are not accurate.
 
-4. harvest page if a transaction missing data dont show profit at all just show the star icon we already have to say that it is missing data to calculate profit
+4. sorting time should be saved , i make it ascending then refresh it goes back decending.
 
-5. in transactions page when editing a transaction make the transaction have a border and change the background color of the update form slightly to diffrentiate between it and the create form
+5. transactions marked as exhchange profit is not properly calculated.
+
+6. double click or double touch with mobile on something to edit it.
+
+7. harvest day should have days before filter.

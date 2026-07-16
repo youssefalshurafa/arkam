@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
 import { getStoredArchiveTableSettings, getStoredTransactionTableSettings } from '@/shared/lib/localStorage';
+import { localDateKey } from '@/shared/utils/date';
 import { emptyTransactionForm } from '@/features/transactions/forms';
 import type {
  ImportClientReview,
@@ -242,7 +243,7 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setIsSubmittingTransaction: setter('isSubmittingTransaction'),
   txSplitDescription: false,
   setTxSplitDescription: setter('txSplitDescription'),
-  newTransactionDate: new Date().toISOString().slice(0, 10),
+  newTransactionDate: localDateKey(),
   setNewTransactionDate: setter('newTransactionDate'),
   copiedTransaction: null,
   setCopiedTransaction: setter('copiedTransaction'),

@@ -1,4 +1,5 @@
 import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
+import { localDateKey } from '@/shared/utils/date';
 import type { ClientAccount, Currency, Transaction } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -106,10 +107,12 @@ export type HarvestResult = {
   neededRateCurrencyIds: number[];
 };
 
-function isSameLocalDay(iso: string, now: Date): boolean {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return false;
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+// Compare the wall-clock DATE embedded in createdAt (its first 10 chars) against the
+// target day's local date. A string compare is timezone-proof: it never routes the stored
+// value through Date/getDate(), which would re-apply the viewer's UTC offset and could bump
+// a late-night transaction onto the wrong day (the reason some rows went missing here).
+function isSameLocalDay(iso: string, day: string): boolean {
+  return iso.slice(0, 10) === day;
 }
 
 // Live (not archived) and two-sided. One-sided rows are treated as archive elsewhere.
@@ -272,22 +275,31 @@ function processTransaction(
     }
     case 'exchange': {
       // Convert one currency to another (within a client or between correspondents).
-      // Carry the disposed currency's cost basis onto the acquired currency — no
-      // profit now; it surfaces when the acquired currency is later sold.
+      // Realize the spread NOW: value both legs at today's reference rates (the main
+      // currency prices at 1) and book profit = value received − value given. The
+      // acquired currency enters the pool at its marked value so a later sale prices
+      // against today's rate and doesn't double-count this spread.
       const dec = decreases[0];
       const inc = increases[0];
       if (!dec || !inc) return result({ kind: 'exchange' });
       const [decCcy, decDelta] = dec;
       const [incCcy, incDelta] = inc;
-      const carriedBasis = disposeAtCost(decCcy, Math.abs(decDelta));
+      const decUnits = Math.abs(decDelta);
+      const incUnits = Math.abs(incDelta);
+      const givenValue = refValue(decCcy, decUnits, accountFor(decCcy));
+      const receivedValue = refValue(incCcy, incUnits, accountFor(incCcy));
+      disposeAtCost(decCcy, decUnits);
       const incPool = poolOf(incCcy);
       incPool.holding += incDelta;
-      incPool.costBasisMain += carriedBasis;
+      incPool.costBasisMain += receivedValue;
       return result({
         kind: 'exchange',
+        boughtMain: Math.max(receivedValue, 0),
+        soldMain: Math.max(givenValue, 0),
+        realizedProfitMain: receivedValue - givenValue,
         legs: [
-          { currencyId: decCcy, kind: 'sell', units: Math.abs(decDelta), mainValue: carriedBasis },
-          { currencyId: incCcy, kind: 'buy', units: incDelta, mainValue: carriedBasis },
+          { currencyId: decCcy, kind: 'sell', units: decUnits, mainValue: givenValue },
+          { currencyId: incCcy, kind: 'buy', units: incUnits, mainValue: receivedValue },
         ],
       });
     }
@@ -308,13 +320,15 @@ export function computeHarvest({
   clientAccounts,
   currencies,
   refRate,
-  now = new Date(),
+  day = localDateKey(),
 }: {
   transactions: Transaction[];
   clientAccounts: ClientAccount[];
   currencies: Currency[];
   refRate: RefRateResolver;
-  now?: Date;
+  // The harvest day to surface, as local `yyyy-mm-dd` (defaults to today). Earlier days
+  // still replay into the pools; only this day's transactions are displayed.
+  day?: string;
 }): HarvestResult {
   const main = currencies.find((c) => c.isMain === 1) ?? null;
   const base: HarvestResult = {
@@ -351,7 +365,7 @@ export function computeHarvest({
 
   for (const tx of ordered) {
     const outcome = processTransaction(tx, pools, accountCurrencyOf, main.id, refRate);
-    if (!isSameLocalDay(tx.createdAt, now)) continue; // seed only — not displayed
+    if (!isSameLocalDay(tx.createdAt, day)) continue; // seed only — not displayed
 
     rows.push({
       transactionId: tx.id,

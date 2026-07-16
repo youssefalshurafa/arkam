@@ -6,10 +6,11 @@ import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
-import { NEW_ROW_REF_ID, violatedLock, isAtOrBeforeBoundary } from '@/features/ledger/utils/reconciliation';
+import { NEW_ROW_REF_ID, violatedLock, reconciledBalanceDelta, RECONCILED_DELTA_EPS } from '@/features/ledger/utils/reconciliation';
+import { computeTransactionSideNetChange, computeAdjustmentNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { formatRateValue } from '@/shared/utils/format';
-import { formatDateValue } from '@/shared/utils/date';
+import { formatDateValue, localDateKey, localWallClock } from '@/shared/utils/date';
 import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import {
  normalizeImportHeader,
@@ -488,7 +489,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
    setTxToRateReversed(false);
    // Keep the form open so several entries can be added in a row.
    setIsNewTransactionExpensesOpen(false);
-   setNewTransactionDate(new Date().toISOString().slice(0, 10));
+   setNewTransactionDate(localDateKey());
    setError('');
    void loadData();
   } catch (e) {
@@ -687,7 +688,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   setTxToRateReversed(false);
   // Keep the form open so several entries can be added in a row.
   setIsNewTransactionExpensesOpen(false);
-  setNewTransactionDate(new Date().toISOString().slice(0, 10));
+  setNewTransactionDate(localDateKey());
   setError('');
   showToast(t(txPayload.isArchived ? 'toast_archive_transaction_created' : 'toast_transaction_created'));
   void loadData();
@@ -1594,7 +1595,7 @@ function onCancelEditTransaction() {
  setTxFromRateReversed(false);
  setTxToRateReversed(false);
  setIsNewTransactionExpensesOpen(false);
- setNewTransactionDate(new Date().toISOString().slice(0, 10));
+ setNewTransactionDate(localDateKey());
  setError('');
 }
 
@@ -1663,42 +1664,76 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
  // Determine date-zone changes for each dragged row
  const rowMap = new Map(displayedTransactionRows.map((r) => [r.id, r]));
 
- // Reconciliation guard: a drag that re-dates a row onto (or currently sitting on)
- // reconciled history must warn before we reorder. Replays the zone logic below.
- // Also tracks whether the drop silently re-dates any row, so we can confirm that too.
- let dropLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+ // A drag now PERSISTS the new order into the ledger by re-timestamping the moved rows to
+ // sit between their new neighbors (the client ledger orders purely by createdAt, so a
+ // display-only reorder would otherwise leave the ledger — and reconciliation — unchanged).
+ // Interpolating between the neighbors' timestamps works for either sort direction, since
+ // "between in time" always means "between on screen".
+ const ep = (s: string) => Date.parse(s);
+ // Which way the table is currently sorted (newest-first vs oldest-first), inferred from the
+ // displayed rows so we assign a moved block's timestamps in the right on-screen order.
+ const descending = (() => {
+  for (let i = 1; i < displayedTransactionRows.length; i++) {
+   const a = ep(displayedTransactionRows[i - 1].createdAt);
+   const b = ep(displayedTransactionRows[i].createdAt);
+   if (Number.isFinite(a) && Number.isFinite(b) && a !== b) return a > b;
+  }
+  return true;
+ })();
+ const count = draggedIds.length;
+ const blockAbove = insertAt > 0 ? rowMap.get(next[insertAt - 1]) : undefined;
+ const blockBelow = insertAt + count < next.length ? rowMap.get(next[insertAt + count]) : undefined;
+ const aboveE = blockAbove ? ep(blockAbove.createdAt) : null;
+ const belowE = blockBelow ? ep(blockBelow.createdAt) : null;
+ // Later-time bound (hi) and earlier-time bound (lo). On a newest-first table the row above
+ // is the later one; oldest-first flips that.
+ let hiE = descending ? aboveE : belowE;
+ let loE = descending ? belowE : aboveE;
+ if (loE != null && hiE == null) hiE = loE + 1000 * (count + 1);
+ if (hiE != null && loE == null) loE = hiE - 1000 * (count + 1);
+
+ const newCreatedAtById = new Map<number, string>();
+ if (loE != null && hiE != null && hiE > loE) {
+  const step = (hiE - loE) / (count + 1);
+  const ascTargets = Array.from({ length: count }, (_, i) => Math.round((loE as number) + step * (i + 1)));
+  // draggedIds are in on-screen (next) order; give the top one the later time when descending.
+  const ordered = descending ? [...ascTargets].reverse() : ascTargets;
+  draggedIds.forEach((id, k) => newCreatedAtById.set(id, localWallClock(new Date(ordered[k]))));
+ }
+
+ // Reconciliation guard: warn only when the move actually changes a reconciled balance — i.e.
+ // it shifts a row with a non-zero net change across a lock anchor. Moving a zero-net row (or
+ // a move that stays on the same side of the anchor) leaves the reconciled balance untouched
+ // and must not warn. Also detect a re-date so we can confirm that separately.
+ let dropImpactHit: { accountId: number; boundary: { balance: number } } | null = null;
  let dateChange: { from: string; to: string } | null = null;
  for (const draggedId of draggedIds) {
   const draggedRow = rowMap.get(draggedId);
   if (!draggedRow) continue;
-  const pos = next.indexOf(draggedId);
-  const neighborAbove = (() => { for (let i = pos - 1; i >= 0; i--) { if (!dragSet.has(next[i])) return rowMap.get(next[i]); } })();
-  const neighborBelow = (() => { for (let i = pos + 1; i < next.length; i++) { if (!dragSet.has(next[i])) return rowMap.get(next[i]); } })();
-  const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
-  const draggedDate = draggedRow.createdAt.slice(0, 10);
-  const newCreatedAt = !zoneDate || zoneDate === draggedDate ? draggedRow.createdAt : zoneDate + draggedRow.createdAt.slice(10);
-  if (zoneDate && zoneDate !== draggedDate && !dateChange) dateChange = { from: draggedDate, to: zoneDate };
-  const accIds = draggedRow.isAdjustment ? [draggedRow.accountFromId] : [draggedRow.accountFromId, draggedRow.accountToId];
+  const newCreatedAt = newCreatedAtById.get(draggedId);
+  if (!newCreatedAt || newCreatedAt === draggedRow.createdAt) continue;
+  if (newCreatedAt.slice(0, 10) !== draggedRow.createdAt.slice(0, 10) && !dateChange) {
+   dateChange = { from: draggedRow.createdAt.slice(0, 10), to: newCreatedAt.slice(0, 10) };
+  }
   const refId = draggedRow.isAdjustment ? draggedRow.adjustmentId ?? 0 : draggedRow.id;
-  // Only an actual RE-DATE can change a reconciled balance; a pure same-date reorder just
-  // reshuffles the display order (manualRowOrder) and never persists a timestamp, so it must
-  // not warn. Even a re-date only matters if it moves the row ACROSS a lock's anchor (its
-  // at-or-before-anchor membership flips); staying on the same side leaves the reconciled
-  // balance unchanged.
-  if (newCreatedAt !== draggedRow.createdAt) {
-   for (const accId of accIds) {
-    if (accId == null) continue;
-    const boundary = lockBoundaries.get(accId);
-    if (!boundary) continue;
-    if (isAtOrBeforeBoundary(draggedRow.createdAt, refId, boundary) !== isAtOrBeforeBoundary(newCreatedAt, refId, boundary)) {
-     dropLockHit = { accountId: accId, boundary };
-     break;
-    }
+  const accIds = draggedRow.isAdjustment ? [draggedRow.accountFromId] : [draggedRow.accountFromId, draggedRow.accountToId];
+  for (const accId of accIds) {
+   if (accId == null) continue;
+   const boundary = lockBoundaries.get(accId);
+   const account = clientAccountMap.get(accId);
+   if (!boundary || !account) continue;
+   const net = draggedRow.isAdjustment
+    ? computeAdjustmentNetChange({ amount: draggedRow.amount, direction: draggedRow.adjustmentDirection ?? 'debit', currencyId: draggedRow.currencyId, exchangeRate: draggedRow.exchangeRateFrom }, account.currencyId)
+    : computeTransactionSideNetChange(draggedRow, account.currencyId, draggedRow.accountFromId === accId ? 'from' : 'to');
+   const delta = reconciledBalanceDelta(boundary, { createdAt: draggedRow.createdAt, refId, net, present: true }, { createdAt: newCreatedAt, refId, net, present: true });
+   if (Math.abs(delta) > RECONCILED_DELTA_EPS) {
+    dropImpactHit = { accountId: accId, boundary };
+    break;
    }
   }
-  if (dropLockHit && dateChange) break;
+  if (dropImpactHit && dateChange) break;
  }
- if (dropLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(dropLockHit.accountId, dropLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
+ if (dropImpactHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(dropImpactHit.accountId, dropImpactHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
   return;
  }
  if (dateChange && !(await confirmDialog({ title: t('drag_date_change_title'), message: t('drag_date_change_message', { from: dateChange.from, to: dateChange.to }), confirmText: t('drag_date_change_confirm'), tone: 'danger' }))) {
@@ -1714,23 +1749,10 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
    const draggedRow = rowMap.get(draggedId);
    if (!draggedRow) continue;
 
-   const pos = next.indexOf(draggedId);
-   // Find nearest non-group neighbor to determine the target date zone
-   const neighborAbove = (() => {
-    for (let i = pos - 1; i >= 0; i--) {
-     if (!dragSet.has(next[i])) return rowMap.get(next[i]);
-    }
-   })();
-   const neighborBelow = (() => {
-    for (let i = pos + 1; i < next.length; i++) {
-     if (!dragSet.has(next[i])) return rowMap.get(next[i]);
-    }
-   })();
-   const zoneDate = (neighborAbove ?? neighborBelow)?.createdAt.slice(0, 10);
-   const draggedDate = draggedRow.createdAt.slice(0, 10);
-   if (!zoneDate || zoneDate === draggedDate) continue;
-
-   const newCreatedAt = zoneDate + draggedRow.createdAt.slice(10);
+   const newCreatedAt = newCreatedAtById.get(draggedId);
+   // No room to re-time (e.g. neighbors share a timestamp) or unchanged — leave as a
+   // display-only reorder for this row.
+   if (!newCreatedAt || newCreatedAt === draggedRow.createdAt) continue;
 
    if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
     const account = clientAccountMap.get(draggedRow.accountFromId ?? -1);

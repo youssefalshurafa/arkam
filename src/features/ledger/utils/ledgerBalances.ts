@@ -64,6 +64,16 @@ export function computeTransactionSideNetChange(tx: NetChangeSideInput, accountC
  return -(toBase - getCommissionAmount(toBase, commission)) + chargeEffect;
 }
 
+// The net ledger effect of an adjustment on its account balance — mirrors the adjustment
+// branch inside computeClientLedgers. Used by the reconciliation guard to tell whether an
+// adjustment edit/create/delete/move actually changes the reconciled balance.
+export function computeAdjustmentNetChange(adj: Pick<ClientAdjustment, 'amount' | 'direction' | 'currencyId' | 'exchangeRate'>, accountCurrencyId: number): number {
+ const rate = adj.exchangeRate ?? 0;
+ const pendingRate = adj.currencyId != null && adj.currencyId !== accountCurrencyId && rate === 0;
+ if (pendingRate) return 0;
+ return (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
+}
+
 type ComputeArgs = {
  selectedClientForLedger: Client | null;
  section: Section;

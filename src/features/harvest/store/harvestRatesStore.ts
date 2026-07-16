@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import { getStoredHarvestRates, saveHarvestRates } from '@/shared/lib/localStorage';
+import { localDateKey } from '@/shared/utils/date';
+
+// Re-exported so existing harvest imports (`from '../store/harvestRatesStore'`) keep working;
+// the canonical implementation now lives in shared/utils/date.ts.
+export { localDateKey };
 
 /**
  * Per-browser daily reference rates for حصاد اليوم (Today's Harvest).
@@ -18,14 +23,6 @@ type HarvestRatesStore = {
 };
 
 export const harvestRateKey = (dateKey: string, currencyId: number, groupKey: string) => `${dateKey}:${currencyId}:${groupKey}`;
-
-// Local calendar day as `yyyy-mm-dd`, matching the engine's "today" definition.
-export const localDateKey = (date = new Date()) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
 
 export const useHarvestRatesStore = create<HarvestRatesStore>((set) => ({
   rates: getStoredHarvestRates(),

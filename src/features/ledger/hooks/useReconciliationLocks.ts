@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { buildLockBoundaries, violatedLock } from '@/features/ledger/utils/reconciliation';
+import { buildLockBoundaries, violatedLock, reconciledImpact, type RowContribution } from '@/features/ledger/utils/reconciliation';
 import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import type { ClientAccount, Reconciliation, Transaction, TransactionUpdateInput } from '@/shared/types';
 
@@ -84,31 +84,33 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap }: Us
  }
 
  /**
-  * Two-sided edit guard for a transaction (the ledger-row/table-row edit save paths).
-  * Unlike confirmIfEditLocked, this only checks the lock on a SIDE (from/to account) whose
-  * own balance the edit could actually change — e.g. editing only the "from" side's
-  * exchange rate never affects the "to" account's ledger, so the "to" account's lock (even
-  * if reconciled) is not checked and no warning appears. A side counts as affected if its
-  * account changed, the shared date changed (reorders both ledgers), or its computed net
-  * change actually differs. Returns true to proceed.
+  * Two-sided edit guard for a transaction (the ledger-row/table-row edit save paths). Warns
+  * only when the edit actually moves a reconciled balance: for every account the transaction
+  * touches (before or after the edit) it compares that row's contribution to the account's
+  * reconciled balance — its net change while it sits at or before the lock anchor — before vs
+  * after. Editing only the "from" side's rate never changes the "to" account's balance (no
+  * warning); editing a field that nets to the same value, or a row that stays strictly after
+  * the anchor, is likewise silent. Returns true to proceed.
   */
  async function confirmIfTransactionEditLocked(oldTx: Transaction, newPayload: TransactionUpdateInput): Promise<boolean> {
-  const dateChanged = new Date(oldTx.createdAt).getTime() !== new Date(newPayload.createdAt).getTime();
-  const accountIdsToCheck: number[] = [];
-  for (const side of ['from', 'to'] as const) {
-   const oldAccountId = side === 'from' ? oldTx.accountFromId : oldTx.accountToId;
-   const newAccountId = side === 'from' ? newPayload.accountFromId : newPayload.accountToId;
-   const oldAccount = oldAccountId != null ? clientAccountMap.get(oldAccountId) : undefined;
-   const newAccount = newAccountId != null ? clientAccountMap.get(newAccountId) : undefined;
-   const oldNetChange = oldAccountId != null && oldAccount ? computeTransactionSideNetChange(oldTx, oldAccount.currencyId, side) : 0;
-   const newNetChange = newAccountId != null && newAccount ? computeTransactionSideNetChange(newPayload, newAccount.currencyId, side) : 0;
-   const affected = oldAccountId !== newAccountId || dateChanged || Math.abs(oldNetChange - newNetChange) > 1e-9;
-   if (!affected) continue;
-   if (oldAccountId != null) accountIdsToCheck.push(oldAccountId);
-   if (newAccountId != null) accountIdsToCheck.push(newAccountId);
+  const netOn = (tx: Transaction | TransactionUpdateInput, accountId: number): number => {
+   const account = clientAccountMap.get(accountId);
+   if (!account) return 0;
+   let net = 0;
+   if (tx.accountFromId === accountId) net += computeTransactionSideNetChange(tx, account.currencyId, 'from');
+   if (tx.accountToId === accountId) net += computeTransactionSideNetChange(tx, account.currencyId, 'to');
+   return net;
+  };
+  const accountIds = new Set<number>();
+  for (const id of [oldTx.accountFromId, oldTx.accountToId, newPayload.accountFromId, newPayload.accountToId]) {
+   if (id != null) accountIds.add(id);
   }
-  if (accountIdsToCheck.length === 0) return true;
-  const hit = violatedLock(accountIdsToCheck, oldTx.createdAt, oldTx.id, lockBoundaries) ?? violatedLock(accountIdsToCheck, newPayload.createdAt, oldTx.id, lockBoundaries);
+  const contributions = [...accountIds].map((accountId) => {
+   const old: RowContribution = { createdAt: oldTx.createdAt, refId: oldTx.id, net: netOn(oldTx, accountId), present: oldTx.accountFromId === accountId || oldTx.accountToId === accountId };
+   const next: RowContribution = { createdAt: newPayload.createdAt, refId: oldTx.id, net: netOn(newPayload, accountId), present: newPayload.accountFromId === accountId || newPayload.accountToId === accountId };
+   return { accountId, old, next };
+  });
+  const hit = reconciledImpact(contributions, lockBoundaries);
   if (!hit) return true;
   return confirmDialog({
    title: t('reconcile_warn_title'),

@@ -1,16 +1,23 @@
 import type { ClientAdjustment, Transaction } from '@/shared/types';
+import { localDateKey, localWallClock } from '@/shared/utils/date';
 
 /**
- * Places a newly created transaction/adjustment strictly after every existing row on
- * `dateStr`, so it lands at the END of that date's sequence: the top of the descending
- * transactions table and the bottom of the ascending client ledger. This keeps a new
- * entry with today's date at the very top even when other same-day rows were manually
- * drag-reordered (which rewrites their timestamps across the day).
+ * Timestamp for a newly created transaction/adjustment dated `dateStr`.
+ *
+ * When `dateStr` is TODAY, the real current local time is used so displayed times are
+ * accurate (the row still sorts to the top of today because real time advances past
+ * earlier same-day rows). In the rare case a same-day row was drag-reordered to a time
+ * later than "now", we fall back to just after that row so the new entry still lands at
+ * the END of the day's sequence — the top of the descending transactions table and the
+ * bottom of the ascending client ledger.
+ *
+ * For a past/future `dateStr` there is no meaningful "now", so we place the row one second
+ * after the last existing row on that day (capped at end-of-day). All values are emitted as
+ * local wall-clock strings (see localWallClock) so the stored/displayed time is the local
+ * time and the embedded date matches the user's calendar day.
  */
 export function nextCreatedAtForDate(dateStr: string, transactions: Transaction[], adjustments: ClientAdjustment[]): string {
- const dayStart = Date.parse(`${dateStr}T00:00:00.000Z`);
- const dayEnd = Date.parse(`${dateStr}T23:59:59.999Z`);
- let maxEpoch = dayStart;
+ let maxEpoch = -Infinity;
  for (const tx of transactions) {
   if (tx.createdAt.slice(0, 10) === dateStr) {
    const e = Date.parse(tx.createdAt);
@@ -23,8 +30,20 @@ export function nextCreatedAtForDate(dateStr: string, transactions: Transaction[
    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
   }
  }
- const next = Math.min(maxEpoch + 1000, dayEnd);
- return new Date(next).toISOString();
+
+ if (dateStr === localDateKey()) {
+  const now = Date.now();
+  const next = Number.isFinite(maxEpoch) ? Math.max(now, maxEpoch + 1000) : now;
+  return localWallClock(new Date(next));
+ }
+
+ // Local (no Z) day bounds so the emitted wall-clock date stays === dateStr regardless
+ // of timezone offset.
+ const dayStart = Date.parse(`${dateStr}T00:00:00.000`);
+ const dayEnd = Date.parse(`${dateStr}T23:59:59.999`);
+ const base = Number.isFinite(maxEpoch) ? Math.max(maxEpoch, dayStart) : dayStart;
+ const next = Math.min(base + 1000, dayEnd);
+ return localWallClock(new Date(next));
 }
 
 /**

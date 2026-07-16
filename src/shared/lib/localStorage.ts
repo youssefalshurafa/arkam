@@ -200,6 +200,27 @@ export function saveHarvestRates(rates: Record<string, string>) {
   /* ignore */
  }
 }
+
+// Sort direction of the harvest transactions table (by time). Persisted per-device so the
+// user's choice survives a refresh instead of snapping back to the default each time.
+export const harvestSortDirStorageKey = 'arkam:harvest-sort-dir';
+
+export function getStoredHarvestSortDir(): 'asc' | 'desc' {
+ if (typeof window === 'undefined') return 'asc';
+ try {
+  return window.localStorage.getItem(harvestSortDirStorageKey) === 'desc' ? 'desc' : 'asc';
+ } catch {
+  return 'asc';
+ }
+}
+
+export function saveHarvestSortDir(dir: 'asc' | 'desc') {
+ try {
+  window.localStorage.setItem(harvestSortDirStorageKey, dir);
+ } catch {
+  /* ignore */
+ }
+}
 export const dataCacheStorageKey = 'arkam:data-cache';
 
 // The snapshot is tagged with the id of the user who wrote it AND the workspace it

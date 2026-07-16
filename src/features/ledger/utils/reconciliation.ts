@@ -59,6 +59,46 @@ export function isAtOrBeforeBoundary(createdAt: string, refId: number, boundary:
 // The largest refId sentinel for a not-yet-created row (see isAtOrBeforeBoundary).
 export const NEW_ROW_REF_ID = Number.MAX_SAFE_INTEGER;
 
+// Below this magnitude a reconciled-balance change is treated as zero (floating-point noise).
+export const RECONCILED_DELTA_EPS = 1e-6;
+
+// State of one row's contribution to a single account's balance, before or after a change.
+// `present` is false when the row doesn't touch the account (e.g. it was deleted, or the
+// edited row no longer references this account).
+export type RowContribution = { createdAt: string; refId: number; net: number; present: boolean };
+
+/**
+ * How much a change shifts an account's RECONCILED balance (the running balance at its lock
+ * anchor). A row contributes its net change to that balance only while it sits at or before
+ * the anchor, so the delta is the new contribution minus the old one. Returns 0 when there's
+ * no reconciliation, or when the change nets out at the anchor (e.g. editing a row that stays
+ * strictly after the anchor, or moving a zero-net row across it) — those must not warn.
+ */
+export function reconciledBalanceDelta(boundary: LockBoundary | null | undefined, oldState: RowContribution, newState: RowContribution): number {
+ if (!boundary) return 0;
+ const oldContribution = oldState.present && isAtOrBeforeBoundary(oldState.createdAt, oldState.refId, boundary) ? oldState.net : 0;
+ const newContribution = newState.present && isAtOrBeforeBoundary(newState.createdAt, newState.refId, boundary) ? newState.net : 0;
+ return newContribution - oldContribution;
+}
+
+/**
+ * The first account whose reconciled balance a change actually moves, or null if none do.
+ * `contributions` gives, per touched account, that row's before/after contribution state.
+ * Used by the edit/create/delete/move guards so they warn only when the saved reconciled
+ * balance would really change — not merely because a row sits at or before a lock line.
+ */
+export function reconciledImpact(
+ contributions: Array<{ accountId: number; old: RowContribution; next: RowContribution }>,
+ boundaries: Map<number, LockBoundary>,
+): { accountId: number; boundary: LockBoundary } | null {
+ for (const { accountId, old, next } of contributions) {
+  const boundary = boundaries.get(accountId);
+  if (!boundary) continue;
+  if (Math.abs(reconciledBalanceDelta(boundary, old, next)) > RECONCILED_DELTA_EPS) return { accountId, boundary };
+ }
+ return null;
+}
+
 /**
  * Returns the first reconciliation boundary that a proposed change would violate,
  * checking every affected account (a transaction sits in two ledgers, each reconciled

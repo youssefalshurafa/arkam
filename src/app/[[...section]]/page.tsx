@@ -48,6 +48,7 @@ import {
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { getSectionFromPath } from '@/shared/utils/section';
+import { localDateKey } from '@/shared/utils/date';
 import { SkBar, SkTablePanel, SK_CLIENTS, SK_CURRENCIES } from '@/shared/components/skeletons/Skeletons';
 import { useWorkspaceData, useWorkspaceCache } from '@/features/workspace/hooks/useWorkspaceData';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -2089,7 +2090,7 @@ function AuthenticatedHome() {
            shows while there are transactions archived on the current day. */}
        {section === 'archive' || section === 'transactions'
         ? (() => {
-           const today = new Date().toISOString().slice(0, 10);
+           const today = localDateKey();
            const archivedToday = transactions.filter((tx) => tx.isArchived && tx.createdAt.slice(0, 10) === today).length;
            if (archivedToday === 0) return null;
            return (
