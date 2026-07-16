@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -106,10 +106,11 @@ function EditableField({
  *
  * Every value except the account/currency identities and the charges payer is editable
  * in place via `EditableField`/the type `<select>` — click a value, edit, blur/Enter to
- * save (Escape or leaving it unchanged discards). Structural fields (which accounts,
- * which currencies, who pays charges) are deliberately left read-only here — changing
- * those needs the full edit form's account/currency pickers and lock/validation checks,
- * not a seamless one-line edit.
+ * stage the change (Escape or leaving it unchanged discards). Edits are buffered locally
+ * and only written when Save is pressed; Cancel/closing discards them. Structural fields
+ * (which accounts, which currencies, who pays charges) are deliberately left read-only
+ * here — changing those needs the full edit form's account/currency pickers and
+ * lock/validation checks, not a seamless one-line edit.
  */
 export default function TransactionDetailsModal({ transactions, onUpdateTransactionFields }: TransactionDetailsModalProps) {
  const { language, isRTL } = useLanguage();
@@ -119,12 +120,28 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
  const setInfoTransactionId = useTransactionsStore((s) => s.setInfoTransactionId);
  const dateFormat = useTransactionsStore((s) => s.transactionTableSettings.dateFormat);
 
+ // Edits are buffered here and only persisted on Save (discarded on Cancel/close), so the
+ // modal is an explicit editing session rather than the auto-save-on-blur behavior. Reset
+ // whenever the target transaction changes (the modal is mounted once at page level and
+ // reused for whichever row is opened, so stale edits must not leak across opens).
+ const [pending, setPending] = useState<Partial<TransactionUpdateInput>>({});
+ useEffect(() => setPending({}), [infoTransactionId]);
+
  if (infoTransactionId == null) return null;
- const tx = transactions.find((candidate) => candidate.id === infoTransactionId);
- if (!tx) return null;
+ const found = transactions.find((candidate) => candidate.id === infoTransactionId);
+ if (!found) return null;
+
+ // The transaction as it would look with the buffered edits applied — every display/computed
+ // value below reads from this merged view so in-progress edits are reflected live.
+ const tx = { ...found, ...pending };
+ const isDirty = Object.keys(pending).length > 0;
 
  const close = () => setInfoTransactionId(null);
- const update = (patch: Partial<TransactionUpdateInput>) => onUpdateTransactionFields(tx.id, patch);
+ const update = (patch: Partial<TransactionUpdateInput>) => setPending((prev) => ({ ...prev, ...patch }));
+ const save = () => {
+  if (isDirty) void onUpdateTransactionFields(found.id, pending);
+  close();
+ };
  // A details view: show up to 4 fraction digits so exact stored amounts aren't rounded away
  // (the ledger/table use their own coarser display decimals; this is the full-precision view).
  const fmt = (value: number) => value.toLocaleString(numLocale, { maximumFractionDigits: 4 });
@@ -372,6 +389,23 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
       )}
      </div>
     ) : null}
+
+    <div className="mt-5 flex justify-end gap-2">
+     <button
+      type="button"
+      onClick={close}
+      className="rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
+     >
+      {t('cancel')}
+     </button>
+     <button
+      type="button"
+      onClick={save}
+      className="rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
+     >
+      {t('save')}
+     </button>
+    </div>
    </div>
   </div>
  );

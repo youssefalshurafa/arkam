@@ -263,6 +263,7 @@
  "client_ledger_edit_mode": "وضع التعديل",
  "decimal_places": "الخانات العشرية",
  "client_ledger_done_editing": "إنهاء التعديل",
+ "save": "حفظ",
  "save_changes": "حفظ التغييرات",
  "client_account_open": "فتح حساب",
  "client_account_remove": "إزالة الحساب",

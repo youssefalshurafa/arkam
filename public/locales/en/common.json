@@ -261,6 +261,7 @@
  "client_ledger_edit_mode": "Edit Mode",
  "decimal_places": "Decimal places",
  "client_ledger_done_editing": "Done Editing",
+ "save": "Save",
  "save_changes": "Save Changes",
  "client_account_open": "Open Account",
  "client_account_remove": "Remove account",
