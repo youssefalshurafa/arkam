@@ -1989,15 +1989,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                key={txn.id}
                data-drag-key={txn.id}
                onContextMenu={(e) => openRowMenu(e, txn)}
-               onDoubleClick={(e) => {
-                // Double-click / double-tap a row to edit it inline (a quick alternative to the
-                // ⋮ menu). Ignore double-clicks that land on an interactive control or when the
-                // row is already being edited.
-                if (editingRowIds.has(txn.id)) return;
-                if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
-                e.preventDefault();
-                setEditingRowIds((prev) => new Set(prev).add(txn.id));
-               }}
                onKeyDown={(e) => {
                 focusAdjacentRowField(e, isRTL);
                 // Enter saves the row being edited (ignore Enter inside multi-line fields).

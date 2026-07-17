@@ -1411,15 +1411,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                       }}
                       onContextMenu={openRowMenu}
-                      onDoubleClick={(e) => {
-                       // Double-click / double-tap a row to edit it inline (a quick alternative to
-                       // the ⋮ menu). Ignore when it lands on a control or the row is already editing.
-                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                       if (editingLedgerRowKeys.has(rowKey)) return;
-                       if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
-                       e.preventDefault();
-                       openLedgerRowForEdit(entry, ledger.accountId);
-                      }}
                       onKeyDown={(e) => {
                        // Enter saves the row being edited (ignore Enter inside multi-line fields).
                        if (e.key !== 'Enter') return;
