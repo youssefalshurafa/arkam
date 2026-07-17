@@ -152,55 +152,6 @@ export function setStoredLedgerAccountId(clientId: number, accountId: number) {
   /* ignore quota / privacy-mode errors */
  }
 }
-// User-entered FX rates for the overview balance cards, keyed by currency code
-// (e.g. { EUR: '10.92', USD: '9.50' }). Stable across currency reseeds.
-export const overviewRatesStorageKey = 'arkam:overview-rates';
-
-export function getStoredOverviewRates(): Record<string, string> {
- if (typeof window === 'undefined') return {};
- try {
-  const raw = window.localStorage.getItem(overviewRatesStorageKey);
-  if (!raw) return {};
-  const parsed = JSON.parse(raw);
-  return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
- } catch {
-  return {};
- }
-}
-
-export function saveOverviewRates(rates: Record<string, string>) {
- try {
-  window.localStorage.setItem(overviewRatesStorageKey, JSON.stringify(rates));
- } catch {
-  /* ignore */
- }
-}
-
-// Daily reference rates for the حصاد اليوم (Today's Harvest) page, keyed by
-// `${yyyy-mm-dd}:${currencyId}` → main-currency-per-unit. Only needed to value
-// foreign-to-foreign trades (most deals price directly against the main currency).
-export const harvestRatesStorageKey = 'arkam:harvest-ref-rates';
-
-export function getStoredHarvestRates(): Record<string, string> {
- if (typeof window === 'undefined') return {};
- try {
-  const raw = window.localStorage.getItem(harvestRatesStorageKey);
-  if (!raw) return {};
-  const parsed = JSON.parse(raw);
-  return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
- } catch {
-  return {};
- }
-}
-
-export function saveHarvestRates(rates: Record<string, string>) {
- try {
-  window.localStorage.setItem(harvestRatesStorageKey, JSON.stringify(rates));
- } catch {
-  /* ignore */
- }
-}
-
 // Sort direction of the harvest transactions table (by time). Persisted per-device so the
 // user's choice survives a refresh instead of snapping back to the default each time.
 export const harvestSortDirStorageKey = 'arkam:harvest-sort-dir';

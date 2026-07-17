@@ -4,15 +4,19 @@ import { useMemo, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Spinner } from '@/components/ui/Spinner';
+import { accountingApi } from '@/lib/accountingApi';
+import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { SkBar } from '@/shared/components/skeletons/Skeletons';
 import { panelClassName, mutedPanelClassName } from '@/shared/styles';
 import { renderIcon } from '@/shared/utils/icons';
 import { normalizeDecimalInput } from '@/shared/utils/decimal';
+import { localDateKey } from '@/shared/utils/date';
 import type {
  Client,
  ClientAccount,
  ClientAdjustment,
  Currency,
+ HarvestRate,
  Organization,
  OverviewBalanceGroup,
  Section,
@@ -21,6 +25,7 @@ import type {
 import type { OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { useOverviewStore } from '../store/overviewStore';
 import { computeOverviewBalances } from '../utils/overviewBalances';
+import { resolveHarvestRate } from '@/features/harvest/utils/harvestRateResolver';
 
 type OverviewSectionProps = {
  organizations: Organization[];
@@ -29,19 +34,54 @@ type OverviewSectionProps = {
  currencies: Currency[];
  transactions: Transaction[];
  adjustments: ClientAdjustment[];
+ harvestRates: HarvestRate[];
  isLoading: boolean;
  navigateToSection: (section: Section) => void;
  onExportOverviewPdf: (cards: OverviewPdfCard[], mainCode: string, mainSymbol: string) => void;
 };
 
-export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, adjustments, isLoading, navigateToSection, onExportOverviewPdf }: OverviewSectionProps) {
+export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, adjustments, harvestRates, isLoading, navigateToSection, onExportOverviewPdf }: OverviewSectionProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
  const numLocale = language === 'fr' ? 'en-US' : language;
 
- const { overviewRates, overviewFlipped, setOverviewFlipped, updateOverviewRate } = useOverviewStore();
+ const { overviewFlipped, setOverviewFlipped } = useOverviewStore();
+ const { setters, invalidate, setError } = useWorkspaceActions();
+ const setHarvestRates = setters.setHarvestRates;
+ const today = localDateKey();
+
+ // Buffered rate edits (per card, keyed by group.key) — committed on blur, not on
+ // every keystroke, since each keystroke now would otherwise fire a network write.
+ const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
+
+ const commitRateEdit = async (group: OverviewBalanceGroup, value: string) => {
+  try {
+   const result = (await accountingApi.saveHarvestRate({
+    day: today,
+    organizationId: group.organizationId,
+    currencyId: group.currencyId,
+    rate: value,
+   })) as { ok: true; deleted?: boolean; row?: HarvestRate };
+   setHarvestRates((prev) => {
+    const withoutThis = prev.filter(
+     (r) => !(r.day === today && r.currencyId === group.currencyId && (r.organizationId ?? null) === group.organizationId),
+    );
+    return result.deleted || !result.row ? withoutThis : [...withoutThis, result.row];
+   });
+   setError('');
+   await invalidate();
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+  } finally {
+   setRateDraft((prev) => {
+    const next = { ...prev };
+    delete next[group.key];
+    return next;
+   });
+  }
+ };
 
  // Organisation search box: typing filters a dropdown of matching org names; picking one
  // (or pressing Enter with a single match) smooth-scrolls that org's section into view.
@@ -204,18 +244,23 @@ export default function OverviewSection({ organizations, clients, clientAccounts
           const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 0 });
           const balanceColor = (n: number) => (n >= 0 ? 'text-good-text' : 'text-bad-text');
 
-          // The user-entered rate string for a card, keyed per card (orgId:currencyId)
-          // so each organization's card keeps its own rate. Falls back to any legacy
-          // entry keyed by bare currency code so previously saved rates still apply.
-          const rateStringOf = (group: OverviewBalanceGroup) => overviewRates[group.key] ?? overviewRates[group.currencyCode];
-
-          // Resolve a group's FX rate. Main currency is always 1; others use the
-          // user-entered rate, or NaN when unset/invalid (excluded from conversions).
+          // Resolve a group's FX rate — the same "today's rate" persisted rows
+          // Harvest reads/writes (see resolveHarvestRate), so an edit here is
+          // instantly the same value Harvest's day-navigator shows for today. Main
+          // currency is always 1; others fall back through earlier days, or NaN
+          // when nothing has ever been set (excluded from conversions).
           const rateOf = (group: OverviewBalanceGroup) => {
            if (group.isMain) return 1;
-           const raw = rateStringOf(group);
-           const value = raw != null ? Number(raw) : NaN;
-           return value > 0 ? value : NaN;
+           const value = resolveHarvestRate(harvestRates, today, group.organizationId, group.currencyId);
+           return Number.isFinite(value) && value > 0 ? value : NaN;
+          };
+
+          // The card's rate input value: an in-progress (unsaved) edit if the user is
+          // currently typing in this card, otherwise the resolved/persisted rate.
+          const rateStringOf = (group: OverviewBalanceGroup) => {
+           if (group.key in rateDraft) return rateDraft[group.key];
+           const value = rateOf(group);
+           return Number.isFinite(value) ? String(value) : '';
           };
           const isFlipped = (group: OverviewBalanceGroup) => !group.isMain && overviewFlipped.has(group.key);
 
@@ -459,8 +504,12 @@ export default function OverviewSection({ organizations, clients, clientAccounts
                              type="text"
                              inputMode="decimal"
                              dir="ltr"
-                             value={rateStringOf(group) ?? ''}
-                             onChange={(event) => updateOverviewRate(group.key, normalizeDecimalInput(event.target.value))}
+                             value={rateStringOf(group)}
+                             onChange={(event) => setRateDraft((prev) => ({ ...prev, [group.key]: normalizeDecimalInput(event.target.value) }))}
+                             onBlur={(event) => {
+                              if (!(group.key in rateDraft)) return;
+                              void commitRateEdit(group, event.target.value);
+                             }}
                              className="w-16 rounded border border-border-strong px-1.5 py-1 text-xs outline-none ring-blue-300 focus:ring"
                             />
                            </label>

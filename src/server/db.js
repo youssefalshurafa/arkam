@@ -945,6 +945,53 @@ async function deleteReconciliation(app, id) {
     await query(`DELETE FROM ${schema}.reconciliations WHERE id = $1`, [id]);
 }
 
+// Full history — the client resolves "nearest earlier explicit day" itself (same
+// fetch-everything-compute-client-side philosophy as transaction/balance replay).
+async function listHarvestRates(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`
+        SELECT
+            id,
+            day,
+            organization_id AS "organizationId",
+            currency_id AS "currencyId",
+            rate
+        FROM ${schema}.harvest_rates
+        ORDER BY day ASC
+    `);
+    return result.rows;
+}
+
+// Upserts a positive rate, or DELETEs the row when rate is blank/invalid — so
+// clearing a day's price reverts it to the inherited (nearest earlier day's)
+// value instead of saving an explicit "no price".
+async function saveHarvestRate(app, { day, organizationId, currencyId, rate }) {
+    if (!day) throw new Error('Day is required.');
+    if (!currencyId) throw new Error('Currency is required.');
+    const { schema } = await getSchemaInfo(app);
+    const orgId = organizationId ?? null;
+    const numericRate = Number(rate);
+
+    if (rate == null || rate === '' || !Number.isFinite(numericRate) || numericRate <= 0) {
+        await query(
+            `DELETE FROM ${schema}.harvest_rates
+             WHERE day = $1 AND currency_id = $2 AND COALESCE(organization_id, -1) = COALESCE($3::int, -1)`,
+            [day, currencyId, orgId],
+        );
+        return { ok: true, deleted: true };
+    }
+
+    const result = await query(
+        `INSERT INTO ${schema}.harvest_rates (day, organization_id, currency_id, rate)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (day, currency_id, (COALESCE(organization_id, -1)))
+         DO UPDATE SET rate = EXCLUDED.rate, updated_at = NOW()
+         RETURNING id, day, organization_id AS "organizationId", currency_id AS "currencyId", rate`,
+        [day, orgId, currencyId, numericRate],
+    );
+    return { ok: true, row: result.rows[0] };
+}
+
 // Deletes many transactions and/or adjustments in a single round-trip so the UI
 // doesn't have to fire one request per selected row. Both deletes run inside one
 // transaction so the operation is atomic.
@@ -971,7 +1018,7 @@ async function deleteTransactionsBulk(app, payload) {
 
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
-const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments', 'reconciliations', 'user_table_settings'];
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments', 'reconciliations', 'harvest_rates', 'user_table_settings'];
 
 const BACKUP_FORMAT = 'arkam-backup';
 const BACKUP_VERSION = 1;
@@ -1303,6 +1350,8 @@ module.exports = {
     listReconciliations,
     createReconciliation,
     deleteReconciliation,
+    listHarvestRates,
+    saveHarvestRate,
     exportWorkspaceData,
     importWorkspaceData,
     bulkImportTransactions,
