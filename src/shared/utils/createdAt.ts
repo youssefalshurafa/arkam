@@ -1,5 +1,5 @@
 import type { ClientAdjustment, Transaction } from '@/shared/types';
-import { localDateKey, localWallClock } from '@/shared/utils/date';
+import { localDateKey, localWallClock, parseLocalWallClock } from '@/shared/utils/date';
 
 /**
  * Timestamp for a newly created transaction/adjustment dated `dateStr`.
@@ -20,13 +20,13 @@ export function nextCreatedAtForDate(dateStr: string, transactions: Transaction[
  let maxEpoch = -Infinity;
  for (const tx of transactions) {
   if (tx.createdAt.slice(0, 10) === dateStr) {
-   const e = Date.parse(tx.createdAt);
+   const e = parseLocalWallClock(tx.createdAt);
    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
   }
  }
  for (const adj of adjustments) {
   if (adj.createdAt.slice(0, 10) === dateStr) {
-   const e = Date.parse(adj.createdAt);
+   const e = parseLocalWallClock(adj.createdAt);
    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
   }
  }

@@ -15,7 +15,7 @@ import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclus
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { formatDateValue } from '@/shared/utils/date';
+import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
@@ -522,7 +522,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             <input
              type="date"
              value={newTransactionDate}
-             onChange={(event) => setNewTransactionDate(event.target.value)}
+             max={localDateKey()}
+             onChange={(event) => setNewTransactionDate(event.target.value > localDateKey() ? localDateKey() : event.target.value)}
              className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             />
 
@@ -2299,7 +2300,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                      <input
                       type="date"
                       value={draft.createdDate}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value })}
+                      max={localDateKey()}
+                      onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value > localDateKey() ? localDateKey() : event.target.value })}
                       className={`${seamlessInputClassName} w-full text-sm text-fg`}
                      />
                     ) : (

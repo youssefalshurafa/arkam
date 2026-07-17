@@ -5,6 +5,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { ltrIsolate } from '@/shared/utils/format';
+import { localDateKey } from '@/shared/utils/date';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import type { Client, ClientAccount, ClientAccountLedger, ClientAdjustment, Currency } from '@/shared/types';
 
@@ -227,7 +228,10 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
             <input
              type="date"
              value={adjustmentModal.date}
-             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, date: e.target.value } : prev))}
+             max={localDateKey()}
+             onChange={(e) =>
+              setAdjustmentModal((prev) => (prev ? { ...prev, date: e.target.value > localDateKey() ? localDateKey() : e.target.value } : prev))
+             }
              className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>

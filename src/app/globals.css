@@ -88,6 +88,15 @@
  color-scheme: dark;
 }
 
+/* Chrome/Edge can fail to apply an inherited dark color-scheme to a <select>'s
+ * native dropdown popup (the closed control renders fine, but the open list
+ * stays white) unless color-scheme is declared directly on the element rather
+ * than only inherited from html.dark. Firefox doesn't have this quirk.
+ */
+select {
+ color-scheme: inherit;
+}
+
 @theme inline {
  /* Semantic token utilities: bg-surface, text-fg, border-border, etc. */
  --color-canvas: var(--canvas);
