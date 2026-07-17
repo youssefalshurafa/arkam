@@ -88,13 +88,14 @@
  color-scheme: dark;
 }
 
-/* Chrome/Edge can fail to apply an inherited dark color-scheme to a <select>'s
- * native dropdown popup (the closed control renders fine, but the open list
- * stays white) unless color-scheme is declared directly on the element rather
- * than only inherited from html.dark. Firefox doesn't have this quirk.
+/* Chrome/Edge can fail to darken a <select>'s native dropdown popup from an
+ * inherited color-scheme (the closed control renders fine, but the open list
+ * stays white) — inheritance alone isn't enough; Chromium's popup needs a
+ * concrete "dark" keyword specified directly on the element. Firefox doesn't
+ * have this quirk.
  */
-select {
- color-scheme: inherit;
+.dark select {
+ color-scheme: dark;
 }
 
 @theme inline {
