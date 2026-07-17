@@ -2300,9 +2300,9 @@ function AuthenticatedHome() {
          clients={clients}
          currencies={currencies}
          transactions={transactions}
+         adjustments={adjustments}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
-         onSaveHarvestRowType={(id, type) => onUpdateTransactionFields(id, { type })}
         />
        ) : null}
 
