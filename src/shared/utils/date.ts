@@ -19,6 +19,21 @@ export function localWallClock(date = new Date()): string {
  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}.${p(date.getMilliseconds(), 3)}Z`;
 }
 
+// Recovers the true epoch from a createdAt string produced by localWallClock (or its
+// space-separated DB equivalent). Its digits are local wall-clock time despite the
+// trailing 'Z', so it must NOT be parsed with Date.parse/`new Date(str)` — those read
+// the 'Z' literally and treat the digits as UTC, shifting the result by the local UTC
+// offset (e.g. producing a time hours into "tomorrow" for positive offsets). Only use
+// this when the true elapsed time matters (comparing against Date.now()); plain
+// Date.parse is fine for comparing two createdAt strings against each other, since both
+// carry the same constant mislabeling and their relative order/diff is unaffected.
+export function parseLocalWallClock(value: string): number {
+ const m = value.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?/);
+ if (!m) return Date.parse(value);
+ const [, y, mo, d, h, mi, s, ms] = m;
+ return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s), Number(ms ?? '0')).getTime();
+}
+
 export function formatDateValue(value: string, dateFormat: PdfSettings['dateFormat']) {
  const iso = value.slice(0, 10);
  const [y = '', m = '', d = ''] = iso.split('-');

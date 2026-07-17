@@ -1411,15 +1411,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                       }}
                       onContextMenu={openRowMenu}
-                      onDoubleClick={(e) => {
-                       // Double-click / double-tap a row to edit it inline (a quick alternative to
-                       // the ⋮ menu). Ignore when it lands on a control or the row is already editing.
-                       const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                       if (editingLedgerRowKeys.has(rowKey)) return;
-                       if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
-                       e.preventDefault();
-                       openLedgerRowForEdit(entry, ledger.accountId);
-                      }}
                       onKeyDown={(e) => {
                        // Enter saves the row being edited (ignore Enter inside multi-line fields).
                        if (e.key !== 'Enter') return;
@@ -1620,7 +1611,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                <input
                                 type="date"
                                 value={draft.createdDate}
-                                onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value })}
+                                max={localDateKey()}
+                                onChange={(event) =>
+                                 updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value > localDateKey() ? localDateKey() : event.target.value })
+                                }
                                 style={{ width: '8.5rem' }}
                                 className={`${seamlessInputClassName} text-xs text-fg`}
                                />
@@ -1980,6 +1974,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     that column happens to be toggled on. */}
                                 {entry.isAdjustment && !ledgerColumnVisibility.currency && (
                                  <select
+                                  dir="ltr"
                                   value={draft.currencyId ?? ''}
                                   onChange={(event) =>
                                    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })
@@ -2040,11 +2035,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                ? (() => {
                                   const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
                                   const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
-                                  // For adjustments, the draft's own (just-picked) currency decides whether a
-                                  // rate is needed — not the entry's last-saved currency — so changing an
-                                  // expense's currency mid-edit immediately reveals/hides the rate field
-                                  // instead of lagging a save behind.
-                                  const txCurr = entry.isAdjustment ? (enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? entry.currencyCode) : entry.currencyCode;
+                                  // The draft's own (just-picked) currency decides whether a rate is needed —
+                                  // not the entry's last-saved currency — so changing a row's currency
+                                  // mid-edit immediately reveals/hides the rate field instead of lagging a
+                                  // save behind.
+                                  const txCurr = enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? entry.currencyCode;
                                   const accCurr = ledger.currencyCode;
                                   // Adjustment with same currency as account: no rate needed
                                   if (entry.isAdjustment && txCurr === accCurr) {
@@ -2445,6 +2440,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              >
                               {draft ? (
                                <select
+                                dir="ltr"
                                 value={draft.currencyId ?? ''}
                                 onChange={(event) =>
                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { currencyId: event.target.value ? Number(event.target.value) : null })

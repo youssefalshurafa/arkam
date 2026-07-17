@@ -4,49 +4,54 @@ import { useCallback, useMemo, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SkBar } from '@/shared/components/skeletons/Skeletons';
-import { panelClassName, mutedPanelClassName, tableWrapClassName, seamlessSelectClassName } from '@/shared/styles';
+import { panelClassName, mutedPanelClassName } from '@/shared/styles';
 import { renderIcon } from '@/shared/utils/icons';
-import { normalizeDecimalInput } from '@/shared/utils/decimal';
-import { ledgerSelectWidth } from '@/shared/utils/format';
-import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { formatTimeValue, formatDateValue, localDateKey } from '@/shared/utils/date';
-import { getStoredHarvestSortDir, saveHarvestSortDir } from '@/shared/lib/localStorage';
-import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
-import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
-import type { Client, ClientAccount, Currency, Section, Transaction } from '@/shared/types';
-import { computeHarvest } from '../utils/harvestProfit';
+import { formatDateValue, localDateKey } from '@/shared/utils/date';
+import type { Client, ClientAccount, ClientAdjustment, Currency, Section, Transaction } from '@/shared/types';
+import { computeHarvestFlow } from '../utils/harvestFlow';
+import { computeGeneralBalance } from '../utils/harvestBalance';
 import { useHarvestRatesStore, harvestRateKey } from '../store/harvestRatesStore';
+import HarvestRatesModal, { type HarvestPriceGroup } from './HarvestRatesModal';
+import HarvestAwaitingPricingModal from './HarvestAwaitingPricingModal';
 
 type HarvestSectionProps = {
   clientAccounts: ClientAccount[];
   clients: Client[];
   currencies: Currency[];
   transactions: Transaction[];
+  adjustments: ClientAdjustment[];
   isLoading: boolean;
   navigateToSection: (section: Section) => void;
-  onSaveHarvestRowType: (transactionId: number, type: string) => void | Promise<void>;
 };
 
-export default function HarvestSection({ clientAccounts, clients, currencies, transactions, isLoading, navigateToSection, onSaveHarvestRowType }: HarvestSectionProps) {
+function WarnGlyph({ className = 'h-3.5 w-3.5' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5" />
+      <circle cx="12" cy="16" r="0.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+// Every rate-group is keyed by organization only — every organization-less client is
+// merged into one "no organization" bucket. Matches computeOverviewBalances's own
+// grouping exactly (see harvestBalance.ts), since the general balance below IS the
+// overview's grand-total calculation, just re-run with a cutoff date.
+function orgGroupKey(organizationId: number | null): string {
+  return `org:${organizationId ?? 'none'}`;
+}
+
+export default function HarvestSection({ clientAccounts, clients, currencies, transactions, adjustments, isLoading, navigateToSection }: HarvestSectionProps) {
   const { language, isRTL } = useLanguage();
   const { t } = useTranslation(language);
   const numLocale = language === 'fr' ? 'en-US' : language;
-  const [rowSortDir, setRowSortDir] = useState<'asc' | 'desc'>(() => getStoredHarvestSortDir());
   // The harvest day being viewed, as local `yyyy-mm-dd`. Defaults to today; the day
   // navigator lets the user step back to earlier days (and forward, up to today).
   const [selectedDay, setSelectedDay] = useState<string>(() => localDateKey());
+  const [showRatesModal, setShowRatesModal] = useState(false);
+  const [showAwaitingPricingModal, setShowAwaitingPricingModal] = useState(false);
   const today = localDateKey();
-  const setInfoTransactionId = useTransactionsStore((s) => s.setInfoTransactionId);
-  const rowContextMenu = useContextMenu();
-
-  const toggleSortDir = useCallback(
-    () => setRowSortDir((d) => {
-      const next = d === 'asc' ? 'desc' : 'asc';
-      saveHarvestSortDir(next);
-      return next;
-    }),
-    [],
-  );
 
   // Step the viewed day by whole days; clamp forward navigation at today (no future harvest).
   const shiftDay = useCallback(
@@ -59,23 +64,27 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     [selectedDay, today],
   );
 
+  const dayBefore = useMemo(() => {
+    const d = new Date(`${selectedDay}T12:00:00`);
+    d.setDate(d.getDate() - 1);
+    return localDateKey(d);
+  }, [selectedDay]);
+
   const mainCurrency = useMemo(() => currencies.find((c) => c.isMain === 1) ?? null, [currencies]);
   const accountMap = useMemo(() => new Map(clientAccounts.map((a) => [a.id, a])), [clientAccounts]);
   const clientMap = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
 
-  // Different organizations (or standalone clients with no organization) trade the
-  // same foreign currency at different rates, so "today's price" is entered per
-  // rate-group rather than once globally per currency.
   const rateGroupOfAccount = useCallback(
     (accountId: number | null): { key: string; name: string } | null => {
       if (accountId == null) return null;
       const account = accountMap.get(accountId);
       if (!account) return null;
       const client = clientMap.get(account.clientId);
-      if (client?.organizationId != null) {
-        return { key: `org:${client.organizationId}`, name: client.organizationName || t('unassigned') };
-      }
-      return { key: `client:${account.clientId}`, name: account.clientName || client?.name || '' };
+      const organizationId = client?.organizationId ?? null;
+      return {
+        key: orgGroupKey(organizationId),
+        name: organizationId != null ? client?.organizationName || t('unassigned') : t('overview_no_organization'),
+      };
     },
     [accountMap, clientMap, t],
   );
@@ -83,60 +92,95 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   const dateKey = selectedDay;
   const { rates, updateRate } = useHarvestRatesStore();
 
+  const rateForGroup = useCallback(
+    (day: string, currencyId: number, groupKey: string) => {
+      if (mainCurrency && currencyId === mainCurrency.id) return 1;
+      const raw = rates[harvestRateKey(day, currencyId, groupKey)];
+      const n = Number(raw);
+      return raw && Number.isFinite(n) && n > 0 ? n : NaN;
+    },
+    [rates, mainCurrency],
+  );
+
+  // Resolver for the general-balance calc: keyed straight off an organizationId.
+  const refRateForOrgOnDay = useCallback(
+    (day: string) => (currencyId: number, organizationId: number | null) => rateForGroup(day, currencyId, orgGroupKey(organizationId)),
+    [rateForGroup],
+  );
+
+  // Resolver for computeHarvestFlow (per-transaction-leg accountId, today only).
   const refRate = useCallback(
     (currencyId: number, accountId: number | null) => {
       if (mainCurrency && currencyId === mainCurrency.id) return 1;
       const group = rateGroupOfAccount(accountId);
       if (!group) return NaN;
-      const raw = rates[harvestRateKey(dateKey, currencyId, group.key)];
-      const n = Number(raw);
-      return raw && Number.isFinite(n) && n > 0 ? n : NaN;
+      return rateForGroup(selectedDay, currencyId, group.key);
     },
-    [rates, dateKey, mainCurrency, rateGroupOfAccount],
+    [mainCurrency, rateGroupOfAccount, rateForGroup, selectedDay],
   );
 
-  const harvest = useMemo(
-    () => computeHarvest({ transactions, clientAccounts, currencies, refRate, day: selectedDay }),
-    [transactions, clientAccounts, currencies, refRate, selectedDay],
+  const todayBalance = useMemo(
+    () => computeGeneralBalance({ transactions, adjustments, clientAccounts, clients, currencies, language, day: selectedDay, refRate: refRateForOrgOnDay(selectedDay) }),
+    [transactions, adjustments, clientAccounts, clients, currencies, language, selectedDay, refRateForOrgOnDay],
   );
+  const yesterdayBalance = useMemo(
+    () => computeGeneralBalance({ transactions, adjustments, clientAccounts, clients, currencies, language, day: dayBefore, refRate: refRateForOrgOnDay(dayBefore) }),
+    [transactions, adjustments, clientAccounts, clients, currencies, language, dayBefore, refRateForOrgOnDay],
+  );
+  const profitLossMain = todayBalance.totalMain - yesterdayBalance.totalMain;
 
-  // Only organizations/standalone clients that actually appear in today's transactions
-  // table get a rate box — no point pricing currencies nobody traded today.
-  const priceGroups = useMemo(() => {
+  // Every organization (and the "no organization" bucket) that currently holds a non-zero
+  // balance in a non-main currency gets a price box — regardless of whether it transacted
+  // today, since the general balance above prices EVERY held currency, not just today's.
+  const priceGroups: HarvestPriceGroup[] = useMemo(() => {
     if (!mainCurrency) return [];
     const enabledNonMainIds = new Set(currencies.filter((c) => c.isMain !== 1 && c.isEnabled !== 0).map((c) => c.id));
     const currencyById = new Map(currencies.map((c) => [c.id, c]));
-    const todayTransactionIds = new Set(harvest.rows.map((r) => r.transactionId));
-    const todayAccountIds = new Set<number>();
-    for (const tx of transactions) {
-      if (!todayTransactionIds.has(tx.id)) continue;
-      if (tx.accountFromId != null) todayAccountIds.add(tx.accountFromId);
-      if (tx.accountToId != null) todayAccountIds.add(tx.accountToId);
-    }
-    const groups = new Map<string, { key: string; name: string; currencies: Map<number, Currency> }>();
-    for (const accountId of todayAccountIds) {
-      const account = accountMap.get(accountId);
-      if (!account || !enabledNonMainIds.has(account.currencyId)) continue;
-      const group = rateGroupOfAccount(accountId);
-      const currency = currencyById.get(account.currencyId);
-      if (!group || !currency) continue;
-      let entry = groups.get(group.key);
+    const groups = new Map<string, HarvestPriceGroup>();
+    for (const g of todayBalance.groups) {
+      if (g.isMain || g.total === 0 || !enabledNonMainIds.has(g.currencyId)) continue;
+      const currency = currencyById.get(g.currencyId);
+      if (!currency) continue;
+      const key = orgGroupKey(g.organizationId);
+      let entry = groups.get(key);
       if (!entry) {
-        entry = { key: group.key, name: group.name, currencies: new Map() };
-        groups.set(group.key, entry);
+        entry = { key, name: g.organizationName ?? t('overview_no_organization'), currencies: new Map() };
+        groups.set(key, entry);
       }
       entry.currencies.set(currency.id, currency);
     }
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [accountMap, currencies, mainCurrency, rateGroupOfAccount, harvest.rows, transactions]);
+  }, [currencies, mainCurrency, todayBalance.groups, t]);
 
-  // harvest.rows is engine-sorted oldest → newest; flip it for a descending view.
-  const sortedRows = useMemo(() => (rowSortDir === 'asc' ? harvest.rows : [...harvest.rows].reverse()), [harvest.rows, rowSortDir]);
+  const missingPriceInputCount = useMemo(() => {
+    let n = 0;
+    for (const group of priceGroups) {
+      for (const currencyId of group.currencies.keys()) {
+        const raw = rates[harvestRateKey(dateKey, currencyId, group.key)];
+        const v = Number(raw);
+        if (!raw || !Number.isFinite(v) || v <= 0) n++;
+      }
+    }
+    return n;
+  }, [priceGroups, rates, dateKey]);
 
-  const mainCode = harvest.mainCurrencyCode;
+  // Today's individual transactions still lacking a resolvable rate — informational only
+  // (the "N transactions awaiting pricing" popup), not shown as page content anymore.
+  const flow = useMemo(
+    () => computeHarvestFlow({ transactions, clientAccounts, currencies, refRate, day: selectedDay }),
+    [transactions, clientAccounts, currencies, refRate, selectedDay],
+  );
+  const awaitingPricingEntries = useMemo(
+    () =>
+      [...flow.incoming, ...flow.outgoing]
+        .filter((e) => e.hasMissingRate)
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    [flow.incoming, flow.outgoing],
+  );
+
+  const mainCode = mainCurrency?.code ?? '';
   const money = (n: number) =>
-    Number.isFinite(n) ? n.toLocaleString(numLocale, { maximumFractionDigits: 2 }) : '—';
-  const units = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 2 });
+    Number.isFinite(n) ? n.toLocaleString(numLocale, { maximumFractionDigits: 0 }) : '—';
   const signCls = (n: number) => (n > 0 ? 'text-good-text' : n < 0 ? 'text-bad-text' : 'text-fg-muted');
 
   const header = (
@@ -168,7 +212,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
             onClick={() => setSelectedDay(today)}
             disabled={selectedDay === today}
             title={selectedDay === today ? undefined : t('harvest_day_today')}
-            className="min-w-[5.5rem] rounded px-2 py-1 text-center text-sm font-semibold text-fg tabular-nums transition hover:bg-surface-hover disabled:cursor-default disabled:hover:bg-transparent"
+            className="min-w-22 rounded px-2 py-1 text-center text-sm font-semibold text-fg tabular-nums transition hover:bg-surface-hover disabled:cursor-default disabled:hover:bg-transparent"
           >
             {selectedDay === today ? t('harvest_day_today') : formatDateValue(selectedDay, 'day-month-year-2')}
           </button>
@@ -187,6 +231,16 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
         </div>
         <button
           type="button"
+          onClick={() => setShowRatesModal(true)}
+          className="inline-flex h-9 items-center gap-1.5 rounded border border-border-strong bg-surface-2 px-3 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
+        >
+          {t('harvest_todays_price_title')}
+          {missingPriceInputCount > 0 ? (
+            <span className="rounded-full bg-warn-bg px-1.5 py-0.5 text-xs font-semibold text-warn-text">{missingPriceInputCount}</span>
+          ) : null}
+        </button>
+        <button
+          type="button"
           onClick={() => navigateToSection('transactions')}
           className="inline-flex h-9 items-center rounded border border-border-strong bg-surface-2 px-3 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
         >
@@ -200,16 +254,6 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     return (
       <div className="flex flex-col gap-6">
         {header}
-        <div className="grid gap-4 md:grid-cols-4">
-          {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className={mutedPanelClassName}>
-              <SkBar w="w-20" h="h-3" />
-              <div className="mt-3">
-                <SkBar w="w-28" h="h-6" />
-              </div>
-            </div>
-          ))}
-        </div>
         <div className={panelClassName}>
           <SkBar w="w-40" h="h-5" />
           <div className="mt-4 flex flex-col gap-2">
@@ -222,7 +266,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     );
   }
 
-  if (!harvest.hasMainCurrency) {
+  if (!mainCurrency) {
     return (
       <div className="flex flex-col gap-6">
         {header}
@@ -242,210 +286,87 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     );
   }
 
-  const kpis = [
-    { label: t('harvest_total_profit'), value: `${money(harvest.totalProfitMain)} ${mainCode}`, tone: signCls(harvest.totalProfitMain), big: true },
-    { label: t('harvest_bought'), value: `${money(harvest.totalBoughtMain)} ${mainCode}`, tone: 'text-fg' },
-    { label: t('harvest_sold'), value: `${money(harvest.totalSoldMain)} ${mainCode}`, tone: 'text-fg' },
-    { label: t('harvest_tx_count'), value: String(harvest.rows.length), tone: 'text-fg' },
-  ];
-
   return (
     <div className="flex flex-col gap-6">
       {header}
 
-      {priceGroups.length > 0 ? (
-        <div className={panelClassName}>
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-fg">{t('harvest_todays_price_title')}</h3>
-            {harvest.missingRateCount > 0 ? (
-              <span className="rounded-full bg-warn-bg px-2 py-0.5 text-xs font-semibold text-warn-text">
-                {t('harvest_missing_rate_warning', { count: harvest.missingRateCount })}
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 text-xs text-fg-faint">{t('harvest_todays_price_hint', { currency: mainCode })}</p>
-          <div className="mt-3 flex flex-col gap-2.5">
-            {priceGroups.map((group) => (
-              <div key={group.key} className="rounded border border-border bg-surface-2 px-2.5 py-2">
-                <div className="text-xs font-semibold text-fg">{group.name}</div>
-                <div className="mt-1.5 flex flex-wrap gap-3">
-                  {[...group.currencies.values()].map((c) => (
-                    <label key={c.id} className="flex items-center gap-2 rounded border border-border bg-surface px-2.5 py-1.5 text-sm text-fg-muted">
-                      <span dir="ltr" className="font-semibold text-fg">
-                        1 {c.symbol || c.code} =
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        dir="ltr"
-                        value={rates[harvestRateKey(dateKey, c.id, group.key)] ?? ''}
-                        onChange={(e) => updateRate(dateKey, c.id, group.key, normalizeDecimalInput(e.target.value))}
-                        className="w-24 rounded border border-border-strong bg-surface px-2 py-1 text-sm outline-none ring-blue-300 focus:ring"
-                      />
-                      <span className="text-fg-faint">{mainCode}</span>
-                    </label>
-                  ))}
-                </div>
+      {awaitingPricingEntries.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowAwaitingPricingModal(true)}
+          className="inline-flex w-fit items-center gap-2 rounded-full bg-warn-bg px-3 py-1.5 text-sm font-semibold text-warn-text transition hover:opacity-90"
+        >
+          <WarnGlyph className="h-4 w-4 shrink-0" />
+          {t('harvest_awaiting_pricing_count', { count: awaitingPricingEntries.length })}
+        </button>
+      ) : null}
+
+      <div className={mutedPanelClassName}>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-fg">{t('overview_general_balance')}</span>
+          <span className="text-xs text-fg-faint">{selectedDay === today ? t('harvest_day_today') : formatDateValue(selectedDay, 'day-month-year-2')}</span>
+        </div>
+
+        {todayBalance.orgTotals.length === 0 ? (
+          <p className="mt-4 text-sm text-fg-faint">{t('harvest_no_transactions_today')}</p>
+        ) : (
+          <div className="mt-2 flex flex-col divide-y divide-border">
+            {todayBalance.orgTotals.map((org) => (
+              <div key={org.organizationId ?? 'none'} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <span className="truncate text-fg-muted">{org.organizationName ?? t('overview_no_organization')}</span>
+                <span dir="ltr" className={`shrink-0 font-medium ${signCls(org.totalMain)}`}>
+                  {money(org.totalMain)} {mainCode}
+                  {org.rateMissing ? <span className="ms-1 text-warn-text">*</span> : null}
+                </span>
               </div>
             ))}
           </div>
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 md:grid-cols-4">
-        {kpis.map((k) => (
-          <div key={k.label} className={mutedPanelClassName}>
-            <div className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{k.label}</div>
-            <div dir="ltr" className={`mt-2 ${k.big ? 'text-2xl' : 'text-xl'} font-bold ${k.tone} ${isRTL ? 'text-right' : 'text-left'}`}>
-              {k.value}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {harvest.turnover.length > 0 ? (
-        <div className={panelClassName}>
-          <h3 className="text-sm font-semibold text-fg">{t('harvest_turnover')}</h3>
-          <div className={tableWrapClassName}>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-fg-faint">
-                  <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('currency')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('harvest_bought')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('harvest_sold')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('harvest_net')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {harvest.turnover.map((row) => {
-                  const net = row.boughtUnits - row.soldUnits;
-                  return (
-                    <tr key={row.currencyId} className="border-b border-border/60 last:border-0">
-                      <td className={`px-3 py-2 font-semibold text-fg ${isRTL ? 'text-right' : 'text-left'}`}>{row.code}</td>
-                      <td dir="ltr" className="px-3 py-2 text-right text-fg-muted">
-                        {units(row.boughtUnits)}
-                        <span className="text-fg-faint"> · {money(row.boughtMain)} {mainCode}</span>
-                      </td>
-                      <td dir="ltr" className="px-3 py-2 text-right text-fg-muted">
-                        {units(row.soldUnits)}
-                        <span className="text-fg-faint"> · {money(row.soldMain)} {mainCode}</span>
-                      </td>
-                      <td dir="ltr" className={`px-3 py-2 text-right font-semibold ${signCls(net)}`}>{units(net)} {row.code}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      <div className={panelClassName}>
-        <h3 className="text-sm font-semibold text-fg">{t('harvest_transactions_title')}</h3>
-        {harvest.rows.length === 0 ? (
-          <p className="mt-4 text-sm text-fg-faint">{t('harvest_no_transactions_today')}</p>
-        ) : (
-          <div className={tableWrapClassName}>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-fg-faint">
-                  <th className={`w-16 px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>
-                    <button
-                      type="button"
-                      onClick={toggleSortDir}
-                      className="inline-flex items-center gap-1 hover:text-accent transition-colors"
-                      title={rowSortDir === 'asc' ? t('sort_desc') : t('sort_asc')}
-                    >
-                      {t('harvest_time_column')}
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        {rowSortDir === 'asc' ? (
-                          <>
-                            <path d="M12 19V5" />
-                            <path d="M5 12l7-7 7 7" />
-                          </>
-                        ) : (
-                          <>
-                            <path d="M12 5v14" />
-                            <path d="M5 12l7 7 7-7" />
-                          </>
-                        )}
-                      </svg>
-                    </button>
-                  </th>
-                  <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
-                  <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
-                  <th className={`px-3 py-2 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('amount')}</th>
-                  <th className="px-3 py-2 text-right font-semibold">{t('harvest_profit_column')} ({mainCode})</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRows.map((row) => (
-                  <tr
-                    key={row.transactionId}
-                    className="border-b border-border/60 last:border-0"
-                    onContextMenu={(e) =>
-                      rowContextMenu.open(e, [
-                        { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(row.transactionId) },
-                      ])
-                    }
-                  >
-                    <td dir="ltr" className="px-3 py-2 text-xs text-fg-faint whitespace-nowrap">{formatTimeValue(row.createdAt)}</td>
-                    <td className={`px-3 py-2 font-semibold text-fg ${isRTL ? 'text-right' : 'text-left'}`}>{row.clientFromName || '—'}</td>
-                    <td className={`px-3 py-2 text-fg-muted ${isRTL ? 'text-right' : 'text-left'}`}>{row.clientToName || '—'}</td>
-                    <td className={`px-3 py-2 ${isRTL ? 'text-right' : 'text-left'}`}>
-                      {row.type === 'adjustment' ? (
-                        <span className="inline-flex rounded bg-violet-bg px-2.5 py-1 text-xs font-semibold text-violet-text">{t('adjustment_label')}</span>
-                      ) : (
-                        <select
-                          value={row.type}
-                          onChange={(e) => void onSaveHarvestRowType(row.transactionId, e.target.value)}
-                          style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(row.type)), 7, 2) }}
-                          className={`${seamlessSelectClassName} text-xs text-fg`}
-                        >
-                          <option value="buy">{t('transaction_type_buy')}</option>
-                          <option value="sell">{t('transaction_type_sell')}</option>
-                          <option value="exchange">{t('transaction_type_exchange')}</option>
-                          <option value="transfer">{t('transaction_type_transfer')}</option>
-                        </select>
-                      )}
-                    </td>
-                    <td dir="ltr" className="px-3 py-2 text-right text-fg-muted">
-                      {units(row.amount)} {row.currencySymbol || row.currencyCode}
-                    </td>
-                    <td dir="ltr" className={`px-3 py-2 text-right font-bold ${signCls(row.realizedProfitMain)}`}>
-                      {row.hasMissingRate
-                        ? null
-                        : row.kind === 'buy' || row.kind === 'transfer' || row.kind === 'neutral' || Math.abs(row.realizedProfitMain) < 0.005
-                          ? '—'
-                          : money(row.realizedProfitMain)}
-                      {row.hasMissingRate ? <span className="text-warn-text" title={t('harvest_row_missing_rate')}>*</span> : null}
-                      {row.hasShortInventory ? <span className="text-warn-text" title={t('harvest_row_short_inventory')}> ⚠</span> : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         )}
-        {(harvest.missingRateCount > 0 || harvest.rows.some((r) => r.hasShortInventory)) ? (
-          <p className="mt-3 text-xs text-warn-text">
-            {harvest.missingRateCount > 0 ? `* ${t('harvest_row_missing_rate')} ` : ''}
-            {harvest.rows.some((r) => r.hasShortInventory) ? `⚠ ${t('harvest_row_short_inventory')}` : ''}
-          </p>
-        ) : null}
+
+        <div className="mt-2 flex items-center justify-between gap-3 border-t border-border pt-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('overview_grand_total')}</span>
+          <span dir="ltr" className={`text-lg font-bold ${signCls(todayBalance.totalMain)}`}>
+            {money(todayBalance.totalMain)} {mainCode}
+          </span>
+        </div>
+        {todayBalance.anyRateMissing ? <p className="mt-1 text-xs text-warn-text">{t('overview_set_rate')}</p> : null}
       </div>
-      <ContextMenu menu={rowContextMenu.menu} onClose={rowContextMenu.close} />
+
+      <div className={`${mutedPanelClassName} flex flex-wrap items-center justify-between gap-4`}>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('harvest_balance_yesterday')}</div>
+          <div dir="ltr" className={`mt-1 text-lg font-bold ${signCls(yesterdayBalance.totalMain)}`}>
+            {money(yesterdayBalance.totalMain)} {mainCode}
+            {yesterdayBalance.anyRateMissing ? <span className="ms-1 text-warn-text">*</span> : null}
+          </div>
+        </div>
+        <div className={isRTL ? 'text-left' : 'text-right'}>
+          <div className="text-xs font-semibold uppercase tracking-wide text-fg-faint">
+            {profitLossMain >= 0 ? t('harvest_profit') : t('harvest_loss')}
+          </div>
+          <div dir="ltr" className={`mt-1 text-2xl font-bold ${signCls(profitLossMain)}`}>
+            {profitLossMain > 0 ? '+' : ''}
+            {money(profitLossMain)} {mainCode}
+          </div>
+        </div>
+      </div>
+
+      {showRatesModal ? (
+        <HarvestRatesModal
+          dateKey={dateKey}
+          mainCode={mainCode}
+          priceGroups={priceGroups}
+          rates={rates}
+          onSave={(edits) => {
+            for (const edit of edits) updateRate(dateKey, edit.currencyId, edit.groupKey, edit.value);
+          }}
+          onClose={() => setShowRatesModal(false)}
+        />
+      ) : null}
+
+      {showAwaitingPricingModal ? (
+        <HarvestAwaitingPricingModal entries={awaitingPricingEntries} onClose={() => setShowAwaitingPricingModal(false)} />
+      ) : null}
     </div>
   );
 }
