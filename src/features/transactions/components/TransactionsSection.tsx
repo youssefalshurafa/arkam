@@ -177,6 +177,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // Right-click row actions (Edit/Delete) — replaces the row's icon-button cluster with a
  // single context menu when not editing.
  const rowContextMenu = useContextMenu();
+ // Toolbar gear button: opens Import/Export/Table Settings as a dropdown instead of three
+ // separate icon buttons.
+ const gearMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
@@ -1350,80 +1353,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             ) : null}
             <button
              type="button"
-             onClick={() => transactionsImportInputRef.current?.click()}
-             disabled={isImportingTransactions}
-             title={isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
-             aria-label={isImportingTransactions ? t('import_sheet_loading') : t('import_sheet')}
-             className="cursor-pointer rounded border border-border-strong p-2 text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-             {isImportingTransactions ? (
-              <svg
-               width="16"
-               height="16"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="1.8"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               className="animate-spin"
-               aria-hidden
-              >
-               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-              </svg>
-             ) : (
-              <svg
-               width="16"
-               height="16"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="1.8"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               aria-hidden
-              >
-               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-               <polyline points="17 8 12 3 7 8" />
-               <line
-                x1="12"
-                y1="3"
-                x2="12"
-                y2="15"
-               />
-              </svg>
-             )}
-            </button>
-            <button
-             type="button"
-             onClick={openTransactionExportModal}
-             title={t('transactions_export_title')}
-             aria-label={t('transactions_export_title')}
-             className="cursor-pointer rounded border border-border-strong p-2 text-fg-muted transition hover:bg-surface-hover"
-            >
-             <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-             >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line
-               x1="12"
-               y1="15"
-               x2="12"
-               y2="3"
-              />
-             </svg>
-            </button>
-            <button
-             type="button"
              onClick={toggleSelectionMode}
              title={t('bulk_select')}
              aria-pressed={selectionMode}
@@ -1446,7 +1375,46 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </button>
             <button
              type="button"
-             onClick={openTransactionTableSettingsModal}
+             onClick={(e) =>
+              gearMenu.open(e, [
+               {
+                key: 'import',
+                label: isImportingTransactions ? t('import_sheet_loading') : t('import_sheet'),
+                disabled: isImportingTransactions,
+                icon: (
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                 </svg>
+                ),
+                onSelect: () => transactionsImportInputRef.current?.click(),
+               },
+               {
+                key: 'export',
+                label: t('transactions_export_title'),
+                icon: (
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                 </svg>
+                ),
+                onSelect: openTransactionExportModal,
+               },
+               {
+                key: 'settings',
+                label: t('transactions_more_settings'),
+                icon: (
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                  <circle cx="12" cy="12" r="3" />
+                 </svg>
+                ),
+                onSelect: openTransactionTableSettingsModal,
+               },
+              ])
+             }
              title={t('transactions_more_settings')}
              className="cursor-pointer rounded border border-border-strong p-2 text-fg-muted transition hover:bg-surface-hover"
             >
@@ -2961,6 +2929,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
          </div>
         </section>
    <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
+   <ContextMenu menu={gearMenu.menu} onClose={gearMenu.close} zoom={tableZoom} />
    {editingRowIds.size > 0 && typeof document !== 'undefined' ? createPortal(
     <div className={`fixed bottom-6 z-30 flex flex-col gap-3 sm:hidden ${isRTL ? 'left-6' : 'right-6'}`}>
      <button

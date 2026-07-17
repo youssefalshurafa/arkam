@@ -1337,15 +1337,19 @@ async function getUserActivitySummary(userId) {
         [userId],
     );
 
+    // "Today" is the server's own calendar day (date_trunc, not per-viewer timezone) — it
+    // resets naturally at midnight since it's a live filter over the raw event log, not a
+    // stored counter. totalCount stays available alongside it for the all-time figure.
     const sectionVisits = await runQuery(
         `SELECT
             COALESCE(section, '') AS section,
-            COUNT(*)::int AS count,
+            COUNT(*) FILTER (WHERE created_at >= date_trunc('day', now()))::int AS "todayCount",
+            COUNT(*)::int AS "totalCount",
             MAX(created_at) AS "lastVisitAt"
          FROM user_activity_events
          WHERE user_id = $1 AND event_type = 'section_visit'
          GROUP BY section
-         ORDER BY count DESC, "lastVisitAt" DESC`,
+         ORDER BY "todayCount" DESC, "totalCount" DESC, "lastVisitAt" DESC`,
         [userId],
     );
 

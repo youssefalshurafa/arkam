@@ -337,7 +337,8 @@ export default function AdminUserDetailPage() {
        <thead>
         <tr>
          <th>{t('admin_col_section')}</th>
-         <th className="center">{t('admin_col_visits')}</th>
+         <th className="center">{t('admin_col_visits_today')}</th>
+         <th className="center">{t('admin_col_visits_total')}</th>
          <th>{t('admin_col_last_visited')}</th>
         </tr>
        </thead>
@@ -345,7 +346,8 @@ export default function AdminUserDetailPage() {
         {activity.sectionVisits.map((visit) => (
          <tr key={visit.section || '(none)'}>
           <td className="ad-u-name">{sectionLabel(visit.section, t)}</td>
-          <td className="center ad-num">{visit.count}</td>
+          <td className="center ad-num">{visit.todayCount}</td>
+          <td className="center ad-num ad-muted">{visit.totalCount}</td>
           <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(visit.lastVisitAt, language)}</td>
          </tr>
         ))}

@@ -106,7 +106,10 @@ export type PendingAccessRequest = {
 
 export type SectionVisit = {
  section: string;
- count: number;
+ // todayCount resets daily — it's a live filter over the event log (server calendar day),
+ // not a stored counter. totalCount is the all-time figure alongside it.
+ todayCount: number;
+ totalCount: number;
  lastVisitAt: string | null;
 };
 
