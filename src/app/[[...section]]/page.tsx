@@ -21,6 +21,7 @@ import type {
  ClientAdjustment,
  ClientAccountLedger,
  Reconciliation,
+ HarvestRate,
  ImportClientReview,
  LedgerColumnKey,
  StoredLedgerSettings,
@@ -116,6 +117,7 @@ const EMPTY_CURRENCIES: Currency[] = [];
 const EMPTY_TRANSACTIONS: Transaction[] = [];
 const EMPTY_ADJUSTMENTS: ClientAdjustment[] = [];
 const EMPTY_RECONCILIATIONS: Reconciliation[] = [];
+const EMPTY_HARVEST_RATES: HarvestRate[] = [];
 const EMPTY_CLIENT_ACCOUNTS: ClientAccount[] = [];
 
 // Activity-telemetry dedupe guards, kept at module scope (not component refs) on purpose: this
@@ -194,6 +196,7 @@ function AuthenticatedHome() {
  const transactions = workspaceData?.transactions ?? EMPTY_TRANSACTIONS;
  const adjustments = workspaceData?.adjustments ?? EMPTY_ADJUSTMENTS;
  const reconciliations = workspaceData?.reconciliations ?? EMPTY_RECONCILIATIONS;
+ const harvestRates = workspaceData?.harvestRates ?? EMPTY_HARVEST_RATES;
  const clientAccounts = workspaceData?.clientAccounts ?? EMPTY_CLIENT_ACCOUNTS;
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
@@ -2130,6 +2133,7 @@ function AuthenticatedHome() {
          currencies={currencies}
          transactions={transactions}
          adjustments={adjustments}
+         harvestRates={harvestRates}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
          onExportOverviewPdf={onExportOverviewPdf}
@@ -2301,6 +2305,7 @@ function AuthenticatedHome() {
          currencies={currencies}
          transactions={transactions}
          adjustments={adjustments}
+         harvestRates={harvestRates}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
         />

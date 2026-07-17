@@ -290,6 +290,19 @@ export type Reconciliation = {
  createdAt: string;
 };
 
+// One explicit daily FX rate for a (day, organization, currency) group, shared
+// verbatim between حصاد اليوم (Today's Harvest, any day via its day-navigator) and
+// Overview (always day = today). organizationId null = the "no organization"
+// bucket. A day without an explicit row here has no rate of its own — see
+// resolveHarvestRate for the "nearest earlier explicit day" read-time fallback.
+export type HarvestRate = {
+ id: number;
+ day: string; // yyyy-mm-dd
+ organizationId: number | null;
+ currencyId: number;
+ rate: number;
+};
+
 export type ClientAccountLedger = {
  accountId: number;
  currencyName: string;
@@ -383,6 +396,7 @@ export type DataCache = {
  adjustments: ClientAdjustment[];
  clientAccounts: ClientAccount[];
  reconciliations: Reconciliation[];
+ harvestRates: HarvestRate[];
 };
 export type PdfColVisibility = Record<LedgerColumnKey, boolean>;
 export type StoredLedgerSettings = {

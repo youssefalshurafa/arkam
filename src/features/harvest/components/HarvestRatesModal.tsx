@@ -5,39 +5,41 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { normalizeDecimalInput } from '@/shared/utils/decimal';
 import type { Currency } from '@/shared/types';
-import { harvestRateKey } from '../store/harvestRatesStore';
 
-export type HarvestPriceGroup = { key: string; name: string; currencies: Map<number, Currency> };
+export type HarvestPriceGroup = { key: string; name: string; organizationId: number | null; currencies: Map<number, Currency> };
 export type HarvestRateEdit = { currencyId: number; groupKey: string; value: string };
 
+// Modal-local key — the modal is always scoped to a single `dateKey` per open, so
+// unlike the old localStorage-era key this doesn't need the day baked in.
+const rateInputKey = (currencyId: number, groupKey: string) => `${currencyId}:${groupKey}`;
+
 type HarvestRatesModalProps = {
-  dateKey: string;
   mainCode: string;
   priceGroups: HarvestPriceGroup[];
   rates: Record<string, string>;
-  onSave: (edits: HarvestRateEdit[]) => void;
+  onSave: (edits: HarvestRateEdit[]) => void | Promise<void>;
   onClose: () => void;
 };
 
 // Buffered edit-then-save dialog for حصاد اليوم's daily reference prices — replaces the
 // old always-open, save-on-every-keystroke inline panel. Edits are staged locally and only
-// committed via updateRate (and thus localStorage) when the user presses Save.
-export default function HarvestRatesModal({ dateKey, mainCode, priceGroups, rates, onSave, onClose }: HarvestRatesModalProps) {
+// committed (via the caller's onSave, which persists to the DB) when the user presses Save.
+export default function HarvestRatesModal({ mainCode, priceGroups, rates, onSave, onClose }: HarvestRatesModalProps) {
   const { language } = useLanguage();
   const { t } = useTranslation(language);
   const [draft, setDraft] = useState<Record<string, string>>({});
 
   const valueFor = (key: string) => (key in draft ? draft[key] : rates[key] ?? '');
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const edits: HarvestRateEdit[] = [];
     for (const group of priceGroups) {
       for (const currencyId of group.currencies.keys()) {
-        const key = harvestRateKey(dateKey, currencyId, group.key);
+        const key = rateInputKey(currencyId, group.key);
         if (key in draft) edits.push({ currencyId, groupKey: group.key, value: draft[key] });
       }
     }
-    onSave(edits);
+    await onSave(edits);
     onClose();
   };
 
@@ -65,7 +67,7 @@ export default function HarvestRatesModal({ dateKey, mainCode, priceGroups, rate
                 <div className="text-xs font-semibold text-fg">{group.name}</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {[...group.currencies.values()].map((c) => {
-                    const key = harvestRateKey(dateKey, c.id, group.key);
+                    const key = rateInputKey(c.id, group.key);
                     const value = valueFor(key);
                     return (
                       <label

@@ -3,14 +3,16 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { accountingApi } from '@/lib/accountingApi';
+import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { SkBar } from '@/shared/components/skeletons/Skeletons';
 import { panelClassName, mutedPanelClassName } from '@/shared/styles';
 import { renderIcon } from '@/shared/utils/icons';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
-import type { Client, ClientAccount, ClientAdjustment, Currency, Section, Transaction } from '@/shared/types';
+import type { Client, ClientAccount, ClientAdjustment, Currency, HarvestRate, Section, Transaction } from '@/shared/types';
 import { computeHarvestFlow } from '../utils/harvestFlow';
 import { computeGeneralBalance } from '../utils/harvestBalance';
-import { useHarvestRatesStore, harvestRateKey } from '../store/harvestRatesStore';
+import { resolveHarvestRate } from '../utils/harvestRateResolver';
 import HarvestRatesModal, { type HarvestPriceGroup } from './HarvestRatesModal';
 import HarvestAwaitingPricingModal from './HarvestAwaitingPricingModal';
 
@@ -20,6 +22,7 @@ type HarvestSectionProps = {
   currencies: Currency[];
   transactions: Transaction[];
   adjustments: ClientAdjustment[];
+  harvestRates: HarvestRate[];
   isLoading: boolean;
   navigateToSection: (section: Section) => void;
 };
@@ -42,10 +45,12 @@ function orgGroupKey(organizationId: number | null): string {
   return `org:${organizationId ?? 'none'}`;
 }
 
-export default function HarvestSection({ clientAccounts, clients, currencies, transactions, adjustments, isLoading, navigateToSection }: HarvestSectionProps) {
+export default function HarvestSection({ clientAccounts, clients, currencies, transactions, adjustments, harvestRates, isLoading, navigateToSection }: HarvestSectionProps) {
   const { language, isRTL } = useLanguage();
   const { t } = useTranslation(language);
   const numLocale = language === 'fr' ? 'en-US' : language;
+  const { setters, invalidate, setError } = useWorkspaceActions();
+  const setHarvestRates = setters.setHarvestRates;
   // The harvest day being viewed, as local `yyyy-mm-dd`. Defaults to today; the day
   // navigator lets the user step back to earlier days (and forward, up to today).
   const [selectedDay, setSelectedDay] = useState<string>(() => localDateKey());
@@ -75,7 +80,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   const clientMap = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
 
   const rateGroupOfAccount = useCallback(
-    (accountId: number | null): { key: string; name: string } | null => {
+    (accountId: number | null): { key: string; name: string; organizationId: number | null } | null => {
       if (accountId == null) return null;
       const account = accountMap.get(accountId);
       if (!account) return null;
@@ -84,27 +89,28 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
       return {
         key: orgGroupKey(organizationId),
         name: organizationId != null ? client?.organizationName || t('unassigned') : t('overview_no_organization'),
+        organizationId,
       };
     },
     [accountMap, clientMap, t],
   );
 
   const dateKey = selectedDay;
-  const { rates, updateRate } = useHarvestRatesStore();
 
+  // Effective rate for a day/currency/organization, inheriting the nearest earlier
+  // explicit day when this exact day has no rate of its own (resolveHarvestRate
+  // never writes, so this fallback can never mutate a past day's saved value).
   const rateForGroup = useCallback(
-    (day: string, currencyId: number, groupKey: string) => {
+    (day: string, currencyId: number, organizationId: number | null) => {
       if (mainCurrency && currencyId === mainCurrency.id) return 1;
-      const raw = rates[harvestRateKey(day, currencyId, groupKey)];
-      const n = Number(raw);
-      return raw && Number.isFinite(n) && n > 0 ? n : NaN;
+      return resolveHarvestRate(harvestRates, day, organizationId, currencyId);
     },
-    [rates, mainCurrency],
+    [harvestRates, mainCurrency],
   );
 
   // Resolver for the general-balance calc: keyed straight off an organizationId.
   const refRateForOrgOnDay = useCallback(
-    (day: string) => (currencyId: number, organizationId: number | null) => rateForGroup(day, currencyId, orgGroupKey(organizationId)),
+    (day: string) => (currencyId: number, organizationId: number | null) => rateForGroup(day, currencyId, organizationId),
     [rateForGroup],
   );
 
@@ -114,7 +120,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
       if (mainCurrency && currencyId === mainCurrency.id) return 1;
       const group = rateGroupOfAccount(accountId);
       if (!group) return NaN;
-      return rateForGroup(selectedDay, currencyId, group.key);
+      return rateForGroup(selectedDay, currencyId, group.organizationId);
     },
     [mainCurrency, rateGroupOfAccount, rateForGroup, selectedDay],
   );
@@ -144,7 +150,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
       const key = orgGroupKey(g.organizationId);
       let entry = groups.get(key);
       if (!entry) {
-        entry = { key, name: g.organizationName ?? t('overview_no_organization'), currencies: new Map() };
+        entry = { key, name: g.organizationName ?? t('overview_no_organization'), organizationId: g.organizationId, currencies: new Map() };
         groups.set(key, entry);
       }
       entry.currencies.set(currency.id, currency);
@@ -152,17 +158,32 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [currencies, mainCurrency, todayBalance.groups, t]);
 
+  // A cell counts as "missing" only when there's no EFFECTIVE rate at all (not even
+  // an inherited one from an earlier day) — an inherited value is not missing.
   const missingPriceInputCount = useMemo(() => {
     let n = 0;
     for (const group of priceGroups) {
       for (const currencyId of group.currencies.keys()) {
-        const raw = rates[harvestRateKey(dateKey, currencyId, group.key)];
-        const v = Number(raw);
-        if (!raw || !Number.isFinite(v) || v <= 0) n++;
+        const v = resolveHarvestRate(harvestRates, dateKey, group.organizationId, currencyId);
+        if (!Number.isFinite(v) || v <= 0) n++;
       }
     }
     return n;
-  }, [priceGroups, rates, dateKey]);
+  }, [priceGroups, harvestRates, dateKey]);
+
+  // Pre-resolved effective rate strings for the rates modal, keyed the same way its
+  // own inputs are (`${currencyId}:${groupKey}`) — lets the modal keep its existing
+  // buffer-then-Save logic unchanged while showing inherited values as live defaults.
+  const effectiveRateStrings = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const group of priceGroups) {
+      for (const currencyId of group.currencies.keys()) {
+        const v = resolveHarvestRate(harvestRates, dateKey, group.organizationId, currencyId);
+        if (Number.isFinite(v)) map[`${currencyId}:${group.key}`] = String(v);
+      }
+    }
+    return map;
+  }, [priceGroups, harvestRates, dateKey]);
 
   // Today's individual transactions still lacking a resolvable rate — informational only
   // (the "N transactions awaiting pricing" popup), not shown as page content anymore.
@@ -353,12 +374,34 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
 
       {showRatesModal ? (
         <HarvestRatesModal
-          dateKey={dateKey}
           mainCode={mainCode}
           priceGroups={priceGroups}
-          rates={rates}
-          onSave={(edits) => {
-            for (const edit of edits) updateRate(dateKey, edit.currencyId, edit.groupKey, edit.value);
+          rates={effectiveRateStrings}
+          onSave={async (edits) => {
+            const orgIdByGroupKey = new Map(priceGroups.map((g) => [g.key, g.organizationId]));
+            try {
+              await Promise.all(
+                edits.map(async (edit) => {
+                  const organizationId = orgIdByGroupKey.get(edit.groupKey) ?? null;
+                  const result = (await accountingApi.saveHarvestRate({
+                    day: dateKey,
+                    organizationId,
+                    currencyId: edit.currencyId,
+                    rate: edit.value,
+                  })) as { ok: true; deleted?: boolean; row?: HarvestRate };
+                  setHarvestRates((prev) => {
+                    const withoutThis = prev.filter(
+                      (r) => !(r.day === dateKey && r.currencyId === edit.currencyId && (r.organizationId ?? null) === organizationId),
+                    );
+                    return result.deleted || !result.row ? withoutThis : [...withoutThis, result.row];
+                  });
+                }),
+              );
+              setError('');
+              await invalidate();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : t('error_failed_save'));
+            }
           }}
           onClose={() => setShowRatesModal(false)}
         />
