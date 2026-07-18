@@ -21,7 +21,7 @@ import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
-import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
+import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch } from '@/features/ledger/utils/ledgerEntries';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
@@ -2529,8 +2529,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        // outgoing entry this account is the "from" side, on an incoming entry the "to" side.
                        const fromSideName = entry.direction === 'outgoing' ? ledgerAccountName : entry.counterpartyName;
                        const toSideName = entry.direction === 'outgoing' ? entry.counterpartyName : ledgerAccountName;
-                       const draftChargesCurrencyCode = chargesDraft.chargesCurrencyId ? currencyMap.get(chargesDraft.chargesCurrencyId)?.code : undefined;
-                       const showRate = !!(draftChargesCurrencyCode && draftChargesCurrencyCode !== ledger.currencyCode);
                        return (
                         <tr
                          key={`${ledger.accountId}-${entry.transactionId}-charges-edit`}
@@ -2540,68 +2538,25 @@ export default function LedgerSection(props: LedgerSectionProps) {
                           colSpan={colSpanCount}
                           className="px-4 py-2"
                          >
-                          <div className="flex flex-wrap items-start gap-2">
-                           <span className="mt-2 text-xs font-medium text-warn-text">{t('charges')}</span>
-                           <input
-                            type="text"
-                            inputMode="decimal"
-                            dir="ltr"
-                            value={formatAmountInput(chargesDraft.charges)}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: normalizeDecimalInput(event.target.value) })}
-                            className={`${seamlessInputClassName} min-w-16 text-xs text-fg`}
-                            placeholder="0"
-                           />
-                           <select
-                            value={chargesDraft.chargesCurrencyId ?? ''}
-                            onChange={(event) =>
-                             updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })
-                            }
-                            className={`${seamlessSelectClassName} text-xs text-fg`}
-                           >
-                            <option value="">{t('currency')}</option>
-                            {enabledCurrencies.map((cur) => (
-                             <option
-                              key={cur.id}
-                              value={cur.id}
-                             >
-                              {cur.code}
-                             </option>
-                            ))}
-                           </select>
-                           <ChargesPayerSelects
-                            value={chargesDraft.chargesPayer}
-                            onChange={(chargesPayer) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer })}
+                          <div className="flex flex-wrap items-start gap-3">
+                           <span className="mt-6 text-xs font-medium text-warn-text">{t('charges')}</span>
+                           <ChargesEditFields
+                            t={t}
+                            charges={chargesDraft.charges}
+                            onChargesChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: value })}
+                            chargesCurrencyId={chargesDraft.chargesCurrencyId}
+                            onChargesCurrencyIdChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesCurrencyId: value })}
+                            chargesPayer={chargesDraft.chargesPayer}
+                            onChargesPayerChange={(chargesPayer) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer })}
+                            chargesDescription={chargesDraft.chargesDescription}
+                            onChargesDescriptionChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: value })}
+                            chargesExchangeRate={chargesDraft.chargesExchangeRate}
+                            onChargesExchangeRateChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: value })}
+                            enabledCurrencies={enabledCurrencies}
                             fromLabel={fromSideName}
                             toLabel={toSideName}
                             meLabel={t('charges_payer_me')}
-                            paidByPlaceholder={t('charges_payer_placeholder')}
-                            paidToPlaceholder={t('charges_payer_to_placeholder')}
-                            className={`${seamlessSelectClassName} text-xs text-fg`}
-                           />
-                           {showRate && (
-                            <div className="flex items-center gap-1">
-                             <span dir="ltr" className="text-xs text-fg-faint">
-                              {draftChargesCurrencyCode} → {ledger.currencyCode}
-                             </span>
-                             <input
-                              type="text"
-                              inputMode="decimal"
-                              dir="ltr"
-                              value={chargesDraft.chargesExchangeRate}
-                              onChange={(event) =>
-                               updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })
-                              }
-                              className={`${seamlessInputClassName} min-w-16 text-xs text-fg`}
-                              placeholder="1"
-                             />
-                            </div>
-                           )}
-                           <input
-                            type="text"
-                            value={chargesDraft.chargesDescription}
-                            onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: event.target.value })}
-                            className={`${seamlessInputClassName} min-w-28 text-xs text-fg`}
-                            placeholder={t('charges_description_placeholder')}
+                            rateTargetCurrencyCode={ledger.currencyCode}
                            />
                           </div>
                          </td>

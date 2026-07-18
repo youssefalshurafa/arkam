@@ -163,9 +163,10 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     return map;
   }, [priceGroups, harvestRates, dateKey]);
 
-  // This day's transactions/adjustments still missing their own exchange rate entirely,
-  // per client — the same pending list (and PendingPricingEntry shape) the organization
-  // page and client ledger show, surfaced via the "N transactions awaiting pricing" popup.
+  // Transactions/adjustments on or before this day still missing their own exchange rate
+  // entirely, per client — the same pending list (and PendingPricingEntry shape) the
+  // organization page and client ledger show, surfaced via the "N transactions awaiting
+  // pricing" popup. Cumulative like the General Balance above it, not same-day-only.
   const awaitingPricingByClient = useMemo(
     () => computeHarvestAwaitingPricingByClient({ transactions, adjustments, clientAccounts, day: selectedDay }),
     [transactions, adjustments, clientAccounts, selectedDay],

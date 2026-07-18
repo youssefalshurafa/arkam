@@ -534,6 +534,15 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- fail unpredictably.
                 CREATE UNIQUE INDEX IF NOT EXISTS harvest_rates_day_currency_org_key
                     ON ${schema}.harvest_rates (day, currency_id, (COALESCE(organization_id, -1)));
+
+                -- A pre-TEXT revision of this table created "day" as DATE in some workspace
+                -- schemas before CREATE TABLE IF NOT EXISTS above locked in TEXT for new ones;
+                -- a DATE column there never gets migrated by IF NOT EXISTS, and every rate saved
+                -- into it comes back from node-postgres as a JS Date, JSON-serializing into a
+                -- UTC timestamp that can never string-match a plain "yyyy-mm-dd" target day —
+                -- silently unresolvable everywhere. date::text always yields 'YYYY-MM-DD' and
+                -- text::text is a no-op, so this heals either type safely, every time.
+                ALTER TABLE ${schema}.harvest_rates ALTER COLUMN day TYPE TEXT USING day::text;
             `);
 
             // NOTE: the currency catalog (ISO currencies + non-ISO extras like USDT) is
