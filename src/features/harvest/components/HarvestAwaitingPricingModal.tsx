@@ -2,22 +2,23 @@
 
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { formatTimeValue } from '@/shared/utils/date';
-import type { HarvestFlowEntry } from '../utils/harvestFlow';
+
+export type HarvestAwaitingPricingRow = { clientId: number; clientName: string; count: number };
 
 type HarvestAwaitingPricingModalProps = {
-  entries: HarvestFlowEntry[];
+  rows: HarvestAwaitingPricingRow[];
+  onSelectClient: (clientId: number) => void;
   onClose: () => void;
 };
 
-// Read-only popup listing today's transactions whose leg currency still lacks a resolvable
-// rate — opened from the header's "N transactions awaiting pricing" pill. Purely informational;
-// fixing one means entering that organization's rate in the "Today's price" dialog.
-export default function HarvestAwaitingPricingModal({ entries, onClose }: HarvestAwaitingPricingModalProps) {
-  const { language, isRTL } = useLanguage();
+// Read-only-except-the-count popup listing, per client, how many of this day's
+// transactions/adjustments still have no exchange rate entered on them at all — the same
+// pending definition the organization page's client list and the client ledger show.
+// Clicking a client's count opens PendingPricingModal, the exact same popup the
+// organization page uses, so the rate can be entered right there.
+export default function HarvestAwaitingPricingModal({ rows, onSelectClient, onClose }: HarvestAwaitingPricingModalProps) {
+  const { language } = useLanguage();
   const { t } = useTranslation(language);
-  const numLocale = language === 'fr' ? 'en-US' : language;
-  const units = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 0 });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -37,19 +38,20 @@ export default function HarvestAwaitingPricingModal({ entries, onClose }: Harves
         </div>
 
         <div className="mt-4 flex max-h-[60vh] flex-col divide-y divide-border overflow-y-auto">
-          {entries.length === 0 ? (
+          {rows.length === 0 ? (
             <p className="py-3 text-sm text-fg-faint">{t('harvest_no_transactions_today')}</p>
           ) : (
-            entries.map((entry, i) => (
-              <div key={`${entry.transactionId}-${entry.direction}-${i}`} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${entry.direction === 'in' ? 'bg-good' : 'bg-bad'}`} />
-                  <span dir="ltr" className="shrink-0 text-xs text-fg-faint whitespace-nowrap">{formatTimeValue(entry.createdAt)}</span>
-                  <span className={`truncate font-semibold text-fg ${isRTL ? 'text-right' : 'text-left'}`}>{entry.clientName || '—'}</span>
-                </div>
-                <span dir="ltr" className="shrink-0 font-semibold text-warn-text whitespace-nowrap">
-                  {units(entry.units)} {entry.symbol || entry.code}
-                </span>
+            rows.map((row) => (
+              <div key={row.clientId} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <span className="truncate font-semibold text-fg">{row.clientName || '—'}</span>
+                <button
+                  type="button"
+                  onClick={() => onSelectClient(row.clientId)}
+                  title={t(row.count === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: row.count })}
+                  className="cursor-pointer rounded bg-warn-bg px-1.5 py-0.5 font-mono text-xs font-semibold text-warn-text transition hover:opacity-80"
+                >
+                  {row.count}
+                </button>
               </div>
             ))
           )}

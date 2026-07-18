@@ -247,8 +247,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
           // Resolve a group's FX rate — the same "today's rate" persisted rows
           // Harvest reads/writes (see resolveHarvestRate), so an edit here is
           // instantly the same value Harvest's day-navigator shows for today. Main
-          // currency is always 1; others fall back through earlier days, or NaN
-          // when nothing has ever been set (excluded from conversions).
+          // currency is always 1; others require an explicit rate for exactly today —
+          // no fallback to an earlier day's rate — else NaN (excluded from conversions).
           const rateOf = (group: OverviewBalanceGroup) => {
            if (group.isMain) return 1;
            const value = resolveHarvestRate(harvestRates, today, group.organizationId, group.currencyId);

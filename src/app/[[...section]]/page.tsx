@@ -2308,6 +2308,7 @@ function AuthenticatedHome() {
          harvestRates={harvestRates}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
+         onSaveRate={onSavePendingPricingRate}
         />
        ) : null}
 

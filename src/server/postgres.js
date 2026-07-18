@@ -502,11 +502,11 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- balance cards — the SAME underlying rate, shared by both features (Overview
                 -- always means "today"; Harvest can view/edit any past day via its
                 -- day-navigator). One explicit row per (day, organization, currency); a day
-                -- with no explicit row has no rate of its own — callers resolve the effective
-                -- rate by scanning back to the nearest earlier day that DOES have one (see
-                -- resolveHarvestRate on the client), a read-time fallback that never writes
-                -- and therefore never mutates a past day. organization_id is nullable ("no
-                -- organization" bucket, matches clients.organization_id).
+                -- with no explicit row has no rate of its own — resolveHarvestRate on the
+                -- client does an EXACT (day, organization, currency) lookup only, no fallback
+                -- to another day, so a rate set on one day can never change what an earlier or
+                -- later day (including Overview's "today") displays. organization_id is
+                -- nullable ("no organization" bucket, matches clients.organization_id).
                 -- "day" is TEXT (yyyy-mm-dd), not DATE: the rest of this app deliberately
                 -- treats calendar days as opaque local strings (see localDateKey/createdAt
                 -- handling) rather than DB/JS Date objects, specifically to dodge timezone

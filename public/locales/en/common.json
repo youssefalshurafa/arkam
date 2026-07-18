@@ -320,7 +320,7 @@
  "harvest_loss": "Loss",
  "harvest_awaiting_pricing_count": "{{count}} transaction(s) awaiting pricing",
  "harvest_awaiting_pricing_title": "Transactions awaiting pricing",
- "harvest_awaiting_pricing_hint": "These transactions involve a currency that still needs a price — enter it in Today's price to include them.",
+ "harvest_awaiting_pricing_hint": "These have no exchange rate entered on them at all — fix them from the client ledger or the organization page, the same pending list shown there.",
  "harvest_total_profit": "Realized profit today",
  "harvest_total_incoming": "Total incoming today",
  "harvest_total_outgoing": "Total outgoing today",

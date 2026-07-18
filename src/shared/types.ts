@@ -293,8 +293,9 @@ export type Reconciliation = {
 // One explicit daily FX rate for a (day, organization, currency) group, shared
 // verbatim between حصاد اليوم (Today's Harvest, any day via its day-navigator) and
 // Overview (always day = today). organizationId null = the "no organization"
-// bucket. A day without an explicit row here has no rate of its own — see
-// resolveHarvestRate for the "nearest earlier explicit day" read-time fallback.
+// bucket. A day without an explicit row here has no rate of its own — resolveHarvestRate
+// does an exact-day lookup only, no fallback to another day, so each day's rate is
+// fully isolated (editing one day never changes another, including Overview's "today").
 export type HarvestRate = {
  id: number;
  day: string; // yyyy-mm-dd
