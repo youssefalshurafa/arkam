@@ -18,3 +18,10 @@ export const seamlessSelectClassName = 'cursor-pointer appearance-none border-0 
 // Applied to a row/entry wrapper (<tr>) while it's in edit mode, so the row itself signals
 // "editing" now that its individual fields no longer look like boxed form controls.
 export const editingRowRingClassName = 'ring-2 ring-inset ring-accent';
+
+// Small bordered field used by ChargesEditFields — unlike seamlessInputClassName above,
+// the charges sub-section needs each control to read as its own distinct field (amount vs.
+// currency vs. payer), so it gets a visible box instead of a borderless underline.
+export const compactFieldInputClassName = 'rounded border border-border-strong bg-surface px-2 py-1 text-xs text-fg outline-none focus:ring-1 focus:ring-accent';
+export const compactFieldSelectClassName = 'cursor-pointer rounded border border-border-strong bg-surface px-1.5 py-1 text-xs text-fg outline-none focus:ring-1 focus:ring-accent';
+export const compactFieldLabelClassName = 'text-[10px] font-semibold uppercase tracking-wide text-fg-faint';

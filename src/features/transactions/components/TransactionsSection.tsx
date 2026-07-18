@@ -19,6 +19,7 @@ import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
+import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
@@ -2661,74 +2662,27 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         </button>
                        );
                       }
+                      const rateTargetCurrencyCode =
+                       draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
                       return (
-                       <div className="space-y-1">
-                        <input
-                         type="text"
-                         inputMode="decimal"
-                         dir="ltr"
-                         value={formatAmountInput(draft.charges)}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { charges: normalizeDecimalInput(event.target.value) })}
-                         className={`${seamlessInputClassName} min-w-16 text-sm text-fg`}
-                         placeholder="0"
-                        />
-                        <select
-                         value={draft.chargesCurrencyId ?? ''}
-                         onChange={(event) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: event.target.value ? Number(event.target.value) : null })}
-                         className={`${seamlessSelectClassName} w-full text-sm text-fg`}
-                        >
-                         <option value="">{t('currency')}</option>
-                         {enabledCurrencies.map((cur) => (
-                          <option
-                           key={cur.id}
-                           value={cur.id}
-                          >
-                           {cur.code}
-                          </option>
-                         ))}
-                        </select>
-                        <ChargesPayerSelects
-                         value={draft.chargesPayer}
-                         onChange={(chargesPayer) => updateTransactionTableDraft(txn.id, { chargesPayer })}
-                         fromLabel={txn.clientFromName}
-                         toLabel={txn.clientToName}
-                         meLabel={t('charges_payer_me')}
-                         paidByPlaceholder={t('charges_payer_placeholder')}
-                         paidToPlaceholder={t('charges_payer_to_placeholder')}
-                         className={`${seamlessSelectClassName} w-full text-sm text-fg`}
-                        />
-                        {(() => {
-                         const draftChargesCurrencyCode = draft.chargesCurrencyId ? currencyMap.get(draft.chargesCurrencyId)?.code : undefined;
-                         const draftPayerAccountCurrencyCode =
-                          draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
-                         if (!draftChargesCurrencyCode || !draftPayerAccountCurrencyCode || draftChargesCurrencyCode === draftPayerAccountCurrencyCode) return null;
-                         return (
-                          <div>
-                           <span dir="ltr" className="text-xs text-fg-faint">
-                            {draftChargesCurrencyCode} → {draftPayerAccountCurrencyCode}
-                           </span>
-                           <input
-                            type="text"
-                            inputMode="decimal"
-                            dir="ltr"
-                            value={draft.chargesExchangeRate}
-                            onChange={(event) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: normalizePlainDecimalInput(event.target.value) })}
-                            className={`${seamlessInputClassName} mt-1 min-w-16 text-sm text-fg`}
-                            placeholder="1"
-                           />
-                          </div>
-                         );
-                        })()}
-                        <div className="mt-1">
-                         <input
-                          type="text"
-                          value={draft.chargesDescription}
-                          onChange={(event) => updateTransactionTableDraft(txn.id, { chargesDescription: event.target.value })}
-                          className={`${seamlessInputClassName} min-w-28 text-sm text-fg`}
-                          placeholder={t('charges_description_placeholder')}
-                         />
-                        </div>
-                       </div>
+                       <ChargesEditFields
+                        t={t}
+                        charges={draft.charges}
+                        onChargesChange={(value) => updateTransactionTableDraft(txn.id, { charges: value })}
+                        chargesCurrencyId={draft.chargesCurrencyId}
+                        onChargesCurrencyIdChange={(value) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: value })}
+                        chargesPayer={draft.chargesPayer}
+                        onChargesPayerChange={(chargesPayer) => updateTransactionTableDraft(txn.id, { chargesPayer })}
+                        chargesDescription={draft.chargesDescription}
+                        onChargesDescriptionChange={(value) => updateTransactionTableDraft(txn.id, { chargesDescription: value })}
+                        chargesExchangeRate={draft.chargesExchangeRate}
+                        onChargesExchangeRateChange={(value) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: value })}
+                        enabledCurrencies={enabledCurrencies}
+                        fromLabel={txn.clientFromName}
+                        toLabel={txn.clientToName}
+                        meLabel={t('charges_payer_me')}
+                        rateTargetCurrencyCode={rateTargetCurrencyCode}
+                       />
                       );
                      })()
                     ) : txn.charges ? (
