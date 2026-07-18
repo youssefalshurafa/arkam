@@ -322,7 +322,7 @@
  "harvest_loss": "خسارة",
  "harvest_awaiting_pricing_count": "{{count}} معاملة بانتظار التسعير",
  "harvest_awaiting_pricing_title": "معاملات بانتظار التسعير",
- "harvest_awaiting_pricing_hint": "هذه المعاملات تتضمّن عملة ما زالت بحاجة إلى سعر — أدخله في سعر اليوم لتضمينها.",
+ "harvest_awaiting_pricing_hint": "لم يُدخَل أي سعر صرف لهذه المعاملات إطلاقًا — عدّلها من دفتر أستاذ العميل أو صفحة المؤسسة، وهي نفس القائمة المعروضة هناك.",
  "harvest_total_profit": "ربح اليوم المحقّق",
  "harvest_total_incoming": "إجمالي الوارد اليوم",
  "harvest_total_outgoing": "إجمالي الصادر اليوم",

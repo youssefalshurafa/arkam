@@ -319,7 +319,7 @@
  "harvest_loss": "Perte",
  "harvest_awaiting_pricing_count": "{{count}} transaction(s) en attente de prix",
  "harvest_awaiting_pricing_title": "Transactions en attente de prix",
- "harvest_awaiting_pricing_hint": "Ces transactions impliquent une devise qui nécessite encore un prix — saisissez-le dans Prix du jour pour les inclure.",
+ "harvest_awaiting_pricing_hint": "Aucun taux de change n'a été saisi pour celles-ci — corrigez-les depuis le grand livre du client ou la page de l'organisation, la même liste en attente qui y est affichée.",
  "harvest_total_profit": "Bénéfice réalisé aujourd'hui",
  "harvest_total_incoming": "Total entrant aujourd'hui",
  "harvest_total_outgoing": "Total sortant aujourd'hui",

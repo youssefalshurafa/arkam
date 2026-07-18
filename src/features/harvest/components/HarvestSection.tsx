@@ -5,13 +5,16 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
+import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { SkBar } from '@/shared/components/skeletons/Skeletons';
 import { panelClassName, mutedPanelClassName } from '@/shared/styles';
 import { renderIcon } from '@/shared/utils/icons';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import type { Client, ClientAccount, ClientAdjustment, Currency, HarvestRate, Section, Transaction } from '@/shared/types';
-import { computeHarvestFlow } from '../utils/harvestFlow';
+import type { PendingPricingEntry } from '@/features/clients/utils/clientBalances';
+import PendingPricingModal from '@/features/organizations/components/PendingPricingModal';
 import { computeGeneralBalance } from '../utils/harvestBalance';
+import { computeHarvestAwaitingPricingByClient } from '../utils/harvestAwaitingPricing';
 import { resolveHarvestRate } from '../utils/harvestRateResolver';
 import HarvestRatesModal, { type HarvestPriceGroup } from './HarvestRatesModal';
 import HarvestAwaitingPricingModal from './HarvestAwaitingPricingModal';
@@ -25,6 +28,7 @@ type HarvestSectionProps = {
   harvestRates: HarvestRate[];
   isLoading: boolean;
   navigateToSection: (section: Section) => void;
+  onSaveRate: (entry: PendingPricingEntry, rate: string, reversed: boolean) => Promise<boolean>;
 };
 
 function WarnGlyph({ className = 'h-3.5 w-3.5' }: { className?: string }) {
@@ -45,10 +49,12 @@ function orgGroupKey(organizationId: number | null): string {
   return `org:${organizationId ?? 'none'}`;
 }
 
-export default function HarvestSection({ clientAccounts, clients, currencies, transactions, adjustments, harvestRates, isLoading, navigateToSection }: HarvestSectionProps) {
+export default function HarvestSection({ clientAccounts, clients, currencies, transactions, adjustments, harvestRates, isLoading, navigateToSection, onSaveRate }: HarvestSectionProps) {
   const { language, isRTL } = useLanguage();
   const { t } = useTranslation(language);
   const numLocale = language === 'fr' ? 'en-US' : language;
+  const ledgerDecimals = useLedgerStore((s) => s.ledgerDecimals);
+  const ledgerDateFormat = useLedgerStore((s) => s.ledgerDateFormat);
   const { setters, invalidate, setError } = useWorkspaceActions();
   const setHarvestRates = setters.setHarvestRates;
   // The harvest day being viewed, as local `yyyy-mm-dd`. Defaults to today; the day
@@ -56,6 +62,10 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   const [selectedDay, setSelectedDay] = useState<string>(() => localDateKey());
   const [showRatesModal, setShowRatesModal] = useState(false);
   const [showAwaitingPricingModal, setShowAwaitingPricingModal] = useState(false);
+  // Which client's pending rows are being priced from the second-level popup (opened by
+  // clicking a client's count inside the awaiting-pricing list) — the same nested popup
+  // pattern and component (PendingPricingModal) the organization page uses.
+  const [pendingPricingClientId, setPendingPricingClientId] = useState<number | null>(null);
   const today = localDateKey();
 
   // Step the viewed day by whole days; clamp forward navigation at today (no future harvest).
@@ -76,30 +86,11 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   }, [selectedDay]);
 
   const mainCurrency = useMemo(() => currencies.find((c) => c.isMain === 1) ?? null, [currencies]);
-  const accountMap = useMemo(() => new Map(clientAccounts.map((a) => [a.id, a])), [clientAccounts]);
-  const clientMap = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
-
-  const rateGroupOfAccount = useCallback(
-    (accountId: number | null): { key: string; name: string; organizationId: number | null } | null => {
-      if (accountId == null) return null;
-      const account = accountMap.get(accountId);
-      if (!account) return null;
-      const client = clientMap.get(account.clientId);
-      const organizationId = client?.organizationId ?? null;
-      return {
-        key: orgGroupKey(organizationId),
-        name: organizationId != null ? client?.organizationName || t('unassigned') : t('overview_no_organization'),
-        organizationId,
-      };
-    },
-    [accountMap, clientMap, t],
-  );
 
   const dateKey = selectedDay;
 
-  // Effective rate for a day/currency/organization, inheriting the nearest earlier
-  // explicit day when this exact day has no rate of its own (resolveHarvestRate
-  // never writes, so this fallback can never mutate a past day's saved value).
+  // Effective rate for a day/currency/organization — an exact-day lookup only, no
+  // inheritance from another day, so a rate saved for one day never affects another.
   const rateForGroup = useCallback(
     (day: string, currencyId: number, organizationId: number | null) => {
       if (mainCurrency && currencyId === mainCurrency.id) return 1;
@@ -112,17 +103,6 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   const refRateForOrgOnDay = useCallback(
     (day: string) => (currencyId: number, organizationId: number | null) => rateForGroup(day, currencyId, organizationId),
     [rateForGroup],
-  );
-
-  // Resolver for computeHarvestFlow (per-transaction-leg accountId, today only).
-  const refRate = useCallback(
-    (currencyId: number, accountId: number | null) => {
-      if (mainCurrency && currencyId === mainCurrency.id) return 1;
-      const group = rateGroupOfAccount(accountId);
-      if (!group) return NaN;
-      return rateForGroup(selectedDay, currencyId, group.organizationId);
-    },
-    [mainCurrency, rateGroupOfAccount, rateForGroup, selectedDay],
   );
 
   const todayBalance = useMemo(
@@ -158,8 +138,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [currencies, mainCurrency, todayBalance.groups, t]);
 
-  // A cell counts as "missing" only when there's no EFFECTIVE rate at all (not even
-  // an inherited one from an earlier day) — an inherited value is not missing.
+  // A cell counts as "missing" when this exact day has no explicit rate of its own.
   const missingPriceInputCount = useMemo(() => {
     let n = 0;
     for (const group of priceGroups) {
@@ -171,9 +150,8 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     return n;
   }, [priceGroups, harvestRates, dateKey]);
 
-  // Pre-resolved effective rate strings for the rates modal, keyed the same way its
-  // own inputs are (`${currencyId}:${groupKey}`) — lets the modal keep its existing
-  // buffer-then-Save logic unchanged while showing inherited values as live defaults.
+  // Pre-resolved rate strings for the rates modal, keyed the same way its own inputs
+  // are (`${currencyId}:${groupKey}`) — only this exact day's explicit rates, if any.
   const effectiveRateStrings = useMemo(() => {
     const map: Record<string, string> = {};
     for (const group of priceGroups) {
@@ -185,19 +163,23 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     return map;
   }, [priceGroups, harvestRates, dateKey]);
 
-  // Today's individual transactions still lacking a resolvable rate — informational only
-  // (the "N transactions awaiting pricing" popup), not shown as page content anymore.
-  const flow = useMemo(
-    () => computeHarvestFlow({ transactions, clientAccounts, currencies, refRate, day: selectedDay }),
-    [transactions, clientAccounts, currencies, refRate, selectedDay],
+  // This day's transactions/adjustments still missing their own exchange rate entirely,
+  // per client — the same pending list (and PendingPricingEntry shape) the organization
+  // page and client ledger show, surfaced via the "N transactions awaiting pricing" popup.
+  const awaitingPricingByClient = useMemo(
+    () => computeHarvestAwaitingPricingByClient({ transactions, adjustments, clientAccounts, day: selectedDay }),
+    [transactions, adjustments, clientAccounts, selectedDay],
   );
-  const awaitingPricingEntries = useMemo(
-    () =>
-      [...flow.incoming, ...flow.outgoing]
-        .filter((e) => e.hasMissingRate)
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-    [flow.incoming, flow.outgoing],
+  const awaitingPricingTotalCount = useMemo(
+    () => [...awaitingPricingByClient.values()].reduce((sum, entries) => sum + entries.length, 0),
+    [awaitingPricingByClient],
   );
+  const awaitingPricingRows = useMemo(() => {
+    const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+    return [...awaitingPricingByClient.entries()]
+      .map(([clientId, entries]) => ({ clientId, clientName: clientNameById.get(clientId) ?? '', count: entries.length }))
+      .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
+  }, [awaitingPricingByClient, clients, language]);
 
   const mainCode = mainCurrency?.code ?? '';
   const money = (n: number) =>
@@ -311,14 +293,14 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     <div className="flex flex-col gap-6">
       {header}
 
-      {awaitingPricingEntries.length > 0 ? (
+      {awaitingPricingTotalCount > 0 ? (
         <button
           type="button"
           onClick={() => setShowAwaitingPricingModal(true)}
           className="inline-flex w-fit items-center gap-2 rounded-full bg-warn-bg px-3 py-1.5 text-sm font-semibold text-warn-text transition hover:opacity-90"
         >
           <WarnGlyph className="h-4 w-4 shrink-0" />
-          {t('harvest_awaiting_pricing_count', { count: awaitingPricingEntries.length })}
+          {t('harvest_awaiting_pricing_count', { count: awaitingPricingTotalCount })}
         </button>
       ) : null}
 
@@ -408,7 +390,23 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
       ) : null}
 
       {showAwaitingPricingModal ? (
-        <HarvestAwaitingPricingModal entries={awaitingPricingEntries} onClose={() => setShowAwaitingPricingModal(false)} />
+        <HarvestAwaitingPricingModal
+          rows={awaitingPricingRows}
+          onSelectClient={(clientId) => setPendingPricingClientId(clientId)}
+          onClose={() => setShowAwaitingPricingModal(false)}
+        />
+      ) : null}
+
+      {pendingPricingClientId != null ? (
+        <PendingPricingModal
+          clientName={clients.find((c) => c.id === pendingPricingClientId)?.name ?? null}
+          entries={awaitingPricingByClient.get(pendingPricingClientId) ?? []}
+          numLocale={numLocale}
+          ledgerDecimals={ledgerDecimals}
+          ledgerDateFormat={ledgerDateFormat}
+          onClose={() => setPendingPricingClientId(null)}
+          onSaveRate={onSaveRate}
+        />
       ) : null}
     </div>
   );

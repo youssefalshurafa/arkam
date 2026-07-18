@@ -6,9 +6,12 @@ import type { Client, ClientAccount, ClientAdjustment, Currency, OverviewBalance
 //
 // Sidesteps the whole "was this transaction a buy or a sell" question: net worth
 // change over a day IS the profit, regardless of how it moved. "General balance" is
-// literally the same calculation as the Overview page's grand total
+// built on the same underlying numbers as the Overview page's grand total
 // (computeOverviewBalances, itself built on the shared computeAccountBalances) —
-// just re-run with a cutoff date, once for today and once for the day before.
+// just re-run with a cutoff date, once for today and once for the day before — but
+// SIGN-FLIPPED from it: Overview's total is signed from the client's side (positive
+// = you owe the client), while here we want the owner's own asset position, its
+// mirror image, so profit/loss reads correctly (client owing you more = profit).
 //
 // Rate grouping matches Overview's: balances are grouped by organizationId only
 // (every organization-less client merged into one "no organization" bucket), NOT
@@ -37,7 +40,7 @@ export type GeneralBalanceResult = {
 };
 
 // Compare the wall-clock DATE embedded in createdAt (its first 10 chars) against the
-// cutoff day. A string compare is timezone-proof, same convention as harvestFlow.ts.
+// cutoff day. A string compare is timezone-proof.
 function isOnOrBeforeDay(iso: string, day: string): boolean {
   return iso.slice(0, 10) <= day;
 }
@@ -89,7 +92,11 @@ export function computeGeneralBalance({
       }
       totalMain += group.total * rate;
     }
-    orgTotals.push({ organizationId: orgGroups[0].organizationId, organizationName: orgGroups[0].organizationName, totalMain, rateMissing });
+    // computeOverviewBalances totals are signed from the CLIENT's side (positive = you
+    // owe the client, negative = the client owes you — see accountBalances.ts /
+    // adjustment debit-credit convention). Harvest reports the OWNER's asset position,
+    // which is the mirror image, so flip the sign here before it becomes "profit/loss".
+    orgTotals.push({ organizationId: orgGroups[0].organizationId, organizationName: orgGroups[0].organizationName, totalMain: -totalMain, rateMissing });
   }
   orgTotals.sort((a, b) => (a.organizationName ?? '').localeCompare(b.organizationName ?? '', language, { sensitivity: 'base' }));
   const totalMain = orgTotals.reduce((s, o) => s + o.totalMain, 0);
