@@ -1694,6 +1694,7 @@ function AuthenticatedHome() {
    onLedgerRowDrop,
    onExportLedgerPdf,
    onExportLedgerExcel,
+   combinedLedgerHistory,
   } = useLedgerActions({
    clientAccounts,
    transactions,
@@ -2244,7 +2245,7 @@ function AuthenticatedHome() {
          selectedOrganizationForClients={selectedOrganizationForClients}
          selectedClientLedgers={selectedClientLedgers}
          orderedLedgerColumnOptions={orderedLedgerColumnOptions}
-         ledgerHistory={ledgerHistory}
+         ledgerHistory={combinedLedgerHistory}
          getClientLedgerDraft={getClientLedgerDraft}
          updateLedgerTransactionDraft={updateLedgerTransactionDraft}
          renderLedgerCurrencySuffix={renderLedgerCurrencySuffix}
