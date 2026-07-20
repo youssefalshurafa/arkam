@@ -32,11 +32,12 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
  const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);
 
  // Distinct past expense descriptions (most recent first), offered as <datalist> suggestions
- // so recurring expenses (e.g. "Gas money") don't need retyping every time.
+ // so recurring expenses (e.g. "Gas money") don't need retyping every time. Capped at 5 so the
+ // dropdown stays short and useful instead of listing every past description ever entered.
  const descriptionSuggestions = useMemo(() => {
   const seen = new Set<string>();
   const list: string[] = [];
-  for (let i = adjustments.length - 1; i >= 0; i--) {
+  for (let i = adjustments.length - 1; i >= 0 && list.length < 5; i--) {
    const desc = adjustments[i].description.trim();
    if (desc && !seen.has(desc)) {
     seen.add(desc);
