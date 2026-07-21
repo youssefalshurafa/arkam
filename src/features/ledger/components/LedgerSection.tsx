@@ -2192,9 +2192,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                </>
                               )}
                               {showChargesUnderAmount && (
-                               <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-bad-text">
+                               <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                                 <span>
-                                 −{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                 +{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                  {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                                 </span>
                                 {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
@@ -2540,8 +2540,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    {showCharges && (
                                     <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                                      <span>
-                                      {entry.isChargesPayerThisAccount ? '−' : '+'}
-                                      {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                      +{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                      </span>
                                      {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
                                     </div>
@@ -2558,8 +2557,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  {showCharges && (
                                   <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                                    <span>
-                                    {entry.isChargesPayerThisAccount ? '−' : '+'}
-                                    {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                    +{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                    </span>
                                    {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
                                   </div>
