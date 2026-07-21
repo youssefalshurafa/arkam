@@ -121,6 +121,14 @@ type LedgerStore = {
  setLedgerCounterpartyQuery: Dispatch<SetStateAction<string>>;
  ledgerCounterpartyExpandedClient: number | null;
  setLedgerCounterpartyExpandedClient: Dispatch<SetStateAction<number | null>>;
+ // Same combobox pattern as the counterparty picker above, but for reassigning which
+ // client/account THIS side of the row belongs to (i.e. moving the row to another client's ledger).
+ ledgerSelfAccountOpen: string | null;
+ setLedgerSelfAccountOpen: Dispatch<SetStateAction<string | null>>;
+ ledgerSelfAccountQuery: string;
+ setLedgerSelfAccountQuery: Dispatch<SetStateAction<string>>;
+ ledgerSelfAccountExpandedClient: number | null;
+ setLedgerSelfAccountExpandedClient: Dispatch<SetStateAction<number | null>>;
  ledgerRateReversed: Record<string, boolean>;
  setLedgerRateReversed: Dispatch<SetStateAction<Record<string, boolean>>>;
  ledgerDisplayRateReversed: Record<string, boolean>;
@@ -212,6 +220,12 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setLedgerCounterpartyQuery: setter('ledgerCounterpartyQuery'),
   ledgerCounterpartyExpandedClient: null,
   setLedgerCounterpartyExpandedClient: setter('ledgerCounterpartyExpandedClient'),
+  ledgerSelfAccountOpen: null,
+  setLedgerSelfAccountOpen: setter('ledgerSelfAccountOpen'),
+  ledgerSelfAccountQuery: '',
+  setLedgerSelfAccountQuery: setter('ledgerSelfAccountQuery'),
+  ledgerSelfAccountExpandedClient: null,
+  setLedgerSelfAccountExpandedClient: setter('ledgerSelfAccountExpandedClient'),
   ledgerRateReversed: {},
   setLedgerRateReversed: setter('ledgerRateReversed'),
   ledgerDisplayRateReversed: {},
