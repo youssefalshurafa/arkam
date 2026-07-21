@@ -4,6 +4,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import Image from 'next/image';
 import { signOut } from 'next-auth/react';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { confirmDialog } from '@/components/ui/AppDialog';
@@ -12,6 +13,23 @@ import type { IconName, Section } from '@/shared/types';
 
 type SidebarItem = { id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void };
 type Workspace = { id: string; name: string; role: string };
+
+function SunGlyph() {
+ return (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+   <circle cx="12" cy="12" r="4" />
+   <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+  </svg>
+ );
+}
+
+function MoonGlyph() {
+ return (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+   <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </svg>
+ );
+}
 
 type SidebarProps = {
  sidebarItems: SidebarItem[];
@@ -30,6 +48,7 @@ export default function Sidebar({
 }: SidebarProps) {
  const { language, setLanguage, isRTL } = useLanguage();
  const { t } = useTranslation(language);
+ const { resolvedTheme, setTheme } = useTheme();
 
  const handleSignOut = async () => {
   if (!(await confirmDialog({ title: t('sign_out_confirm_title'), message: t('sign_out_confirm_message'), confirmText: t('sign_out') }))) {
@@ -119,6 +138,18 @@ export default function Sidebar({
      </nav>
      {/* Footer */}
      <div className="border-t border-white/10 py-1">
+      <button
+       type="button"
+       onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+       aria-label={resolvedTheme === 'dark' ? t('appearance_theme_light') : t('appearance_theme_dark')}
+       title={resolvedTheme === 'dark' ? t('appearance_theme_light') : t('appearance_theme_dark')}
+       className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium text-blue-100 transition hover:bg-white/10 hover:text-white ${
+        isSidebarCollapsed ? 'justify-center' : ''
+       }`}
+      >
+       <span className="shrink-0">{resolvedTheme === 'dark' ? <MoonGlyph /> : <SunGlyph />}</span>
+       {isSidebarCollapsed ? null : <span>{resolvedTheme === 'dark' ? t('appearance_theme_dark') : t('appearance_theme_light')}</span>}
+      </button>
       <button
        type="button"
        onClick={() => void handleSignOut()}

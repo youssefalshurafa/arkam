@@ -1,5 +1,6 @@
 'use client';
 
+import { useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -34,6 +35,11 @@ import type {
  TransactionUpdateInput,
  Transaction,
 } from '@/shared/types';
+
+// One already-SAVED edit (to a ledger transaction or adjustment row), reversible/replayable
+// by re-issuing the same update API call with the previous/next persisted values. Distinct
+// from `DraftHistory`, which only rewinds unsaved keystrokes in a currently-open row.
+type LedgerEditAction = { undo: () => Promise<void>; redo: () => Promise<void> };
 
 type UseLedgerActionsParams = {
  clientAccounts: ClientAccount[];
@@ -110,6 +116,66 @@ export function useLedgerActions({
  const adjustmentModal = useLedgerStore((s) => s.adjustmentModal);
  const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
+
+ // Undo/redo for already-SAVED edits — a separate bounded stack from `ledgerHistory`
+ // (unsaved-draft undo). Each entry re-issues the same update API call the original save
+ // used, with the previous/next persisted values, then refreshes like any other edit.
+ const pastLedgerActions = useRef<LedgerEditAction[]>([]);
+ const futureLedgerActions = useRef<LedgerEditAction[]>([]);
+ const [isLedgerActionBusy, setIsLedgerActionBusy] = useState(false);
+ const [, bumpLedgerActionHistory] = useReducer((x: number) => x + 1, 0);
+
+ function pushLedgerEditAction(action: LedgerEditAction) {
+  pastLedgerActions.current = [...pastLedgerActions.current, action].slice(-30);
+  futureLedgerActions.current = [];
+  bumpLedgerActionHistory();
+ }
+
+ async function undoLedgerEditAction() {
+  const action = pastLedgerActions.current[pastLedgerActions.current.length - 1];
+  if (!action || isLedgerActionBusy) return;
+  setIsLedgerActionBusy(true);
+  try {
+   await action.undo();
+   pastLedgerActions.current = pastLedgerActions.current.slice(0, -1);
+   futureLedgerActions.current = [...futureLedgerActions.current, action];
+  } finally {
+   setIsLedgerActionBusy(false);
+   bumpLedgerActionHistory();
+  }
+ }
+
+ async function redoLedgerEditAction() {
+  const action = futureLedgerActions.current[futureLedgerActions.current.length - 1];
+  if (!action || isLedgerActionBusy) return;
+  setIsLedgerActionBusy(true);
+  try {
+   await action.redo();
+   futureLedgerActions.current = futureLedgerActions.current.slice(0, -1);
+   pastLedgerActions.current = [...pastLedgerActions.current, action];
+  } finally {
+   setIsLedgerActionBusy(false);
+   bumpLedgerActionHistory();
+  }
+ }
+
+ // The toolbar's undo/redo buttons drive both stacks through one pair of controls:
+ // unsaved-draft undo (typing in an open row) takes priority since it's the most recent
+ // thing the user touched, falling back to the saved-edit stack once drafts are exhausted.
+ const combinedLedgerHistory: DraftHistory = {
+  record: ledgerHistory.record,
+  reset: ledgerHistory.reset,
+  canUndo: ledgerHistory.canUndo || (pastLedgerActions.current.length > 0 && !isLedgerActionBusy),
+  canRedo: ledgerHistory.canRedo || (futureLedgerActions.current.length > 0 && !isLedgerActionBusy),
+  undo: () => {
+   if (ledgerHistory.canUndo) ledgerHistory.undo();
+   else void undoLedgerEditAction();
+  },
+  redo: () => {
+   if (ledgerHistory.canRedo) ledgerHistory.redo();
+   else void redoLedgerEditAction();
+  },
+ };
 
 function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
  const account = clientAccounts.find((a) => a.id === accountId);
@@ -314,6 +380,18 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
    await accountingApi.updateClientAdjustment(updatedAdj);
    setError('');
    applyAdjustmentPatch(updatedAdj);
+   pushLedgerEditAction({
+    undo: async () => {
+     await accountingApi.updateClientAdjustment(adj);
+     applyAdjustmentPatch(adj);
+     await loadData();
+    },
+    redo: async () => {
+     await accountingApi.updateClientAdjustment(updatedAdj);
+     applyAdjustmentPatch(updatedAdj);
+     await loadData();
+    },
+   });
    if (!skipReload) void loadData();
    return true;
   } catch (e) {
@@ -406,6 +484,32 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   createdAt,
  };
 
+ // The row's pre-edit persisted state, for the saved-edit undo/redo stack — same field set as
+ // `payload` above (not the full `Transaction` shape), read straight from `transaction` before
+ // this save overwrites it.
+ const previousPayload: TransactionUpdateInput = {
+  id: transaction.id,
+  accountFromId: transaction.accountFromId,
+  accountToId: transaction.accountToId,
+  currencyId: transaction.currencyId,
+  amount: transaction.amount,
+  type: transaction.type,
+  exchangeRateFrom: transaction.exchangeRateFrom,
+  commissionFrom: transaction.commissionFrom,
+  exchangeRateTo: transaction.exchangeRateTo,
+  commissionTo: transaction.commissionTo,
+  exchangeRateFromReversed: transaction.exchangeRateFromReversed,
+  exchangeRateToReversed: transaction.exchangeRateToReversed,
+  exchangeActualAmount: transaction.exchangeActualAmount,
+  charges: transaction.charges,
+  chargesCurrencyId: transaction.chargesCurrencyId,
+  chargesPayer: transaction.chargesPayer,
+  chargesExchangeRate: transaction.chargesExchangeRate,
+  chargesDescription: transaction.chargesDescription,
+  description: transaction.description,
+  createdAt: transaction.createdAt,
+ };
+
  // Single-row saves check the lock here; batch saves are checked once up-front in
  // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
  if (!skipReload && !(await confirmIfTransactionEditLocked(transaction, payload))) {
@@ -418,6 +522,18 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   // Optimistically reflect the edit so the ledger updates instantly (no page-wide reload,
   // no account jump). The batch saver passes skipReload and reconciles once at the end.
   applyTransactionPatch(payload);
+  pushLedgerEditAction({
+   undo: async () => {
+    await accountingApi.updateTransaction(previousPayload);
+    applyTransactionPatch(previousPayload);
+    await loadData();
+   },
+   redo: async () => {
+    await accountingApi.updateTransaction(payload);
+    applyTransactionPatch(payload);
+    await loadData();
+   },
+  });
   if (!skipReload) void loadData();
   return true;
  } catch (e) {
@@ -819,10 +935,21 @@ async function onSubmitAdjustment() {
  }
 
  try {
-  if (adjustmentModal.editingId) {
-   await accountingApi.updateClientAdjustment({
-    id: adjustmentModal.editingId,
-    ...payloadBase,
+  if (adjustmentModal.editingId && existingAdj) {
+   const updatedAdj: ClientAdjustment = { ...existingAdj, ...payloadBase };
+   await accountingApi.updateClientAdjustment(updatedAdj);
+   applyAdjustmentPatch(updatedAdj);
+   pushLedgerEditAction({
+    undo: async () => {
+     await accountingApi.updateClientAdjustment(existingAdj);
+     applyAdjustmentPatch(existingAdj);
+     await loadData();
+    },
+    redo: async () => {
+     await accountingApi.updateClientAdjustment(updatedAdj);
+     applyAdjustmentPatch(updatedAdj);
+     await loadData();
+    },
    });
   } else {
    await accountingApi.createClientAdjustment({
@@ -1184,5 +1311,6 @@ async function onExportLedgerExcel(
   onLedgerRowDrop,
   onExportLedgerPdf,
   onExportLedgerExcel,
+  combinedLedgerHistory,
  };
 }

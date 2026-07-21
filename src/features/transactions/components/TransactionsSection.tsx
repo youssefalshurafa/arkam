@@ -2614,27 +2614,21 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     ) : txn.isAdjustment ? (
                      txn.exchangeRateFrom !== 1 && txn.currencyCode !== txn.accountFromCurrencyCode ? (
                       <div className="text-xs text-fg-faint">
-                       {txn.exchangeRateFromReversed
-                        ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
-                        : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`)}
+                       {txn.clientFromName}: {txn.exchangeRateFromReversed ? formatRateValue(1 / txn.exchangeRateFrom) : formatRateValue(txn.exchangeRateFrom)}
                       </div>
                      ) : (
                       <span className="text-fg-faint">-</span>
                      )
                     ) : txn.exchangeRateFrom !== 1 || txn.exchangeRateTo !== 1 ? (
-                     <div className="space-y-1">
+                     <div className="space-y-0.5 text-xs">
                       {txn.exchangeRateFrom !== 1 ? (
-                       <div className="text-xs text-fg-faint">
-                        {txn.exchangeRateFromReversed
-                         ? ltrIsolate(`1 ${txn.accountFromCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateFrom)} ${txn.currencyCode}`)
-                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateFrom)} ${txn.accountFromCurrencyCode}`)}
+                       <div>
+                        {txn.clientFromName}: {txn.exchangeRateFromReversed ? formatRateValue(1 / txn.exchangeRateFrom) : formatRateValue(txn.exchangeRateFrom)}
                        </div>
                       ) : null}
                       {txn.exchangeRateTo !== 1 ? (
-                       <div className="text-xs text-fg-faint">
-                        {txn.exchangeRateToReversed
-                         ? ltrIsolate(`1 ${txn.accountToCurrencyCode} = ${formatRateValue(1 / txn.exchangeRateTo)} ${txn.currencyCode}`)
-                         : ltrIsolate(`1 ${txn.currencyCode} = ${formatRateValue(txn.exchangeRateTo)} ${txn.accountToCurrencyCode}`)}
+                       <div>
+                        {txn.clientToName}: {txn.exchangeRateToReversed ? formatRateValue(1 / txn.exchangeRateTo) : formatRateValue(txn.exchangeRateTo)}
                        </div>
                       ) : null}
                      </div>

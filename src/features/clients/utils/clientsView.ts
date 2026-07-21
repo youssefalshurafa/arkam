@@ -19,7 +19,7 @@ export function sortAndFilterClients({ clients, clientSort, clientSearch, langua
   });
   const q = clientSearch.trim().toLowerCase();
   if (!q) return sorted;
-  return sorted.filter((c) => c.name.toLowerCase().includes(q) || (c.organizationName ?? '').toLowerCase().includes(q));
+  return sorted.filter((c) => c.name.toLowerCase().includes(q));
 }
 
 // Groups (already sorted/filtered) clients per organization for the card view,

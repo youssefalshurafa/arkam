@@ -2170,7 +2170,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    return formatRateValue(entry.exchangeRate);
                                   }
                                   const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
-                                  const rateLabel = `\u202A${isReversed ? `1 ${accCurr} = ${rateNumber} ${txCurr}` : `1 ${txCurr} = ${rateNumber} ${accCurr}`}\u202C`;
+                                  const rateLabel = `${entry.counterpartyName}: ${rateNumber}`;
                                   return (
                                    <div className="flex items-center gap-1">
                                     <span title={rateLabel}>{rateNumber}</span>

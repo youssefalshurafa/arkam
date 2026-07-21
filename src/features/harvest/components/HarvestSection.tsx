@@ -7,9 +7,11 @@ import { accountingApi } from '@/lib/accountingApi';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { SkBar } from '@/shared/components/skeletons/Skeletons';
-import { panelClassName, mutedPanelClassName } from '@/shared/styles';
+import { panelClassName, mutedPanelClassName, tableWrapClassName } from '@/shared/styles';
 import { renderIcon } from '@/shared/utils/icons';
-import { formatDateValue, localDateKey } from '@/shared/utils/date';
+import { formatDateValue, formatTimeValue, localDateKey } from '@/shared/utils/date';
+import { formatRateValue } from '@/shared/utils/format';
+import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import type { Client, ClientAccount, ClientAdjustment, Currency, HarvestRate, Section, Transaction } from '@/shared/types';
 import type { PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import PendingPricingModal from '@/features/organizations/components/PendingPricingModal';
@@ -182,6 +184,16 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
       .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
   }, [awaitingPricingByClient, clients, language]);
 
+  // Every non-archived transaction created on the viewed day, oldest first — a plain
+  // read-only listing (no profit/kind breakdown; that lives in the general balance above).
+  const dayTransactions = useMemo(
+    () =>
+      transactions
+        .filter((tx) => !tx.isArchived && tx.createdAt.slice(0, 10) === selectedDay)
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id - b.id),
+    [transactions, selectedDay],
+  );
+
   const mainCode = mainCurrency?.code ?? '';
   const money = (n: number) =>
     Number.isFinite(n) ? n.toLocaleString(numLocale, { maximumFractionDigits: 0 }) : '—';
@@ -353,6 +365,138 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
             {money(profitLossMain)} {mainCode}
           </div>
         </div>
+      </div>
+
+      <div className={panelClassName}>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-fg">{t('harvest_transactions_title')}</span>
+          {dayTransactions.length > 0 ? (
+            <span className="text-xs text-fg-faint">
+              {dayTransactions.length} {t('harvest_tx_count')}
+            </span>
+          ) : null}
+        </div>
+
+        {dayTransactions.length === 0 ? (
+          <p className="mt-4 text-sm text-fg-faint">{t('harvest_no_transactions_today')}</p>
+        ) : (
+          <div className={tableWrapClassName}>
+            <table className="w-full text-sm">
+              <thead className="bg-surface-hover text-fg-muted">
+                <tr>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('harvest_time_column')}</th>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_description')}</th>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_type')}</th>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_from')}</th>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_account_to')}</th>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_amount')}</th>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('transaction_exchange_rate')}</th>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('charges')}</th>
+                  <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('commission')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dayTransactions.map((txn, index) => (
+                  <tr key={txn.id} className={`border-t border-border align-top ${index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'}`}>
+                    <td className="whitespace-nowrap px-4 py-3 text-fg-muted">{formatTimeValue(txn.createdAt)}</td>
+                    <td className="px-4 py-3 text-fg-muted">{txn.description || <span className="text-fg-faint">-</span>}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-fg-muted">{t(transactionTypeLabelKey(txn.type))}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-medium text-fg">
+                      {txn.accountFromId ? (
+                        <>
+                          {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                        </>
+                      ) : (
+                        <span className="italic text-fg-faint">{t('archive_no_sender')}</span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-medium text-fg">
+                      {txn.accountToId ? (
+                        <>
+                          {txn.clientToName} <span className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                        </>
+                      ) : (
+                        <span className="italic text-fg-faint">{t('archive_no_receiver')}</span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-fg-muted">
+                      <span className="font-semibold">{txn.amount.toLocaleString(numLocale)}</span> <span className="text-fg-faint">{txn.currencySymbol || txn.currencyCode}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-fg-muted">
+                      {(() => {
+                        const parts: string[] = [];
+                        if (txn.exchangeRateFrom !== 1) {
+                          const rate = txn.exchangeRateFromReversed ? formatRateValue(1 / txn.exchangeRateFrom) : formatRateValue(txn.exchangeRateFrom);
+                          parts.push(`${txn.clientFromName}: ${rate}`);
+                        }
+                        if (txn.exchangeRateTo !== 1) {
+                          const rate = txn.exchangeRateToReversed ? formatRateValue(1 / txn.exchangeRateTo) : formatRateValue(txn.exchangeRateTo);
+                          parts.push(`${txn.clientToName}: ${rate}`);
+                        }
+                        return parts.length > 0 ? (
+                          <div className="space-y-0.5 text-xs">
+                            {parts.map((p, i) => (
+                              <div key={i}>{p}</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-fg-faint">-</span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-fg-muted">
+                      {txn.charges ? (
+                        <div>
+                          <span className="whitespace-nowrap">
+                            <span>{txn.charges.toLocaleString(numLocale)}</span>
+                            {txn.chargesCurrencyCode && <span className="text-fg-faint"> {txn.chargesCurrencyCode}</span>}
+                          </span>
+                          {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-fg-faint">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
+                          {txn.chargesPayer && (
+                            <div className="text-xs text-fg-faint">
+                              {txn.chargesPayer === 'from'
+                                ? txn.clientFromName
+                                : txn.chargesPayer === 'to'
+                                  ? txn.clientToName
+                                  : txn.chargesPayer === 'me_to_from'
+                                    ? t('charges_payer_me_to_name', { name: txn.clientFromName })
+                                    : txn.chargesPayer === 'me_to_to'
+                                      ? t('charges_payer_me_to_name', { name: txn.clientToName })
+                                      : txn.chargesPayer === 'from_to_me'
+                                        ? t('charges_payer_name_to_me', { name: txn.clientFromName })
+                                        : txn.chargesPayer === 'to_to_me'
+                                          ? t('charges_payer_name_to_me', { name: txn.clientToName })
+                                          : ''}
+                            </div>
+                          )}
+                          {txn.chargesDescription && <div className="text-xs italic text-fg-faint">{txn.chargesDescription}</div>}
+                        </div>
+                      ) : (
+                        <span className="text-fg-faint">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-fg-muted">
+                      {(() => {
+                        const parts: string[] = [];
+                        if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${formatRateValue(txn.commissionFrom)}%`);
+                        if (txn.commissionTo) parts.push(`${txn.clientToName}: ${formatRateValue(txn.commissionTo)}%`);
+                        return parts.length > 0 ? (
+                          <div className="space-y-0.5 text-xs">
+                            {parts.map((p, i) => (
+                              <div key={i}>{p}</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-fg-faint">-</span>
+                        );
+                      })()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {showRatesModal ? (
