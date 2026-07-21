@@ -466,6 +466,11 @@ async function ensureWorkspaceSchema(workspaceId) {
                     CONSTRAINT workspace_settings_singleton CHECK (id = 1)
                 );
 
+                -- When enabled (owner/admin only), blocks creating, editing, re-dating, or deleting
+                -- any transaction/adjustment whose date is yesterday or earlier, for every workspace
+                -- member including owner/admin — enforced server-side in db.js, not just the UI.
+                ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS lock_past_edits BOOLEAN NOT NULL DEFAULT FALSE;
+
                 -- Per-user table layout settings (ledger column visibility/order, transaction
                 -- table settings, etc. — the same snapshot shape as the owner-shared settings
                 -- above). Persisted server-side per (user, workspace) so a user's layout choices

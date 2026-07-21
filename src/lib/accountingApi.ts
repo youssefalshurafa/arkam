@@ -1,3 +1,5 @@
+import { localDateKey } from '@/shared/utils/date';
+
 const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
 
 type ApiOptions = {
@@ -47,6 +49,9 @@ async function request<T>({ action, payload }: ApiOptions, hasRetried = false): 
    headers: {
     'Content-Type': 'application/json',
     ...(workspaceId ? { 'x-workspace-id': workspaceId } : {}),
+    // This client's own local "today" — used server-side by the past-edit lock check so
+    // the boundary matches the user's wall-clock day, not the server's (see route.ts).
+    'x-client-date': localDateKey(),
    },
    body: JSON.stringify({ action, payload }),
   });
@@ -318,6 +323,7 @@ export const accountingApi = {
  getWorkspaceSettings: () => request<WorkspaceSharedSettings>({ action: 'getWorkspaceSettings' }),
  saveWorkspaceSettings: (payload: { sharedEnabled?: boolean; settings?: Record<string, string> }) =>
   request<WorkspaceSharedSettings>({ action: 'saveWorkspaceSettings', payload }),
+ saveWorkspacePastEditLock: (enabled: boolean) => request<{ lockPastEditsEnabled: boolean }>({ action: 'saveWorkspacePastEditLock', payload: enabled }),
  getUserTableSettings: () => request<Record<string, string>>({ action: 'getUserTableSettings' }),
  saveUserTableSettings: (settings: Record<string, string>) => request<{ ok: true }>({ action: 'saveUserTableSettings', payload: settings }),
 };
@@ -328,6 +334,7 @@ export type WorkspaceSharedSettings = {
  sharedEnabled: boolean;
  settings: Record<string, string>;
  version: number;
+ lockPastEditsEnabled: boolean;
 };
 
 export type BackupInfo = {
@@ -335,7 +342,7 @@ export type BackupInfo = {
  lastBackupDevice: string | null;
 };
 
-export type WorkspaceRole = 'admin' | 'member' | 'viewer';
+export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export type WorkspaceMember = {
  id: string;

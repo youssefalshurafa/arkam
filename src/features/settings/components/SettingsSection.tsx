@@ -36,8 +36,11 @@ type SettingsSectionProps = {
  setImportSummary: Dispatch<SetStateAction<string>>;
  isEditorRole: boolean;
  isWorkspaceOwner: boolean;
+ isWorkspaceOwnerOrAdmin: boolean;
  sharedSettingsEnabled: boolean;
  setWorkspaceSharedSettingsEnabled: (enabled: boolean) => void;
+ lockPastEditsEnabled: boolean;
+ setWorkspacePastEditLock: (enabled: boolean) => void;
  isBackingUp: boolean;
  isRestoringBackup: boolean;
  backupRestoreInputRef: React.RefObject<HTMLInputElement | null>;
@@ -84,8 +87,11 @@ export default function SettingsSection({
  setImportSummary,
  isEditorRole,
  isWorkspaceOwner,
+ isWorkspaceOwnerOrAdmin,
  sharedSettingsEnabled,
  setWorkspaceSharedSettingsEnabled,
+ lockPastEditsEnabled,
+ setWorkspacePastEditLock,
  isBackingUp,
  isRestoringBackup,
  backupRestoreInputRef,
@@ -215,6 +221,32 @@ export default function SettingsSection({
         </button>
        </div>
        {sharedSettingsEnabled ? <p className="mt-3 text-xs text-fg-faint">{t('shared_settings_active_hint')}</p> : null}
+      </div>
+     ) : null}
+     {isWorkspaceOwnerOrAdmin ? (
+      <div className={panelClassName}>
+       <div className="flex items-start justify-between gap-4">
+        <div>
+         <h3 className="text-lg font-semibold">{t('lock_past_edits_title')}</h3>
+         <p className="mt-1 text-sm text-fg-muted">{t('lock_past_edits_description')}</p>
+        </div>
+        <button
+         type="button"
+         role="switch"
+         aria-checked={lockPastEditsEnabled}
+         onClick={() => setWorkspacePastEditLock(!lockPastEditsEnabled)}
+         className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${lockPastEditsEnabled ? 'bg-blue-600' : 'bg-slate-300'}`}
+        >
+         {/* translate-x is physical, so in RTL the knob must move the opposite way or it
+             slides off the track — flip the sign when the layout is right-to-left. */}
+         <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-surface shadow transition ${
+           lockPastEditsEnabled ? (isRTL ? '-translate-x-5' : 'translate-x-5') : isRTL ? '-translate-x-0.5' : 'translate-x-0.5'
+          }`}
+         />
+        </button>
+       </div>
+       {lockPastEditsEnabled ? <p className="mt-3 text-xs text-fg-faint">{t('lock_past_edits_active_hint')}</p> : null}
       </div>
      ) : null}
     </div>

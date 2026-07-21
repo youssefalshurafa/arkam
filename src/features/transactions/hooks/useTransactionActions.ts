@@ -76,6 +76,7 @@ type UseTransactionActionsParams = {
  onDeleteAdjustment: (id: number, opts?: { offerUndo?: boolean }) => Promise<void>;
  pushSharedSettingsIfOwner: () => void;
  pushUserTableSettings: () => void;
+ lockPastEditsEnabled: boolean;
 };
 
 /**
@@ -117,6 +118,7 @@ export function useTransactionActions({
  onDeleteAdjustment,
  pushSharedSettingsIfOwner,
  pushUserTableSettings,
+ lockPastEditsEnabled,
 }: UseTransactionActionsParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
@@ -127,9 +129,10 @@ export function useTransactionActions({
  const setAdjustments = setters.setAdjustments;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
- const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked } = useReconciliationLocks({
+ const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({
   reconciliations,
   clientAccountMap,
+  lockPastEditsEnabled,
  });
  const { applyTransactionPatch, applyAdjustmentPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
 
@@ -397,6 +400,10 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
  // A new entry lands at the end of its date's sequence (top of the table / bottom of the
  // ledger), after any same-day rows the user manually reordered.
  const newTransactionCreatedAt = editing ? resolveCreatedAt(newTransactionDate, editing.createdAt) : nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
+
+ if (blockedByPastEditLock([editing?.createdAt, newTransactionCreatedAt], isArchiveCreate)) {
+  return;
+ }
 
  if (isAdjustmentTransaction && !isArchiveCreate) {
   if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
@@ -1401,6 +1408,9 @@ async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {
  }
 
  const tx = transactions.find((t) => t.id === id);
+ if (blockedByPastEditLock([tx?.createdAt], Boolean(tx?.isArchived))) {
+  return;
+ }
  if (!(await confirmDeleteWithLock(tx ? [tx.accountFromId, tx.accountToId] : [], tx?.createdAt ?? '', id, 'transaction_delete_confirm'))) {
   return;
  }
@@ -1608,6 +1618,16 @@ async function onDeleteSelectedTransactions() {
  const idsToDelete = [...selectedTransactionIds];
  if (!idsToDelete.length) {
   setError('No transactions selected.');
+  return;
+ }
+
+ // Archived transactions are exempt from the lock (see db.js's createTransaction comment),
+ // so only non-archived rows' dates count toward the check — a mixed selection must still
+ // be blocked on account of its non-archived members even if some rows are exempt.
+ const selectedCreatedAts = idsToDelete
+  .map((id) => (id < 0 ? adjustments.find((a) => a.id === -id)?.createdAt : transactions.find((t) => t.id === id && !t.isArchived)?.createdAt))
+  .filter((value): value is string => Boolean(value));
+ if (blockedByPastEditLock(selectedCreatedAts)) {
   return;
  }
 
@@ -1826,6 +1846,10 @@ async function onSaveTransactionTableRow(transactionId: number, { skipReload = f
     return next;
    });
   }
+  return;
+ }
+
+ if (blockedByPastEditLock([transaction.createdAt, resolveCreatedAt(draft.createdDate, transaction.createdAt)], Boolean(transaction.isArchived))) {
   return;
  }
 

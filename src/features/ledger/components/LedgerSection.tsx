@@ -17,7 +17,7 @@ import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
-import { formatDateValue, localDateKey } from '@/shared/utils/date';
+import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
@@ -83,6 +83,7 @@ type LedgerSectionProps = {
  openOrganizationClientsPage: (organization: Organization) => void;
  navigateToSection: (section: Section) => void;
  loadData: () => Promise<void> | void;
+ lockPastEditsEnabled: boolean;
 };
 
 export default function LedgerSection(props: LedgerSectionProps) {
@@ -93,7 +94,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openAdjustmentModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
-  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight,
+  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled,
  } = props;
  const router = useRouter();
  const { language, isRTL } = useLanguage();
@@ -1356,6 +1357,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     const openRowMenu = (event: ReactMouseEvent) => {
                      const rowKeyForMenu = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                      if (editingLedgerRowKeys.has(rowKeyForMenu)) return;
+                     const rowLocked = lockPastEditsEnabled && isBeforeToday(entry.createdAt);
                      setContextMenuRowKey(rowKeyForMenu);
                      // Right-clicking a row that's part of a multi-selection offers bulk actions
                      // (edit / delete) that apply to every selected entry at once; otherwise the
@@ -1368,7 +1370,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       return;
                      }
                      rowContextMenu.open(event, [
-                      { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId) },
+                      { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       ...(entry.isAdjustment
                        ? []
                        : [{ key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) }]),
@@ -1378,7 +1380,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       ...(entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= SMALL_BALANCE_THRESHOLD
                        ? [{ key: 'writeoff', label: t('write_off_row_action'), onSelect: () => onWriteOffLedgerRow(entry, ledger.accountId) }]
                        : []),
-                      { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const },
+                      { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
                      ]);
                     };
                     return (
@@ -1612,6 +1614,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 type="date"
                                 value={draft.createdDate}
                                 max={localDateKey()}
+                                min={lockPastEditsEnabled ? localDateKey() : undefined}
                                 onChange={(event) =>
                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value > localDateKey() ? localDateKey() : event.target.value })
                                 }

@@ -34,6 +34,14 @@ export function parseLocalWallClock(value: string): number {
  return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s), Number(ms ?? '0')).getTime();
 }
 
+// Whether a row's date falls before today (yesterday or earlier) — used together with the
+// workspace's "lock past-dated edits" setting to grey out edit/delete controls in the UI.
+// The actual enforcement lives server-side (route.ts/db.js); this only decides what the
+// button looks like.
+export function isBeforeToday(createdAt: string): boolean {
+ return createdAt.slice(0, 10) < localDateKey();
+}
+
 export function formatDateValue(value: string, dateFormat: PdfSettings['dateFormat']) {
  const iso = value.slice(0, 10);
  const [y = '', m = '', d = ''] = iso.split('-');

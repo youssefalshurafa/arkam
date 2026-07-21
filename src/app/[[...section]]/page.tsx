@@ -663,6 +663,7 @@ function AuthenticatedHome() {
  // still tweak locally between pushes (their "override"). Shareable settings are a
  // snapshot of the relevant localStorage keys (see sharedTableSettings.ts).
  const isWorkspaceOwner = userWorkspaces.find((workspace) => workspace.id === activeWorkspaceId)?.role === 'owner';
+ const isWorkspaceOwnerOrAdmin = isWorkspaceOwner || userWorkspaces.find((workspace) => workspace.id === activeWorkspaceId)?.role === 'admin';
 
  const workspaceSettingsQuery = useQuery({
   queryKey: queryKeys.workspaceSettings(activeWorkspaceId),
@@ -673,6 +674,25 @@ function AuthenticatedHome() {
  const sharedSettingsEnabled = workspaceSettingsQuery.data?.sharedEnabled ?? false;
  const sharedSettingsPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
  const lastPushedSharedSnapshot = useRef<string | null>(null);
+
+ // --- Past-edit lock (owner/admin-controlled) --------------------------------
+ // When enabled, no workspace member — including owner/admin — can create, edit,
+ // re-date, or delete a transaction/adjustment dated yesterday or earlier. Enforced
+ // server-side (route.ts/db.js); this flag just drives the UI so the controls are
+ // disabled/hidden instead of failing at save time.
+ const lockPastEditsEnabled = workspaceSettingsQuery.data?.lockPastEditsEnabled ?? false;
+
+ async function setWorkspacePastEditLock(enabled: boolean) {
+  try {
+   const result = await accountingApi.saveWorkspacePastEditLock(enabled);
+   queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), (current: typeof workspaceSettingsQuery.data) =>
+    current ? { ...current, lockPastEditsEnabled: result.lockPastEditsEnabled } : current,
+   );
+   void workspaceSettingsQuery.refetch();
+  } catch (error) {
+   setError(error instanceof Error ? error.message : t('error_failed_save'));
+  }
+ }
 
  // Apply the owner's shared settings whenever the server version advances past what
  // this browser last applied (later local edits stand until the next owner push).
@@ -1383,7 +1403,7 @@ function AuthenticatedHome() {
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, confirmIfEditLocked } = useReconciliationLocks({ reconciliations, clientAccountMap });
+ const { confirmIfTransactionEditLocked, confirmIfEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoints the ledger edit uses. When not reversed the rate
@@ -1406,6 +1426,7 @@ function AuthenticatedHome() {
     if (entry.kind === 'adjustment' && entry.adjustmentId != null) {
      const adj = adjustments.find((a) => a.id === entry.adjustmentId);
      if (!adj) return false;
+     if (blockedByPastEditLock([adj.createdAt])) return false;
      if (!(await confirmIfEditLocked([adj.accountId], adj.createdAt, [adj.accountId], adj.createdAt, adj.id))) {
       return false;
      }
@@ -1435,6 +1456,7 @@ function AuthenticatedHome() {
       archiveNote: tx.archiveNote,
       createdAt: tx.createdAt,
      };
+     if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return false;
      if (!(await confirmIfTransactionEditLocked(tx, payload))) {
       return false;
      }
@@ -1450,7 +1472,7 @@ function AuthenticatedHome() {
     return false;
    }
   },
-  [adjustments, transactions, confirmIfEditLocked, confirmIfTransactionEditLocked, loadData, setError, t],
+  [adjustments, transactions, confirmIfEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
  );
 
  // Applies a partial field patch to a stored transaction — every field not in `patch` is
@@ -1486,6 +1508,7 @@ function AuthenticatedHome() {
     createdAt: tx.createdAt,
     ...patch,
    };
+   if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return;
    if (!(await confirmIfTransactionEditLocked(tx, payload))) {
     return;
    }
@@ -1497,7 +1520,7 @@ function AuthenticatedHome() {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
    }
   },
-  [transactions, confirmIfTransactionEditLocked, loadData, setError, t],
+  [transactions, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
  );
 
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
@@ -1613,6 +1636,7 @@ function AuthenticatedHome() {
    onDeleteAdjustment,
    pushSharedSettingsIfOwner,
    pushUserTableSettings,
+   lockPastEditsEnabled,
   });
  updateImportReviewEntryImpl = updateImportReviewEntryFromTx;
 
@@ -1711,6 +1735,7 @@ function AuthenticatedHome() {
    pushSharedSettingsIfOwner,
    pushUserTableSettings,
    ledgerHistory,
+   lockPastEditsEnabled,
   });
   onDeleteAdjustmentImpl = onDeleteAdjustmentFromLedger;
 
@@ -1942,8 +1967,11 @@ function AuthenticatedHome() {
    setImportSummary={setImportSummary}
    isEditorRole={isEditorRole}
    isWorkspaceOwner={isWorkspaceOwner}
+   isWorkspaceOwnerOrAdmin={isWorkspaceOwnerOrAdmin}
    sharedSettingsEnabled={sharedSettingsEnabled}
    setWorkspaceSharedSettingsEnabled={setWorkspaceSharedSettingsEnabled}
+   lockPastEditsEnabled={lockPastEditsEnabled}
+   setWorkspacePastEditLock={setWorkspacePastEditLock}
    isBackingUp={isBackingUp}
    isRestoringBackup={isRestoringBackup}
    backupRestoreInputRef={backupRestoreInputRef}
@@ -2234,6 +2262,7 @@ function AuthenticatedHome() {
        {section === 'client-ledger' ? (
         <LedgerSection
          isLoading={isLoading}
+         lockPastEditsEnabled={lockPastEditsEnabled}
          clients={clients}
          clientAccounts={clientAccounts}
          currencyMap={currencyMap}
@@ -2316,6 +2345,7 @@ function AuthenticatedHome() {
        {section === 'transactions' || section === 'archive' ? (
         <TransactionsSection
          isLoading={isLoading}
+         lockPastEditsEnabled={lockPastEditsEnabled}
          section={section}
          clients={clients}
          clientAccounts={clientAccounts}
@@ -2410,7 +2440,18 @@ function AuthenticatedHome() {
     />
    ) : null}
 
-   <AdjustmentModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} localizedCurrencies={localizedCurrencies} clientAccounts={clientAccounts} currencyMap={currencyMap} enabledCurrencies={enabledCurrencies} adjustments={adjustments} onSubmitAdjustment={onSubmitAdjustment} onDeleteAdjustment={onDeleteAdjustment} />
+   <AdjustmentModal
+    selectedClientLedgers={selectedClientLedgers}
+    selectedClientForLedger={selectedClientForLedger}
+    localizedCurrencies={localizedCurrencies}
+    clientAccounts={clientAccounts}
+    currencyMap={currencyMap}
+    enabledCurrencies={enabledCurrencies}
+    adjustments={adjustments}
+    onSubmitAdjustment={onSubmitAdjustment}
+    onDeleteAdjustment={onDeleteAdjustment}
+    lockPastEditsEnabled={lockPastEditsEnabled}
+   />
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />
 
