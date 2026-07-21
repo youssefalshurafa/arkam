@@ -342,7 +342,7 @@ export function generateLedgerHtml(
      return formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate);
     },
    },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment ? '-' : formatRateValue(e.commission)) },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment || !e.commission ? '-' : formatRateValue(e.commission)) },
    {
     key: 'netChange',
     header: t('net_change'),
