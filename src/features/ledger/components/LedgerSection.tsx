@@ -106,7 +106,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const setError = useAppStatusStore((s) => s.setError);
  // Opens the shared read-only transaction "More info" popup (mounted at page level).
  const setInfoTransactionId = useTransactionsStore((s) => s.setInfoTransactionId);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
  // sit at the bottom of the scrollable table. Jump there on open (and whenever the
@@ -466,50 +466,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
               className="cursor-pointer rounded border border-purple-500 bg-violet-bg px-4 py-2 text-sm font-semibold text-violet-text transition hover:bg-violet-bg"
              >
               {t('adjustment_add')}
-             </button>
-             <button
-              type="button"
-              title={t('undo')}
-              onClick={ledgerHistory.undo}
-              disabled={!ledgerHistory.canUndo}
-              className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-             >
-              <svg
-               width="16"
-               height="16"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="1.8"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               aria-hidden
-              >
-               <path d="M9 14 4 9l5-5" />
-               <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
-              </svg>
-             </button>
-             <button
-              type="button"
-              title={t('redo')}
-              onClick={ledgerHistory.redo}
-              disabled={!ledgerHistory.canRedo}
-              className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-             >
-              <svg
-               width="16"
-               height="16"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="1.8"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               aria-hidden
-              >
-               <path d="m15 14 5-5-5-5" />
-               <path d="M20 9H9a5 5 0 0 0 0 10h1" />
-              </svg>
              </button>
              <button
               type="button"
@@ -1039,6 +995,50 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     onZoomChange={changeTableZoom}
                     className=""
                    />
+                   <button
+                    type="button"
+                    title={t('undo')}
+                    onClick={ledgerHistory.undo}
+                    disabled={!ledgerHistory.canUndo}
+                    className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                   >
+                    <svg
+                     width="16"
+                     height="16"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="1.8"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="M9 14 4 9l5-5" />
+                     <path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+                    </svg>
+                   </button>
+                   <button
+                    type="button"
+                    title={t('redo')}
+                    onClick={ledgerHistory.redo}
+                    disabled={!ledgerHistory.canRedo}
+                    className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                   >
+                    <svg
+                     width="16"
+                     height="16"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth="1.8"
+                     strokeLinecap="round"
+                     strokeLinejoin="round"
+                     aria-hidden
+                    >
+                     <path d="m15 14 5-5-5-5" />
+                     <path d="M20 9H9a5 5 0 0 0 0 10h1" />
+                    </svg>
+                   </button>
                   </div>
                  </div>
                 );
@@ -1661,8 +1661,182 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                (() => {
                                 const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                                 const selectedAccount = clientAccounts.find((account) => account.id === draft.counterpartyAccountId);
+                                const selfAccount = clientAccounts.find((account) => account.id === draft.ledgerAccountId);
+                                const selfReassigned = draft.ledgerAccountId !== ledger.accountId;
+                                const selfPickerOpen = ledgerSelfAccountOpen === rowKey;
                                 return (
                                  <div className="flex items-center gap-1">
+                                  <div className="relative shrink-0">
+                                   {selfPickerOpen ? (
+                                    <input
+                                     type="text"
+                                     value={ledgerSelfAccountQuery}
+                                     onChange={(e) => setLedgerSelfAccountQuery(e.target.value)}
+                                     onBlur={() => {
+                                      const capturedKey = rowKey;
+                                      setTimeout(() => setLedgerSelfAccountOpen((current) => (current === capturedKey ? null : current)), 150);
+                                     }}
+                                     placeholder={t('transaction_account_placeholder')}
+                                     style={{ width: '10rem' }}
+                                     className={`${seamlessInputClassName} text-xs text-fg`}
+                                     autoComplete="off"
+                                     autoFocus
+                                    />
+                                   ) : (
+                                    <button
+                                     type="button"
+                                     title={t('ledger_change_self_account')}
+                                     onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      setLedgerSelfAccountQuery('');
+                                      setLedgerSelfAccountOpen(rowKey);
+                                     }}
+                                     className={`flex shrink-0 items-center gap-1 rounded px-1 py-1 text-xs font-medium transition hover:bg-surface-hover ${
+                                      selfReassigned ? 'text-accent' : 'text-fg-faint hover:text-accent'
+                                     }`}
+                                    >
+                                     {selfReassigned && selfAccount ? (
+                                      <span>
+                                       {selfAccount.clientName} · {selfAccount.currencyCode}
+                                      </span>
+                                     ) : null}
+                                     <svg
+                                      width="12"
+                                      height="12"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="1.8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      aria-hidden
+                                     >
+                                      <path d="M12 20h9" />
+                                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                     </svg>
+                                    </button>
+                                   )}
+                                   {selfReassigned && !selfPickerOpen ? (
+                                    <button
+                                     type="button"
+                                     onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { ledgerAccountId: ledger.accountId });
+                                      setLedgerSelfAccountQuery('');
+                                      setLedgerSelfAccountOpen(null);
+                                     }}
+                                     title={t('ledger_reset_self_account')}
+                                     className="ms-0.5 rounded p-0.5 text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
+                                    >
+                                     <svg
+                                      width="10"
+                                      height="10"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2.5"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      aria-hidden
+                                     >
+                                      <line
+                                       x1="18"
+                                       y1="6"
+                                       x2="6"
+                                       y2="18"
+                                      />
+                                      <line
+                                       x1="6"
+                                       y1="6"
+                                       x2="18"
+                                       y2="18"
+                                      />
+                                     </svg>
+                                    </button>
+                                   ) : null}
+                                   {selfPickerOpen && (
+                                    <ul className="absolute z-30 mt-1 max-h-48 w-52 overflow-y-auto rounded border border-border bg-surface text-xs shadow-lg">
+                                     {(() => {
+                                      const q = ledgerSelfAccountQuery.trim().toLowerCase();
+                                      const byClient = new Map<number, ClientAccount[]>();
+                                      for (const a of clientAccounts) {
+                                       if (a.id === draft.counterpartyAccountId) continue;
+                                       if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
+                                       const arr = byClient.get(a.clientId) ?? [];
+                                       arr.push(a);
+                                       byClient.set(a.clientId, arr);
+                                      }
+                                      const groups = [...byClient.values()];
+                                      if (groups.length === 0) {
+                                       return <li className="px-3 py-2 text-fg-faint">{t('transaction_account_placeholder')}</li>;
+                                      }
+                                      const selectSelfAccount = (id: number) => {
+                                       updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { ledgerAccountId: id });
+                                       setLedgerSelfAccountQuery('');
+                                       setLedgerSelfAccountOpen(null);
+                                       setLedgerSelfAccountExpandedClient(null);
+                                      };
+                                      return groups.map((accts) => {
+                                       const clientId = accts[0].clientId;
+                                       if (accts.length === 1) {
+                                        const account = accts[0];
+                                        return (
+                                         <li
+                                          key={`sg${clientId}`}
+                                          onMouseDown={() => selectSelfAccount(account.id)}
+                                          className={`cursor-pointer px-3 py-1.5 hover:bg-accent-weak ${draft.ledgerAccountId === account.id ? 'bg-accent-weak font-medium text-accent' : 'text-fg'}`}
+                                         >
+                                          {account.clientName} · {account.currencyCode}
+                                         </li>
+                                        );
+                                       }
+                                       const expanded = !!q || ledgerSelfAccountExpandedClient === clientId;
+                                       const hasSelected = accts.some((a) => a.id === draft.ledgerAccountId);
+                                       return (
+                                        <Fragment key={`sg${clientId}`}>
+                                         <li
+                                          onMouseDown={(e) => {
+                                           e.preventDefault();
+                                           setLedgerSelfAccountExpandedClient(expanded && !q ? null : clientId);
+                                          }}
+                                          className={`flex cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-accent-weak ${hasSelected ? 'font-medium text-accent' : 'text-fg'}`}
+                                         >
+                                          <span>{accts[0].clientName}</span>
+                                          <span className="flex items-center gap-1 text-fg-faint">
+                                           {accts.length}
+                                           <svg
+                                            width="10"
+                                            height="10"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+                                            aria-hidden
+                                           >
+                                            <path d="m6 9 6 6 6-6" />
+                                           </svg>
+                                          </span>
+                                         </li>
+                                         {expanded &&
+                                          accts.map((account) => (
+                                           <li
+                                            key={account.id}
+                                            onMouseDown={() => selectSelfAccount(account.id)}
+                                            className={`cursor-pointer py-1.5 ps-7 pe-3 hover:bg-accent-weak ${draft.ledgerAccountId === account.id ? 'bg-accent-weak font-medium text-accent' : 'text-fg-muted'}`}
+                                           >
+                                            {account.currencyCode}
+                                           </li>
+                                          ))}
+                                        </Fragment>
+                                       );
+                                      });
+                                     })()}
+                                    </ul>
+                                   )}
+                                  </div>
                                   <div className="relative">
                                    <input
                                     type="text"
@@ -1734,7 +1908,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       const q = ledgerCounterpartyQuery.trim().toLowerCase();
                                       const byClient = new Map<number, ClientAccount[]>();
                                       for (const a of clientAccounts) {
-                                       if (a.id === ledger.accountId) continue;
+                                       if (a.id === draft.ledgerAccountId) continue;
                                        if (q && !`${a.clientName} ${a.currencyCode}`.toLowerCase().includes(q)) continue;
                                        const arr = byClient.get(a.clientId) ?? [];
                                        arr.push(a);

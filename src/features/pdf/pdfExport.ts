@@ -35,7 +35,7 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
     cell: (tx) =>
      tx.accountFromId
       ? `${esc(tx.clientFromName)} <span style="color:#64748b">${esc(tx.accountFromCurrencyCode)}</span>`
-      : `<span class="muted">${esc(t('archive_no_sender'))}</span>`,
+      : `<span class="muted">-</span>`,
    },
    {
     key: 'accountTo',
@@ -43,7 +43,7 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
     cell: (tx) =>
      tx.accountToId
       ? `${esc(tx.clientToName)} <span style="color:#64748b">${esc(tx.accountToCurrencyCode)}</span>`
-      : `<span class="muted">${esc(t('archive_no_receiver'))}</span>`,
+      : `<span class="muted">-</span>`,
    },
    {
     key: 'amount',

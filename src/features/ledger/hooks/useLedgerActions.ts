@@ -411,7 +411,9 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  // An explicitly-entered rate is stored as given — including 0, so a same-currency row can be
  // zeroed out (contributing 0 to the balance) instead of being forced to 1. An empty field
  // falls back to the default: 0 (pending, excluded from balance) cross-currency, 1 same-currency.
- const ledgerAccount = clientAccounts.find((a) => a.id === ledgerAccountId);
+ // Uses draft.ledgerAccountId (not the ledgerAccountId param) so this reflects the account
+ // actually selected for this side, in case it was reassigned to a different client/account.
+ const ledgerAccount = clientAccounts.find((a) => a.id === draft.ledgerAccountId);
  const crossCurrency = ledgerAccount != null && ledgerAccount.currencyId !== draft.currencyId;
  const parsedLedgerRate = parseFloat(draft.exchangeRate);
  const rateEntered = draft.exchangeRate.trim() !== '' && Number.isFinite(parsedLedgerRate) && parsedLedgerRate >= 0;
@@ -431,6 +433,10 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  const originalCounterpartyId = originalIsOutgoing ? transaction.accountToId : transaction.accountFromId;
  if ((originalCounterpartyId != null && !draft.counterpartyAccountId) || !amount || draft.currencyId == null) {
   setError(t('transaction_required'));
+  return false;
+ }
+ if (draft.ledgerAccountId === draft.counterpartyAccountId) {
+  setError(t('ledger_self_account_conflict'));
   return false;
  }
 
@@ -624,7 +630,9 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
   } else {
    const tx = transactions.find((t) => t.id === parseInt(txIdStr, 10));
    if (!tx) continue;
-   batchLockHit = violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries) ?? violatedLock([accId, draft.counterpartyAccountId], resolveCreatedAt(draft.createdDate, tx.createdAt), tx.id, lockBoundaries);
+   batchLockHit =
+    violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries) ??
+    violatedLock([draft.ledgerAccountId, draft.counterpartyAccountId], resolveCreatedAt(draft.createdDate, tx.createdAt), tx.id, lockBoundaries);
   }
   if (batchLockHit) break;
  }
