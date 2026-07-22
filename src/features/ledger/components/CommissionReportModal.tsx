@@ -3,18 +3,19 @@
 import { useEffect, useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { compactFieldInputClassName, compactFieldLabelClassName } from '@/shared/styles';
+import { compactFieldInputClassName, compactFieldLabelClassName, seamlessInputClassName } from '@/shared/styles';
 import { normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { computeDistributionBreakdown, groupEntriesByDescription } from '@/features/ledger/utils/distributionCommission';
-import type { ClientAccount, ClientAccountLedger, ClientLedgerEntry } from '@/shared/types';
+import type { ClientAccount, ClientAccountLedger, ClientLedgerEntry, TransactionUpdateInput } from '@/shared/types';
 
 type CommissionReportModalProps = {
  ledgers: ClientAccountLedger[];
  clientAccounts: ClientAccount[];
+ onUpdateTransactionFields: (transactionId: number, patch: Partial<TransactionUpdateInput>) => void | Promise<void>;
 };
 
 // On-demand "Commission Distribution" report popup (see Client.distributionCommissionEnabled)
@@ -26,7 +27,7 @@ type CommissionReportModalProps = {
 // description among outgoing rows becomes a "settlement" candidate (mark as settlement, or leave
 // ignored). Only classified rows enter the math. Never books anything on its own — "Insert
 // commission" hands off to the existing add-adjustment modal for the user to review and confirm.
-export default function CommissionReportModal({ ledgers, clientAccounts }: CommissionReportModalProps) {
+export default function CommissionReportModal({ ledgers, clientAccounts, onUpdateTransactionFields }: CommissionReportModalProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  const numLocale = language === 'fr' ? 'en-US' : language;
@@ -124,6 +125,11 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
  const breakdownByDescription = new Map(breakdown.receiving.map((row) => [row.description, row]));
  const includedReceivingCount = breakdown.receiving.length;
  const includedSettlementCount = settlementGroups.filter((g) => commissionModal.settlementSelections[g.description]).length;
+ // Real transactions (not adjustments) among the checked settlement rows — these are what can
+ // actually carry a per-row commission % (adjustments have no exchange-rate/commission fields).
+ const settlementTransactionTargets = rangeEntries.filter(
+  (entry) => entry.direction === 'outgoing' && !entry.isAdjustment && commissionModal.settlementSelections[entry.description],
+ );
 
  function close() {
   setCommissionModal(null);
@@ -292,6 +298,19 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
   close();
  }
 
+ // Alternative to inserting a separate adjustment row: fold the same total commission into the
+ // settlement transactions themselves by giving each one the equivalent commission % (the
+ // ledger already supports a per-transaction commission rate on real transactions — this just
+ // sets it to whatever rate reproduces this report's total across the checked settlement rows).
+ async function applyCommissionToSettlement() {
+  if (!breakdown || breakdown.totalCommission <= 0 || breakdown.totalSettled <= 0 || settlementTransactionTargets.length === 0) return;
+  const percent = (breakdown.totalCommission / breakdown.totalSettled) * 100;
+  for (const entry of settlementTransactionTargets) {
+   await onUpdateTransactionFields(entry.transactionId, { commissionFrom: percent });
+  }
+  close();
+ }
+
  return (
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
    <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded bg-surface p-6 shadow-2xl">
@@ -419,7 +438,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
               disabled={!included}
               value={selection?.rate ?? ''}
               onChange={(event) => setReceivingRate(group.description, normalizePlainDecimalInput(event.target.value))}
-              className={`${compactFieldInputClassName} w-16 disabled:cursor-not-allowed disabled:opacity-50`}
+              className={`${seamlessInputClassName} min-w-6 text-sm text-fg disabled:cursor-not-allowed disabled:opacity-50`}
               placeholder="0"
              />
              %
@@ -515,6 +534,25 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
      >
       {t('cancel')}
      </button>
+     {(() => {
+      const settlementPercentDisabled = breakdown.totalCommission <= 0 || breakdown.totalSettled <= 0 || settlementTransactionTargets.length === 0;
+      const settlementPercent = breakdown.totalSettled > 0 ? (breakdown.totalCommission / breakdown.totalSettled) * 100 : 0;
+      return (
+       <button
+        type="button"
+        onClick={() => void applyCommissionToSettlement()}
+        disabled={settlementPercentDisabled}
+        title={
+         settlementPercentDisabled
+          ? undefined
+          : t('commission_report_apply_to_settlement_hint', { percent: settlementPercent.toLocaleString(numLocale, { maximumFractionDigits: 2 }) })
+        }
+        className="rounded border border-good-text/50 px-4 py-2 text-sm font-semibold text-good-text hover:bg-good-bg disabled:cursor-not-allowed disabled:opacity-40"
+       >
+        {t('commission_report_apply_to_settlement')}
+       </button>
+      );
+     })()}
      <button
       type="button"
       onClick={insertCommission}

@@ -178,6 +178,8 @@
  "distribution_panel_range_clear": "Clear range",
  "commission_report_action": "Calculate commission",
  "commission_report_insert": "Insert commission",
+ "commission_report_apply_to_settlement": "Add as % to settlement",
+ "commission_report_apply_to_settlement_hint": "Sets each settlement transaction's commission rate to {{percent}}%, reproducing this total without a separate row.",
  "commission_report_description_prefix": "Refund",
  "commission_report_hint": "Classifies this range's transactions by their own description. Incoming ones are receiving candidates (assign a commission rate, or leave unchecked to ignore); outgoing ones are settlement candidates (check to include, or leave unchecked to ignore). Only checked rows enter the calculation.",
  "commission_report_receiving_heading": "Receiving",

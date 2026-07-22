@@ -2461,6 +2461,7 @@ function AuthenticatedHome() {
    <CommissionReportModal
     ledgers={selectedClientLedgers}
     clientAccounts={clientAccounts}
+    onUpdateTransactionFields={onUpdateTransactionFields}
    />
 
    <TransactionDetailsModal transactions={transactions} onUpdateTransactionFields={onUpdateTransactionFields} />

@@ -2538,7 +2538,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                })()
                               ) : entry.commission ? (
                                <span className={entry.commission < 0 ? 'font-semibold text-bad-text' : 'font-semibold text-good-text'}>
-                                {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}%
+                                {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}%
                                </span>
                               ) : (
                                <span className="text-fg-faint">-</span>

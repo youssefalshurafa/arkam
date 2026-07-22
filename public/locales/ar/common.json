@@ -179,6 +179,8 @@
  "distribution_panel_range_clear": "إزالة النطاق",
  "commission_report_action": "احتساب العمولة",
  "commission_report_insert": "إدراج العمولة",
+ "commission_report_apply_to_settlement": "أضف كنسبة إلى التسوية",
+ "commission_report_apply_to_settlement_hint": "يضبط نسبة العمولة لكل معاملة تسوية إلى {{percent}}٪، لإنتاج نفس الإجمالي دون صف منفصل.",
  "commission_report_description_prefix": "راجع",
  "commission_report_hint": "يصنّف معاملات هذا النطاق حسب وصف كل معاملة. المعاملات الواردة تُعد مرشحة للاستلام (حدد نسبة عمولة، أو اتركها غير محددة لتجاهلها)؛ والمعاملات الصادرة تُعد مرشحة للتسوية (حدد المربع لتضمينها، أو اتركه فارغاً لتجاهلها). فقط الصفوف المحددة تدخل في الاحتساب.",
  "commission_report_receiving_heading": "الاستلام",
