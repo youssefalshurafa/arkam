@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { compactFieldInputClassName, compactFieldLabelClassName } from '@/shared/styles';
@@ -82,6 +82,25 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
  const receivingGroups = useMemo(() => groupEntriesByDescription(rangeEntries.filter((e) => e.direction === 'incoming')), [rangeEntries]);
  const settlementGroups = useMemo(() => groupEntriesByDescription(rangeEntries.filter((e) => e.direction === 'outgoing')), [rangeEntries]);
 
+ // Default every newly-seen description to included so the popup opens ready-to-go — the user
+ // unchecks the exceptions (e.g. an invoice that isn't a real settlement) instead of having to
+ // check everything by hand. Descriptions the user already touched (present in the selections
+ // map, even as unchecked) are left alone.
+ useEffect(() => {
+  if (!commissionModal) return;
+  const missingReceiving = receivingGroups.filter((g) => !(g.description in commissionModal.receivingSelections));
+  const missingSettlement = settlementGroups.filter((g) => !(g.description in commissionModal.settlementSelections));
+  if (missingReceiving.length === 0 && missingSettlement.length === 0) return;
+  setCommissionModal((prev) => {
+   if (!prev) return prev;
+   const receivingSelections = { ...prev.receivingSelections };
+   for (const g of missingReceiving) receivingSelections[g.description] = { included: true, rate: '' };
+   const settlementSelections = { ...prev.settlementSelections };
+   for (const g of missingSettlement) settlementSelections[g.description] = true;
+   return { ...prev, receivingSelections, settlementSelections };
+  });
+ }, [receivingGroups, settlementGroups, commissionModal, setCommissionModal]);
+
  const breakdown = useMemo(() => {
   if (!commissionModal) return null;
   const receivingSelections: Record<string, { included: boolean; rate: number }> = {};
@@ -151,8 +170,10 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
   const clientName = account?.clientName ?? '';
   const currencyLabel = ledger!.currencyName || ledger!.currencyCode;
   const generatedOn = formatDateValue(new Date().toISOString(), pdfSettings.dateFormat);
+  // Dates only — no counterparty names — since this report is printed to hand to the client
+  // themselves, not kept as an internal reference.
   const rangeLabel = rangeActive
-   ? `${rangeFirst ? entryLabel(rangeFirst) : ''} ${isRTL ? '←' : '→'} ${rangeLast ? entryLabel(rangeLast) : ''}`
+   ? `${rangeFirst ? formatDateValue(rangeFirst.createdAt, pdfSettings.dateFormat) : ''} ${isRTL ? '←' : '→'} ${rangeLast ? formatDateValue(rangeLast.createdAt, pdfSettings.dateFormat) : ''}`
    : commissionModal!.fromDate || commissionModal!.toDate
      ? `${commissionModal!.fromDate || '…'} — ${commissionModal!.toDate || '…'}`
      : t('commission_report_print_all_range');
@@ -161,11 +182,11 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
    .map(
     (row) => `<tr>
      <td>${escapeHtml(row.description)} <span class="muted">×${row.count}</span></td>
-     <td>${row.total.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
+     <td class="red">${row.total.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
      <td>${row.commissionRate}%</td>
      <td>${(row.percentOfReceived * 100).toFixed(2)}%</td>
      <td>${row.proratedShare.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
-     <td><strong>${row.commission.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</strong></td>
+     <td class="green"><strong>${row.commission.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</strong></td>
     </tr>`,
    )
    .join('');
@@ -175,7 +196,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
    .map(
     (group) => `<tr>
      <td>${escapeHtml(group.description)} <span class="muted">×${group.count}</span></td>
-     <td>${group.total.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
+     <td class="green">${group.total.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
     </tr>`,
    )
    .join('');
@@ -186,19 +207,21 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
 <meta charset="utf-8" />
 <title>${escapeHtml(t('distribution_panel_title'))} — ${escapeHtml(clientName)}</title>
 <style>
- body { font-family: Arial, Helvetica, sans-serif; color: #111; padding: 24px; }
- h1 { font-size: 18px; margin: 0 0 4px; }
- h3 { font-size: 14px; margin: 20px 0 6px; }
- .sub { color: #555; font-size: 13px; margin: 0 0 12px; }
- table { width: 100%; border-collapse: collapse; font-size: 13px; }
+ body { font-family: ${pdfSettings.fontFamily}; font-size: ${pdfSettings.fontSize}px; color: #111; padding: 24px; }
+ h1 { font-size: calc(${pdfSettings.fontSize}px + 8px); margin: 0 0 4px; }
+ h3 { font-size: calc(${pdfSettings.fontSize}px + 1px); margin: 20px 0 6px; }
+ .sub { color: #555; font-size: calc(${pdfSettings.fontSize}px - 1px); margin: 0 0 12px; }
+ table { width: 100%; border-collapse: collapse; font-size: ${pdfSettings.fontSize}px; }
  th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: ${isRTL ? 'right' : 'left'}; }
- th { background: #f2f2f2; }
- .muted { color: #777; font-size: 11px; }
- .empty { color: #777; font-size: 13px; }
+ th { background: #f2f2f2; font-size: ${pdfSettings.headFontSize}px; }
+ .muted { color: #777; font-size: calc(${pdfSettings.fontSize}px - 2px); }
+ .empty { color: #777; font-size: ${pdfSettings.fontSize}px; }
  .summary { display: flex; gap: 16px; margin-top: 20px; }
  .summary div { border: 1px solid #ccc; border-radius: 4px; padding: 8px 14px; }
- .summary .label { font-size: 11px; text-transform: uppercase; color: #777; }
- .summary .value { font-size: 16px; font-weight: 700; }
+ .summary .label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; color: #777; }
+ .summary .value { font-size: calc(${pdfSettings.fontSize}px + 3px); font-weight: 700; }
+ .red { color: #b91c1c; }
+ .green { color: #15803d; }
  @media print { body { padding: 0; } }
 </style>
 </head>
@@ -206,7 +229,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
  <h1>${escapeHtml(t('distribution_panel_title'))} — ${escapeHtml(clientName)}</h1>
  <p class="sub">${escapeHtml(currencyLabel)} · ${escapeHtml(rangeLabel)} · ${escapeHtml(t('commission_report_print_generated_on', { date: generatedOn }))}</p>
 
- <h3>${escapeHtml(t('commission_report_step_receiving'))}</h3>
+ <h3>${escapeHtml(t('commission_report_print_receiving_heading'))}</h3>
  ${
   breakdown.receiving.length
    ? `<table><thead><tr>
@@ -220,7 +243,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
    : `<p class="empty">${escapeHtml(t('commission_report_no_receiving'))}</p>`
  }
 
- <h3>${escapeHtml(t('commission_report_step_settlement'))}</h3>
+ <h3>${escapeHtml(t('commission_report_print_settlement_heading'))}</h3>
  ${
   settlementRows
    ? `<table><thead><tr>
@@ -231,9 +254,9 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
  }
 
  <div class="summary">
-  <div><div class="label">${escapeHtml(t('distribution_panel_received_total'))}</div><div class="value">${breakdown.totalReceived.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</div></div>
-  <div><div class="label">${escapeHtml(t('distribution_panel_settled_total'))}</div><div class="value">${breakdown.totalSettled.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</div></div>
-  <div><div class="label">${escapeHtml(t('distribution_panel_total_commission'))}</div><div class="value">${breakdown.totalCommission.toLocaleString(numLocale, { maximumFractionDigits: 0 })}</div></div>
+  <div><div class="label">${escapeHtml(t('distribution_panel_received_total'))}</div><div class="value red">${breakdown.totalReceived.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</div></div>
+  <div><div class="label">${escapeHtml(t('distribution_panel_settled_total'))}</div><div class="value green">${breakdown.totalSettled.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</div></div>
+  <div><div class="label">${escapeHtml(t('distribution_panel_total_commission'))}</div><div class="value green">${breakdown.totalCommission.toLocaleString(numLocale, { maximumFractionDigits: 0 })}</div></div>
  </div>
 </body>
 </html>`;
@@ -250,10 +273,10 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
  function insertCommission() {
   if (!breakdown || breakdown.totalCommission <= 0) return;
   const account = clientAccounts.find((a) => a.id === ledger!.accountId);
-  // Kept short on purpose: just the description and the resulting commission, no rate/percent
-  // clutter — the full math is already visible in the report itself.
+  // Kept short on purpose: just the description and its commission rate — the full math
+  // (amounts included) is already visible in the report itself.
   const descriptionBody = breakdown.receiving
-   .map((row) => `${row.description} ${row.commission.toLocaleString(numLocale, { maximumFractionDigits: 2 })}`)
+   .map((row) => `${row.description} ${row.commissionRate.toLocaleString(numLocale, { maximumFractionDigits: 2 })}%`)
    .join(' · ');
   setAdjustmentModal({
    accountId: ledger!.accountId,
@@ -279,7 +302,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
      </div>
      <div className="rounded border border-accent bg-accent-weak px-4 py-2 text-center">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-fg-faint">{t('distribution_panel_total_commission')}</p>
-      <p className="text-xl font-bold text-fg">{breakdown.totalCommission.toLocaleString(numLocale, { maximumFractionDigits: 0 })}</p>
+      <p className="text-xl font-bold text-good-text">{breakdown.totalCommission.toLocaleString(numLocale, { maximumFractionDigits: 0 })}</p>
      </div>
     </div>
     <p className="mt-3 rounded border border-border bg-surface-2 px-3 py-2 text-sm text-fg-muted">{t('commission_report_hint')}</p>
@@ -387,7 +410,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
              {group.description}
              <span className="ms-1.5 text-xs font-normal text-fg-faint">{t('commission_report_count', { count: group.count })}</span>
             </td>
-            <td className={`px-3 py-2 ${alignClassName}`}>{group.total.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
+            <td className={`px-3 py-2 text-bad-text ${alignClassName}`}>{group.total.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
             <td className={`px-3 py-2 ${alignClassName}`}>
              <input
               type="text"
@@ -403,7 +426,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
             </td>
             <td className={`px-3 py-2 border-s border-border text-fg-muted ${alignClassName}`}>{computed ? `${(computed.percentOfReceived * 100).toFixed(2)}%` : '—'}</td>
             <td className={`px-3 py-2 text-fg-muted ${alignClassName}`}>{computed ? computed.proratedShare.toLocaleString(numLocale, { maximumFractionDigits: 2 }) : '—'}</td>
-            <td className={`px-3 py-2 font-semibold ${alignClassName}`}>{computed ? computed.commission.toLocaleString(numLocale, { maximumFractionDigits: 2 }) : '—'}</td>
+            <td className={`px-3 py-2 font-semibold text-good-text ${alignClassName}`}>{computed ? computed.commission.toLocaleString(numLocale, { maximumFractionDigits: 2 }) : '—'}</td>
            </tr>
           );
          })}
@@ -451,7 +474,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
              {group.description}
              <span className="ms-1.5 text-xs font-normal text-fg-faint">{t('commission_report_count', { count: group.count })}</span>
             </td>
-            <td className={`px-3 py-2 ${alignClassName}`}>{group.total.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
+            <td className={`px-3 py-2 text-good-text ${alignClassName}`}>{group.total.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</td>
            </tr>
           );
          })}
@@ -465,15 +488,15 @@ export default function CommissionReportModal({ ledgers, clientAccounts }: Commi
     <div className="mt-6 grid gap-2 text-sm sm:grid-cols-3">
      <div className="rounded border border-border bg-surface-2 p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('distribution_panel_received_total')}</p>
-      <p className="mt-1 text-lg font-semibold text-fg">{breakdown.totalReceived.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</p>
+      <p className="mt-1 text-lg font-semibold text-bad-text">{breakdown.totalReceived.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</p>
      </div>
      <div className="rounded border border-border bg-surface-2 p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('distribution_panel_settled_total')}</p>
-      <p className="mt-1 text-lg font-semibold text-fg">{breakdown.totalSettled.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</p>
+      <p className="mt-1 text-lg font-semibold text-good-text">{breakdown.totalSettled.toLocaleString(numLocale, { maximumFractionDigits: 2 })}</p>
      </div>
      <div className="rounded border border-accent bg-accent-weak p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('distribution_panel_total_commission')}</p>
-      <p className="mt-1 text-lg font-semibold text-fg">{breakdown.totalCommission.toLocaleString(numLocale, { maximumFractionDigits: 0 })}</p>
+      <p className="mt-1 text-lg font-semibold text-good-text">{breakdown.totalCommission.toLocaleString(numLocale, { maximumFractionDigits: 0 })}</p>
      </div>
     </div>
 
