@@ -7,6 +7,7 @@ export const emptyClientForm = (): ClientForm => ({
  phone: '',
  address: '',
  excludeFromBalance: false,
+ distributionCommissionEnabled: false,
 });
 
 export const createNewClientAccountDraft = (): NewClientAccountDraft => ({

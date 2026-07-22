@@ -241,6 +241,7 @@ async function listClients(app) {
             clients.phone,
             clients.address,
             clients.exclude_from_balance AS "excludeFromBalance",
+            clients.distribution_commission_enabled AS "distributionCommissionEnabled",
             clients.created_at AS "createdAt",
             clients.updated_at AS "updatedAt",
             (
@@ -263,8 +264,8 @@ async function createClient(app, client) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(
         `
-            INSERT INTO ${schema}.clients (organization_id, name, email, phone, address, exclude_from_balance)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO ${schema}.clients (organization_id, name, email, phone, address, exclude_from_balance, distribution_commission_enabled)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
         `,
         [
@@ -274,6 +275,7 @@ async function createClient(app, client) {
             client.phone?.trim() || '',
             client.address?.trim() || '',
             Boolean(client.excludeFromBalance),
+            Boolean(client.distributionCommissionEnabled),
         ],
     );
 
@@ -293,8 +295,8 @@ async function updateClient(app, client) {
     await query(
         `
             UPDATE ${schema}.clients
-            SET organization_id = $1, name = $2, email = $3, phone = $4, address = $5, exclude_from_balance = $6, updated_at = NOW()
-            WHERE id = $7
+            SET organization_id = $1, name = $2, email = $3, phone = $4, address = $5, exclude_from_balance = $6, distribution_commission_enabled = $7, updated_at = NOW()
+            WHERE id = $8
         `,
         [
             client.organizationId || null,
@@ -303,6 +305,7 @@ async function updateClient(app, client) {
             client.phone?.trim() || '',
             client.address?.trim() || '',
             Boolean(client.excludeFromBalance),
+            Boolean(client.distributionCommissionEnabled),
             client.id,
         ],
     );
@@ -629,6 +632,9 @@ async function listTransactions(app) {
             t.exchange_actual_amount AS "exchangeActualAmount",
             COALESCE(t.archive_note, '') AS "archiveNote",
             CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
+            t.distribution_location_id AS "distributionLocationId",
+            dloc.name AS "distributionLocationName",
+            dloc.kind AS "distributionLocationKind",
             t.created_at AS "createdAt"
         FROM ${schema}.transactions t
         LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
@@ -639,6 +645,7 @@ async function listTransactions(app) {
         LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
         JOIN ${schema}.currencies cur ON cur.id = t.currency_id
         LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
+        LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
         ORDER BY t.created_at DESC
     `);
     return result.rows;
@@ -689,9 +696,10 @@ async function createTransaction(app, txn) {
                     description_to,
                     exchange_actual_amount,
                     is_archived,
+                    distribution_location_id,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
             `,
             [
                 txn.accountFromId || null,
@@ -715,6 +723,7 @@ async function createTransaction(app, txn) {
                 txn.descriptionTo?.trim() || '',
                 txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
                 isArchived,
+                txn.distributionLocationId || null,
                 txn.createdAt.trim(),
             ],
         );
@@ -744,9 +753,10 @@ async function createTransaction(app, txn) {
                 description_from,
                 description_to,
                 exchange_actual_amount,
-                is_archived
+                is_archived,
+                distribution_location_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         `,
         [
             txn.accountFromId || null,
@@ -770,6 +780,7 @@ async function createTransaction(app, txn) {
             txn.descriptionTo?.trim() || '',
             txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
             isArchived,
+            txn.distributionLocationId || null,
         ],
     );
 }
@@ -821,7 +832,8 @@ async function updateTransaction(app, txn) {
                 description_to = COALESCE($22, description_to),
                 -- Exchange actual-amount override is preserved (COALESCE) when a caller omits it, so
                 -- table inline-edit / reorder paths don't wipe an override set at creation time.
-                exchange_actual_amount = COALESCE($23, exchange_actual_amount)
+                exchange_actual_amount = COALESCE($23, exchange_actual_amount),
+                distribution_location_id = $24
             WHERE id = $20
         `,
         [
@@ -849,6 +861,7 @@ async function updateTransaction(app, txn) {
             txn.descriptionFrom === undefined || txn.descriptionFrom === null ? null : String(txn.descriptionFrom).trim(),
             txn.descriptionTo === undefined || txn.descriptionTo === null ? null : String(txn.descriptionTo).trim(),
             txn.exchangeActualAmount === undefined ? null : txn.exchangeActualAmount,
+            txn.distributionLocationId || null,
         ],
     );
 }
@@ -1053,7 +1066,7 @@ async function deleteTransactionsBulk(app, payload) {
 
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
-const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments', 'reconciliations', 'harvest_rates', 'user_table_settings'];
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'distribution_locations', 'transactions', 'client_adjustments', 'reconciliations', 'harvest_rates', 'user_table_settings'];
 
 const BACKUP_FORMAT = 'arkam-backup';
 const BACKUP_VERSION = 1;

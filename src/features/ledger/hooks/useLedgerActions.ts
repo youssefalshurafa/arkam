@@ -262,6 +262,7 @@ function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: 
   chargesPayer: transaction.chargesPayer,
   chargesExchangeRate: String(transaction.chargesExchangeRate || 1),
   chargesDescription: transaction.chargesDescription,
+  distributionLocationId: transaction.distributionLocationId,
  };
 }
 
@@ -289,6 +290,7 @@ function buildLedgerAdjustmentDraft(adj: ClientAdjustment, ledgerAccountId: numb
   chargesPayer: '',
   chargesExchangeRate: '1',
   chargesDescription: '',
+  distributionLocationId: null,
  };
 }
 
@@ -493,6 +495,7 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
   chargesDescription: draft.chargesDescription,
   description: draft.description,
+  distributionLocationId: draft.distributionLocationId,
   createdAt,
  };
 
@@ -519,6 +522,7 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   chargesExchangeRate: transaction.chargesExchangeRate,
   chargesDescription: transaction.chargesDescription,
   description: transaction.description,
+  distributionLocationId: transaction.distributionLocationId,
   createdAt: transaction.createdAt,
  };
 
@@ -1224,6 +1228,7 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
      chargesExchangeRate: tx.chargesExchangeRate,
      chargesDescription: tx.chargesDescription,
      description: tx.description,
+     distributionLocationId: tx.distributionLocationId,
      createdAt: newCreatedAt,
     });
    }

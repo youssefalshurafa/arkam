@@ -104,6 +104,7 @@ import AppHeader from '@/shared/components/AppHeader';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
 import AdjustmentModal from '@/features/ledger/components/AdjustmentModal';
 import PdfExportModal from '@/features/ledger/components/PdfExportModal';
+import CommissionReportModal from '@/features/ledger/components/CommissionReportModal';
 import TransactionDetailsModal from '@/features/transactions/components/TransactionDetailsModal';
 import TransactionExportModal from '@/features/transactions/components/TransactionExportModal';
 import TransactionTableSettingsModal from '@/features/transactions/components/TransactionTableSettingsModal';
@@ -1454,6 +1455,7 @@ function AuthenticatedHome() {
       chargesDescription: tx.chargesDescription,
       description: tx.description,
       archiveNote: tx.archiveNote,
+      distributionLocationId: tx.distributionLocationId,
       createdAt: tx.createdAt,
      };
      if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return false;
@@ -1505,6 +1507,7 @@ function AuthenticatedHome() {
     descriptionTo: tx.descriptionTo,
     exchangeActualAmount: tx.exchangeActualAmount,
     archiveNote: tx.archiveNote,
+    distributionLocationId: tx.distributionLocationId,
     createdAt: tx.createdAt,
     ...patch,
    };
@@ -2454,6 +2457,11 @@ function AuthenticatedHome() {
    />
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />
+
+   <CommissionReportModal
+    ledgers={selectedClientLedgers}
+    clientAccounts={clientAccounts}
+   />
 
    <TransactionDetailsModal transactions={transactions} onUpdateTransactionFields={onUpdateTransactionFields} />
 

@@ -237,6 +237,7 @@ function buildTransactionTableDraft(transaction: TransactionTableRow): Transacti
   chargesDescription: transaction.chargesDescription,
   description: transaction.description,
   archiveNote: transaction.archiveNote,
+  distributionLocationId: isAdjustment ? null : transaction.distributionLocationId,
   createdDate: transaction.createdAt.slice(0, 10),
  };
 }
@@ -577,6 +578,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
   descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
   exchangeActualAmount: exchangeActualAmountValue,
+  distributionLocationId: transactionForm.distributionLocationId,
   createdAt: newTransactionCreatedAt,
  };
 
@@ -606,6 +608,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
    descriptionTo: txPayload.descriptionTo,
    exchangeActualAmount: txPayload.exchangeActualAmount,
    archiveNote: original?.archiveNote,
+   distributionLocationId: txPayload.distributionLocationId,
    createdAt: txPayload.createdAt,
   };
   if (original && !(await confirmIfTransactionEditLocked(original, updatePayload))) {
@@ -681,6 +684,9 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
     exchangeActualAmount: txPayload.exchangeActualAmount,
     archiveNote: '',
     isArchived: txPayload.isArchived ? 1 : 0,
+    distributionLocationId: txPayload.distributionLocationId,
+    distributionLocationName: null,
+    distributionLocationKind: null,
     createdAt: txPayload.createdAt,
    },
   ]);
@@ -1059,6 +1065,7 @@ async function onConfirmImportTransactions() {
      phone: '',
      address: '',
      excludeFromBalance: false,
+     distributionCommissionEnabled: false,
      accountCount: 0,
      createdAt: '',
      updatedAt: '',
@@ -1389,6 +1396,7 @@ async function onSaveAllTransactionDrafts() {
     chargesDescription: draft.chargesDescription,
     description: draft.description,
     archiveNote: draft.archiveNote,
+    distributionLocationId: draft.distributionLocationId,
     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    });
   }
@@ -1469,6 +1477,7 @@ function buildTransactionCreatePayload(tx: Transaction, createdAt: string) {
   descriptionFrom: tx.descriptionFrom,
   descriptionTo: tx.descriptionTo,
   exchangeActualAmount: tx.exchangeActualAmount,
+  distributionLocationId: tx.distributionLocationId,
   createdAt,
  };
 }
@@ -1542,6 +1551,7 @@ function onPasteCopiedTransaction() {
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
   exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
+  distributionLocationId: isAdjustment ? null : row.distributionLocationId,
  });
  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);
@@ -1579,6 +1589,7 @@ function onEditTransactionInForm(row: TransactionTableRow) {
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
   exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
+  distributionLocationId: isAdjustment ? null : row.distributionLocationId,
  });
  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);
@@ -1810,6 +1821,7 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
      chargesExchangeRate: draggedRow.chargesExchangeRate,
      chargesDescription: draggedRow.chargesDescription,
      description: draggedRow.description,
+     distributionLocationId: draggedRow.distributionLocationId,
      createdAt: newCreatedAt,
     });
    }
@@ -1949,6 +1961,7 @@ async function onSaveTransactionTableRow(transactionId: number, { skipReload = f
   chargesDescription: draft.chargesDescription,
   description: draft.description,
   archiveNote: draft.archiveNote,
+  distributionLocationId: draft.distributionLocationId,
   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
  };
 

@@ -328,12 +328,13 @@ export function generateLedgerHtml(
     cell: (e) => {
      const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
      if (e.isAdjustment || e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
-     // The charge is always an addition on top of the transaction amount — who it's
-     // bad/good for (payer vs. beneficiary) is conveyed by color, not by the sign.
+     // Paying the charge adds to what this account owes on top of the amount (+, red);
+     // not paying it means the charge is deducted from it instead (−, green).
+     const sign = e.isChargesPayerThisAccount ? '+' : '−';
      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
      const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
      const desc = e.chargesDescription ? `<span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
-     return `${base}<div class="charges-line"><span class="${cls}">+${val}</span>${desc}</div>`;
+     return `${base}<div class="charges-line"><span class="${cls}">${sign}${val}</span>${desc}</div>`;
     },
    },
    {
