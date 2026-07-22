@@ -154,6 +154,9 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          chargesDescription: transaction.chargesDescription,
          isChargesPayerThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'from') < 0,
          chargeAffectsThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'from') !== 0,
+         distributionLocationId: transaction.distributionLocationId,
+         distributionLocationName: transaction.distributionLocationName,
+         distributionLocationKind: transaction.distributionLocationKind,
         },
        ];
       }
@@ -197,6 +200,9 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          chargesDescription: transaction.chargesDescription,
          isChargesPayerThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'to') < 0,
          chargeAffectsThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'to') !== 0,
+         distributionLocationId: transaction.distributionLocationId,
+         distributionLocationName: transaction.distributionLocationName,
+         distributionLocationKind: transaction.distributionLocationKind,
         },
        ];
       }
@@ -241,6 +247,9 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
         chargesDescription: '',
         isChargesPayerThisAccount: false,
         chargeAffectsThisAccount: false,
+        distributionLocationId: null,
+        distributionLocationName: null,
+        distributionLocationKind: null,
        })),
      )
      .sort((left, right) => {

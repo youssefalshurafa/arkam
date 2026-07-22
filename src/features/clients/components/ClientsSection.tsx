@@ -147,6 +147,19 @@ export default function ClientsSection({
       <p className="mt-1 text-xs text-fg-faint">{t('client_exclude_from_balance_hint')}</p>
      </div>
 
+     <div className="mt-4 rounded border border-border bg-surface-2 p-4">
+      <label className="flex items-center gap-2 text-sm font-medium text-fg">
+       <input
+        type="checkbox"
+        checked={clientForm.distributionCommissionEnabled}
+        onChange={(event) => setClientForm((current) => ({ ...current, distributionCommissionEnabled: event.target.checked }))}
+        className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-400"
+       />
+       {t('client_distribution_commission_enabled')}
+      </label>
+      <p className="mt-1 text-xs text-fg-faint">{t('client_distribution_commission_enabled_hint')}</p>
+     </div>
+
      {!clientForm.id ? (
       <div className="mt-4 rounded border border-border bg-surface-2 p-4">
        <label className="flex items-center gap-2 text-sm font-medium text-fg">
@@ -643,6 +656,7 @@ export default function ClientsSection({
                phone: client.phone,
                address: client.address,
                excludeFromBalance: client.excludeFromBalance,
+               distributionCommissionEnabled: client.distributionCommissionEnabled,
               });
               setOpenAccountOnCreate(false);
               setNewClientAccountDrafts([createNewClientAccountDraft()]);

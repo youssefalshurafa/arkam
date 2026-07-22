@@ -24,6 +24,23 @@ export type AdjustmentModalState = {
  date: string;
 };
 
+// Commission Distribution report popup (see distributionCommission.ts) — scoped to one
+// client-currency account at a time. fromEntryKey/toEntryKey (set together) pin an exact
+// row-range picked via the ledger's highlight-pen mode, mirroring PdfExportModalState's
+// fromEntryKey/toEntryKey; when null the plain fromDate/toDate inputs are used instead.
+// receivingSelections/settlementSelections classify the range's transactions by their own
+// free-text description (grouped via groupEntriesByDescription) — keyed by description text,
+// not a pre-configured location, since there's no persistent per-client location list anymore.
+export type CommissionModalState = {
+ accountId: number;
+ fromDate: string;
+ toDate: string;
+ fromEntryKey: string | null;
+ toEntryKey: string | null;
+ receivingSelections: Record<string, { included: boolean; rate: string }>;
+ settlementSelections: Record<string, boolean>;
+};
+
 function initialLedgerPageSize(): number {
  if (typeof window === 'undefined') return 50;
  const stored = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
@@ -115,6 +132,8 @@ type LedgerStore = {
  setPdfExportModal: Dispatch<SetStateAction<PdfExportModalState | null>>;
  adjustmentModal: AdjustmentModalState | null;
  setAdjustmentModal: Dispatch<SetStateAction<AdjustmentModalState | null>>;
+ commissionModal: CommissionModalState | null;
+ setCommissionModal: Dispatch<SetStateAction<CommissionModalState | null>>;
  ledgerCounterpartyOpen: string | null;
  setLedgerCounterpartyOpen: Dispatch<SetStateAction<string | null>>;
  ledgerCounterpartyQuery: string;
@@ -214,6 +233,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setPdfExportModal: setter('pdfExportModal'),
   adjustmentModal: null,
   setAdjustmentModal: setter('adjustmentModal'),
+  commissionModal: null,
+  setCommissionModal: setter('commissionModal'),
   ledgerCounterpartyOpen: null,
   setLedgerCounterpartyOpen: setter('ledgerCounterpartyOpen'),
   ledgerCounterpartyQuery: '',

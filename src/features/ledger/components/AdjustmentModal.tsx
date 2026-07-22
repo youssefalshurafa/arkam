@@ -19,9 +19,21 @@ type AdjustmentModalProps = {
  adjustments: ClientAdjustment[];
  onSubmitAdjustment: () => void;
  onDeleteAdjustment: (id: number) => void;
+ lockPastEditsEnabled: boolean;
 };
 
-export default function AdjustmentModal({ selectedClientLedgers, selectedClientForLedger, localizedCurrencies, clientAccounts, currencyMap, enabledCurrencies, adjustments, onSubmitAdjustment, onDeleteAdjustment }: AdjustmentModalProps) {
+export default function AdjustmentModal({
+ selectedClientLedgers,
+ selectedClientForLedger,
+ localizedCurrencies,
+ clientAccounts,
+ currencyMap,
+ enabledCurrencies,
+ adjustments,
+ onSubmitAdjustment,
+ onDeleteAdjustment,
+ lockPastEditsEnabled,
+}: AdjustmentModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
@@ -230,6 +242,7 @@ export default function AdjustmentModal({ selectedClientLedgers, selectedClientF
              type="date"
              value={adjustmentModal.date}
              max={localDateKey()}
+             min={lockPastEditsEnabled ? localDateKey() : undefined}
              onChange={(e) =>
               setAdjustmentModal((prev) => (prev ? { ...prev, date: e.target.value > localDateKey() ? localDateKey() : e.target.value } : prev))
              }

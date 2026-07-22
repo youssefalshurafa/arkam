@@ -71,6 +71,8 @@ const writeActions = new Set([
  'bulkImportTransactions',
  // Shared workspace UI settings: owner-only (gated further below).
  'saveWorkspaceSettings',
+ // Past-edit lock toggle: owner OR admin (gated further below).
+ 'saveWorkspacePastEditLock',
 ]);
 
 type Body = {
@@ -139,9 +141,15 @@ function getWorkspaceId(sessionWorkspaceId: string | null | undefined, headerWor
  return null;
 }
 
-function createAppLike(workspaceId: string) {
+// The requesting client's own local "today" (yyyy-mm-dd), sent via the x-client-date header
+// (see accountingApi.ts's request()). Used by db.js's past-edit-lock check instead of the
+// server's own clock — createdAt is treated as the user's naive local wall-clock time
+// everywhere else in this app (see shared/utils/date.ts), so the lock boundary must mean the
+// same "today" or it would be off by hours for a user outside the server's timezone.
+function createAppLike(workspaceId: string, todayKey: string | null) {
  return {
   workspaceId,
+  todayKey,
   getPath(name: string) {
    const root = process.cwd();
 
@@ -198,7 +206,14 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Only the workspace owner can change shared settings.' }, { status: 403 });
   }
 
-  const appLike = createAppLike(workspaceId);
+  // The past-edit lock toggle is settable by the owner or an admin, but not a plain member/viewer.
+  if (action === 'saveWorkspacePastEditLock' && role !== 'owner' && role !== 'admin') {
+   return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
+  }
+
+  const clientDateHeader = request.headers.get('x-client-date');
+  const todayKey = clientDateHeader && /^\d{4}-\d{2}-\d{2}$/.test(clientDateHeader) ? clientDateHeader : null;
+  const appLike = createAppLike(workspaceId, todayKey);
 
   switch (action) {
    case 'getDbInfo':
@@ -323,6 +338,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.getWorkspaceSettings(appLike));
    case 'saveWorkspaceSettings':
     return NextResponse.json(await db.saveWorkspaceSettings(appLike, payload));
+   case 'saveWorkspacePastEditLock':
+    return NextResponse.json(await db.saveWorkspacePastEditLock(appLike, payload));
    case 'getUserTableSettings':
     return NextResponse.json(await db.getUserTableSettings(appLike, userId));
    case 'saveUserTableSettings':

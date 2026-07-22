@@ -241,6 +241,7 @@ async function listClients(app) {
             clients.phone,
             clients.address,
             clients.exclude_from_balance AS "excludeFromBalance",
+            clients.distribution_commission_enabled AS "distributionCommissionEnabled",
             clients.created_at AS "createdAt",
             clients.updated_at AS "updatedAt",
             (
@@ -263,8 +264,8 @@ async function createClient(app, client) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(
         `
-            INSERT INTO ${schema}.clients (organization_id, name, email, phone, address, exclude_from_balance)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO ${schema}.clients (organization_id, name, email, phone, address, exclude_from_balance, distribution_commission_enabled)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
         `,
         [
@@ -274,6 +275,7 @@ async function createClient(app, client) {
             client.phone?.trim() || '',
             client.address?.trim() || '',
             Boolean(client.excludeFromBalance),
+            Boolean(client.distributionCommissionEnabled),
         ],
     );
 
@@ -293,8 +295,8 @@ async function updateClient(app, client) {
     await query(
         `
             UPDATE ${schema}.clients
-            SET organization_id = $1, name = $2, email = $3, phone = $4, address = $5, exclude_from_balance = $6, updated_at = NOW()
-            WHERE id = $7
+            SET organization_id = $1, name = $2, email = $3, phone = $4, address = $5, exclude_from_balance = $6, distribution_commission_enabled = $7, updated_at = NOW()
+            WHERE id = $8
         `,
         [
             client.organizationId || null,
@@ -303,6 +305,7 @@ async function updateClient(app, client) {
             client.phone?.trim() || '',
             client.address?.trim() || '',
             Boolean(client.excludeFromBalance),
+            Boolean(client.distributionCommissionEnabled),
             client.id,
         ],
     );
@@ -629,6 +632,9 @@ async function listTransactions(app) {
             t.exchange_actual_amount AS "exchangeActualAmount",
             COALESCE(t.archive_note, '') AS "archiveNote",
             CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
+            t.distribution_location_id AS "distributionLocationId",
+            dloc.name AS "distributionLocationName",
+            dloc.kind AS "distributionLocationKind",
             t.created_at AS "createdAt"
         FROM ${schema}.transactions t
         LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
@@ -639,6 +645,7 @@ async function listTransactions(app) {
         LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
         JOIN ${schema}.currencies cur ON cur.id = t.currency_id
         LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
+        LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
         ORDER BY t.created_at DESC
     `);
     return result.rows;
@@ -656,6 +663,13 @@ async function createTransaction(app, txn) {
 
     const { schema } = await getSchemaInfo(app);
     const hasCustomCreatedAt = typeof txn.createdAt === 'string' && txn.createdAt.trim().length > 0;
+
+    // Archive-only records are deliberately backdated historical entries (see the isArchived
+    // comment above) and never touch client balances, so they're exempt from the lock — only
+    // real, balance-affecting transactions are guarded.
+    if (!isArchived && hasCustomCreatedAt) {
+        await assertPastEditAllowed(app, app.todayKey, txn.createdAt.trim());
+    }
 
     if (hasCustomCreatedAt) {
         await query(
@@ -682,9 +696,10 @@ async function createTransaction(app, txn) {
                     description_to,
                     exchange_actual_amount,
                     is_archived,
+                    distribution_location_id,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
             `,
             [
                 txn.accountFromId || null,
@@ -708,6 +723,7 @@ async function createTransaction(app, txn) {
                 txn.descriptionTo?.trim() || '',
                 txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
                 isArchived,
+                txn.distributionLocationId || null,
                 txn.createdAt.trim(),
             ],
         );
@@ -737,9 +753,10 @@ async function createTransaction(app, txn) {
                 description_from,
                 description_to,
                 exchange_actual_amount,
-                is_archived
+                is_archived,
+                distribution_location_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         `,
         [
             txn.accountFromId || null,
@@ -763,6 +780,7 @@ async function createTransaction(app, txn) {
             txn.descriptionTo?.trim() || '',
             txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
             isArchived,
+            txn.distributionLocationId || null,
         ],
     );
 }
@@ -779,6 +797,13 @@ async function updateTransaction(app, txn) {
     }
 
     const { schema } = await getSchemaInfo(app);
+
+    const existing = await query(`SELECT created_at AS "createdAt", is_archived AS "isArchived" FROM ${schema}.transactions WHERE id = $1`, [txn.id]);
+    const existingRow = existing.rows[0];
+    if (existingRow && !existingRow.isArchived) {
+        await assertPastEditAllowed(app, app.todayKey, existingRow.createdAt, txn.createdAt);
+    }
+
     await query(
         `
             UPDATE ${schema}.transactions
@@ -807,7 +832,8 @@ async function updateTransaction(app, txn) {
                 description_to = COALESCE($22, description_to),
                 -- Exchange actual-amount override is preserved (COALESCE) when a caller omits it, so
                 -- table inline-edit / reorder paths don't wipe an override set at creation time.
-                exchange_actual_amount = COALESCE($23, exchange_actual_amount)
+                exchange_actual_amount = COALESCE($23, exchange_actual_amount),
+                distribution_location_id = $24
             WHERE id = $20
         `,
         [
@@ -835,12 +861,18 @@ async function updateTransaction(app, txn) {
             txn.descriptionFrom === undefined || txn.descriptionFrom === null ? null : String(txn.descriptionFrom).trim(),
             txn.descriptionTo === undefined || txn.descriptionTo === null ? null : String(txn.descriptionTo).trim(),
             txn.exchangeActualAmount === undefined ? null : txn.exchangeActualAmount,
+            txn.distributionLocationId || null,
         ],
     );
 }
 
 async function deleteTransaction(app, transactionId) {
     const { schema } = await getSchemaInfo(app);
+    const existing = await query(`SELECT created_at AS "createdAt", is_archived AS "isArchived" FROM ${schema}.transactions WHERE id = $1`, [transactionId]);
+    const existingRow = existing.rows[0];
+    if (existingRow && !existingRow.isArchived) {
+        await assertPastEditAllowed(app, app.todayKey, existingRow.createdAt);
+    }
     await query(`DELETE FROM ${schema}.transactions WHERE id = $1`, [transactionId]);
 }
 
@@ -875,6 +907,9 @@ async function createClientAdjustment(app, { accountId, amount, direction, curre
     if (!accountId) throw new Error('Account is required.');
     if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
     if (!['debit', 'credit'].includes(direction)) throw new Error('Direction must be debit or credit.');
+    if (createdAt) {
+        await assertPastEditAllowed(app, app.todayKey, createdAt);
+    }
     const rate = exchangeRate != null ? exchangeRate : 1;
     const reversed = exchangeRateReversed ? true : false;
     const columns = ['account_id', 'amount', 'direction', 'currency_id', 'currency_code', 'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description'];
@@ -893,6 +928,8 @@ async function createClientAdjustment(app, { accountId, amount, direction, curre
 
 async function updateClientAdjustment(app, { id, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
     const { schema } = await getSchemaInfo(app);
+    const existing = await query(`SELECT created_at AS "createdAt" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
+    await assertPastEditAllowed(app, app.todayKey, existing.rows[0]?.createdAt, createdAt);
     const rate = exchangeRate != null ? exchangeRate : 1;
     const reversed = exchangeRateReversed ? true : false;
     await query(
@@ -905,6 +942,8 @@ async function updateClientAdjustment(app, { id, amount, direction, currencyId, 
 
 async function deleteClientAdjustment(app, id) {
     const { schema } = await getSchemaInfo(app);
+    const existing = await query(`SELECT created_at AS "createdAt" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
+    await assertPastEditAllowed(app, app.todayKey, existing.rows[0]?.createdAt);
     await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
 }
 
@@ -1004,6 +1043,15 @@ async function deleteTransactionsBulk(app, payload) {
         return { ok: true, deleted: 0 };
     }
 
+    if (transactionIds.length) {
+        const existing = await query(`SELECT created_at AS "createdAt" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE`, [transactionIds]);
+        await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
+    }
+    if (adjustmentIds.length) {
+        const existing = await query(`SELECT created_at AS "createdAt" FROM ${schema}.client_adjustments WHERE id = ANY($1::bigint[])`, [adjustmentIds]);
+        await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
+    }
+
     await withTransaction(async (executor) => {
         if (transactionIds.length) {
             await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds], executor);
@@ -1018,7 +1066,7 @@ async function deleteTransactionsBulk(app, payload) {
 
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
-const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'transactions', 'client_adjustments', 'reconciliations', 'harvest_rates', 'user_table_settings'];
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'distribution_locations', 'transactions', 'client_adjustments', 'reconciliations', 'harvest_rates', 'user_table_settings'];
 
 const BACKUP_FORMAT = 'arkam-backup';
 const BACKUP_VERSION = 1;
@@ -1236,18 +1284,76 @@ async function bulkImportTransactions(app, { transactions = [], adjustments = []
 async function getWorkspaceSettings(app) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(
-        `SELECT shared_enabled AS "sharedEnabled", settings, version
+        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits"
          FROM ${schema}.workspace_settings WHERE id = 1`,
     );
     const row = result.rows[0];
     if (!row) {
-        return { sharedEnabled: false, settings: {}, version: 0 };
+        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false };
     }
     return {
         sharedEnabled: Boolean(row.sharedEnabled),
         settings: row.settings && typeof row.settings === 'object' ? row.settings : {},
         version: Number(row.version) || 0,
+        lockPastEditsEnabled: Boolean(row.lockPastEdits),
     };
+}
+
+// Toggles the "lock past-dated edits" workspace setting. Separate from saveWorkspaceSettings
+// (which is owner-only) since this one is settable by owner OR admin — see route.ts's gate.
+async function saveWorkspacePastEditLock(app, enabled) {
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `INSERT INTO ${schema}.workspace_settings (id, lock_past_edits, updated_at)
+         VALUES (1, $1, NOW())
+         ON CONFLICT (id) DO UPDATE SET lock_past_edits = $1, updated_at = NOW()`,
+        [Boolean(enabled)],
+    );
+    return { lockPastEditsEnabled: Boolean(enabled) };
+}
+
+// Whether "lock past-dated edits" is currently on for this workspace.
+async function isPastEditLockEnabled(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`SELECT lock_past_edits AS "lockPastEdits" FROM ${schema}.workspace_settings WHERE id = 1`);
+    return Boolean(result.rows[0]?.lockPastEdits);
+}
+
+// Normalizes a created_at value down to its yyyy-mm-dd date key. Accepts either a
+// client-supplied naive wall-clock STRING (payload.createdAt, always a string) or a Date
+// object (node-postgres parses TIMESTAMPTZ columns into Date instances when read fresh from
+// a query, unlike the JSON-serialized strings the frontend deals with). For a Date, this
+// reads UTC fields rather than local ones: the DB session runs in UTC and the stored digits
+// ARE the user's local wall-clock time re-labeled as UTC (see shared/utils/date.ts's
+// localWallClock/parseLocalWallClock) — reading local getFullYear() etc. here would
+// reinterpret those digits through the SERVER's own timezone and shift the date.
+function createdAtDateKey(value) {
+    if (value instanceof Date) {
+        const p = (n) => String(n).padStart(2, '0');
+        return `${value.getUTCFullYear()}-${p(value.getUTCMonth() + 1)}-${p(value.getUTCDate())}`;
+    }
+    return typeof value === 'string' ? value.slice(0, 10) : '';
+}
+
+// Guards every transaction/adjustment create/update/delete against the workspace's past-edit
+// lock. `todayKey` is the REQUESTING CLIENT's own local "today" (yyyy-mm-dd, from the
+// x-client-date header set in route.ts) rather than the server's clock — the app already
+// treats created_at as the user's naive local wall-clock time everywhere else (see
+// shared/utils/date.ts), so "today" must mean the same thing here or the boundary would be
+// off by hours for users outside the server's timezone. `createdAtValues` may include the
+// row's existing date (for update/delete) and/or the new date being written (for
+// create/update) — if any of them falls before todayKey while the lock is on, this throws.
+async function assertPastEditAllowed(app, todayKey, ...createdAtValues) {
+    if (!todayKey) return;
+    const locked = await isPastEditLockEnabled(app);
+    if (!locked) return;
+    const isPast = (createdAt) => {
+        const key = createdAtDateKey(createdAt);
+        return key.length === 10 && key < todayKey;
+    };
+    if (createdAtValues.some(isPast)) {
+        throw new Error('Editing transactions dated before today is locked for this workspace. Ask an admin or the owner to turn it off first.');
+    }
 }
 
 // Upserts the shared settings. When `settings` is provided the version bumps so
@@ -1357,6 +1463,7 @@ module.exports = {
     bulkImportTransactions,
     getWorkspaceSettings,
     saveWorkspaceSettings,
+    saveWorkspacePastEditLock,
     getUserTableSettings,
     saveUserTableSettings,
 };

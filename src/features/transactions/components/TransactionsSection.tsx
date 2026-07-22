@@ -15,7 +15,7 @@ import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclus
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { formatDateValue, localDateKey } from '@/shared/utils/date';
+import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
@@ -152,6 +152,7 @@ type TransactionsSectionProps = {
  toggleTxRowHighlight: (txnId: number) => void;
  toggleTxSumMode: () => void;
  toggleTxSumEntry: (id: number) => void;
+ lockPastEditsEnabled: boolean;
 };
 
 export default function TransactionsSection(props: TransactionsSectionProps) {
@@ -166,7 +167,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction, onEditTransactionInForm, onCancelEditTransaction,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
-  setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry,
+  setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry, lockPastEditsEnabled,
  } = props;
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
@@ -235,12 +236,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  };
  const openRowMenu = (event: ReactMouseEvent, txn: TransactionTableRow) => {
   if (editingRowIds.has(txn.id)) return;
+  // Archived rows are exempt (see db.js's createTransaction comment) — only a real,
+  // balance-affecting row locks its Edit/Delete actions.
+  const rowLocked = lockPastEditsEnabled && !txn.isArchived && isBeforeToday(txn.createdAt);
   setContextMenuRowId(txn.id);
   rowContextMenu.open(event, [
-   { key: 'edit', label: t('edit'), onSelect: () => onEditTransactionInForm(txn) },
+   { key: 'edit', label: t('edit'), onSelect: () => onEditTransactionInForm(txn), disabled: rowLocked },
    { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(txn.id) },
    { key: 'copy', label: t('copy_transaction'), onSelect: () => onCopyTransactionRow(txn) },
-   { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const },
+   { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const, disabled: rowLocked },
   ]);
  };
  const closeRowMenu = () => {
@@ -524,6 +528,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              type="date"
              value={newTransactionDate}
              max={localDateKey()}
+             min={lockPastEditsEnabled && section !== 'archive' ? localDateKey() : undefined}
              onChange={(event) => setNewTransactionDate(event.target.value > localDateKey() ? localDateKey() : event.target.value)}
              className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             />
@@ -2302,6 +2307,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       type="date"
                       value={draft.createdDate}
                       max={localDateKey()}
+                      min={lockPastEditsEnabled && !txn.isArchived ? localDateKey() : undefined}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { createdDate: event.target.value > localDateKey() ? localDateKey() : event.target.value })}
                       className={`${seamlessInputClassName} w-full text-sm text-fg`}
                      />

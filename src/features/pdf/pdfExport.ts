@@ -325,8 +325,17 @@ export function generateLedgerHtml(
     key: 'amount',
     header: t('amount'),
     isNum: true,
-    cell: (e) =>
-     `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`,
+    cell: (e) => {
+     const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
+     if (e.isAdjustment || e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
+     // Paying the charge adds to what this account owes on top of the amount (+, red);
+     // not paying it means the charge is deducted from it instead (−, green).
+     const sign = e.isChargesPayerThisAccount ? '+' : '−';
+     const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
+     const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
+     const desc = e.chargesDescription ? `<span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
+     return `${base}<div class="charges-line"><span class="${cls}">${sign}${val}</span>${desc}</div>`;
+    },
    },
    {
     key: 'exchangeRate',
@@ -367,26 +376,6 @@ export function generateLedgerHtml(
   if (!visibleCols.some((col) => col.key === 'runningBalance')) {
    const rbCol = allCols.find((col) => col.key === 'runningBalance');
    if (rbCol) visibleCols.push(rbCol);
-  }
-  // Insert charges column before runningBalance when any entry has charges
-  const hasCharges = filteredEntries.some((e) => !e.isAdjustment && e.charges > 0 && e.chargeAffectsThisAccount);
-  if (hasCharges) {
-   const chargesCol: ColDef = {
-    key: 'charges' as unknown as LedgerColumnKey,
-    header: t('charges'),
-    isNum: true,
-    cell: (e) => {
-     if (e.isAdjustment || e.charges <= 0 || !e.chargeAffectsThisAccount) return '';
-     const sign = e.isChargesPayerThisAccount ? '−' : '+';
-     const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
-     const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
-     const desc = e.chargesDescription ? `<div class="charges-desc">${esc(e.chargesDescription)}</div>` : '';
-     return `<span class="${cls}">${sign}${val}</span>${desc}`;
-    },
-   };
-   const amtIdx = visibleCols.findIndex((col) => col.key === 'amount');
-   if (amtIdx === -1) visibleCols.push(chargesCol);
-   else visibleCols.splice(amtIdx + 1, 0, chargesCol);
   }
   const colCount = visibleCols.length;
 
@@ -474,7 +463,7 @@ export function generateLedgerHtml(
  .final-balance .fb-label { font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; color: #1e293b; }
  .final-balance .fb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: 700; font-variant-numeric: tabular-nums; }
  .footer { margin-top: 24px; font-size: calc(${pdfSettings.fontSize}px - 2px); color: #94a3b8; text-align: center; }
- .charges-line { font-size: calc(${pdfSettings.fontSize}px - 1px); font-weight: 600; margin-top: 2px; }
+ .charges-line { display: flex; align-items: center; justify-content: center; gap: 4px; font-size: calc(${pdfSettings.fontSize}px - 1px); font-weight: 600; margin-top: 2px; }
  .charges-desc { font-weight: 400; font-style: italic; color: #94a3b8; }
  .sticky-note { background: #fef9c3; border: 1px solid #fde047; border-${isRTL ? 'right' : 'left'}: 4px solid #eab308; border-radius: 6px; padding: 10px 14px; margin-bottom: 20px; }
  .sticky-note .note-label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #a16207; font-weight: 700; margin-bottom: 4px; }

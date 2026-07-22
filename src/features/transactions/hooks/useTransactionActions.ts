@@ -76,6 +76,7 @@ type UseTransactionActionsParams = {
  onDeleteAdjustment: (id: number, opts?: { offerUndo?: boolean }) => Promise<void>;
  pushSharedSettingsIfOwner: () => void;
  pushUserTableSettings: () => void;
+ lockPastEditsEnabled: boolean;
 };
 
 /**
@@ -117,6 +118,7 @@ export function useTransactionActions({
  onDeleteAdjustment,
  pushSharedSettingsIfOwner,
  pushUserTableSettings,
+ lockPastEditsEnabled,
 }: UseTransactionActionsParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
@@ -127,9 +129,10 @@ export function useTransactionActions({
  const setAdjustments = setters.setAdjustments;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
- const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked } = useReconciliationLocks({
+ const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({
   reconciliations,
   clientAccountMap,
+  lockPastEditsEnabled,
  });
  const { applyTransactionPatch, applyAdjustmentPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
 
@@ -234,6 +237,7 @@ function buildTransactionTableDraft(transaction: TransactionTableRow): Transacti
   chargesDescription: transaction.chargesDescription,
   description: transaction.description,
   archiveNote: transaction.archiveNote,
+  distributionLocationId: isAdjustment ? null : transaction.distributionLocationId,
   createdDate: transaction.createdAt.slice(0, 10),
  };
 }
@@ -397,6 +401,10 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
  // A new entry lands at the end of its date's sequence (top of the table / bottom of the
  // ledger), after any same-day rows the user manually reordered.
  const newTransactionCreatedAt = editing ? resolveCreatedAt(newTransactionDate, editing.createdAt) : nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
+
+ if (blockedByPastEditLock([editing?.createdAt, newTransactionCreatedAt], isArchiveCreate)) {
+  return;
+ }
 
  if (isAdjustmentTransaction && !isArchiveCreate) {
   if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
@@ -570,6 +578,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
   descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
   exchangeActualAmount: exchangeActualAmountValue,
+  distributionLocationId: transactionForm.distributionLocationId,
   createdAt: newTransactionCreatedAt,
  };
 
@@ -599,6 +608,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
    descriptionTo: txPayload.descriptionTo,
    exchangeActualAmount: txPayload.exchangeActualAmount,
    archiveNote: original?.archiveNote,
+   distributionLocationId: txPayload.distributionLocationId,
    createdAt: txPayload.createdAt,
   };
   if (original && !(await confirmIfTransactionEditLocked(original, updatePayload))) {
@@ -674,6 +684,9 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
     exchangeActualAmount: txPayload.exchangeActualAmount,
     archiveNote: '',
     isArchived: txPayload.isArchived ? 1 : 0,
+    distributionLocationId: txPayload.distributionLocationId,
+    distributionLocationName: null,
+    distributionLocationKind: null,
     createdAt: txPayload.createdAt,
    },
   ]);
@@ -1052,6 +1065,7 @@ async function onConfirmImportTransactions() {
      phone: '',
      address: '',
      excludeFromBalance: false,
+     distributionCommissionEnabled: false,
      accountCount: 0,
      createdAt: '',
      updatedAt: '',
@@ -1382,6 +1396,7 @@ async function onSaveAllTransactionDrafts() {
     chargesDescription: draft.chargesDescription,
     description: draft.description,
     archiveNote: draft.archiveNote,
+    distributionLocationId: draft.distributionLocationId,
     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
    });
   }
@@ -1401,6 +1416,9 @@ async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {
  }
 
  const tx = transactions.find((t) => t.id === id);
+ if (blockedByPastEditLock([tx?.createdAt], Boolean(tx?.isArchived))) {
+  return;
+ }
  if (!(await confirmDeleteWithLock(tx ? [tx.accountFromId, tx.accountToId] : [], tx?.createdAt ?? '', id, 'transaction_delete_confirm'))) {
   return;
  }
@@ -1459,6 +1477,7 @@ function buildTransactionCreatePayload(tx: Transaction, createdAt: string) {
   descriptionFrom: tx.descriptionFrom,
   descriptionTo: tx.descriptionTo,
   exchangeActualAmount: tx.exchangeActualAmount,
+  distributionLocationId: tx.distributionLocationId,
   createdAt,
  };
 }
@@ -1532,6 +1551,7 @@ function onPasteCopiedTransaction() {
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
   exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
+  distributionLocationId: isAdjustment ? null : row.distributionLocationId,
  });
  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);
@@ -1569,6 +1589,7 @@ function onEditTransactionInForm(row: TransactionTableRow) {
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
   exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
+  distributionLocationId: isAdjustment ? null : row.distributionLocationId,
  });
  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);
@@ -1608,6 +1629,16 @@ async function onDeleteSelectedTransactions() {
  const idsToDelete = [...selectedTransactionIds];
  if (!idsToDelete.length) {
   setError('No transactions selected.');
+  return;
+ }
+
+ // Archived transactions are exempt from the lock (see db.js's createTransaction comment),
+ // so only non-archived rows' dates count toward the check — a mixed selection must still
+ // be blocked on account of its non-archived members even if some rows are exempt.
+ const selectedCreatedAts = idsToDelete
+  .map((id) => (id < 0 ? adjustments.find((a) => a.id === -id)?.createdAt : transactions.find((t) => t.id === id && !t.isArchived)?.createdAt))
+  .filter((value): value is string => Boolean(value));
+ if (blockedByPastEditLock(selectedCreatedAts)) {
   return;
  }
 
@@ -1790,6 +1821,7 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
      chargesExchangeRate: draggedRow.chargesExchangeRate,
      chargesDescription: draggedRow.chargesDescription,
      description: draggedRow.description,
+     distributionLocationId: draggedRow.distributionLocationId,
      createdAt: newCreatedAt,
     });
    }
@@ -1826,6 +1858,10 @@ async function onSaveTransactionTableRow(transactionId: number, { skipReload = f
     return next;
    });
   }
+  return;
+ }
+
+ if (blockedByPastEditLock([transaction.createdAt, resolveCreatedAt(draft.createdDate, transaction.createdAt)], Boolean(transaction.isArchived))) {
   return;
  }
 
@@ -1925,6 +1961,7 @@ async function onSaveTransactionTableRow(transactionId: number, { skipReload = f
   chargesDescription: draft.chargesDescription,
   description: draft.description,
   archiveNote: draft.archiveNote,
+  distributionLocationId: draft.distributionLocationId,
   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
  };
 

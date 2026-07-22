@@ -46,6 +46,9 @@ export function buildTransactionTableRows({ adjustments, clientAccounts, transac
     description: adjustment.description,
     archiveNote: '',
     isArchived: 0,
+    distributionLocationId: null,
+    distributionLocationName: null,
+    distributionLocationKind: null,
     createdAt: adjustment.createdAt,
    };
   });

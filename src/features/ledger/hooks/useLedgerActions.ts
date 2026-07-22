@@ -57,6 +57,7 @@ type UseLedgerActionsParams = {
  pushSharedSettingsIfOwner: () => void;
  pushUserTableSettings: () => void;
  ledgerHistory: DraftHistory;
+ lockPastEditsEnabled: boolean;
 };
 
 /**
@@ -84,6 +85,7 @@ export function useLedgerActions({
  pushSharedSettingsIfOwner,
  pushUserTableSettings,
  ledgerHistory,
+ lockPastEditsEnabled,
 }: UseLedgerActionsParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
@@ -94,9 +96,10 @@ export function useLedgerActions({
  const setReconciliations = setters.setReconciliations;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
- const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked } = useReconciliationLocks({
+ const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({
   reconciliations,
   clientAccountMap,
+  lockPastEditsEnabled,
  });
  const { applyTransactionPatch, applyAdjustmentPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
 
@@ -259,6 +262,7 @@ function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: 
   chargesPayer: transaction.chargesPayer,
   chargesExchangeRate: String(transaction.chargesExchangeRate || 1),
   chargesDescription: transaction.chargesDescription,
+  distributionLocationId: transaction.distributionLocationId,
  };
 }
 
@@ -286,6 +290,7 @@ function buildLedgerAdjustmentDraft(adj: ClientAdjustment, ledgerAccountId: numb
   chargesPayer: '',
   chargesExchangeRate: '1',
   chargesDescription: '',
+  distributionLocationId: null,
  };
 }
 
@@ -371,6 +376,9 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
    description: draft.description,
    createdAt: resolveCreatedAt(draft.createdDate, adj.createdAt),
   };
+  if (blockedByPastEditLock([adj.createdAt, updatedAdj.createdAt])) {
+   return false;
+  }
   // Single-row saves check the lock here; batch saves are checked once up-front in
   // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
   if (!skipReload && !(await confirmIfEditLocked([adj.accountId], adj.createdAt, [updatedAdj.accountId], updatedAdj.createdAt, adj.id))) {
@@ -487,6 +495,7 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
   chargesDescription: draft.chargesDescription,
   description: draft.description,
+  distributionLocationId: draft.distributionLocationId,
   createdAt,
  };
 
@@ -513,8 +522,13 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   chargesExchangeRate: transaction.chargesExchangeRate,
   chargesDescription: transaction.chargesDescription,
   description: transaction.description,
+  distributionLocationId: transaction.distributionLocationId,
   createdAt: transaction.createdAt,
  };
+
+ if (blockedByPastEditLock([transaction.createdAt, payload.createdAt], Boolean(transaction.isArchived))) {
+  return false;
+ }
 
  // Single-row saves check the lock here; batch saves are checked once up-front in
  // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
@@ -935,6 +949,10 @@ async function onSubmitAdjustment() {
   createdAt,
  };
 
+ if (blockedByPastEditLock([existingAdj?.createdAt, createdAt])) {
+  return;
+ }
+
  // Reconciliation guard: creating/re-dating an expense on or before the lock line — or
  // editing one that currently sits there — rewrites reconciled history.
  const adjRefId = adjustmentModal.editingId ?? NEW_ROW_REF_ID;
@@ -981,6 +999,9 @@ async function onDeleteAdjustment(id: number, opts: { offerUndo?: boolean } = {}
  }
 
  const adj = adjustments.find((a) => a.id === id);
+ if (blockedByPastEditLock([adj?.createdAt])) {
+  return;
+ }
  if (!(await confirmDeleteWithLock(adj ? [adj.accountId] : [], adj?.createdAt ?? '', id, 'adjustment_delete_confirm'))) {
   return;
  }
@@ -1207,6 +1228,7 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
      chargesExchangeRate: tx.chargesExchangeRate,
      chargesDescription: tx.chargesDescription,
      description: tx.description,
+     distributionLocationId: tx.distributionLocationId,
      createdAt: newCreatedAt,
     });
    }

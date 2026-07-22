@@ -33,6 +33,12 @@ export type Client = {
  // and show their own balance on the Clients page, but are left out of the pooled totals on
  // the Overview and Organizations pages (e.g. a "me" client used to track personal transfers).
  excludeFromBalance: boolean;
+ // Opt-in, niche feature: shows the Commission Distribution report (and its ledger-row
+ // "calculate commission between highlighted rows" action) for this client. Off by default
+ // for every client — only relevant to specific multi-location agent relationships. The
+ // report classifies the client's own transaction descriptions at calculation time; there is
+ // no separate pre-configured location list.
+ distributionCommissionEnabled: boolean;
  accountCount: number;
  createdAt: string;
  updatedAt: string;
@@ -46,7 +52,9 @@ export type ClientForm = {
  phone: string;
  address: string;
  excludeFromBalance: boolean;
+ distributionCommissionEnabled: boolean;
 };
+
 
 export type NewClientAccountDraft = {
  currencyId: number | null;
@@ -113,6 +121,13 @@ export type Transaction = {
  exchangeActualAmount: number | null;
  archiveNote: string;
  isArchived: number;
+ // Dormant: an earlier revision of the Commission Distribution report tagged transactions
+ // against a pre-configured location list. The report now classifies by the transaction's
+ // own description at calculation time instead, so this is never set by the UI anymore —
+ // kept only so historical rows (and the DB column) don't need a migration.
+ distributionLocationId: number | null;
+ distributionLocationName: string | null;
+ distributionLocationKind: 'receiving' | 'settlement' | null;
  createdAt: string;
 };
 
@@ -143,6 +158,7 @@ export type TransactionForm = {
  descriptionTo: string;
  // Exchange (صرف) only: the real settled destination amount, as raw input text ('' = no override).
  exchangeActualAmount: string;
+ distributionLocationId: number | null;
 };
 export type TransactionUpdateInput = {
  id: number;
@@ -167,6 +183,7 @@ export type TransactionUpdateInput = {
  descriptionTo?: string;
  exchangeActualAmount?: number | null;
  archiveNote?: string;
+ distributionLocationId?: number | null;
  createdAt: string;
 };
 
@@ -191,6 +208,7 @@ export type TransactionTableDraft = {
  chargesDescription: string;
  description: string;
  archiveNote: string;
+ distributionLocationId: number | null;
  createdDate: string;
 };
 
@@ -215,6 +233,7 @@ export type LedgerTransactionDraft = {
  chargesPayer: string;
  chargesExchangeRate: string;
  chargesDescription: string;
+ distributionLocationId: number | null;
 };
 
 export type ClientLedgerEntry = {
@@ -259,6 +278,10 @@ export type ClientLedgerEntry = {
  // True when this row is at or before the account's newest reconciliation (the lock
  // line), so editing/reordering/deleting it triggers a warning.
  isLocked?: boolean;
+ // Dormant (see the same fields on Transaction) — never part of netChange/runningBalance.
+ distributionLocationId: number | null;
+ distributionLocationName: string | null;
+ distributionLocationKind: 'receiving' | 'settlement' | null;
 };
 
 export type ClientAdjustment = {

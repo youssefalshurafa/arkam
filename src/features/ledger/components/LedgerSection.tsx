@@ -17,7 +17,7 @@ import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
-import { formatDateValue, localDateKey } from '@/shared/utils/date';
+import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
@@ -83,6 +83,7 @@ type LedgerSectionProps = {
  openOrganizationClientsPage: (organization: Organization) => void;
  navigateToSection: (section: Section) => void;
  loadData: () => Promise<void> | void;
+ lockPastEditsEnabled: boolean;
 };
 
 export default function LedgerSection(props: LedgerSectionProps) {
@@ -93,7 +94,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openAdjustmentModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
-  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight,
+  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled,
  } = props;
  const router = useRouter();
  const { language, isRTL } = useLanguage();
@@ -106,7 +107,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const setError = useAppStatusStore((s) => s.setError);
  // Opens the shared read-only transaction "More info" popup (mounted at page level).
  const setInfoTransactionId = useTransactionsStore((s) => s.setInfoTransactionId);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
  // sit at the bottom of the scrollable table. Jump there on open (and whenever the
@@ -467,6 +468,36 @@ export default function LedgerSection(props: LedgerSectionProps) {
              >
               {t('adjustment_add')}
              </button>
+             {selectedClientForLedger?.distributionCommissionEnabled ? (
+              <button
+               type="button"
+               onClick={() => {
+                const targetLedger =
+                 selectedClientLedgers.length === 1
+                  ? selectedClientLedgers[0]
+                  : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+                if (!targetLedger) return;
+                setCommissionModal({ accountId: targetLedger.accountId, fromDate: '', toDate: '', fromEntryKey: null, toEntryKey: null, receivingSelections: {}, settlementSelections: {} });
+               }}
+               className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-border-strong px-3 py-2 text-sm text-fg-muted transition hover:bg-surface-hover"
+              >
+               <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <path d="M3 3v18h18" />
+                <path d="M18 17V9M13 17V5M8 17v-3" />
+               </svg>
+               {t('commission_report_action')}
+              </button>
+             ) : null}
              <button
               type="button"
               title={t('nav_settings')}
@@ -1356,6 +1387,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     const openRowMenu = (event: ReactMouseEvent) => {
                      const rowKeyForMenu = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                      if (editingLedgerRowKeys.has(rowKeyForMenu)) return;
+                     const rowLocked = lockPastEditsEnabled && isBeforeToday(entry.createdAt);
                      setContextMenuRowKey(rowKeyForMenu);
                      // Right-clicking a row that's part of a multi-selection offers bulk actions
                      // (edit / delete) that apply to every selected entry at once; otherwise the
@@ -1367,8 +1399,27 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       ]);
                       return;
                      }
+                     // Opt-in per-client feature: jumps straight to the Commission Distribution
+                     // report, pre-scoped to whatever's currently highlighted on this account's
+                     // ledger (last-two-highlighted-rows convention, same as the report's own
+                     // "use highlighted rows" button and the PDF export's highlight shortcut).
+                     const hasHighlightsForAccount = Array.from(highlightedLedgerRows.keys()).some((key) => key.endsWith(`:${ledger.accountId}`));
+                     const openCommissionModalFromHighlights = () => {
+                      const sorted = [...ledger.entries]
+                       .map((e) => ({ ...e, rowKey: getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) }))
+                       .sort((a, b) => {
+                        const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+                        if (diff !== 0) return diff;
+                        return (a.isAdjustment ? (a.adjustmentId ?? 0) : a.transactionId) - (b.isAdjustment ? (b.adjustmentId ?? 0) : b.transactionId);
+                       });
+                      const highlighted = sorted.filter((e) => highlightedLedgerRows.has(e.rowKey));
+                      if (highlighted.length === 0) return;
+                      const last = highlighted[highlighted.length - 1];
+                      const first = highlighted.length >= 2 ? highlighted[highlighted.length - 2] : last;
+                      setCommissionModal({ accountId: ledger.accountId, fromDate: '', toDate: '', fromEntryKey: first.rowKey, toEntryKey: last.rowKey, receivingSelections: {}, settlementSelections: {} });
+                     };
                      rowContextMenu.open(event, [
-                      { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId) },
+                      { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       ...(entry.isAdjustment
                        ? []
                        : [{ key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) }]),
@@ -1378,7 +1429,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       ...(entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= SMALL_BALANCE_THRESHOLD
                        ? [{ key: 'writeoff', label: t('write_off_row_action'), onSelect: () => onWriteOffLedgerRow(entry, ledger.accountId) }]
                        : []),
-                      { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const },
+                      ...(selectedClientForLedger?.distributionCommissionEnabled && hasHighlightsForAccount
+                       ? [{ key: 'commission-range', label: t('distribution_panel_use_highlights'), onSelect: openCommissionModalFromHighlights }]
+                       : []),
+                      { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
                      ]);
                     };
                     return (
@@ -1612,6 +1666,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 type="date"
                                 value={draft.createdDate}
                                 max={localDateKey()}
+                                min={lockPastEditsEnabled ? localDateKey() : undefined}
                                 onChange={(event) =>
                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value > localDateKey() ? localDateKey() : event.target.value })
                                 }
@@ -2189,9 +2244,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                </>
                               )}
                               {showChargesUnderAmount && (
-                               <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-bad-text">
+                               <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                                 <span>
-                                 −{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                 {entry.isChargesPayerThisAccount ? '+' : '−'}
+                                 {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                  {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                                 </span>
                                 {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
@@ -2482,7 +2538,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                })()
                               ) : entry.commission ? (
                                <span className={entry.commission < 0 ? 'font-semibold text-bad-text' : 'font-semibold text-good-text'}>
-                                {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}%
+                                {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}%
                                </span>
                               ) : (
                                <span className="text-fg-faint">-</span>
@@ -2537,7 +2593,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    {showCharges && (
                                     <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                                      <span>
-                                      {entry.isChargesPayerThisAccount ? '−' : '+'}
+                                      {entry.isChargesPayerThisAccount ? '+' : '−'}
                                       {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                      </span>
                                      {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
@@ -2555,7 +2611,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  {showCharges && (
                                   <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                                    <span>
-                                    {entry.isChargesPayerThisAccount ? '−' : '+'}
+                                    {entry.isChargesPayerThisAccount ? '+' : '−'}
                                     {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                    </span>
                                    {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}

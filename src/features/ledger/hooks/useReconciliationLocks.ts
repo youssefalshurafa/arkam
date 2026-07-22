@@ -4,13 +4,19 @@ import { useMemo } from 'react';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { buildLockBoundaries, violatedLock, reconciledImpact, type RowContribution } from '@/features/ledger/utils/reconciliation';
 import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
+import { isBeforeToday } from '@/shared/utils/date';
 import type { ClientAccount, Reconciliation, Transaction, TransactionUpdateInput } from '@/shared/types';
 
 type UseReconciliationLocksParams = {
  reconciliations: Reconciliation[];
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
+ // Workspace-wide "lock past-dated edits" toggle (Settings > Team, owner/admin only). The
+ // real enforcement is server-side (route.ts/db.js) — this only stops the request from
+ // being sent so the user sees an immediate, specific error instead of a round-trip 500.
+ lockPastEditsEnabled: boolean;
 };
 
 /**
@@ -19,9 +25,10 @@ type UseReconciliationLocksParams = {
  * lock line (its newest reconciliation), so both need the same "warn once,
  * proceed if confirmed" behavior.
  */
-export function useReconciliationLocks({ reconciliations, clientAccountMap }: UseReconciliationLocksParams) {
+export function useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled }: UseReconciliationLocksParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
+ const setError = useAppStatusStore((s) => s.setError);
 
  // Newest reconciliation per client account = the lock line used by the guards below.
  const lockBoundaries = useMemo(() => buildLockBoundaries(reconciliations), [reconciliations]);
@@ -120,6 +127,24 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap }: Us
   });
  }
 
+ /**
+  * Hard block (no confirm dialog, unlike the guards above) for the workspace's "lock
+  * past-dated edits" toggle: when on, nobody — including owner/admin — can create, edit,
+  * re-date, or delete a transaction/adjustment dated yesterday or earlier. `createdAtValues`
+  * should include both the row's CURRENT date (for edit/delete) and the date being written
+  * (for create/edit), so re-dating either into or out of a locked day is caught. Archive-only
+  * transactions are exempt (see db.js's createTransaction comment) — pass `isArchived: true`
+  * for those. Returns true (and sets the error) if the action must be blocked.
+  */
+ function blockedByPastEditLock(createdAtValues: Array<string | null | undefined>, isArchived = false): boolean {
+  if (!lockPastEditsEnabled || isArchived) return false;
+  const locked = createdAtValues.some((value) => typeof value === 'string' && value && isBeforeToday(value));
+  if (locked) {
+   setError(t('lock_past_edits_blocked_message'));
+  }
+  return locked;
+ }
+
  return {
   lockBoundaries,
   formatLockBalance,
@@ -127,5 +152,6 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap }: Us
   confirmDeleteWithLock,
   confirmIfEditLocked,
   confirmIfTransactionEditLocked,
+  blockedByPastEditLock,
  };
 }
