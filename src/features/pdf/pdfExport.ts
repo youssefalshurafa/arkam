@@ -328,9 +328,9 @@ export function generateLedgerHtml(
     cell: (e) => {
      const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
      if (e.isAdjustment || e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
-     // Paying the charge adds to what this account owes on top of the amount (+, red);
-     // not paying it means the charge is deducted from it instead (−, green).
-     const sign = e.isChargesPayerThisAccount ? '+' : '−';
+     // Paying the charge deducts it from what this account nets (−, red);
+     // not paying it means the charge is added on top instead (+, green).
+     const sign = e.isChargesPayerThisAccount ? '−' : '+';
      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
      const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
      const desc = e.chargesDescription ? `<span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
