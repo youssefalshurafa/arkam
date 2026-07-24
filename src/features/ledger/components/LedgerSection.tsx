@@ -2765,7 +2765,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                           colSpan={colSpanCount}
                           className="px-4 pb-1.5 pt-0 pl-10 align-top"
                          >
-                          <div className="flex items-center gap-1.5 text-xs font-semibold leading-none text-bad-text">
+                          <div className={`flex items-center gap-1.5 text-xs font-semibold leading-none ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                            <span>
                             −{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                             {renderLedgerCurrencySuffix('', entry.chargesCurrencyCode ?? '')}
