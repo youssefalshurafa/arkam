@@ -330,6 +330,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // grouping the dropdowns render, so index N always points at the Nth rendered row.
  const [txFromHighlight, setTxFromHighlight] = useState(0);
  const [txToHighlight, setTxToHighlight] = useState(0);
+ const [descriptionSuggestHighlight, setDescriptionSuggestHighlight] = useState(0);
  // Spreadsheet-style zoom for the (often very wide) transactions table, so it fits on narrow screens.
  const [tableZoom, setTableZoom] = useState(() => getStoredTableZoom('transactions'));
  // Max allowed deviation (in the destination currency) between the entered الفعلي actual amount
@@ -341,6 +342,34 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  };
  const txFromOptions = useMemo(() => buildAccountOptions(clientAccounts, txFromQuery, txFromExpandedClient), [clientAccounts, txFromQuery, txFromExpandedClient]);
  const txToOptions = useMemo(() => buildAccountOptions(clientAccounts, txToQuery, txToExpandedClient), [clientAccounts, txToQuery, txToExpandedClient]);
+
+ // Description autocomplete suggestions, kept as a memo (rather than computed inline in JSX)
+ // so the keyboard handler and the dropdown render agree on the same indexed list.
+ const descriptionSuggestions = useMemo(() => {
+  const q = transactionForm.description.trim().toLowerCase();
+  const accountIds = new Set<number>([transactionForm.accountFromId, transactionForm.accountToId].filter((id): id is number => id != null));
+  const seen = new Set<string>();
+  const suggestions: string[] = [];
+  // Prioritize descriptions used on the currently selected accounts, then fall back to all past descriptions.
+  const passes = accountIds.size > 0 ? (['scoped', 'all'] as const) : (['all'] as const);
+  for (const pass of passes) {
+   for (let i = transactions.length - 1; i >= 0; i--) {
+    const tx = transactions[i];
+    const desc = tx.description?.trim();
+    if (!desc) continue;
+    if (pass === 'scoped' && !(tx.accountFromId != null && accountIds.has(tx.accountFromId)) && !(tx.accountToId != null && accountIds.has(tx.accountToId))) continue;
+    if (q && desc.toLowerCase() === q) continue;
+    if (q && !desc.toLowerCase().includes(q)) continue;
+    const key = desc.toLowerCase();
+    if (seen.has(key) || excludedDescriptionSuggestions.has(key)) continue;
+    seen.add(key);
+    suggestions.push(desc);
+    if (suggestions.length >= 8) break;
+   }
+   if (suggestions.length >= 8) break;
+  }
+  return suggestions;
+ }, [transactions, transactionForm.description, transactionForm.accountFromId, transactionForm.accountToId, excludedDescriptionSuggestions]);
 
  const selectFromAccount = (id: number) => {
   setTransactionForm((current) => ({ ...current, accountFromId: id }));
@@ -1215,81 +1244,83 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               onChange={(event) => {
                setTransactionForm((current) => ({ ...current, description: event.target.value }));
                setDescriptionSuggestOpen(true);
+               setDescriptionSuggestHighlight(0);
               }}
-              onFocus={() => setDescriptionSuggestOpen(true)}
+              onFocus={() => {
+               setDescriptionSuggestOpen(true);
+               setDescriptionSuggestHighlight(0);
+              }}
               onBlur={() => setTimeout(() => setDescriptionSuggestOpen(false), 150)}
+              onKeyDown={(event) => {
+               if (!descriptionSuggestOpen || descriptionSuggestions.length === 0) return;
+               if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                setDescriptionSuggestHighlight((h) => (h + 1) % descriptionSuggestions.length);
+               } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                setDescriptionSuggestHighlight((h) => (h - 1 + descriptionSuggestions.length) % descriptionSuggestions.length);
+               } else if (event.key === 'Enter') {
+                const desc = descriptionSuggestions[descriptionSuggestHighlight];
+                if (!desc) return;
+                event.preventDefault();
+                setTransactionForm((current) => ({ ...current, description: desc }));
+                setDescriptionSuggestOpen(false);
+               } else if (event.key === 'Escape') {
+                setDescriptionSuggestOpen(false);
+               }
+              }}
               className="min-h-20 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
               placeholder={t('transaction_description_placeholder')}
               autoComplete="off"
              />
-             {descriptionSuggestOpen &&
-              (() => {
-               const q = transactionForm.description.trim().toLowerCase();
-               const accountIds = new Set<number>([transactionForm.accountFromId, transactionForm.accountToId].filter((id): id is number => id != null));
-               const seen = new Set<string>();
-               const suggestions: string[] = [];
-               // Prioritize descriptions used on the currently selected accounts, then fall back to all past descriptions.
-               const passes = accountIds.size > 0 ? (['scoped', 'all'] as const) : (['all'] as const);
-               for (const pass of passes) {
-                for (let i = transactions.length - 1; i >= 0; i--) {
-                 const tx = transactions[i];
-                 const desc = tx.description?.trim();
-                 if (!desc) continue;
-                 if (pass === 'scoped' && !(tx.accountFromId != null && accountIds.has(tx.accountFromId)) && !(tx.accountToId != null && accountIds.has(tx.accountToId))) continue;
-                 if (q && desc.toLowerCase() === q) continue;
-                 if (q && !desc.toLowerCase().includes(q)) continue;
-                 const key = desc.toLowerCase();
-                 if (seen.has(key) || excludedDescriptionSuggestions.has(key)) continue;
-                 seen.add(key);
-                 suggestions.push(desc);
-                 if (suggestions.length >= 8) break;
-                }
-                if (suggestions.length >= 8) break;
-               }
-               if (suggestions.length === 0) return null;
-               return (
-                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
-                 {suggestions.map((desc) => (
-                  <li
-                   key={desc}
-                   onMouseDown={() => {
-                    setTransactionForm((current) => ({ ...current, description: desc }));
-                    setDescriptionSuggestOpen(false);
+             {descriptionSuggestOpen && descriptionSuggestions.length > 0 && (
+              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
+               {descriptionSuggestions.map((desc, index) => {
+                const highlighted = index === descriptionSuggestHighlight;
+                const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
+                return (
+                 <li
+                  key={desc}
+                  ref={highlightRef}
+                  onMouseDown={() => {
+                   setTransactionForm((current) => ({ ...current, description: desc }));
+                   setDescriptionSuggestOpen(false);
+                  }}
+                  onMouseEnter={() => setDescriptionSuggestHighlight(index)}
+                  className={`group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak text-fg' : 'text-fg-muted hover:bg-accent-weak'}`}
+                  title={desc}
+                 >
+                  <span className="flex-1 truncate">{desc}</span>
+                  <button
+                   type="button"
+                   onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    excludeDescriptionSuggestion(desc);
                    }}
-                   className="group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-fg-muted hover:bg-accent-weak"
-                   title={desc}
+                   title={t('transaction_description_suggestion_remove')}
+                   aria-label={t('transaction_description_suggestion_remove')}
+                   className="shrink-0 rounded p-0.5 text-fg-faint opacity-0 transition hover:bg-surface-hover hover:text-fg-muted group-hover:opacity-100"
                   >
-                   <span className="flex-1 truncate">{desc}</span>
-                   <button
-                    type="button"
-                    onMouseDown={(event) => {
-                     event.preventDefault();
-                     event.stopPropagation();
-                     excludeDescriptionSuggestion(desc);
-                    }}
-                    title={t('transaction_description_suggestion_remove')}
-                    aria-label={t('transaction_description_suggestion_remove')}
-                    className="shrink-0 rounded p-0.5 text-fg-faint opacity-0 transition hover:bg-surface-hover hover:text-fg-muted group-hover:opacity-100"
+                   <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
                    >
-                    <svg
-                     width="12"
-                     height="12"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth="2.5"
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     aria-hidden
-                    >
-                     <path d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                   </button>
-                  </li>
-                 ))}
-                </ul>
-               );
-              })()}
+                    <path d="M6 18L18 6M6 6l12 12" />
+                   </svg>
+                  </button>
+                 </li>
+                );
+               })}
+              </ul>
+             )}
             </div>
 
             {!isAdjustmentTransaction ? (
