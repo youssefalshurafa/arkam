@@ -2174,10 +2174,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              </td>
                             );
                            case 'amount':
-                            // A charge in the same currency as the amount is shown here, subtracted directly
-                            // from the amount (they're comparable) — otherwise it stays under net change,
-                            // where the account's own currency makes a cross-currency charge meaningful.
-                            const showChargesUnderAmount = !draft && !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount && entry.chargesCurrencyCode === entry.currencyCode;
                             return (
                              <td
                               key={column.key}
@@ -2242,16 +2238,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                 {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
                                </>
-                              )}
-                              {showChargesUnderAmount && (
-                               <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
-                                <span>
-                                 {entry.isChargesPayerThisAccount ? '−' : '+'}
-                                 {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                 {renderLedgerCurrencySuffix(entry.currencySymbol, entry.currencyCode)}
-                                </span>
-                                {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
-                               </div>
                               )}
                              </td>
                             );
@@ -2563,11 +2549,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  })()
                                : entry.netChange;
                              const highlightNet = ledgerHighlightNetChange && !isRowHighlighted;
-                             // Same-currency charges are shown under the amount column instead (see the
-                             // 'amount' case above), since they're directly comparable there — unless that
-                             // column is hidden, in which case they fall back to showing here so the charge
-                             // is never silently dropped from view.
-                             const showCharges = !draft && !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount && (entry.chargesCurrencyCode !== entry.currencyCode || !ledgerColumnVisibility.amount);
                              return (
                               <td
                                key={column.key}
@@ -2590,34 +2571,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                                     {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
                                    </button>
-                                   {showCharges && (
-                                    <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
-                                     <span>
-                                      {entry.isChargesPayerThisAccount ? '−' : '+'}
-                                      {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                     </span>
-                                     {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
-                                    </div>
-                                   )}
                                   </>
                                  );
                                 })()
                                ) : (
-                                <>
-                                 <div className="whitespace-nowrap">
-                                  {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                  {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                                 </div>
-                                 {showCharges && (
-                                  <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
-                                   <span>
-                                    {entry.isChargesPayerThisAccount ? '−' : '+'}
-                                    {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                   </span>
-                                   {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
-                                  </div>
-                                 )}
-                                </>
+                                <div className="whitespace-nowrap">
+                                 {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                 {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                </div>
                                )}
                               </td>
                              );
@@ -2788,6 +2749,29 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             meLabel={t('charges_payer_me')}
                             rateTargetCurrencyCode={ledger.currencyCode}
                            />
+                          </div>
+                         </td>
+                        </tr>
+                       );
+                      }
+
+                      if (!isEditingThisRow && !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount) {
+                       return (
+                        <tr
+                         key={`${ledger.accountId}-${entry.transactionId}-charges-view`}
+                         className={entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'}
+                        >
+                         <td
+                          colSpan={colSpanCount}
+                          className="px-4 pb-1.5 pt-0 pl-10 align-top"
+                         >
+                          <div className={`flex items-center gap-1.5 text-xs font-semibold leading-none ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
+                           <span>
+                            {entry.isChargesPayerThisAccount ? '−' : '+'}
+                            {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                            {renderLedgerCurrencySuffix('', entry.chargesCurrencyCode ?? '')}
+                           </span>
+                           {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
                           </div>
                          </td>
                         </tr>

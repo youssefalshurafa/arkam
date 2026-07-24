@@ -2415,7 +2415,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </div>
                        ) : (
-                        <span className="italic text-fg-faint">{t('archive_no_sender')}</span>
+                        <span className="italic text-fg-faint">-</span>
                        );
                       })()}
                      </>
@@ -2481,7 +2481,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          {txn.clientToName} <span className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </div>
                        ) : (
-                        <span className="italic text-fg-faint">{t('archive_no_receiver')}</span>
+                        <span className="italic text-fg-faint">-</span>
                        );
                       })()}
                      </>
