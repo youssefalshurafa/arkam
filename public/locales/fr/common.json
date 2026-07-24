@@ -418,6 +418,7 @@
  "archive_more_info": "Plus d'infos",
  "transaction_archived_badge": "Archivé",
  "archive_today_notice": "{{count}} transactions archivées aujourd'hui",
+ "missing_counterparty_alert": "{{count}} transaction(s) aujourd'hui sans contrepartie",
  "toast_client_created": "Client créé",
  "toast_transaction_created": "Transaction créée",
  "toast_archive_transaction_created": "Transaction d'archive créée",

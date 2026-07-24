@@ -421,6 +421,7 @@
  "archive_more_info": "مزيد من المعلومات",
  "transaction_archived_badge": "مؤرشف",
  "archive_today_notice": "{{count}} معاملة تمت أرشفتها اليوم",
+ "missing_counterparty_alert": "{{count}} معاملة اليوم بلا طرف مقابل",
  "toast_client_created": "تم إنشاء العميل",
  "toast_transaction_created": "تم إنشاء المعاملة",
  "toast_archive_transaction_created": "تم إنشاء معاملة الأرشيف",
