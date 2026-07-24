@@ -182,6 +182,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // Toolbar gear button: opens Import/Export/Table Settings as a dropdown instead of three
  // separate icon buttons.
  const gearMenu = useContextMenu();
+ // Alert next to the bulk-select button: lists today's transactions still missing a sender
+ // or receiver, so they don't quietly sit unnoticed in the main list until someone happens
+ // to open the Archive section.
+ const missingCounterpartyMenu = useContextMenu();
+ const missingCounterpartyToday = useMemo(() => {
+  if (section !== 'transactions') return [];
+  const today = localDateKey();
+  return transactions.filter((txn) => !txn.isArchived && (!txn.accountFromId || !txn.accountToId) && txn.createdAt.slice(0, 10) === today);
+ }, [transactions, section]);
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
@@ -321,6 +330,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // grouping the dropdowns render, so index N always points at the Nth rendered row.
  const [txFromHighlight, setTxFromHighlight] = useState(0);
  const [txToHighlight, setTxToHighlight] = useState(0);
+ const [descriptionSuggestHighlight, setDescriptionSuggestHighlight] = useState(0);
  // Spreadsheet-style zoom for the (often very wide) transactions table, so it fits on narrow screens.
  const [tableZoom, setTableZoom] = useState(() => getStoredTableZoom('transactions'));
  // Max allowed deviation (in the destination currency) between the entered الفعلي actual amount
@@ -332,6 +342,34 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  };
  const txFromOptions = useMemo(() => buildAccountOptions(clientAccounts, txFromQuery, txFromExpandedClient), [clientAccounts, txFromQuery, txFromExpandedClient]);
  const txToOptions = useMemo(() => buildAccountOptions(clientAccounts, txToQuery, txToExpandedClient), [clientAccounts, txToQuery, txToExpandedClient]);
+
+ // Description autocomplete suggestions, kept as a memo (rather than computed inline in JSX)
+ // so the keyboard handler and the dropdown render agree on the same indexed list.
+ const descriptionSuggestions = useMemo(() => {
+  const q = transactionForm.description.trim().toLowerCase();
+  const accountIds = new Set<number>([transactionForm.accountFromId, transactionForm.accountToId].filter((id): id is number => id != null));
+  const seen = new Set<string>();
+  const suggestions: string[] = [];
+  // Prioritize descriptions used on the currently selected accounts, then fall back to all past descriptions.
+  const passes = accountIds.size > 0 ? (['scoped', 'all'] as const) : (['all'] as const);
+  for (const pass of passes) {
+   for (let i = transactions.length - 1; i >= 0; i--) {
+    const tx = transactions[i];
+    const desc = tx.description?.trim();
+    if (!desc) continue;
+    if (pass === 'scoped' && !(tx.accountFromId != null && accountIds.has(tx.accountFromId)) && !(tx.accountToId != null && accountIds.has(tx.accountToId))) continue;
+    if (q && desc.toLowerCase() === q) continue;
+    if (q && !desc.toLowerCase().includes(q)) continue;
+    const key = desc.toLowerCase();
+    if (seen.has(key) || excludedDescriptionSuggestions.has(key)) continue;
+    seen.add(key);
+    suggestions.push(desc);
+    if (suggestions.length >= 8) break;
+   }
+   if (suggestions.length >= 8) break;
+  }
+  return suggestions;
+ }, [transactions, transactionForm.description, transactionForm.accountFromId, transactionForm.accountToId, excludedDescriptionSuggestions]);
 
  const selectFromAccount = (id: number) => {
   setTransactionForm((current) => ({ ...current, accountFromId: id }));
@@ -1206,81 +1244,83 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               onChange={(event) => {
                setTransactionForm((current) => ({ ...current, description: event.target.value }));
                setDescriptionSuggestOpen(true);
+               setDescriptionSuggestHighlight(0);
               }}
-              onFocus={() => setDescriptionSuggestOpen(true)}
+              onFocus={() => {
+               setDescriptionSuggestOpen(true);
+               setDescriptionSuggestHighlight(0);
+              }}
               onBlur={() => setTimeout(() => setDescriptionSuggestOpen(false), 150)}
+              onKeyDown={(event) => {
+               if (!descriptionSuggestOpen || descriptionSuggestions.length === 0) return;
+               if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                setDescriptionSuggestHighlight((h) => (h + 1) % descriptionSuggestions.length);
+               } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                setDescriptionSuggestHighlight((h) => (h - 1 + descriptionSuggestions.length) % descriptionSuggestions.length);
+               } else if (event.key === 'Enter') {
+                const desc = descriptionSuggestions[descriptionSuggestHighlight];
+                if (!desc) return;
+                event.preventDefault();
+                setTransactionForm((current) => ({ ...current, description: desc }));
+                setDescriptionSuggestOpen(false);
+               } else if (event.key === 'Escape') {
+                setDescriptionSuggestOpen(false);
+               }
+              }}
               className="min-h-20 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
               placeholder={t('transaction_description_placeholder')}
               autoComplete="off"
              />
-             {descriptionSuggestOpen &&
-              (() => {
-               const q = transactionForm.description.trim().toLowerCase();
-               const accountIds = new Set<number>([transactionForm.accountFromId, transactionForm.accountToId].filter((id): id is number => id != null));
-               const seen = new Set<string>();
-               const suggestions: string[] = [];
-               // Prioritize descriptions used on the currently selected accounts, then fall back to all past descriptions.
-               const passes = accountIds.size > 0 ? (['scoped', 'all'] as const) : (['all'] as const);
-               for (const pass of passes) {
-                for (let i = transactions.length - 1; i >= 0; i--) {
-                 const tx = transactions[i];
-                 const desc = tx.description?.trim();
-                 if (!desc) continue;
-                 if (pass === 'scoped' && !(tx.accountFromId != null && accountIds.has(tx.accountFromId)) && !(tx.accountToId != null && accountIds.has(tx.accountToId))) continue;
-                 if (q && desc.toLowerCase() === q) continue;
-                 if (q && !desc.toLowerCase().includes(q)) continue;
-                 const key = desc.toLowerCase();
-                 if (seen.has(key) || excludedDescriptionSuggestions.has(key)) continue;
-                 seen.add(key);
-                 suggestions.push(desc);
-                 if (suggestions.length >= 8) break;
-                }
-                if (suggestions.length >= 8) break;
-               }
-               if (suggestions.length === 0) return null;
-               return (
-                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
-                 {suggestions.map((desc) => (
-                  <li
-                   key={desc}
-                   onMouseDown={() => {
-                    setTransactionForm((current) => ({ ...current, description: desc }));
-                    setDescriptionSuggestOpen(false);
+             {descriptionSuggestOpen && descriptionSuggestions.length > 0 && (
+              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
+               {descriptionSuggestions.map((desc, index) => {
+                const highlighted = index === descriptionSuggestHighlight;
+                const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
+                return (
+                 <li
+                  key={desc}
+                  ref={highlightRef}
+                  onMouseDown={() => {
+                   setTransactionForm((current) => ({ ...current, description: desc }));
+                   setDescriptionSuggestOpen(false);
+                  }}
+                  onMouseEnter={() => setDescriptionSuggestHighlight(index)}
+                  className={`group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak text-fg' : 'text-fg-muted hover:bg-accent-weak'}`}
+                  title={desc}
+                 >
+                  <span className="flex-1 truncate">{desc}</span>
+                  <button
+                   type="button"
+                   onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    excludeDescriptionSuggestion(desc);
                    }}
-                   className="group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-fg-muted hover:bg-accent-weak"
-                   title={desc}
+                   title={t('transaction_description_suggestion_remove')}
+                   aria-label={t('transaction_description_suggestion_remove')}
+                   className="shrink-0 rounded p-0.5 text-fg-faint opacity-0 transition hover:bg-surface-hover hover:text-fg-muted group-hover:opacity-100"
                   >
-                   <span className="flex-1 truncate">{desc}</span>
-                   <button
-                    type="button"
-                    onMouseDown={(event) => {
-                     event.preventDefault();
-                     event.stopPropagation();
-                     excludeDescriptionSuggestion(desc);
-                    }}
-                    title={t('transaction_description_suggestion_remove')}
-                    aria-label={t('transaction_description_suggestion_remove')}
-                    className="shrink-0 rounded p-0.5 text-fg-faint opacity-0 transition hover:bg-surface-hover hover:text-fg-muted group-hover:opacity-100"
+                   <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
                    >
-                    <svg
-                     width="12"
-                     height="12"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth="2.5"
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     aria-hidden
-                    >
-                     <path d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                   </button>
-                  </li>
-                 ))}
-                </ul>
-               );
-              })()}
+                    <path d="M6 18L18 6M6 6l12 12" />
+                   </svg>
+                  </button>
+                 </li>
+                );
+               })}
+              </ul>
+             )}
             </div>
 
             {!isAdjustmentTransaction ? (
@@ -1380,6 +1420,52 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
              </svg>
             </button>
+            {missingCounterpartyToday.length > 0 ? (
+             <button
+              type="button"
+              onClick={(e) =>
+               missingCounterpartyMenu.open(
+                e,
+                missingCounterpartyToday.map((txn) => ({
+                 key: String(txn.id),
+                 label: `${txn.clientFromName || txn.clientToName || t('transaction_description')} · ${txn.amount.toLocaleString(numLocale)} ${txn.currencyCode}`,
+                 onSelect: () => onEditTransactionInForm(txn),
+                })),
+               )
+              }
+              title={t('missing_counterparty_alert', { count: missingCounterpartyToday.length })}
+              className="relative cursor-pointer rounded border border-warn bg-warn-bg p-2 text-warn-text transition hover:opacity-80"
+             >
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+               <line
+                x1="12"
+                y1="9"
+                x2="12"
+                y2="13"
+               />
+               <line
+                x1="12"
+                y1="17"
+                x2="12.01"
+                y2="17"
+               />
+              </svg>
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-bad px-1 text-[10px] font-bold text-white">
+               {missingCounterpartyToday.length}
+              </span>
+             </button>
+            ) : null}
             <button
              type="button"
              onClick={(e) =>
@@ -2415,7 +2501,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </div>
                        ) : (
-                        <span className="italic text-fg-faint">{t('archive_no_sender')}</span>
+                        <span className="italic text-fg-faint">-</span>
                        );
                       })()}
                      </>
@@ -2481,7 +2567,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          {txn.clientToName} <span className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </div>
                        ) : (
-                        <span className="italic text-fg-faint">{t('archive_no_receiver')}</span>
+                        <span className="italic text-fg-faint">-</span>
                        );
                       })()}
                      </>
@@ -2877,6 +2963,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
         </section>
    <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
    <ContextMenu menu={gearMenu.menu} onClose={gearMenu.close} zoom={tableZoom} />
+   <ContextMenu menu={missingCounterpartyMenu.menu} onClose={missingCounterpartyMenu.close} zoom={tableZoom} />
    {editingRowIds.size > 0 && typeof document !== 'undefined' ? createPortal(
     <div className={`fixed bottom-6 z-30 flex flex-col gap-3 sm:hidden ${isRTL ? 'left-6' : 'right-6'}`}>
      <button
