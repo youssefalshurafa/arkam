@@ -98,28 +98,28 @@ export default function AdminAuditPage() {
 
  return (
   <>
-   <div className="ad-toolbar">
-    <div className="ad-chips">
+   <div className="acp-toolbar">
+    <div className="acp-chips">
      {chips.map((c) => (
-      <button key={c.key} className={`ad-chip ${filter === c.key ? 'active' : ''}`} onClick={() => setFilter(c.key)}>
-       {t(c.labelKey)} <span className="cnt ad-num">{c.count}</span>
+      <button key={c.key} className={`acp-chip ${filter === c.key ? 'active' : ''}`} onClick={() => setFilter(c.key)}>
+       {t(c.labelKey)} <span className="cnt acp-num">{c.count}</span>
       </button>
      ))}
     </div>
-    <div className="ad-spacer" />
-    <button className="ad-btn" onClick={() => void load()}>
+    <div className="acp-spacer" />
+    <button className="acp-btn" onClick={() => void load()}>
      <Icon name="refresh" />
      {t('admin_refresh')}
     </button>
    </div>
 
-   <div className="ad-card ad-table-wrap">
+   <div className="acp-card acp-table-wrap">
     {loading ? (
      <StateBlock>{t('admin_loading')}</StateBlock>
     ) : rows.length === 0 ? (
      <StateBlock>{t('admin_audit_empty')}</StateBlock>
     ) : (
-     <table className="ad-table hover">
+     <table className="acp-table hover">
       <thead>
        <tr>
         <th>{t('admin_audit_col_action')}</th>
@@ -136,33 +136,33 @@ export default function AdminAuditPage() {
         return (
          <tr key={ev.id} className={canOpen ? 'clickable' : ''} onClick={() => canOpen && router.push(`/admin/users/${ev.targetUserId}`)}>
           <td>
-           <div className="ad-row" style={{ gap: 10 }}>
-            <div className={`ad-act-ic ${style.tone}`}>
+           <div className="acp-row" style={{ gap: 10 }}>
+            <div className={`acp-act-ic ${style.tone}`}>
              <Icon name={style.icon} />
             </div>
             <div>
-             <div className="ad-u-name">{actionLabel(ev.action)}</div>
-             {suffix && <div className="ad-faint" style={{ fontSize: 11.5 }}>{suffix}</div>}
+             <div className="acp-u-name">{actionLabel(ev.action)}</div>
+             {suffix && <div className="acp-faint" style={{ fontSize: 11.5 }}>{suffix}</div>}
             </div>
            </div>
           </td>
           <td>
            {ev.targetName || ev.targetEmail ? (
-            <div className="ad-u-cell">
+            <div className="acp-u-cell">
              <Avatar name={ev.targetName || ev.targetEmail || '?'} id={ev.targetUserId || ev.targetEmail || ''} size={28} />
              <div>
-              <div className="ad-u-name">{ev.targetName || ev.targetEmail}</div>
-              {ev.targetName && ev.targetEmail && <div className="ad-u-email">{ev.targetEmail}</div>}
+              <div className="acp-u-name">{ev.targetName || ev.targetEmail}</div>
+              {ev.targetName && ev.targetEmail && <div className="acp-u-email">{ev.targetEmail}</div>}
              </div>
             </div>
            ) : (
-            <span className="ad-faint">—</span>
+            <span className="acp-faint">—</span>
            )}
           </td>
-          <td className="ad-muted" style={{ fontSize: 12.5 }}>
-           {ev.kind === 'login' ? <span className="ad-faint">—</span> : ev.actorEmail || t('admin_audit_system')}
+          <td className="acp-muted" style={{ fontSize: 12.5 }}>
+           {ev.kind === 'login' ? <span className="acp-faint">—</span> : ev.actorEmail || t('admin_audit_system')}
           </td>
-          <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>
+          <td className="acp-muted acp-num" style={{ whiteSpace: 'nowrap' }}>
            {formatDateTime(ev.createdAt, language)}
           </td>
          </tr>

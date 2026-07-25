@@ -53,7 +53,7 @@ export function GlobalSearch() {
  };
 
  return (
-  <div className="ad-search ad-global-search" ref={ref} style={{ width: 240 }}>
+  <div className="acp-search acp-global-search" ref={ref} style={{ width: 240 }}>
    <Icon name="search" />
    <input
     type="text"
@@ -69,23 +69,23 @@ export function GlobalSearch() {
     }}
    />
    {open && ql.length > 0 && (
-    <div className="ad-search-menu">
+    <div className="acp-search-menu">
      {matches.length === 0 ? (
-      <div className="ad-search-empty">{t('admin_search_none')}</div>
+      <div className="acp-search-empty">{t('admin_search_none')}</div>
      ) : (
       matches.map((u) => (
-       <button key={u.id} type="button" className="ad-search-item" onClick={() => go(u.id)}>
+       <button key={u.id} type="button" className="acp-search-item" onClick={() => go(u.id)}>
         <Avatar name={u.name} image={u.image} id={u.id} size={26} />
         <div style={{ minWidth: 0 }}>
-         <div className="ad-u-name" style={{ fontSize: 13 }}>{u.name}</div>
-         <div className="ad-u-email">{u.email}</div>
+         <div className="acp-u-name" style={{ fontSize: 13 }}>{u.name}</div>
+         <div className="acp-u-email">{u.email}</div>
         </div>
        </button>
       ))
      )}
      <button
       type="button"
-      className="ad-search-all"
+      className="acp-search-all"
       onClick={() => {
        setOpen(false);
        router.push('/admin/users');

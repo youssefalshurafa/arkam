@@ -106,15 +106,15 @@ export default function AdminRequestsPage() {
  return (
   <>
    {(expired > 0 || soon > 0) && (
-    <div className="ad-row ad-wrap">
+    <div className="acp-row acp-wrap">
      {expired > 0 && (
-      <div className="ad-note warn" style={{ flex: 1, minWidth: 220 }}>
+      <div className="acp-note warn" style={{ flex: 1, minWidth: 220 }}>
        <Icon name="warning" />
        {t('admin_req_expired_banner').replace('{count}', String(expired))}
       </div>
      )}
      {soon > 0 && (
-      <div className="ad-note info" style={{ flex: 1, minWidth: 220 }}>
+      <div className="acp-note info" style={{ flex: 1, minWidth: 220 }}>
        <Icon name="clock" />
        {t('admin_req_soon_banner').replace('{count}', String(soon))}
       </div>
@@ -122,24 +122,24 @@ export default function AdminRequestsPage() {
     </div>
    )}
 
-   <div className="ad-toolbar">
-    <div className="ad-spacer" />
-    <span className="ad-faint" style={{ fontSize: 12 }}>
+   <div className="acp-toolbar">
+    <div className="acp-spacer" />
+    <span className="acp-faint" style={{ fontSize: 12 }}>
      {t('admin_pending_count').replace('{count}', String(pending))}
     </span>
-    <button className="ad-btn" onClick={() => void fetchRequests()}>
+    <button className="acp-btn" onClick={() => void fetchRequests()}>
      <Icon name="refresh" />
      {t('admin_refresh')}
     </button>
    </div>
 
-   <div className="ad-card ad-table-wrap">
+   <div className="acp-card acp-table-wrap">
     {loading ? (
      <StateBlock>{t('admin_loading')}</StateBlock>
     ) : requests.length === 0 ? (
      <StateBlock>{t('admin_no_requests')}</StateBlock>
     ) : (
-     <table className="ad-table hover">
+     <table className="acp-table hover">
       <thead>
        <tr>
         <th>{t('admin_col_user')}</th>
@@ -158,56 +158,56 @@ export default function AdminRequestsPage() {
         return (
          <tr key={r.id} style={{ verticalAlign: 'top' }}>
           <td>
-           <div className="ad-u-name">{r.name}</div>
-           <div className="ad-u-email">{r.email}</div>
-           {r.company && <div className="ad-muted" style={{ fontSize: 12, marginTop: 2 }}>{r.company}</div>}
-           {(r.phone || r.country) && <div className="ad-faint" style={{ fontSize: 12 }}>{[r.phone, r.country].filter(Boolean).join(' · ')}</div>}
-           {r.txReference && <div className="ad-faint" style={{ fontSize: 12, marginTop: 2, wordBreak: 'break-all' }}>tx: {r.txReference}</div>}
+           <div className="acp-u-name">{r.name}</div>
+           <div className="acp-u-email">{r.email}</div>
+           {r.company && <div className="acp-muted" style={{ fontSize: 12, marginTop: 2 }}>{r.company}</div>}
+           {(r.phone || r.country) && <div className="acp-faint" style={{ fontSize: 12 }}>{[r.phone, r.country].filter(Boolean).join(' · ')}</div>}
+           {r.txReference && <div className="acp-faint" style={{ fontSize: 12, marginTop: 2, wordBreak: 'break-all' }}>tx: {r.txReference}</div>}
           </td>
           <td>
-           {r.plan && <div className="ad-u-name">{r.plan}</div>}
-           <div className="ad-muted">{r.amount || '—'}</div>
-           <div className="ad-faint" style={{ fontSize: 12 }}>{r.network}</div>
+           {r.plan && <div className="acp-u-name">{r.plan}</div>}
+           <div className="acp-muted">{r.amount || '—'}</div>
+           <div className="acp-faint" style={{ fontSize: 12 }}>{r.network}</div>
           </td>
-          <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>{formatDate(r.createdAt, language)}</td>
+          <td className="acp-muted acp-num" style={{ whiteSpace: 'nowrap' }}>{formatDate(r.createdAt, language)}</td>
           <td>
            {r.subscriptionEndsAt ? (
             <>
              <SubscriptionBadge endsAt={r.subscriptionEndsAt} />
-             <div className="ad-faint ad-num" style={{ fontSize: 12, marginTop: 4, whiteSpace: 'nowrap' }}>
+             <div className="acp-faint acp-num" style={{ fontSize: 12, marginTop: 4, whiteSpace: 'nowrap' }}>
               {t('admin_ends_label')} {formatDateTime(r.subscriptionEndsAt, language)}
              </div>
             </>
            ) : (
-            <span className="ad-faint">—</span>
+            <span className="acp-faint">—</span>
            )}
           </td>
           <td>
            {r.hasProof ? (
-            <a href={`/api/admin/access-requests/${r.id}/proof`} target="_blank" rel="noopener noreferrer" className="ad-link" style={{ margin: 0 }}>
+            <a href={`/api/admin/access-requests/${r.id}/proof`} target="_blank" rel="noopener noreferrer" className="acp-link" style={{ margin: 0 }}>
              {t('admin_view_proof')}
             </a>
            ) : (
-            <span className="ad-faint">—</span>
+            <span className="acp-faint">—</span>
            )}
           </td>
           <td className="center">
            <RequestStatusBadge status={r.status} t={t} />
-           {r.status === 'rejected' && r.note && <div className="ad-faint" style={{ fontSize: 12, marginTop: 4 }}>{r.note}</div>}
+           {r.status === 'rejected' && r.note && <div className="acp-faint" style={{ fontSize: 12, marginTop: 4 }}>{r.note}</div>}
           </td>
           <td className="end">
            {r.status === 'pending' ? (
-            <div className="ad-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
-             <button className="ad-btn sm good" disabled={busy} onClick={() => void review(r, 'approve')}>
+            <div className="acp-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+             <button className="acp-btn sm good" disabled={busy} onClick={() => void review(r, 'approve')}>
               {t('admin_approve')}
              </button>
-             <button className="ad-btn sm outline-danger" disabled={busy} onClick={() => void review(r, 'reject')}>
+             <button className="acp-btn sm outline-danger" disabled={busy} onClick={() => void review(r, 'reject')}>
               {t('admin_reject')}
              </button>
             </div>
            ) : r.status === 'approved' ? (
-            <div className="ad-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
-             <button className="ad-btn sm info" disabled={busy} onClick={() => void review(r, 'renew')}>
+            <div className="acp-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+             <button className="acp-btn sm info" disabled={busy} onClick={() => void review(r, 'renew')}>
               {sub.tone === 'expired' ? t('admin_renew') : t('admin_extend')}
              </button>
              <RowMenu
@@ -218,8 +218,8 @@ export default function AdminRequestsPage() {
              />
             </div>
            ) : (
-            <div className="ad-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
-             <button className="ad-btn sm good" disabled={busy} onClick={() => void review(r, 'renew')}>
+            <div className="acp-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+             <button className="acp-btn sm good" disabled={busy} onClick={() => void review(r, 'renew')}>
               {t('admin_reactivate')}
              </button>
              <RowMenu items={[{ label: t('admin_set_days'), icon: 'clock', onClick: () => void review(r, 'setDays') }]} />

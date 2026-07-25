@@ -157,28 +157,28 @@ export default function AdminSubscriptionsPage() {
 
  return (
   <>
-   <div className="ad-toolbar">
-    <div className="ad-chips">
+   <div className="acp-toolbar">
+    <div className="acp-chips">
      {chips.map((c) => (
-      <button key={c.key} className={`ad-chip ${filter === c.key ? 'active' : ''}`} onClick={() => setFilter(c.key)}>
-       {t(c.labelKey)} <span className="cnt ad-num">{c.count}</span>
+      <button key={c.key} className={`acp-chip ${filter === c.key ? 'active' : ''}`} onClick={() => setFilter(c.key)}>
+       {t(c.labelKey)} <span className="cnt acp-num">{c.count}</span>
       </button>
      ))}
     </div>
-    <div className="ad-spacer" />
-    <div className="ad-search" style={{ width: 240 }}>
+    <div className="acp-spacer" />
+    <div className="acp-search" style={{ width: 240 }}>
      <Icon name="search" />
      <input type="text" placeholder={t('admin_search_users_ph')} value={search} onChange={(e) => setSearch(e.target.value)} />
     </div>
-    <button className="ad-btn" onClick={() => void load()}>
+    <button className="acp-btn" onClick={() => void load()}>
      <Icon name="refresh" />
      {t('admin_refresh')}
     </button>
    </div>
 
    {selectedInView.length > 0 && (
-    <div className="ad-bulk-bar">
-     <span className="cnt ad-num">{t('admin_selected').replace('{count}', String(selectedInView.length))}</span>
+    <div className="acp-bulk-bar">
+     <span className="cnt acp-num">{t('admin_selected').replace('{count}', String(selectedInView.length))}</span>
      <span className="sep" />
      {RENEW_OPTIONS.map((opt) => (
       <button key={opt.days} className="bbtn" disabled={bulkBusy} onClick={() => void bulkExtend(opt.labelKey, opt.days)}>
@@ -192,13 +192,13 @@ export default function AdminSubscriptionsPage() {
     </div>
    )}
 
-   <div className="ad-card ad-table-wrap">
+   <div className="acp-card acp-table-wrap">
     {loading ? (
      <StateBlock>{t('admin_loading')}</StateBlock>
     ) : rows.length === 0 ? (
      <StateBlock>{t('admin_subs_no_results')}</StateBlock>
     ) : (
-     <table className="ad-table hover">
+     <table className="acp-table hover">
       <thead>
        <tr>
         <th style={{ width: 20 }}>
@@ -220,21 +220,21 @@ export default function AdminSubscriptionsPage() {
            <Check on={sel.has(u.id)} onClick={() => toggle(u.id)} />
           </td>
           <td>
-           <div className="ad-u-cell">
+           <div className="acp-u-cell">
             <Avatar name={u.name} image={u.image} id={u.id} size={32} />
             <div>
-             <div className="ad-u-name">{u.name}</div>
-             <div className="ad-u-email">{u.email}</div>
+             <div className="acp-u-name">{u.name}</div>
+             <div className="acp-u-email">{u.email}</div>
             </div>
            </div>
           </td>
           <td>
            <SubscriptionBadge endsAt={u.subscriptionEndsAt} />
           </td>
-          <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>
+          <td className="acp-muted acp-num" style={{ whiteSpace: 'nowrap' }}>
            {u.subscriptionEndsAt ? formatDateTime(u.subscriptionEndsAt, language) : '—'}
           </td>
-          <td className="center ad-num">{s.daysLeft != null ? s.daysLeft : '—'}</td>
+          <td className="center acp-num">{s.daysLeft != null ? s.daysLeft : '—'}</td>
           <td className="end" onClick={(e) => e.stopPropagation()}>
            <RowMenu
             ariaLabel={u.name}
@@ -244,7 +244,7 @@ export default function AdminSubscriptionsPage() {
              { label: t('admin_view_details'), icon: 'user' as const, onClick: () => router.push(`/admin/users/${u.id}`) },
             ]}
            />
-           {busyId === u.id && <span className="ad-faint" style={{ marginInlineStart: 8, fontSize: 11 }}>…</span>}
+           {busyId === u.id && <span className="acp-faint" style={{ marginInlineStart: 8, fontSize: 11 }}>…</span>}
           </td>
          </tr>
         );

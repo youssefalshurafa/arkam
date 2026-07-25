@@ -69,7 +69,7 @@ export default function MarketingImagesPanel() {
 
  return (
   <>
-   <div className="ad-note info">
+   <div className="acp-note info">
     <Icon name="info" />
     {t('admin_img_intro')}
    </div>
@@ -77,19 +77,19 @@ export default function MarketingImagesPanel() {
    {loading ? (
     <StateBlock>{t('admin_loading')}</StateBlock>
    ) : (
-    <div className="ad-grid-2">
+    <div className="acp-grid-2">
      {MARKETING_SLOTS.map((s) => {
       const updatedAt = slots[s.slot];
       const hasImage = Boolean(updatedAt);
       const busy = busySlot === s.slot;
       return (
-       <div key={s.slot} className="ad-card ad-card-pad">
-        <div className="ad-row" style={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
+       <div key={s.slot} className="acp-card acp-card-pad">
+        <div className="acp-row" style={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
          <div>
-          <p className="ad-u-name">{s.label}</p>
-          <p className="ad-faint" style={{ fontSize: 12, marginTop: 2 }}>{s.hint}</p>
+          <p className="acp-u-name">{s.label}</p>
+          <p className="acp-faint" style={{ fontSize: 12, marginTop: 2 }}>{s.hint}</p>
          </div>
-         <span className={`ad-badge ${hasImage ? 'good' : 'neutral'}`}>{hasImage ? t('admin_img_custom') : t('admin_img_default')}</span>
+         <span className={`acp-badge ${hasImage ? 'good' : 'neutral'}`}>{hasImage ? t('admin_img_custom') : t('admin_img_default')}</span>
         </div>
 
         <div style={{ marginTop: 12, overflow: 'hidden', borderRadius: 10, border: '1px solid var(--ad-border)', background: 'var(--ad-surface-2)' }}>
@@ -97,20 +97,20 @@ export default function MarketingImagesPanel() {
           // eslint-disable-next-line @next/next/no-img-element
           <img src={`/api/marketing-image/${s.slot}?v=${updatedAt}`} alt={s.label} style={{ maxHeight: 176, width: '100%', objectFit: 'contain' }} />
          ) : (
-          <div style={{ height: 128, display: 'grid', placeItems: 'center' }} className="ad-faint">
+          <div style={{ height: 128, display: 'grid', placeItems: 'center' }} className="acp-faint">
            {t('admin_img_none')}
           </div>
          )}
         </div>
 
-        <div className="ad-row" style={{ marginTop: 12, gap: 8 }}>
+        <div className="acp-row" style={{ marginTop: 12, gap: 8 }}>
          <input
           ref={(el) => {
            inputs.current[s.slot] = el;
           }}
           type="file"
           accept="image/png,image/jpeg,image/webp"
-          className="ad-hidden"
+          className="acp-hidden"
           style={{ display: 'none' }}
           onChange={(e) => {
            const file = e.target.files?.[0];
@@ -118,11 +118,11 @@ export default function MarketingImagesPanel() {
            e.target.value = '';
           }}
          />
-         <button className="ad-btn sm primary" disabled={busy} onClick={() => inputs.current[s.slot]?.click()}>
+         <button className="acp-btn sm primary" disabled={busy} onClick={() => inputs.current[s.slot]?.click()}>
           {busy ? t('admin_working') : hasImage ? t('admin_replace') : t('admin_upload')}
          </button>
          {hasImage && (
-          <button className="ad-btn sm" disabled={busy} onClick={() => void remove(s.slot, s.label)}>
+          <button className="acp-btn sm" disabled={busy} onClick={() => void remove(s.slot, s.label)}>
            {t('admin_remove')}
           </button>
          )}

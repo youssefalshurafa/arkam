@@ -27,14 +27,14 @@ function ResetLinkDialog({ link, onClose }: { link: string; onClose: () => void 
   <Modal onClose={onClose} maxWidth={520}>
    <h2>{t('admin_reset_link_title')}</h2>
    <p className="sub">{t('admin_reset_link_desc')}</p>
-   <div className="ad-row" style={{ gap: 8 }}>
-    <input className="ad-input" readOnly value={link} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1 }} />
-    <button className="ad-btn primary" onClick={() => void copy()}>
+   <div className="acp-row" style={{ gap: 8 }}>
+    <input className="acp-input" readOnly value={link} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1 }} />
+    <button className="acp-btn primary" onClick={() => void copy()}>
      {copied ? t('admin_copied') : t('admin_copy')}
     </button>
    </div>
-   <div className="ad-modal-actions">
-    <button className="ad-btn" onClick={onClose}>
+   <div className="acp-modal-actions">
+    <button className="acp-btn" onClick={onClose}>
      {t('admin_done')}
     </button>
    </div>
@@ -112,29 +112,29 @@ export default function AdminResetsPage() {
 
  return (
   <>
-   <div className="ad-note info">
+   <div className="acp-note info">
     <Icon name="info" />
     {t('admin_reset_verify_note')}
    </div>
 
-   <div className="ad-toolbar">
-    <div className="ad-spacer" />
-    <span className="ad-faint" style={{ fontSize: 12 }}>
+   <div className="acp-toolbar">
+    <div className="acp-spacer" />
+    <span className="acp-faint" style={{ fontSize: 12 }}>
      {t('admin_pending_count').replace('{count}', String(pending))}
     </span>
-    <button className="ad-btn" onClick={() => void fetchRequests()}>
+    <button className="acp-btn" onClick={() => void fetchRequests()}>
      <Icon name="refresh" />
      {t('admin_refresh')}
     </button>
    </div>
 
-   <div className="ad-card ad-table-wrap">
+   <div className="acp-card acp-table-wrap">
     {loading ? (
      <StateBlock>{t('admin_loading')}</StateBlock>
     ) : requests.length === 0 ? (
      <StateBlock>{t('admin_no_resets')}</StateBlock>
     ) : (
-     <table className="ad-table hover">
+     <table className="acp-table hover">
       <thead>
        <tr>
         <th>{t('admin_col_user')}</th>
@@ -149,38 +149,38 @@ export default function AdminResetsPage() {
        {requests.map((r) => (
         <tr key={r.id} style={{ verticalAlign: 'top' }}>
          <td>
-          <div className="ad-u-name">{r.name}</div>
-          <div className="ad-u-email">{r.email}</div>
+          <div className="acp-u-name">{r.name}</div>
+          <div className="acp-u-email">{r.email}</div>
          </td>
          <td>
           {r.phone ? (
-           <span className="ad-u-name">{r.phone}</span>
+           <span className="acp-u-name">{r.phone}</span>
           ) : (
-           <span className="ad-badge warn" style={{ whiteSpace: 'normal' }}>
+           <span className="acp-badge warn" style={{ whiteSpace: 'normal' }}>
             {t('admin_no_contact')} —{' '}
-            <Link href={`/admin/users/${r.userId}`} className="ad-link" style={{ margin: 0 }}>
+            <Link href={`/admin/users/${r.userId}`} className="acp-link" style={{ margin: 0 }}>
              {t('admin_add_contact')}
             </Link>
            </span>
           )}
          </td>
-         <td className="ad-muted">{r.note || <span className="ad-faint">—</span>}</td>
-         <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.createdAt, language)}</td>
+         <td className="acp-muted">{r.note || <span className="acp-faint">—</span>}</td>
+         <td className="acp-muted acp-num" style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.createdAt, language)}</td>
          <td className="center">
           <RequestStatusBadge status={r.status} t={t} />
          </td>
          <td className="end">
           {r.status === 'pending' ? (
-           <div className="ad-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
-            <button className="ad-btn sm good" disabled={reviewingId === r.id} onClick={() => void review(r, 'approve')}>
+           <div className="acp-row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+            <button className="acp-btn sm good" disabled={reviewingId === r.id} onClick={() => void review(r, 'approve')}>
              {t('admin_approve')}
             </button>
-            <button className="ad-btn sm outline-danger" disabled={reviewingId === r.id} onClick={() => void review(r, 'reject')}>
+            <button className="acp-btn sm outline-danger" disabled={reviewingId === r.id} onClick={() => void review(r, 'reject')}>
              {t('admin_reject')}
             </button>
            </div>
           ) : (
-           <span className="ad-faint" style={{ fontSize: 12 }}>
+           <span className="acp-faint" style={{ fontSize: 12 }}>
             {t('admin_reviewed')} {r.reviewedAt ? formatDate(r.reviewedAt, language) : ''}
            </span>
           )}
