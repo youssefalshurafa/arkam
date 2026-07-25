@@ -54,18 +54,18 @@ export default function AdminUnlockGate() {
  return (
   <div className="admin-scope">
    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 16 }}>
-    <form onSubmit={handleSubmit} className="ad-card ad-card-pad" style={{ width: '100%', maxWidth: 360 }}>
-     <div className="ad-brand" style={{ padding: '0 0 12px' }}>
-      <div className="ad-brand-mark">أ</div>
+    <form onSubmit={handleSubmit} className="acp-card acp-card-pad" style={{ width: '100%', maxWidth: 360 }}>
+     <div className="acp-brand" style={{ padding: '0 0 12px' }}>
+      <div className="acp-brand-mark">أ</div>
       <div>
-       <div className="ad-brand-name">Arkam</div>
-       <div className="ad-brand-sub">{t('admin_brand_sub')}</div>
+       <div className="acp-brand-name">Arkam</div>
+       <div className="acp-brand-sub">{t('admin_brand_sub')}</div>
       </div>
      </div>
      <h1 style={{ fontSize: 16, fontWeight: 650, margin: '4px 0 2px' }}>{t('admin_unlock_title')}</h1>
-     <p className="ad-faint" style={{ fontSize: 13, marginBottom: 14 }}>{t('admin_unlock_desc')}</p>
+     <p className="acp-faint" style={{ fontSize: 13, marginBottom: 14 }}>{t('admin_unlock_desc')}</p>
      <input
-      className="ad-input"
+      className="acp-input"
       type="password"
       autoFocus
       value={password}
@@ -73,7 +73,7 @@ export default function AdminUnlockGate() {
       placeholder={t('admin_unlock_ph')}
      />
      {error && <p style={{ color: 'var(--ad-bad-text)', fontSize: 13, marginTop: 10 }}>{error}</p>}
-     <button className="ad-btn primary" type="submit" disabled={isSubmitting || !password} style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}>
+     <button className="acp-btn primary" type="submit" disabled={isSubmitting || !password} style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}>
       {isSubmitting ? t('admin_unlock_checking') : t('admin_unlock_btn')}
      </button>
     </form>

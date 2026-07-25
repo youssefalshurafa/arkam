@@ -95,7 +95,7 @@ export default function AdminOverviewPage() {
 
  return (
   <>
-   <div className="ad-kpi-grid">
+   <div className="acp-kpi-grid">
     <KpiCard icon="users" label={t('admin_kpi_users')} value={stats.totalUsers} />
     <KpiCard icon="check" tone="good" label={t('admin_kpi_active')} value={stats.active} />
     <KpiCard icon="clock" tone="warn" label={t('admin_kpi_expiring')} value={stats.expiring} />
@@ -103,26 +103,26 @@ export default function AdminOverviewPage() {
    </div>
 
    <div>
-    <div className="ad-section-head">
-     <span className="ad-eyebrow">{t('admin_attn_title')}</span>
+    <div className="acp-section-head">
+     <span className="acp-eyebrow">{t('admin_attn_title')}</span>
     </div>
     {attention.length === 0 ? (
-     <div className="ad-note info">
+     <div className="acp-note info">
       <Icon name="check" />
       {t('admin_ov_all_clear')}
      </div>
     ) : (
-     <div className="ad-attn-grid">
+     <div className="acp-attn-grid">
       {attention.map((a) => (
-       <Link key={a.key} href={a.href} className={`ad-attn ${a.tone}`}>
-        <div className="ad-attn-ic">
+       <Link key={a.key} href={a.href} className={`acp-attn ${a.tone}`}>
+        <div className="acp-attn-ic">
          <Icon name={a.icon} />
         </div>
         <div>
-         <div className="ad-attn-n ad-num">{a.n}</div>
-         <div className="ad-attn-l">{a.label}</div>
+         <div className="acp-attn-n acp-num">{a.n}</div>
+         <div className="acp-attn-l">{a.label}</div>
         </div>
-        <div className="ad-attn-go">
+        <div className="acp-attn-go">
          <Icon name="chevron" width={18} height={18} strokeWidth={2} />
         </div>
        </Link>
@@ -131,35 +131,35 @@ export default function AdminOverviewPage() {
     )}
    </div>
 
-   <div className="ad-card">
-    <div className="ad-panel-head">
-     <span className="ad-section-title">{t('admin_recent_users')}</span>
-     <Link href="/admin/users" className="ad-link">
+   <div className="acp-card">
+    <div className="acp-panel-head">
+     <span className="acp-section-title">{t('admin_recent_users')}</span>
+     <Link href="/admin/users" className="acp-link">
       {t('admin_view_all')}
      </Link>
     </div>
     {recentUsers.length === 0 ? (
      <StateBlock>{t('admin_no_users')}</StateBlock>
     ) : (
-     <div className="ad-table-wrap">
-      <table className="ad-table hover">
+     <div className="acp-table-wrap">
+      <table className="acp-table hover">
        <tbody>
         {recentUsers.map((u) => (
          <tr key={u.id} className="clickable" onClick={() => router.push(`/admin/users/${u.id}`)}>
           <td>
-           <div className="ad-u-cell">
+           <div className="acp-u-cell">
             <Avatar name={u.name} image={u.image} id={u.id} size={32} />
             <div>
-             <div className="ad-u-name">{u.name}</div>
-             <div className="ad-u-email">{u.email}</div>
+             <div className="acp-u-name">{u.name}</div>
+             <div className="acp-u-email">{u.email}</div>
             </div>
            </div>
           </td>
-          <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>
+          <td className="acp-muted acp-num" style={{ whiteSpace: 'nowrap' }}>
            {formatDate(u.createdAt, language)}
           </td>
           <td className="end">
-           {u.workspaceCount > 0 ? <span className="ad-ws-pill ad-num">{u.workspaceCount}</span> : <span className="ad-faint">—</span>}
+           {u.workspaceCount > 0 ? <span className="acp-ws-pill acp-num">{u.workspaceCount}</span> : <span className="acp-faint">—</span>}
           </td>
          </tr>
         ))}

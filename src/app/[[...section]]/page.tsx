@@ -1404,7 +1404,7 @@ function AuthenticatedHome() {
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, confirmIfEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
+ const { confirmIfTransactionEditLocked, confirmIfAdjustmentEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoints the ledger edit uses. When not reversed the rate
@@ -1428,10 +1428,11 @@ function AuthenticatedHome() {
      const adj = adjustments.find((a) => a.id === entry.adjustmentId);
      if (!adj) return false;
      if (blockedByPastEditLock([adj.createdAt])) return false;
-     if (!(await confirmIfEditLocked([adj.accountId], adj.createdAt, [adj.accountId], adj.createdAt, adj.id))) {
+     const updatedAdj = { ...adj, exchangeRate: rate, exchangeRateReversed: reversed };
+     if (!(await confirmIfAdjustmentEditLocked(adj, updatedAdj))) {
       return false;
      }
-     await accountingApi.updateClientAdjustment({ ...adj, exchangeRate: rate, exchangeRateReversed: reversed });
+     await accountingApi.updateClientAdjustment(updatedAdj);
     } else if (entry.kind === 'transaction' && entry.transactionId != null) {
      const tx = transactions.find((x) => x.id === entry.transactionId);
      if (!tx) return false;
@@ -1474,7 +1475,7 @@ function AuthenticatedHome() {
     return false;
    }
   },
-  [adjustments, transactions, confirmIfEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
+  [adjustments, transactions, confirmIfAdjustmentEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
  );
 
  // Applies a partial field patch to a stored transaction — every field not in `patch` is

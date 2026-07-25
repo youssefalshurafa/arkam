@@ -112,30 +112,30 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
  return (
   <div className="admin-scope" data-admin-theme={theme ?? undefined}>
-   <div className="ad-app">
-    {drawer && <div className="ad-backdrop" onClick={() => setDrawer(false)} />}
+   <div className="acp-app">
+    {drawer && <div className="acp-backdrop" onClick={() => setDrawer(false)} />}
 
-    <aside className={`ad-sidebar ${drawer ? 'drawer' : ''}`}>
-     <div className="ad-brand">
-      <div className="ad-brand-mark">أ</div>
+    <aside className={`acp-sidebar ${drawer ? 'drawer' : ''}`}>
+     <div className="acp-brand">
+      <div className="acp-brand-mark">أ</div>
       <div>
-       <div className="ad-brand-name">Arkam</div>
-       <div className="ad-brand-sub">{t('admin_brand_sub')}</div>
+       <div className="acp-brand-name">Arkam</div>
+       <div className="acp-brand-sub">{t('admin_brand_sub')}</div>
       </div>
      </div>
 
-     <nav className="ad-nav">
+     <nav className="acp-nav">
       {NAV_GROUPS.map((group) => (
        <div key={group.labelKey}>
-        <div className="ad-nav-label">{t(group.labelKey)}</div>
+        <div className="acp-nav-label">{t(group.labelKey)}</div>
         {group.items.map((item) => {
          const active = isActive(item.href, item.exact);
          const badge = item.badge ? counts[item.badge] : 0;
          return (
-          <Link key={item.key} href={item.href} className={`ad-nav-item ${active ? 'active' : ''}`} onClick={() => setDrawer(false)}>
+          <Link key={item.key} href={item.href} className={`acp-nav-item ${active ? 'active' : ''}`} onClick={() => setDrawer(false)}>
            <Icon name={item.icon} />
            <span>{t(item.labelKey)}</span>
-           {badge > 0 && <span className="ad-nav-badge ad-num">{badge}</span>}
+           {badge > 0 && <span className="acp-nav-badge acp-num">{badge}</span>}
           </Link>
          );
         })}
@@ -143,47 +143,47 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
       ))}
      </nav>
 
-     <div className="ad-sidebar-foot">
-      <div className="ad-admin-chip">
-       <div className="ad-avatar" style={{ width: 30, height: 30, fontSize: 12, background: avatarColor(email || adminName) }}>
+     <div className="acp-sidebar-foot">
+      <div className="acp-admin-chip">
+       <div className="acp-avatar" style={{ width: 30, height: 30, fontSize: 12, background: avatarColor(email || adminName) }}>
         {getInitials(adminName)}
        </div>
-       <div className="ad-meta">
+       <div className="acp-meta">
         <div className="n">{adminName}</div>
         <div className="e">{email}</div>
        </div>
       </div>
-      <button type="button" className="ad-btn sm" onClick={() => void lock()} style={{ justifyContent: 'center' }}>
+      <button type="button" className="acp-btn sm" onClick={() => void lock()} style={{ justifyContent: 'center' }}>
        <Icon name="lock" />
        {t('admin_lock')}
       </button>
      </div>
     </aside>
 
-    <div className="ad-main">
-     <header className="ad-topbar">
-      <button type="button" className="ad-icon-btn ad-menu-toggle" aria-label="Menu" onClick={() => setDrawer(true)}>
+    <div className="acp-main">
+     <header className="acp-topbar">
+      <button type="button" className="acp-icon-btn acp-menu-toggle" aria-label="Menu" onClick={() => setDrawer(true)}>
        <Icon name="overview" />
       </button>
       <div>
-       <div className="ad-page-title">{t(meta.title)}</div>
-       <div className="ad-page-sub">{t(meta.sub)}</div>
+       <div className="acp-page-title">{t(meta.title)}</div>
+       <div className="acp-page-sub">{t(meta.sub)}</div>
       </div>
-      <div className="ad-spacer" />
+      <div className="acp-spacer" />
       <GlobalSearch />
-      <div className="ad-seg" role="group" aria-label="Language">
+      <div className="acp-seg" role="group" aria-label="Language">
        {langs.map((l) => (
         <button key={l.code} type="button" className={language === l.code ? 'active' : ''} onClick={() => setLanguage(l.code)}>
          {l.label}
         </button>
        ))}
       </div>
-      <button type="button" className="ad-icon-btn" onClick={toggleTheme} aria-label={t('admin_theme_toggle')} title={t('admin_theme_toggle')}>
+      <button type="button" className="acp-icon-btn" onClick={toggleTheme} aria-label={t('admin_theme_toggle')} title={t('admin_theme_toggle')}>
        <Icon name={effectiveDark ? 'sun' : 'moon'} />
       </button>
      </header>
 
-     <div className="ad-content">{children}</div>
+     <div className="acp-content">{children}</div>
     </div>
    </div>
   </div>

@@ -129,7 +129,17 @@ export function useTransactionActions({
  const setAdjustments = setters.setAdjustments;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
- const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({
+ const {
+  lockBoundaries,
+  formatLockBalance,
+  confirmIfLocked,
+  confirmDeleteWithLock,
+  confirmIfTransactionEditLocked,
+  confirmIfAdjustmentEditLocked,
+  transactionEditImpact,
+  adjustmentEditImpact,
+  blockedByPastEditLock,
+ } = useReconciliationLocks({
   reconciliations,
   clientAccountMap,
   lockPastEditsEnabled,
@@ -439,7 +449,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   if (editing && editing.isAdjustment) {
    const original = adjustments.find((a) => a.id === editing.id);
    const updatedAdj = { ...adjPayload, id: editing.id } as ClientAdjustment;
-   if (original && !(await confirmIfEditLocked([original.accountId], original.createdAt, [updatedAdj.accountId], updatedAdj.createdAt, updatedAdj.id))) {
+   if (original && !(await confirmIfAdjustmentEditLocked(original, updatedAdj))) {
     return;
    }
    transactionSubmitLock.current = true;
@@ -1306,20 +1316,42 @@ async function onSaveAllTransactionDrafts() {
   return;
  }
 
- // One up-front lock check for the whole batch: warn once if any edited row is dated
- // on/before, or moves onto, reconciled history.
- let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+ // Build every row's planned update up front — the same payload the row's real save would
+ // write — so the batch lock check and the actual save agree exactly on what's changing.
+ type Plan = { adjustment: { original: ClientAdjustment; payload: ClientAdjustment } } | { transaction: { original: Transaction; payload: TransactionUpdateInput } };
+ const plans: Plan[] = [];
  for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
   const draft = transactionTableDrafts[transactionId];
   const transaction = transactionTableRowMap.get(transactionId);
   if (!draft || !transaction) continue;
   if (draft.isAdjustment && draft.adjustmentId) {
-   const adj = adjustments.find((a) => a.id === draft.adjustmentId);
-   if (!adj) continue;
-   batchLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries) ?? violatedLock([adj.accountId], resolveCreatedAt(draft.createdDate, adj.createdAt), adj.id, lockBoundaries);
+   const original = adjustments.find((a) => a.id === draft.adjustmentId);
+   if (!original) continue;
+   const built = buildTableAdjustmentUpdate(transactionId, draft, transaction);
+   if ('error' in built) {
+    setError(t(built.error));
+    return;
+   }
+   plans.push({ adjustment: { original, payload: built.adjustmentPayload } });
   } else {
-   batchLockHit = violatedLock([transaction.accountFromId, transaction.accountToId], transaction.createdAt, transaction.id, lockBoundaries) ?? violatedLock([draft.accountFromId, draft.accountToId], resolveCreatedAt(draft.createdDate, transaction.createdAt), transaction.id, lockBoundaries);
+   if (!draft.accountFromId && !draft.accountToId) {
+    setError(t('transaction_party_required'));
+    return;
+   }
+   const built = buildTableTransactionUpdate(transactionId, draft, transaction);
+   if ('error' in built) {
+    setError(t(built.error));
+    return;
+   }
+   plans.push({ transaction: { original: transaction, payload: built.transactionPayload } });
   }
+ }
+
+ // One up-front lock check for the whole batch: warn once if any edited row's save would
+ // actually move a reconciled balance (not merely because it sits at/before a lock line).
+ let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+ for (const plan of plans) {
+  batchLockHit = 'adjustment' in plan ? adjustmentEditImpact(plan.adjustment.original, plan.adjustment.payload) : transactionEditImpact(plan.transaction.original, plan.transaction.payload);
   if (batchLockHit) break;
  }
  if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
@@ -1327,78 +1359,12 @@ async function onSaveAllTransactionDrafts() {
  }
 
  try {
-  for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
-   const draft = transactionTableDrafts[transactionId];
-   const transaction = transactionTableRowMap.get(transactionId);
-   if (!draft || !transaction) continue;
-   if (draft.isAdjustment && draft.adjustmentId) {
-    const amount = parseFloat(draft.amount);
-    if (!draft.accountFromId || !draft.currencyId || !amount) {
-     setError(t('transaction_required'));
-     return;
-    }
-    const selectedCurrency = currencyMap.get(draft.currencyId);
-    const account = clientAccountMap.get(draft.accountFromId);
-    // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
-    const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-    const adjRawRate = parseFloat(draft.exchangeRateFrom);
-    const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
-    const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
-    await accountingApi.updateClientAdjustment({
-     id: draft.adjustmentId,
-     accountId: draft.accountFromId,
-     amount,
-     direction: draft.adjustmentDirection ?? 'debit',
-     currencyId: draft.currencyId,
-     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-     exchangeRate: adjRate,
-     exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
-     description: draft.description,
-     createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-    });
-    continue;
+  for (const plan of plans) {
+   if ('adjustment' in plan) {
+    await accountingApi.updateClientAdjustment(plan.adjustment.payload);
+   } else {
+    await accountingApi.updateTransaction(plan.transaction.payload);
    }
-   const amount = parseFloat(draft.amount);
-   if ((!draft.accountFromId && !draft.accountToId) || !draft.currencyId) {
-    setError(t('transaction_party_required'));
-    return;
-   }
-   // Preserve the "unset" (0) rate for cross-currency sides so a pending row isn't forced to 1.
-   const fromAcc = draft.accountFromId ? clientAccountMap.get(draft.accountFromId) : null;
-   const toAcc = draft.accountToId ? clientAccountMap.get(draft.accountToId) : null;
-   const fromCross = !!fromAcc && fromAcc.currencyId !== draft.currencyId;
-   const toCross = !!toAcc && toAcc.currencyId !== draft.currencyId;
-   const sideRate = (field: string, cross: boolean, reversed: boolean) => {
-    const r = parseFloat(field);
-    if (Number.isFinite(r) && r > 0) return reversed ? 1 / r : r;
-    return cross ? 0 : 1;
-   };
-   const fromRateVal = sideRate(draft.exchangeRateFrom, fromCross, !!tableRateFromReversed[transactionId]);
-   const toRateVal = sideRate(draft.exchangeRateTo, toCross, !!tableRateToReversed[transactionId]);
-   await accountingApi.updateTransaction({
-    id: transaction.id,
-    accountFromId: draft.accountFromId,
-    accountToId: draft.accountToId,
-    currencyId: draft.currencyId,
-    amount: amount || 0,
-    type: draft.type,
-    exchangeRateFrom: fromRateVal,
-    commissionFrom: parseFloat(draft.commissionFrom) || 0,
-    exchangeRateTo: toRateVal,
-    commissionTo: parseFloat(draft.commissionTo) || 0,
-    exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
-    exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
-    charges: parseFloat(draft.charges) || 0,
-    chargesCurrencyId: draft.chargesCurrencyId || null,
-    chargesPayer: draft.chargesPayer,
-    chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
-    chargesDescription: draft.chargesDescription,
-    description: draft.description,
-    archiveNote: draft.archiveNote,
-    distributionLocationId: draft.distributionLocationId,
-    createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-   });
   }
   setError('');
   cancelTransactionsEditMode();
@@ -1836,96 +1802,50 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
  }
 }
 
-async function onSaveTransactionTableRow(transactionId: number, { skipReload = false } = {}) {
- if (!accountingApi) {
-  setError(t('error_bridge'));
-  return;
+// Builds the updated adjustment record a transactions-table row edit would save, from its
+// draft — shared by the real save (`onSaveTransactionTableRow`) and the batch pre-check
+// (`onSaveAllTransactionDrafts`), so both agree on exactly what the edit changes.
+function buildTableAdjustmentUpdate(transactionId: number, draft: TransactionTableDraft, transaction: Transaction): { adjustmentPayload: ClientAdjustment } | { error: string } {
+ const amount = parseFloat(draft.amount);
+ if (!draft.accountFromId || !draft.currencyId || !amount) {
+  return { error: 'transaction_required' };
  }
 
- const draft = transactionTableDrafts[transactionId];
- const transaction = transactionTableRowMap.get(transactionId);
+ const selectedCurrency = currencyMap.get(draft.currencyId);
+ const account = clientAccountMap.get(draft.accountFromId);
 
- if (!transaction) {
-  return;
- }
+ // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
+ const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+ const adjRawRate = parseFloat(draft.exchangeRateFrom);
+ const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
+ const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
 
- // No changes were made — just exit edit mode like cancel
- if (!draft) {
-  if (!skipReload) {
-   setEditingRowIds((prev) => {
-    const next = new Set(prev);
-    next.delete(transactionId);
-    return next;
-   });
-  }
-  return;
- }
+ const adjustmentPayload: ClientAdjustment = {
+  id: draft.adjustmentId ?? 0,
+  accountId: draft.accountFromId,
+  amount,
+  direction: draft.adjustmentDirection ?? 'debit',
+  currencyId: draft.currencyId,
+  currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+  currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+  exchangeRate: adjRate,
+  exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
+  description: draft.description,
+  createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
+ };
+ return { adjustmentPayload };
+}
 
- if (blockedByPastEditLock([transaction.createdAt, resolveCreatedAt(draft.createdDate, transaction.createdAt)], Boolean(transaction.isArchived))) {
-  return;
- }
-
- if (draft.isAdjustment && draft.adjustmentId) {
-  const amount = parseFloat(draft.amount);
-
-  if (!draft.accountFromId || !draft.currencyId || !amount) {
-   setError(t('transaction_required'));
-   return;
-  }
-
-  const selectedCurrency = currencyMap.get(draft.currencyId);
-  const account = clientAccountMap.get(draft.accountFromId);
-
-  // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
-  const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-  const adjRawRate = parseFloat(draft.exchangeRateFrom);
-  const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
-  const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
-
-  const adjustmentPayload: ClientAdjustment = {
-   id: draft.adjustmentId,
-   accountId: draft.accountFromId,
-   amount,
-   direction: draft.adjustmentDirection ?? 'debit',
-   currencyId: draft.currencyId,
-   currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-   currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-   exchangeRate: adjRate,
-   exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
-   description: draft.description,
-   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
-  };
-
-  // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
-  if (!skipReload && !(await confirmIfEditLocked([transaction.accountFromId], transaction.createdAt, [adjustmentPayload.accountId], adjustmentPayload.createdAt, adjustmentPayload.id))) {
-   return;
-  }
-
-  try {
-   await accountingApi.updateClientAdjustment(adjustmentPayload);
-   setError('');
-   applyAdjustmentPatch(adjustmentPayload);
-   if (!skipReload) {
-    setEditingRowIds((prev) => {
-     const next = new Set(prev);
-     next.delete(transactionId);
-     return next;
-    });
-    void loadData();
-   }
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  }
-  return;
- }
-
+// Builds the updated transaction record a transactions-table row edit would save, from its
+// draft — shared by the real save (`onSaveTransactionTableRow`) and the batch pre-check
+// (`onSaveAllTransactionDrafts`), so both agree on exactly what the edit changes.
+function buildTableTransactionUpdate(transactionId: number, draft: TransactionTableDraft, transaction: Transaction): { transactionPayload: TransactionUpdateInput } | { error: string } {
  const amount = parseFloat(draft.amount) || 0;
 
  // Only the currency is mandatory; a transaction may keep a missing party or a
  // zero amount (e.g. archived/incomplete rows) and still be edited and saved.
  if (!draft.currencyId) {
-  setError(t('transaction_currency_required'));
-  return;
+  return { error: 'transaction_currency_required' };
  }
 
  // Preserve the "unset" (0) rate for cross-currency sides so a pending row isn't forced to 1.
@@ -1964,6 +1884,76 @@ async function onSaveTransactionTableRow(transactionId: number, { skipReload = f
   distributionLocationId: draft.distributionLocationId,
   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
  };
+ return { transactionPayload };
+}
+
+async function onSaveTransactionTableRow(transactionId: number, { skipReload = false } = {}) {
+ if (!accountingApi) {
+  setError(t('error_bridge'));
+  return;
+ }
+
+ const draft = transactionTableDrafts[transactionId];
+ const transaction = transactionTableRowMap.get(transactionId);
+
+ if (!transaction) {
+  return;
+ }
+
+ // No changes were made — just exit edit mode like cancel
+ if (!draft) {
+  if (!skipReload) {
+   setEditingRowIds((prev) => {
+    const next = new Set(prev);
+    next.delete(transactionId);
+    return next;
+   });
+  }
+  return;
+ }
+
+ if (blockedByPastEditLock([transaction.createdAt, resolveCreatedAt(draft.createdDate, transaction.createdAt)], Boolean(transaction.isArchived))) {
+  return;
+ }
+
+ if (draft.isAdjustment && draft.adjustmentId) {
+  const built = buildTableAdjustmentUpdate(transactionId, draft, transaction);
+  if ('error' in built) {
+   setError(t(built.error));
+   return;
+  }
+  const { adjustmentPayload } = built;
+
+  // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
+  const originalAdj = adjustments.find((a) => a.id === draft.adjustmentId);
+  if (!skipReload && originalAdj && !(await confirmIfAdjustmentEditLocked(originalAdj, adjustmentPayload))) {
+   return;
+  }
+
+  try {
+   await accountingApi.updateClientAdjustment(adjustmentPayload);
+   setError('');
+   applyAdjustmentPatch(adjustmentPayload);
+   if (!skipReload) {
+    setEditingRowIds((prev) => {
+     const next = new Set(prev);
+     next.delete(transactionId);
+     return next;
+    });
+    void loadData();
+   }
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+  }
+  return;
+ }
+
+ const built = buildTableTransactionUpdate(transactionId, draft, transaction);
+ if ('error' in built) {
+  setError(t(built.error));
+  return;
+ }
+ const { transactionPayload } = built;
 
  // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
  if (!skipReload && !(await confirmIfTransactionEditLocked(transaction, transactionPayload))) {

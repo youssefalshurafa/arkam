@@ -5,10 +5,13 @@ import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
-import { buildLockBoundaries, violatedLock, reconciledImpact, type RowContribution } from '@/features/ledger/utils/reconciliation';
-import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
+import { buildLockBoundaries, violatedLock, reconciledImpact, type LockBoundary, type RowContribution } from '@/features/ledger/utils/reconciliation';
+import { computeTransactionSideNetChange, computeAdjustmentNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { isBeforeToday } from '@/shared/utils/date';
-import type { ClientAccount, Reconciliation, Transaction, TransactionUpdateInput } from '@/shared/types';
+import type { ClientAccount, ClientAdjustment, Reconciliation, Transaction, TransactionUpdateInput } from '@/shared/types';
+
+// The account+boundary a change would violate, or null if it touches no locked history.
+type LockHit = { accountId: number; boundary: LockBoundary } | null;
 
 type UseReconciliationLocksParams = {
  reconciliations: Reconciliation[];
@@ -74,14 +77,9 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
   return confirmDialog({ message: t(fallbackMessageKey), confirmText: t('delete'), tone: 'danger' });
  }
 
- /**
-  * Edit guard: warns if a row is locked either where it is now (old position) or where
-  * the edit would move it (new position) — covers re-dating and amount changes on or
-  * near reconciled history. Returns true to proceed.
-  */
- async function confirmIfEditLocked(oldAccountIds: Array<number | null | undefined>, oldCreatedAt: string, newAccountIds: Array<number | null | undefined>, newCreatedAt: string, refId: number): Promise<boolean> {
-  const hit = violatedLock(oldAccountIds, oldCreatedAt, refId, lockBoundaries) ?? violatedLock(newAccountIds, newCreatedAt, refId, lockBoundaries);
-  if (!hit) return true;
+ // Shared dialog for any lock hit, whatever guard found it.
+ function warnLockHit(hit: LockHit): Promise<boolean> {
+  if (!hit) return Promise.resolve(true);
   return confirmDialog({
    title: t('reconcile_warn_title'),
    message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
@@ -91,15 +89,17 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
  }
 
  /**
-  * Two-sided edit guard for a transaction (the ledger-row/table-row edit save paths). Warns
-  * only when the edit actually moves a reconciled balance: for every account the transaction
-  * touches (before or after the edit) it compares that row's contribution to the account's
-  * reconciled balance — its net change while it sits at or before the lock anchor — before vs
-  * after. Editing only the "from" side's rate never changes the "to" account's balance (no
-  * warning); editing a field that nets to the same value, or a row that stays strictly after
-  * the anchor, is likewise silent. Returns true to proceed.
+  * Pure (no dialog) balance-impact check for a transaction edit — for every account the
+  * transaction touches (before or after the edit) it compares that row's contribution to the
+  * account's reconciled balance — its net change while it sits at or before the lock anchor —
+  * before vs after. Editing only the "from" side's rate never changes the "to" account's
+  * balance (no hit); editing a field that nets to the same value, or a row that stays strictly
+  * after the anchor, is likewise silent. Editing the counterparty account itself IS a real hit
+  * for whichever account gains/loses the row. Used directly by batch-save pre-checks (which
+  * must evaluate many rows before showing at most one dialog) and wrapped by
+  * `confirmIfTransactionEditLocked` for single-row saves.
   */
- async function confirmIfTransactionEditLocked(oldTx: Transaction, newPayload: TransactionUpdateInput): Promise<boolean> {
+ function transactionEditImpact(oldTx: Transaction, newPayload: TransactionUpdateInput): LockHit {
   const netOn = (tx: Transaction | TransactionUpdateInput, accountId: number): number => {
    const account = clientAccountMap.get(accountId);
    if (!account) return 0;
@@ -117,14 +117,44 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
    const next: RowContribution = { createdAt: newPayload.createdAt, refId: oldTx.id, net: netOn(newPayload, accountId), present: newPayload.accountFromId === accountId || newPayload.accountToId === accountId };
    return { accountId, old, next };
   });
-  const hit = reconciledImpact(contributions, lockBoundaries);
-  if (!hit) return true;
-  return confirmDialog({
-   title: t('reconcile_warn_title'),
-   message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
-   confirmText: t('reconcile_warn_confirm'),
-   tone: 'danger',
+  return reconciledImpact(contributions, lockBoundaries);
+ }
+
+ /**
+  * Two-sided edit guard for a transaction (the ledger-row/table-row edit save paths). Warns
+  * only when the edit actually moves a reconciled balance (see `transactionEditImpact`).
+  * Returns true to proceed.
+  */
+ async function confirmIfTransactionEditLocked(oldTx: Transaction, newPayload: TransactionUpdateInput): Promise<boolean> {
+  return warnLockHit(transactionEditImpact(oldTx, newPayload));
+ }
+
+ /**
+  * Pure (no dialog) balance-impact check for an adjustment edit, mirroring
+  * `transactionEditImpact` for the single-account adjustment case (its account can itself
+  * change on edit, e.g. reassigning which client account an expense belongs to).
+  */
+ function adjustmentEditImpact(oldAdj: ClientAdjustment, newAdj: ClientAdjustment): LockHit {
+  const netOn = (adj: ClientAdjustment, accountId: number): number => {
+   const account = clientAccountMap.get(accountId);
+   if (!account) return 0;
+   return computeAdjustmentNetChange(adj, account.currencyId);
+  };
+  const accountIds = new Set<number>([oldAdj.accountId, newAdj.accountId]);
+  const contributions = [...accountIds].map((accountId) => {
+   const old: RowContribution = { createdAt: oldAdj.createdAt, refId: oldAdj.id, net: netOn(oldAdj, accountId), present: oldAdj.accountId === accountId };
+   const next: RowContribution = { createdAt: newAdj.createdAt, refId: oldAdj.id, net: netOn(newAdj, accountId), present: newAdj.accountId === accountId };
+   return { accountId, old, next };
   });
+  return reconciledImpact(contributions, lockBoundaries);
+ }
+
+ /**
+  * Edit guard for an adjustment (expense) — warns only when the edit actually moves a
+  * reconciled balance (see `adjustmentEditImpact`). Returns true to proceed.
+  */
+ async function confirmIfAdjustmentEditLocked(oldAdj: ClientAdjustment, newAdj: ClientAdjustment): Promise<boolean> {
+  return warnLockHit(adjustmentEditImpact(oldAdj, newAdj));
  }
 
  /**
@@ -150,8 +180,10 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
   formatLockBalance,
   confirmIfLocked,
   confirmDeleteWithLock,
-  confirmIfEditLocked,
   confirmIfTransactionEditLocked,
+  confirmIfAdjustmentEditLocked,
+  transactionEditImpact,
+  adjustmentEditImpact,
   blockedByPastEditLock,
  };
 }

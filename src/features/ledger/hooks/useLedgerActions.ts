@@ -7,7 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { NEW_ROW_REF_ID, violatedLock } from '@/features/ledger/utils/reconciliation';
+import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
 import { formatRateValue } from '@/shared/utils/format';
@@ -96,7 +96,17 @@ export function useLedgerActions({
  const setReconciliations = setters.setReconciliations;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
- const { lockBoundaries, formatLockBalance, confirmIfLocked, confirmDeleteWithLock, confirmIfEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({
+ const {
+  lockBoundaries,
+  formatLockBalance,
+  confirmIfLocked,
+  confirmDeleteWithLock,
+  confirmIfTransactionEditLocked,
+  confirmIfAdjustmentEditLocked,
+  transactionEditImpact,
+  adjustmentEditImpact,
+  blockedByPastEditLock,
+ } = useReconciliationLocks({
   reconciliations,
   clientAccountMap,
   lockPastEditsEnabled,
@@ -339,82 +349,41 @@ function getClientLedgerDraft(transactionId: number, ledgerAccountId: number) {
  return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
 }
 
-async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}): Promise<boolean> {
- if (!accountingApi) {
-  setError(t('error_bridge'));
-  return false;
+// Builds the updated adjustment record a ledger-row edit would save, from its draft — shared
+// by the real save (`onSaveLedgerTransaction`) and the batch pre-check (`onSaveAllLedger`), so
+// both agree on exactly what the edit changes.
+function buildLedgerAdjustmentUpdate(transactionId: number, ledgerAccountId: number, draft: LedgerTransactionDraft, adj: ClientAdjustment): { updatedAdj: ClientAdjustment } | { error: string } {
+ const amount = parseFloat(draft.amount);
+ if (!Number.isFinite(amount) || amount <= 0) {
+  return { error: 'adjustment_amount_required' };
  }
+ const account = clientAccounts.find((a) => a.id === ledgerAccountId);
+ const selectedCurrency = draft.currencyId ? currencyMap.get(draft.currencyId) : undefined;
+ const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+ const parsedRate = parseFloat(draft.exchangeRate);
+ const adjRateSet = Number.isFinite(parsedRate) && parsedRate > 0;
+ const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && adjRateSet;
+ const effectiveRate = !needsRate ? 1 : adjRateSet ? (rateIsReversed ? 1 / parsedRate : parsedRate) : 0;
+ const updatedAdj: ClientAdjustment = {
+  id: draft.adjustmentId ?? adj.id,
+  accountId: ledgerAccountId,
+  amount,
+  direction: draft.adjustmentDirection ?? 'debit',
+  currencyId: draft.currencyId ?? account?.currencyId ?? null,
+  currencyCode: selectedCurrency?.code || account?.currencyCode || '',
+  currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
+  exchangeRate: effectiveRate,
+  exchangeRateReversed: needsRate && adjRateSet ? rateIsReversed : false,
+  description: draft.description,
+  createdAt: resolveCreatedAt(draft.createdDate, adj.createdAt),
+ };
+ return { updatedAdj };
+}
 
- const draft = ledgerTransactionDrafts[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
-
- // ── Adjustment (expense) save path ──────────────────────────────────────────
- if (draft?.isAdjustment && draft.adjustmentId) {
-  const adj = adjustments.find((a) => a.id === draft.adjustmentId);
-  if (!adj) return false;
-  const amount = parseFloat(draft.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
-   setError(t('adjustment_amount_required'));
-   return false;
-  }
-  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
-  const selectedCurrency = draft.currencyId ? currencyMap.get(draft.currencyId) : undefined;
-  const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-  const parsedRate = parseFloat(draft.exchangeRate);
-  const adjRateSet = Number.isFinite(parsedRate) && parsedRate > 0;
-  const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && adjRateSet;
-  const effectiveRate = !needsRate ? 1 : adjRateSet ? (rateIsReversed ? 1 / parsedRate : parsedRate) : 0;
-  const updatedAdj: ClientAdjustment = {
-   id: draft.adjustmentId,
-   accountId: ledgerAccountId,
-   amount,
-   direction: draft.adjustmentDirection ?? 'debit',
-   currencyId: draft.currencyId ?? account?.currencyId ?? null,
-   currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-   currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-   exchangeRate: effectiveRate,
-   exchangeRateReversed: needsRate && adjRateSet ? rateIsReversed : false,
-   description: draft.description,
-   createdAt: resolveCreatedAt(draft.createdDate, adj.createdAt),
-  };
-  if (blockedByPastEditLock([adj.createdAt, updatedAdj.createdAt])) {
-   return false;
-  }
-  // Single-row saves check the lock here; batch saves are checked once up-front in
-  // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
-  if (!skipReload && !(await confirmIfEditLocked([adj.accountId], adj.createdAt, [updatedAdj.accountId], updatedAdj.createdAt, adj.id))) {
-   return false;
-  }
-  try {
-   await accountingApi.updateClientAdjustment(updatedAdj);
-   setError('');
-   applyAdjustmentPatch(updatedAdj);
-   pushLedgerEditAction({
-    undo: async () => {
-     await accountingApi.updateClientAdjustment(adj);
-     applyAdjustmentPatch(adj);
-     await loadData();
-    },
-    redo: async () => {
-     await accountingApi.updateClientAdjustment(updatedAdj);
-     applyAdjustmentPatch(updatedAdj);
-     await loadData();
-    },
-   });
-   if (!skipReload) void loadData();
-   return true;
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-   return false;
-  }
- }
-
- // ── Transaction save path ────────────────────────────────────────────────────
- const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
-
- if (!draft || !transaction) {
-  return false;
- }
-
+// Builds the updated transaction record a ledger-row edit would save, from its draft — shared
+// by the real save (`onSaveLedgerTransaction`) and the batch pre-check (`onSaveAllLedger`), so
+// both agree on exactly what the edit changes.
+function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: number, draft: LedgerTransactionDraft, transaction: Transaction): { payload: TransactionUpdateInput } | { error: string } {
  const amount = parseFloat(draft.amount);
  // An explicitly-entered rate is stored as given — including 0, so a same-currency row can be
  // zeroed out (contributing 0 to the balance) instead of being forced to 1. An empty field
@@ -440,12 +409,10 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  const originalIsOutgoing = transaction.accountFromId === ledgerAccountId;
  const originalCounterpartyId = originalIsOutgoing ? transaction.accountToId : transaction.accountFromId;
  if ((originalCounterpartyId != null && !draft.counterpartyAccountId) || !amount || draft.currencyId == null) {
-  setError(t('transaction_required'));
-  return false;
+  return { error: 'transaction_required' };
  }
  if (draft.ledgerAccountId === draft.counterpartyAccountId) {
-  setError(t('ledger_self_account_conflict'));
-  return false;
+  return { error: 'ledger_self_account_conflict' };
  }
 
  // The counterparty side isn't editable from this ledger row, so its rate is normally carried
@@ -498,6 +465,72 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   distributionLocationId: draft.distributionLocationId,
   createdAt,
  };
+ return { payload };
+}
+
+async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}): Promise<boolean> {
+ if (!accountingApi) {
+  setError(t('error_bridge'));
+  return false;
+ }
+
+ const draft = ledgerTransactionDrafts[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
+
+ // ── Adjustment (expense) save path ──────────────────────────────────────────
+ if (draft?.isAdjustment && draft.adjustmentId) {
+  const adj = adjustments.find((a) => a.id === draft.adjustmentId);
+  if (!adj) return false;
+  const built = buildLedgerAdjustmentUpdate(transactionId, ledgerAccountId, draft, adj);
+  if ('error' in built) {
+   setError(t(built.error));
+   return false;
+  }
+  const { updatedAdj } = built;
+  if (blockedByPastEditLock([adj.createdAt, updatedAdj.createdAt])) {
+   return false;
+  }
+  // Single-row saves check the lock here; batch saves are checked once up-front in
+  // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
+  if (!skipReload && !(await confirmIfAdjustmentEditLocked(adj, updatedAdj))) {
+   return false;
+  }
+  try {
+   await accountingApi.updateClientAdjustment(updatedAdj);
+   setError('');
+   applyAdjustmentPatch(updatedAdj);
+   pushLedgerEditAction({
+    undo: async () => {
+     await accountingApi.updateClientAdjustment(adj);
+     applyAdjustmentPatch(adj);
+     await loadData();
+    },
+    redo: async () => {
+     await accountingApi.updateClientAdjustment(updatedAdj);
+     applyAdjustmentPatch(updatedAdj);
+     await loadData();
+    },
+   });
+   if (!skipReload) void loadData();
+   return true;
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+   return false;
+  }
+ }
+
+ // ── Transaction save path ────────────────────────────────────────────────────
+ const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
+
+ if (!draft || !transaction) {
+  return false;
+ }
+
+ const built = buildLedgerTransactionUpdate(transactionId, ledgerAccountId, draft, transaction);
+ if ('error' in built) {
+  setError(t(built.error));
+  return false;
+ }
+ const { payload } = built;
 
  // The row's pre-edit persisted state, for the saved-edit undo/redo stack — same field set as
  // `payload` above (not the full `Transaction` shape), read straight from `transaction` before
@@ -630,23 +663,28 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
  const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)).filter((k) => editingLedgerRowKeys.has(k));
 
  // One up-front lock check for the whole batch (the per-row saves below skipReload, so
- // they don't each prompt). Warns once if any edited row touches reconciled history.
+ // they don't each prompt). Builds the same updated record each row's real save would
+ // write and warns once, only if some row's edit actually moves a reconciled balance
+ // (not merely because the row sits at/before a lock line — see `useReconciliationLocks`).
  let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
  for (const key of keys) {
   const [txIdStr, accIdStr] = key.split(':');
+  const transactionId = parseInt(txIdStr, 10);
   const accId = parseInt(accIdStr, 10);
   const draft = ledgerTransactionDrafts[key];
   if (!draft) continue;
   if (draft.isAdjustment && draft.adjustmentId) {
    const adj = adjustments.find((a) => a.id === draft.adjustmentId);
    if (!adj) continue;
-   batchLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries) ?? violatedLock([accId], resolveCreatedAt(draft.createdDate, adj.createdAt), adj.id, lockBoundaries);
+   const built = buildLedgerAdjustmentUpdate(transactionId, accId, draft, adj);
+   if ('error' in built) continue;
+   batchLockHit = adjustmentEditImpact(adj, built.updatedAdj);
   } else {
-   const tx = transactions.find((t) => t.id === parseInt(txIdStr, 10));
+   const tx = transactions.find((t) => t.id === transactionId);
    if (!tx) continue;
-   batchLockHit =
-    violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries) ??
-    violatedLock([draft.ledgerAccountId, draft.counterpartyAccountId], resolveCreatedAt(draft.createdDate, tx.createdAt), tx.id, lockBoundaries);
+   const built = buildLedgerTransactionUpdate(transactionId, accId, draft, tx);
+   if ('error' in built) continue;
+   batchLockHit = transactionEditImpact(tx, built.payload);
   }
   if (batchLockHit) break;
  }
@@ -953,10 +991,15 @@ async function onSubmitAdjustment() {
   return;
  }
 
- // Reconciliation guard: creating/re-dating an expense on or before the lock line — or
- // editing one that currently sits there — rewrites reconciled history.
- const adjRefId = adjustmentModal.editingId ?? NEW_ROW_REF_ID;
- if (!(await confirmIfEditLocked(existingAdj ? [existingAdj.accountId] : [], existingAdj?.createdAt ?? createdAt, [adjustmentModal.accountId], createdAt, adjRefId))) {
+ // Reconciliation guard: editing an expense that actually moves a reconciled balance warns
+ // (balance-aware); creating/re-dating a brand-new one onto locked history always warns
+ // (position-based — there's no "before" state to compare against).
+ if (adjustmentModal.editingId && existingAdj) {
+  const updatedAdjForCheck: ClientAdjustment = { ...existingAdj, ...payloadBase };
+  if (!(await confirmIfAdjustmentEditLocked(existingAdj, updatedAdjForCheck))) {
+   return;
+  }
+ } else if (!(await confirmIfLocked([adjustmentModal.accountId], createdAt, NEW_ROW_REF_ID))) {
   return;
  }
 

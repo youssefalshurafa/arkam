@@ -62,25 +62,25 @@ function AddUserModal({ onCancel, onCreated }: { onCancel: () => void; onCreated
     <h2>{t('admin_add_user')}</h2>
     <p className="sub">{t('admin_au_desc')}</p>
 
-    <div className="ad-stack" style={{ gap: 12 }}>
+    <div className="acp-stack" style={{ gap: 12 }}>
      <div>
-      <label className="ad-label">{t('admin_au_name')}</label>
-      <input className="ad-input" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('admin_au_name_ph')} />
+      <label className="acp-label">{t('admin_au_name')}</label>
+      <input className="acp-input" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('admin_au_name_ph')} />
      </div>
      <div>
-      <label className="ad-label">{t('admin_au_email')}</label>
-      <input className="ad-input" type="text" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('admin_au_email_ph')} />
+      <label className="acp-label">{t('admin_au_email')}</label>
+      <input className="acp-input" type="text" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('admin_au_email_ph')} />
      </div>
      <div>
-      <label className="ad-label">{t('admin_au_phone')}</label>
-      <input className="ad-input" type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 100 000 0000" />
+      <label className="acp-label">{t('admin_au_phone')}</label>
+      <input className="acp-input" type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 100 000 0000" />
      </div>
      <div>
-      <label className="ad-label">{t('admin_au_duration')}</label>
-      <input className="ad-input" type="number" min={1} value={durationDays} onChange={(e) => setDurationDays(e.target.value)} />
-      <div className="ad-row" style={{ gap: 8, marginTop: 8 }}>
+      <label className="acp-label">{t('admin_au_duration')}</label>
+      <input className="acp-input" type="number" min={1} value={durationDays} onChange={(e) => setDurationDays(e.target.value)} />
+      <div className="acp-row" style={{ gap: 8, marginTop: 8 }}>
        {[30, 90, 365].map((d) => (
-        <button key={d} type="button" className="ad-btn sm" onClick={() => setDurationDays(String(d))}>
+        <button key={d} type="button" className="acp-btn sm" onClick={() => setDurationDays(String(d))}>
          {d}d
         </button>
        ))}
@@ -90,11 +90,11 @@ function AddUserModal({ onCancel, onCreated }: { onCancel: () => void; onCreated
 
     {error && <p style={{ color: 'var(--ad-bad-text)', fontSize: 13, marginTop: 12 }}>{error}</p>}
 
-    <div className="ad-modal-actions">
-     <button type="button" className="ad-btn" onClick={onCancel} disabled={isSubmitting}>
+    <div className="acp-modal-actions">
+     <button type="button" className="acp-btn" onClick={onCancel} disabled={isSubmitting}>
       {t('admin_cancel')}
      </button>
-     <button type="submit" className="ad-btn primary" disabled={isSubmitting}>
+     <button type="submit" className="acp-btn primary" disabled={isSubmitting}>
       {isSubmitting ? t('admin_working') : t('admin_add_user')}
      </button>
     </div>
@@ -109,24 +109,24 @@ function DeleteDialog({ user, onCancel, onConfirm, isDeleting }: { user: AdminUs
   <Modal onClose={onCancel}>
    <h2>{t('admin_del_title')}</h2>
    <p className="sub">{t('admin_del_desc')}</p>
-   <div className="ad-row" style={{ gap: 11, marginBottom: 12 }}>
+   <div className="acp-row" style={{ gap: 11, marginBottom: 12 }}>
     <Avatar name={user.name} image={user.image} id={user.id} />
     <div>
-     <div className="ad-u-name">{user.name}</div>
-     <div className="ad-u-email">{user.email}</div>
+     <div className="acp-u-name">{user.name}</div>
+     <div className="acp-u-email">{user.email}</div>
     </div>
    </div>
    {user.workspaceCount > 0 && (
-    <div className="ad-note warn">
+    <div className="acp-note warn">
      <Icon name="warning" />
      <span>{t('admin_del_ws_warn').replace('{count}', String(user.workspaceCount))}</span>
     </div>
    )}
-   <div className="ad-modal-actions">
-    <button className="ad-btn" onClick={onCancel} disabled={isDeleting}>
+   <div className="acp-modal-actions">
+    <button className="acp-btn" onClick={onCancel} disabled={isDeleting}>
      {t('admin_cancel')}
     </button>
-    <button className="ad-btn danger" onClick={onConfirm} disabled={isDeleting}>
+    <button className="acp-btn danger" onClick={onConfirm} disabled={isDeleting}>
      {isDeleting ? t('admin_working') : t('admin_delete')}
     </button>
    </div>
@@ -159,15 +159,15 @@ function UserRow({
     <Check on={selected} onClick={() => onToggleSelect(user.id)} />
    </td>
    <td>
-    <div className="ad-u-cell" style={nested ? { paddingInlineStart: 26 } : undefined}>
-     {nested && <span className="ad-faint">↳</span>}
+    <div className="acp-u-cell" style={nested ? { paddingInlineStart: 26 } : undefined}>
+     {nested && <span className="acp-faint">↳</span>}
      <Avatar name={user.name} image={user.image} id={user.id} size={nested ? 28 : 34} />
      <div>
-      <div className="ad-u-name">
+      <div className="acp-u-name">
        {user.name}
        {roleInTeam && <RoleBadge role={roleInTeam} t={t} />}
       </div>
-      <div className="ad-u-email">{user.email}</div>
+      <div className="acp-u-email">{user.email}</div>
      </div>
     </div>
    </td>
@@ -177,11 +177,11 @@ function UserRow({
    <td>
     <SubscriptionBadge endsAt={user.subscriptionEndsAt} />
    </td>
-   <td className="ad-muted ad-num" style={{ whiteSpace: 'nowrap' }}>
+   <td className="acp-muted acp-num" style={{ whiteSpace: 'nowrap' }}>
     {formatDate(user.createdAt, language)}
    </td>
    <td className="center">
-    {user.workspaceCount > 0 ? <span className="ad-ws-pill ad-num">{user.workspaceCount}</span> : <span className="ad-faint">—</span>}
+    {user.workspaceCount > 0 ? <span className="acp-ws-pill acp-num">{user.workspaceCount}</span> : <span className="acp-faint">—</span>}
    </td>
    <td className="end" onClick={(e) => e.stopPropagation()}>
     <RowMenu
@@ -396,32 +396,32 @@ export default function AdminUsersPage() {
 
  return (
   <>
-   <div className="ad-toolbar">
-    <div className="ad-search" style={{ width: 280 }}>
+   <div className="acp-toolbar">
+    <div className="acp-search" style={{ width: 280 }}>
      <Icon name="search" />
      <input type="text" placeholder={t('admin_search_users_ph')} value={search} onChange={(e) => setSearch(e.target.value)} />
     </div>
-    <div className="ad-spacer" />
-    <span className="ad-faint" style={{ fontSize: 12 }}>
+    <div className="acp-spacer" />
+    <span className="acp-faint" style={{ fontSize: 12 }}>
      {countLabel}
     </span>
-    <button className="ad-btn" onClick={() => void fetchUsers()}>
+    <button className="acp-btn" onClick={() => void fetchUsers()}>
      <Icon name="refresh" />
      {t('admin_refresh')}
     </button>
-    <button className="ad-btn" onClick={exportCsv}>
+    <button className="acp-btn" onClick={exportCsv}>
      <Icon name="download" />
      {t('admin_export')}
     </button>
-    <button className="ad-btn primary" onClick={() => setShowAddUser(true)}>
+    <button className="acp-btn primary" onClick={() => setShowAddUser(true)}>
      <Icon name="plus" />
      {t('admin_add_user')}
     </button>
    </div>
 
    {selectedVisible.length > 0 && (
-    <div className="ad-bulk-bar">
-     <span className="cnt ad-num">{t('admin_selected').replace('{count}', String(selectedVisible.length))}</span>
+    <div className="acp-bulk-bar">
+     <span className="cnt acp-num">{t('admin_selected').replace('{count}', String(selectedVisible.length))}</span>
      <span className="sep" />
      <button className="bbtn" disabled={bulkBusy} onClick={() => void bulkReset()}>
       <Icon name="key" />
@@ -437,7 +437,7 @@ export default function AdminUsersPage() {
     </div>
    )}
 
-   <div className="ad-card ad-table-wrap">
+   <div className="acp-card acp-table-wrap">
     {loading ? (
      <StateBlock>{t('admin_loading')}</StateBlock>
     ) : error === 'forbidden' ? (
@@ -447,7 +447,7 @@ export default function AdminUsersPage() {
     ) : userGroups.length === 0 ? (
      <StateBlock>{t('admin_no_users')}</StateBlock>
     ) : (
-     <table className="ad-table hover">
+     <table className="acp-table hover">
       <thead>
        <tr>
         <th style={{ width: 20 }}>
