@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -11,10 +11,12 @@ import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/util
 import { seamlessInputClassName, seamlessSelectClassName } from '@/shared/styles';
 import { getCommissionAmount, exchangeToBase, parseChargesPayer, type ChargesPayerParty } from '@/shared/utils/commission';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
-import type { Transaction, TransactionUpdateInput } from '@/shared/types';
+import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
+import type { ClientAccount, Transaction, TransactionUpdateInput } from '@/shared/types';
 
 type TransactionDetailsModalProps = {
  transactions: Transaction[];
+ clientAccounts: ClientAccount[];
  onUpdateTransactionFields: (transactionId: number, patch: Partial<TransactionUpdateInput>) => void | Promise<void>;
 };
 
@@ -96,6 +98,70 @@ function EditableField({
  );
 }
 
+// A click-to-edit account/client picker: the client name (plus currency) until clicked, then
+// AccountSearchSelect's search dropdown in place. Selecting an account (or clearing it) commits
+// immediately and returns to display mode; clicking away without selecting just closes it.
+function EditableAccountField({
+ accounts,
+ value,
+ name,
+ currencyCode,
+ placeholder,
+ clearLabel,
+ isRTL,
+ onCommit,
+}: {
+ accounts: ClientAccount[];
+ value: number | null;
+ name: string;
+ currencyCode: string;
+ placeholder: string;
+ clearLabel: string;
+ isRTL: boolean;
+ onCommit: (id: number | null) => void;
+}) {
+ const [editing, setEditing] = useState(false);
+ const containerRef = useRef<HTMLDivElement>(null);
+
+ if (!editing) {
+  return (
+   <button
+    type="button"
+    onClick={() => setEditing(true)}
+    className="-mx-1 block w-full truncate rounded-sm px-1 text-left text-sm font-semibold text-fg outline-none transition hover:bg-surface-hover"
+    title={name || '—'}
+   >
+    {name || <span className="text-fg-faint">—</span>}
+    {currencyCode ? <span className="ml-1.5 text-xs font-normal text-fg-faint">{currencyCode}</span> : null}
+   </button>
+  );
+ }
+
+ return (
+  <div
+   ref={containerRef}
+   onBlur={(event) => {
+    if (containerRef.current?.contains(event.relatedTarget as Node)) return;
+    setTimeout(() => {
+     if (!containerRef.current?.contains(document.activeElement)) setEditing(false);
+    }, 200);
+   }}
+  >
+   <AccountSearchSelect
+    accounts={accounts}
+    value={value}
+    onChange={(id) => {
+     onCommit(id);
+     setEditing(false);
+    }}
+    placeholder={placeholder}
+    clearLabel={clearLabel}
+    isRTL={isRTL}
+   />
+  </div>
+ );
+}
+
 /**
  * "More info" popup for a single transaction, opened from the ledger/transactions/harvest
  * row context menus (via `infoTransactionId` in the transactions store). Unlike a client
@@ -104,15 +170,21 @@ function EditableField({
  * counterparty's commission is visible even while viewing the other client's ledger.
  * Mounted once at page level, where the full transaction list is in scope.
  *
- * Every value except the account/currency identities and the charges payer is editable
- * in place via `EditableField`/the type `<select>` — click a value, edit, blur/Enter to
- * stage the change (Escape or leaving it unchanged discards). Edits are buffered locally
- * and only written when Save is pressed; Cancel/closing discards them. Structural fields
- * (which accounts, which currencies, who pays charges) are deliberately left read-only
- * here — changing those needs the full edit form's account/currency pickers and
- * lock/validation checks, not a seamless one-line edit.
+ * Every value except the transaction currency and the charges payer is editable in place via
+ * `EditableField`/`EditableAccountField`/the type `<select>` — click a value, edit, blur/Enter
+ * to stage the change (Escape or leaving it unchanged discards). Edits are buffered locally
+ * and only written when Save is pressed; Cancel/closing discards them. Which client/account
+ * each side belongs to can be changed via `EditableAccountField`, which mirrors the same
+ * cross-currency exchange-rate reset the inline table edit and the new-transaction form use
+ * (see `resetSideRate`/the effect in page.tsx): a side that lands on the same currency as the
+ * transaction is forced to 1.00; a side that turns cross-currency while still holding the
+ * untouched default rate is cleared so the row stays pending until a real rate is entered —
+ * otherwise it would silently save as a 1:1 conversion across a currency mismatch. The
+ * transaction currency itself and who pays charges are deliberately left read-only here —
+ * changing those needs the full edit form's currency picker and lock/validation checks, not a
+ * seamless one-line edit.
  */
-export default function TransactionDetailsModal({ transactions, onUpdateTransactionFields }: TransactionDetailsModalProps) {
+export default function TransactionDetailsModal({ transactions, clientAccounts, onUpdateTransactionFields }: TransactionDetailsModalProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  const numLocale = language === 'fr' ? 'en-US' : language;
@@ -132,8 +204,22 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
  if (!found) return null;
 
  // The transaction as it would look with the buffered edits applied — every display/computed
- // value below reads from this merged view so in-progress edits are reflected live.
- const tx = { ...found, ...pending };
+ // value below reads from this merged view so in-progress edits are reflected live. When a
+ // side's account was reassigned, the client name/currency displayed must follow the newly
+ // picked account rather than the original row's (those are plain display fields, not part
+ // of `pending`, so they don't update on their own).
+ const accountFromOverride = 'accountFromId' in pending ? (clientAccounts.find((a) => a.id === pending.accountFromId) ?? null) : undefined;
+ const accountToOverride = 'accountToId' in pending ? (clientAccounts.find((a) => a.id === pending.accountToId) ?? null) : undefined;
+ const tx = {
+  ...found,
+  ...pending,
+  ...(accountFromOverride !== undefined
+   ? { clientFromName: accountFromOverride?.clientName ?? '', accountFromCurrencyCode: accountFromOverride?.currencyCode ?? '', accountFromCurrencySymbol: accountFromOverride?.currencySymbol ?? '' }
+   : null),
+  ...(accountToOverride !== undefined
+   ? { clientToName: accountToOverride?.clientName ?? '', accountToCurrencyCode: accountToOverride?.currencyCode ?? '', accountToCurrencySymbol: accountToOverride?.currencySymbol ?? '' }
+   : null),
+ };
  const isDirty = Object.keys(pending).length > 0;
 
  const close = () => setInfoTransactionId(null);
@@ -156,6 +242,17 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
 
  const rateDisplay = (rate: number, reversed: boolean) => (rate === 0 ? '—' : formatRateValue(reversed ? 1 / rate : rate));
 
+ // Mirrors resetSideRate in useTransactionActions.ts / the new-transaction form's effect in
+ // page.tsx: when a side's account changes, force same-currency sides to 1 and clear a
+ // cross-currency side that's still holding the untouched default 1 (never reversed), so it
+ // stays pending (excluded from the balance) instead of silently saving as a 1:1 conversion.
+ const resetRateForAccountChange = (accountId: number | null, currentRate: number, reversed: boolean) => {
+  const account = accountId != null ? clientAccounts.find((a) => a.id === accountId) : undefined;
+  if (!account) return currentRate;
+  if (account.currencyId === tx.currencyId) return 1;
+  return currentRate === 1 && !reversed ? 0 : currentRate;
+ };
+
  // The stored chargesPayer encodes a payer→payee pair (each end is the sender, the receiver,
  // or "me"/the org). Resolve each end to a display name so the popup states who paid whom —
  // information a single client's ledger can't convey.
@@ -169,6 +266,8 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
   title: string;
   name: string;
   currencyCode: string;
+  accountId: number | null;
+  onCommitAccount: ((id: number | null) => void) | null;
   rate: number;
   reversed: boolean;
   commissionPct: number;
@@ -181,10 +280,25 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
  }) => (
   <div className="flex-1 rounded border border-border bg-surface-2 p-3">
    <p className="text-xs font-semibold uppercase tracking-wide text-accent">{opts.title}</p>
-   <p className="mt-1 truncate text-sm font-semibold text-fg" title={opts.name || '—'}>
-    {opts.name || <span className="text-fg-faint">—</span>}
-    {opts.currencyCode ? <span className="ml-1.5 text-xs font-normal text-fg-faint">{opts.currencyCode}</span> : null}
-   </p>
+   <div className="mt-1">
+    {opts.onCommitAccount ? (
+     <EditableAccountField
+      accounts={clientAccounts}
+      value={opts.accountId}
+      name={opts.name}
+      currencyCode={opts.currencyCode}
+      placeholder={t('transaction_account_placeholder')}
+      clearLabel={t('clear_selection')}
+      isRTL={isRTL}
+      onCommit={opts.onCommitAccount}
+     />
+    ) : (
+     <p className="truncate text-sm font-semibold text-fg" title={opts.name || '—'}>
+      {opts.name || <span className="text-fg-faint">—</span>}
+      {opts.currencyCode ? <span className="ml-1.5 text-xs font-normal text-fg-faint">{opts.currencyCode}</span> : null}
+     </p>
+    )}
+   </div>
    <div className="mt-2 divide-y divide-border border-t border-border">
     {row(
      t('exchange_rate'),
@@ -198,10 +312,7 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
     )}
     {row(
      t('commission'),
-     <>
-      <EditableField editValue={String(opts.commissionPct)} display={`${opts.commissionPct.toLocaleString(numLocale, { maximumFractionDigits: 2 })}%`} decimal onCommit={opts.onCommitCommission} />
-      {opts.commissionPct ? <span className="ml-1.5 text-xs text-fg-faint">({fmt(opts.commissionAmount)})</span> : null}
-     </>,
+     <EditableField editValue={String(opts.commissionPct)} display={`${opts.commissionPct.toLocaleString(numLocale, { maximumFractionDigits: 2 })}%`} decimal onCommit={opts.onCommitCommission} />,
      'commission',
     )}
     {row(
@@ -292,6 +403,14 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
       title: t('transaction_account_from'),
       name: tx.clientFromName,
       currencyCode: tx.accountFromCurrencyCode,
+      accountId: tx.accountFromId,
+      onCommitAccount: isAdjustment
+       ? null
+       : (id) =>
+          update({
+           accountFromId: id,
+           exchangeRateFrom: resetRateForAccountChange(id, tx.exchangeRateFrom, !!tx.exchangeRateFromReversed),
+          }),
       rate: tx.exchangeRateFrom,
       reversed: !!tx.exchangeRateFromReversed,
       commissionPct: tx.commissionFrom,
@@ -317,6 +436,14 @@ export default function TransactionDetailsModal({ transactions, onUpdateTransact
       title: t('transaction_account_to'),
       name: tx.clientToName,
       currencyCode: tx.accountToCurrencyCode,
+      accountId: tx.accountToId,
+      onCommitAccount: isAdjustment
+       ? null
+       : (id) =>
+          update({
+           accountToId: id,
+           exchangeRateTo: resetRateForAccountChange(id, tx.exchangeRateTo, !!tx.exchangeRateToReversed),
+          }),
       rate: tx.exchangeRateTo,
       reversed: !!tx.exchangeRateToReversed,
       commissionPct: tx.commissionTo,
