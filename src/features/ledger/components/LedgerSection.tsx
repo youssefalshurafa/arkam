@@ -1382,6 +1382,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
                    const pagedEntries = visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
                    return pagedEntries.map((entry, entryIdx) => {
+                    // Whether a charges/expense sub-row renders below this entry's main row (see
+                    // the charges-view <tr> further down) — when true, the reconciliation lock's
+                    // boundary line (bottom border) and lock indicator (left border) must extend
+                    // to that sub-row instead of stopping at the main row, so the block reads as
+                    // one unit rather than cutting the line off above the expense.
+                    const hasVisibleChargesRow = !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount;
                     // Shared by the row's onContextMenu (desktop right-click) and its visible
                     // "⋮" button (touch devices have no right-click event to hook into).
                     const openRowMenu = (event: ReactMouseEvent) => {
@@ -1483,7 +1489,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         ...(isEditing || !ledgerRowClickActive ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                        };
                       })()}
-                      className={`border-t border-border align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} hover:bg-surface-hover ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''} ${
+                      className={`border-t border-border align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} hover:bg-surface-hover ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark && !hasVisibleChargesRow ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''} ${
                        contextMenuRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
                         ? 'ring-2 ring-inset ring-indigo-400'
                         : editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))
@@ -2759,7 +2765,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        return (
                         <tr
                          key={`${ledger.accountId}-${entry.transactionId}-charges-view`}
-                         className={entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'}
+                         className={`${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''}`}
                         >
                          <td
                           colSpan={colSpanCount}
