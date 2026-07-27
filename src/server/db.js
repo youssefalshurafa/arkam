@@ -231,6 +231,10 @@ async function deleteOrganization(app, organizationId) {
 
 async function listClients(app) {
     const { schema } = await getSchemaInfo(app);
+    // Treasury/Cashbox are ordinary `clients` rows flagged `is_system` (see
+    // ensureTreasuryAndCashboxes/listSystemClients) — excluded here unconditionally so they
+    // never surface in the Clients page, Organizations grouping, client search/pickers, or
+    // any other UI sourced from this list.
     const result = await query(`
         SELECT
             clients.id,
@@ -251,6 +255,7 @@ async function listClients(app) {
             )::integer AS "accountCount"
         FROM ${schema}.clients clients
         LEFT JOIN ${schema}.organizations organizations ON organizations.id = clients.organization_id
+        WHERE clients.is_system = FALSE
         ORDER BY LOWER(clients.name) ASC
     `);
     return result.rows;
@@ -318,28 +323,42 @@ async function deleteClient(app, clientId) {
 
 async function deleteAllClients(app) {
     const { schema } = await getSchemaInfo(app);
-    await query(`DELETE FROM ${schema}.clients`);
+    // Danger Zone "delete all clients" must never wipe Treasury/Cashbox history.
+    await query(`DELETE FROM ${schema}.clients WHERE is_system = FALSE`);
 }
 
+// A `member`'s cashbox rows are their own private working set; a `member` sees their own
+// cashbox's accounts (needed to render its ledger) but never Treasury's account directly
+// (its balance isn't member business — Treasury's own page is hidden from members) nor
+// another member's cashbox accounts. owner/admin/viewer see everything unfiltered, same as
+// any other client account.
 async function listAllClientAccounts(app) {
     const { schema } = await getSchemaInfo(app);
-    const result = await query(`
-        SELECT
-            ca.id,
-            ca.client_id AS "clientId",
-            c.name AS "clientName",
-            ca.currency_id AS "currencyId",
-            cur.code AS "currencyCode",
-            cur.symbol AS "currencySymbol",
-            ca.starting_balance AS "startingBalance",
-            ca.note AS "note",
-            ca.note_show_in_pdf AS "noteShowInPdf",
-            ca.created_at AS "createdAt"
-        FROM ${schema}.client_accounts ca
-        JOIN ${schema}.clients c ON c.id = ca.client_id
-        JOIN ${schema}.currencies cur ON cur.id = ca.currency_id
-        ORDER BY LOWER(c.name) ASC, cur.code ASC
-    `);
+    const isMember = app?.role === 'member';
+    const result = await query(
+        `
+            SELECT
+                ca.id,
+                ca.client_id AS "clientId",
+                c.name AS "clientName",
+                ca.currency_id AS "currencyId",
+                cur.code AS "currencyCode",
+                cur.symbol AS "currencySymbol",
+                ca.starting_balance AS "startingBalance",
+                ca.note AS "note",
+                ca.note_show_in_pdf AS "noteShowInPdf",
+                c.is_system AS "isSystem",
+                c.system_kind AS "systemKind",
+                c.owner_user_id AS "ownerUserId",
+                ca.created_at AS "createdAt"
+            FROM ${schema}.client_accounts ca
+            JOIN ${schema}.clients c ON c.id = ca.client_id
+            JOIN ${schema}.currencies cur ON cur.id = ca.currency_id
+            ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
+            ORDER BY LOWER(c.name) ASC, cur.code ASC
+        `,
+        isMember ? [app.userId] : [],
+    );
     return result.rows;
 }
 
@@ -382,13 +401,160 @@ async function createClientAccount(app, { clientId, currencyId, startingBalance 
     );
 }
 
+// The hidden Treasury/Cashbox `clients` rows themselves (id/name/kind/owner), NOT the normal
+// client collection — kept as a small, separate query rather than a flag added to
+// listClients, so "system rows never appear in the normal client list" stays a structural
+// fact rather than something every future consumer has to remember to filter. A `member`
+// sees Treasury (needed as a transfer counterparty from inside their own cashbox) plus only
+// their own cashbox; owner/admin/viewer see Treasury plus every cashbox.
+async function listSystemClients(app) {
+    const { schema } = await getSchemaInfo(app);
+    const isMember = app?.role === 'member';
+    // ownerName is the cashbox owner's actual display name (joined from the shared public
+    // schema's users table — a plain cross-schema read, same database/connection). Exposed
+    // separately from `name` (which stores the literal, untranslated "Cashbox - <name>" the
+    // rest of the app shows as a normal counterparty name) so the Treasury feature's own UI
+    // can render a properly localized "Cashbox — {{name}}" label instead of that raw string.
+    const result = await query(
+        `
+            SELECT c.id, c.name, c.system_kind AS "systemKind", c.owner_user_id AS "ownerUserId", u.name AS "ownerName"
+            FROM ${schema}.clients c
+            LEFT JOIN public.users u ON u.id = c.owner_user_id
+            WHERE c.is_system = TRUE
+            ${isMember ? `AND (c.system_kind = 'treasury' OR c.owner_user_id = $1)` : ''}
+            ORDER BY CASE WHEN c.system_kind = 'treasury' THEN 0 ELSE 1 END, LOWER(c.name) ASC
+        `,
+        isMember ? [app.userId] : [],
+    );
+    return result.rows;
+}
+
+// Lazily bootstraps the workspace-wide Treasury and one Cashbox per non-viewer member.
+// Safe to call repeatedly (every Treasury-section visit): both upserts are idempotent, so a
+// second call is a cheap no-op / name-refresh rather than a duplicate. `members` is the
+// current workspace roster ({ id, name, email, role }[], from authDb.listWorkspaceMembers).
+async function ensureTreasuryAndCashboxes(app, { members = [] } = {}) {
+    const { schema } = await getSchemaInfo(app);
+
+    return withTransaction(async (client) => {
+        const insertTreasury = await query(
+            `
+                INSERT INTO ${schema}.clients (name, is_system, system_kind)
+                VALUES ('Treasury', TRUE, 'treasury')
+                ON CONFLICT (system_kind) WHERE system_kind = 'treasury' DO NOTHING
+                RETURNING id
+            `,
+            [],
+            client,
+        );
+        let treasuryId = insertTreasury.rows[0]?.id;
+        if (!treasuryId) {
+            const existingTreasury = await query(`SELECT id FROM ${schema}.clients WHERE system_kind = 'treasury' LIMIT 1`, [], client);
+            treasuryId = existingTreasury.rows[0]?.id;
+        }
+
+        if (treasuryId) {
+            // Treasury only ever holds the workspace's main currency (see plan/product
+            // decision); if no main currency is configured yet, skip silently — retried
+            // automatically the next time this is called (e.g. next Treasury-section visit).
+            const mainCurrency = await query(
+                `SELECT id FROM ${schema}.currencies WHERE is_enabled = TRUE AND is_main = TRUE LIMIT 1`,
+                [],
+                client,
+            );
+            const mainCurrencyId = mainCurrency.rows[0]?.id;
+            if (mainCurrencyId) {
+                await query(
+                    `
+                        INSERT INTO ${schema}.client_accounts (client_id, currency_id, starting_balance)
+                        VALUES ($1, $2, 0)
+                        ON CONFLICT (client_id, currency_id) DO NOTHING
+                    `,
+                    [treasuryId, mainCurrencyId],
+                    client,
+                );
+            }
+        }
+
+        for (const member of members) {
+            if (!member?.id || member.role === 'viewer') continue;
+            const name = `Cashbox - ${member.name?.trim() || member.email || member.id}`;
+            await query(
+                `
+                    INSERT INTO ${schema}.clients (name, is_system, system_kind, owner_user_id)
+                    VALUES ($1, TRUE, 'cashbox', $2)
+                    ON CONFLICT (owner_user_id) WHERE system_kind = 'cashbox' DO UPDATE SET name = EXCLUDED.name
+                `,
+                [name, member.id],
+                client,
+            );
+        }
+
+        return { ok: true, treasuryId };
+    });
+}
+
+// Idempotently ensures a currency-specific account exists for a Treasury/Cashbox client
+// (created lazily on first use from the entry form, exactly like a normal client account),
+// returning its id. A `member` may only do this for their own cashbox or for Treasury itself
+// (creating the account row is not a balance-affecting write — it starts at 0 — so it's safe
+// even though a member can't otherwise touch Treasury directly).
+async function ensureSystemAccount(app, { systemClientId, currencyId }) {
+    if (!systemClientId || !currencyId) {
+        throw new Error('Client and currency are required.');
+    }
+
+    const { schema } = await getSchemaInfo(app);
+    const clientResult = await query(
+        `SELECT id, is_system AS "isSystem", system_kind AS "systemKind", owner_user_id AS "ownerUserId" FROM ${schema}.clients WHERE id = $1`,
+        [systemClientId],
+    );
+    const clientRow = clientResult.rows[0];
+    if (!clientRow || !clientRow.isSystem) {
+        throw new Error('Not a Treasury/Cashbox account.');
+    }
+    if (app?.role === 'member') {
+        const isOwnCashbox = clientRow.systemKind === 'cashbox' && clientRow.ownerUserId === app.userId;
+        const isTreasury = clientRow.systemKind === 'treasury';
+        if (!isOwnCashbox && !isTreasury) {
+            throw new Error('You do not have permission to modify this cashbox.');
+        }
+    }
+
+    const result = await query(
+        `
+            INSERT INTO ${schema}.client_accounts (client_id, currency_id, starting_balance)
+            VALUES ($1, $2, 0)
+            ON CONFLICT (client_id, currency_id) DO UPDATE SET currency_id = EXCLUDED.currency_id
+            RETURNING id
+        `,
+        [systemClientId, currencyId],
+    );
+    return { accountId: result.rows[0]?.id };
+}
+
 async function updateClientAccountStartingBalance(app, { accountId, startingBalance }) {
     if (!accountId) {
         throw new Error('Account id is required.');
     }
 
+    // Real client accounts: unrestricted (any non-viewer, as before). Treasury/Cashbox
+    // accounts: only the workspace owner may set the opening balance (product decision —
+    // owner/admin can otherwise both operate Treasury day-to-day, but the starting float is
+    // owner-controlled).
+    await assertOwnerCanWriteSystemStartingBalance(app, accountId);
+
     const { schema } = await getSchemaInfo(app);
     await query(`UPDATE ${schema}.client_accounts SET starting_balance = $1 WHERE id = $2`, [startingBalance ?? 0, accountId]);
+}
+
+async function assertOwnerCanWriteSystemStartingBalance(app, accountId) {
+    const infoById = await resolveSystemAccountInfo(app, [accountId]);
+    const info = infoById.get(Number(accountId));
+    if (!info?.isSystem) return;
+    if (app?.role !== 'owner') {
+        throw new Error('Only the workspace owner can change a Treasury/Cashbox opening balance.');
+    }
 }
 
 async function updateClientAccountNote(app, { accountId, note, noteShowInPdf }) {
@@ -597,58 +763,136 @@ async function setMainCurrency(app, currencyId) {
 
 async function listTransactions(app) {
     const { schema } = await getSchemaInfo(app);
-    const result = await query(`
-        SELECT
-            t.id,
-            t.account_from_id AS "accountFromId",
-            COALESCE(c_from.name, '') AS "clientFromName",
-            COALESCE(acur_from.code, '') AS "accountFromCurrencyCode",
-            COALESCE(acur_from.symbol, '') AS "accountFromCurrencySymbol",
-            t.account_to_id AS "accountToId",
-            COALESCE(c_to.name, '') AS "clientToName",
-            COALESCE(acur_to.code, '') AS "accountToCurrencyCode",
-            COALESCE(acur_to.symbol, '') AS "accountToCurrencySymbol",
-            t.currency_id AS "currencyId",
-            cur.code AS "currencyCode",
-            cur.symbol AS "currencySymbol",
-            t.amount,
-            t.type,
-            t.exchange_rate_from AS "exchangeRateFrom",
-            t.commission_from AS "commissionFrom",
-            t.exchange_rate_to AS "exchangeRateTo",
-            t.commission_to AS "commissionTo",
-            CASE WHEN t.exchange_rate_from_reversed THEN 1 ELSE 0 END AS "exchangeRateFromReversed",
-            CASE WHEN t.exchange_rate_to_reversed THEN 1 ELSE 0 END AS "exchangeRateToReversed",
-            t.charges,
-            t.charges_currency_id AS "chargesCurrencyId",
-            chcur.code AS "chargesCurrencyCode",
-            chcur.symbol AS "chargesCurrencySymbol",
-            t.charges_payer AS "chargesPayer",
-            t.charges_exchange_rate AS "chargesExchangeRate",
-            t.charges_description AS "chargesDescription",
-            t.description,
-            COALESCE(t.description_from, '') AS "descriptionFrom",
-            COALESCE(t.description_to, '') AS "descriptionTo",
-            t.exchange_actual_amount AS "exchangeActualAmount",
-            COALESCE(t.archive_note, '') AS "archiveNote",
-            CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
-            t.distribution_location_id AS "distributionLocationId",
-            dloc.name AS "distributionLocationName",
-            dloc.kind AS "distributionLocationKind",
-            t.created_at AS "createdAt"
-        FROM ${schema}.transactions t
-        LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
-        LEFT JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
-        LEFT JOIN ${schema}.currencies acur_from ON acur_from.id = ca_from.currency_id
-        LEFT JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
-        LEFT JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
-        LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
-        JOIN ${schema}.currencies cur ON cur.id = t.currency_id
-        LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
-        LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
-        ORDER BY t.created_at DESC
-    `);
+    const isMember = app?.role === 'member';
+    // A `member` may only see a transaction touching Treasury/another cashbox when their OWN
+    // cashbox is one of the two sides (their day-to-day client transactions plus their own
+    // Treasury handovers). Anything else involving a system account (Treasury's direct
+    // dealings, another member's cashbox) is invisible to them — owner/admin/viewer see every
+    // transaction unfiltered, same as today.
+    const memberFilter = isMember
+        ? `WHERE (
+                NOT (COALESCE(c_from.is_system, FALSE) OR COALESCE(c_to.is_system, FALSE))
+                OR (c_from.system_kind = 'cashbox' AND c_from.owner_user_id = $1)
+                OR (c_to.system_kind = 'cashbox' AND c_to.owner_user_id = $1)
+            )`
+        : '';
+    const result = await query(
+        `
+            SELECT
+                t.id,
+                t.account_from_id AS "accountFromId",
+                COALESCE(c_from.name, '') AS "clientFromName",
+                COALESCE(acur_from.code, '') AS "accountFromCurrencyCode",
+                COALESCE(acur_from.symbol, '') AS "accountFromCurrencySymbol",
+                t.account_to_id AS "accountToId",
+                COALESCE(c_to.name, '') AS "clientToName",
+                COALESCE(acur_to.code, '') AS "accountToCurrencyCode",
+                COALESCE(acur_to.symbol, '') AS "accountToCurrencySymbol",
+                t.currency_id AS "currencyId",
+                cur.code AS "currencyCode",
+                cur.symbol AS "currencySymbol",
+                t.amount,
+                t.type,
+                t.exchange_rate_from AS "exchangeRateFrom",
+                t.commission_from AS "commissionFrom",
+                t.exchange_rate_to AS "exchangeRateTo",
+                t.commission_to AS "commissionTo",
+                CASE WHEN t.exchange_rate_from_reversed THEN 1 ELSE 0 END AS "exchangeRateFromReversed",
+                CASE WHEN t.exchange_rate_to_reversed THEN 1 ELSE 0 END AS "exchangeRateToReversed",
+                t.charges,
+                t.charges_currency_id AS "chargesCurrencyId",
+                chcur.code AS "chargesCurrencyCode",
+                chcur.symbol AS "chargesCurrencySymbol",
+                t.charges_payer AS "chargesPayer",
+                t.charges_exchange_rate AS "chargesExchangeRate",
+                t.charges_description AS "chargesDescription",
+                t.description,
+                COALESCE(t.description_from, '') AS "descriptionFrom",
+                COALESCE(t.description_to, '') AS "descriptionTo",
+                t.exchange_actual_amount AS "exchangeActualAmount",
+                COALESCE(t.archive_note, '') AS "archiveNote",
+                CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
+                t.distribution_location_id AS "distributionLocationId",
+                dloc.name AS "distributionLocationName",
+                dloc.kind AS "distributionLocationKind",
+                t.created_at AS "createdAt"
+            FROM ${schema}.transactions t
+            LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
+            LEFT JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
+            LEFT JOIN ${schema}.currencies acur_from ON acur_from.id = ca_from.currency_id
+            LEFT JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
+            LEFT JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
+            LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
+            JOIN ${schema}.currencies cur ON cur.id = t.currency_id
+            LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
+            LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
+            ${memberFilter}
+            ORDER BY t.created_at DESC
+        `,
+        isMember ? [app.userId] : [],
+    );
     return result.rows;
+}
+
+// Looks up is_system/system_kind/owner_user_id for a set of client_accounts ids in one
+// round-trip. Used by the write-time Treasury/Cashbox ownership guards below.
+async function resolveSystemAccountInfo(app, accountIds) {
+    const ids = [...new Set(accountIds.filter((id) => id != null).map(Number))];
+    if (!ids.length) return new Map();
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(
+        `
+            SELECT ca.id AS "accountId", c.is_system AS "isSystem", c.system_kind AS "systemKind", c.owner_user_id AS "ownerUserId"
+            FROM ${schema}.client_accounts ca
+            JOIN ${schema}.clients c ON c.id = ca.client_id
+            WHERE ca.id = ANY($1::bigint[])
+        `,
+        [ids],
+    );
+    return new Map(result.rows.map((row) => [Number(row.accountId), row]));
+}
+
+// Blocks a `member`-role user from posting a single-sided entry (adjustment/reconciliation)
+// directly against Treasury or another member's cashbox. owner/admin bypass (already have
+// full access to every account); viewer never reaches a write path (blocked earlier by the
+// binary writeActions gate in route.ts). A member's own cashbox is always allowed.
+async function assertMemberCanWriteAccount(app, accountId) {
+    if (app?.role !== 'member' || accountId == null) return;
+    const infoById = await resolveSystemAccountInfo(app, [accountId]);
+    const info = infoById.get(Number(accountId));
+    if (!info?.isSystem) return;
+    const isOwnCashbox = info.systemKind === 'cashbox' && info.ownerUserId === app.userId;
+    if (!isOwnCashbox) {
+        throw new Error('You do not have permission to modify this Treasury/Cashbox entry.');
+    }
+}
+
+// Blocks a `member`-role user from writing a two-sided transaction that touches Treasury
+// directly or another member's cashbox. owner/admin bypass; viewer never reaches here. A
+// legitimate cashbox<->Treasury handover is allowed: Treasury on one side is fine as long as
+// the OTHER side is the requesting member's own cashbox. This is the real enforcement point —
+// the read-side filtering in listTransactions/listAllClientAccounts alone would still let a
+// crafted POST write into Treasury or someone else's cashbox.
+async function assertMemberCanWriteTransaction(app, { accountFromId, accountToId }) {
+    if (app?.role !== 'member') return;
+    const infoById = await resolveSystemAccountInfo(app, [accountFromId, accountToId]);
+    const fromInfo = accountFromId != null ? infoById.get(Number(accountFromId)) : null;
+    const toInfo = accountToId != null ? infoById.get(Number(accountToId)) : null;
+
+    const isOwnCashbox = (info) => Boolean(info?.isSystem) && info.systemKind === 'cashbox' && info.ownerUserId === app.userId;
+    const isTreasury = (info) => Boolean(info?.isSystem) && info.systemKind === 'treasury';
+    const isOwnHandoverPair = (isOwnCashbox(fromInfo) && isTreasury(toInfo)) || (isTreasury(fromInfo) && isOwnCashbox(toInfo));
+
+    const sideAllowed = (info) => {
+        if (!info?.isSystem) return true;
+        if (isOwnCashbox(info)) return true;
+        if (isTreasury(info)) return isOwnHandoverPair;
+        return false; // another member's cashbox
+    };
+
+    if (!sideAllowed(fromInfo) || !sideAllowed(toInfo)) {
+        throw new Error('You do not have permission to modify this Treasury/Cashbox entry.');
+    }
 }
 
 async function createTransaction(app, txn) {
@@ -660,6 +904,7 @@ async function createTransaction(app, txn) {
     if (!txn.currencyId) {
         throw new Error('Amount currency is required.');
     }
+    await assertMemberCanWriteTransaction(app, { accountFromId: txn.accountFromId, accountToId: txn.accountToId });
 
     const { schema } = await getSchemaInfo(app);
     const hasCustomCreatedAt = typeof txn.createdAt === 'string' && txn.createdAt.trim().length > 0;
@@ -795,6 +1040,7 @@ async function updateTransaction(app, txn) {
     if (!txn.currencyId) {
         throw new Error('Amount currency is required.');
     }
+    await assertMemberCanWriteTransaction(app, { accountFromId: txn.accountFromId, accountToId: txn.accountToId });
 
     const { schema } = await getSchemaInfo(app);
 
@@ -868,8 +1114,14 @@ async function updateTransaction(app, txn) {
 
 async function deleteTransaction(app, transactionId) {
     const { schema } = await getSchemaInfo(app);
-    const existing = await query(`SELECT created_at AS "createdAt", is_archived AS "isArchived" FROM ${schema}.transactions WHERE id = $1`, [transactionId]);
+    const existing = await query(
+        `SELECT created_at AS "createdAt", is_archived AS "isArchived", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1`,
+        [transactionId],
+    );
     const existingRow = existing.rows[0];
+    if (existingRow) {
+        await assertMemberCanWriteTransaction(app, { accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId });
+    }
     if (existingRow && !existingRow.isArchived) {
         await assertPastEditAllowed(app, app.todayKey, existingRow.createdAt);
     }
@@ -883,22 +1135,32 @@ async function deleteAllTransactions(app) {
 
 async function listClientAdjustments(app) {
     const { schema } = await getSchemaInfo(app);
-    const result = await query(`
-        SELECT
-            a.id,
-            a.account_id AS "accountId",
-            a.amount,
-            a.direction,
-            a.currency_id AS "currencyId",
-            a.currency_code AS "currencyCode",
-            a.currency_symbol AS "currencySymbol",
-            a.exchange_rate AS "exchangeRate",
-            a.exchange_rate_reversed AS "exchangeRateReversed",
-            a.description,
-            a.created_at AS "createdAt"
-        FROM ${schema}.client_adjustments a
-        ORDER BY a.created_at ASC
-    `);
+    const isMember = app?.role === 'member';
+    // Same visibility rule as listTransactions: a `member` sees adjustments on their own
+    // cashbox but not Treasury's or another member's (defense-in-depth — v1 UI never creates
+    // adjustments against a system account, but a crafted request shouldn't be able to list them).
+    const result = await query(
+        `
+            SELECT
+                a.id,
+                a.account_id AS "accountId",
+                a.amount,
+                a.direction,
+                a.currency_id AS "currencyId",
+                a.currency_code AS "currencyCode",
+                a.currency_symbol AS "currencySymbol",
+                a.exchange_rate AS "exchangeRate",
+                a.exchange_rate_reversed AS "exchangeRateReversed",
+                a.description,
+                a.created_at AS "createdAt"
+            FROM ${schema}.client_adjustments a
+            JOIN ${schema}.client_accounts ca ON ca.id = a.account_id
+            JOIN ${schema}.clients c ON c.id = ca.client_id
+            ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
+            ORDER BY a.created_at ASC
+        `,
+        isMember ? [app.userId] : [],
+    );
     return result.rows;
 }
 
@@ -907,6 +1169,7 @@ async function createClientAdjustment(app, { accountId, amount, direction, curre
     if (!accountId) throw new Error('Account is required.');
     if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
     if (!['debit', 'credit'].includes(direction)) throw new Error('Direction must be debit or credit.');
+    await assertMemberCanWriteAccount(app, accountId);
     if (createdAt) {
         await assertPastEditAllowed(app, app.todayKey, createdAt);
     }
@@ -928,7 +1191,8 @@ async function createClientAdjustment(app, { accountId, amount, direction, curre
 
 async function updateClientAdjustment(app, { id, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
     const { schema } = await getSchemaInfo(app);
-    const existing = await query(`SELECT created_at AS "createdAt" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
+    const existing = await query(`SELECT created_at AS "createdAt", account_id AS "accountId" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
+    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
     await assertPastEditAllowed(app, app.todayKey, existing.rows[0]?.createdAt, createdAt);
     const rate = exchangeRate != null ? exchangeRate : 1;
     const reversed = exchangeRateReversed ? true : false;
@@ -942,26 +1206,34 @@ async function updateClientAdjustment(app, { id, amount, direction, currencyId, 
 
 async function deleteClientAdjustment(app, id) {
     const { schema } = await getSchemaInfo(app);
-    const existing = await query(`SELECT created_at AS "createdAt" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
+    const existing = await query(`SELECT created_at AS "createdAt", account_id AS "accountId" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
+    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
     await assertPastEditAllowed(app, app.todayKey, existing.rows[0]?.createdAt);
     await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
 }
 
 async function listReconciliations(app) {
     const { schema } = await getSchemaInfo(app);
-    const result = await query(`
-        SELECT
-            id,
-            account_id AS "accountId",
-            anchor_kind AS "anchorKind",
-            anchor_ref_id AS "anchorRefId",
-            anchor_created_at AS "anchorCreatedAt",
-            balance,
-            note,
-            created_at AS "createdAt"
-        FROM ${schema}.reconciliations
-        ORDER BY anchor_created_at ASC, anchor_ref_id ASC
-    `);
+    const isMember = app?.role === 'member';
+    const result = await query(
+        `
+            SELECT
+                r.id,
+                r.account_id AS "accountId",
+                r.anchor_kind AS "anchorKind",
+                r.anchor_ref_id AS "anchorRefId",
+                r.anchor_created_at AS "anchorCreatedAt",
+                r.balance,
+                r.note,
+                r.created_at AS "createdAt"
+            FROM ${schema}.reconciliations r
+            JOIN ${schema}.client_accounts ca ON ca.id = r.account_id
+            JOIN ${schema}.clients c ON c.id = ca.client_id
+            ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
+            ORDER BY r.anchor_created_at ASC, r.anchor_ref_id ASC
+        `,
+        isMember ? [app.userId] : [],
+    );
     return result.rows;
 }
 
@@ -970,6 +1242,7 @@ async function createReconciliation(app, { accountId, anchorKind, anchorRefId, a
     if (!accountId) throw new Error('Account is required.');
     if (!anchorRefId) throw new Error('A ledger row to reconcile is required.');
     if (!anchorCreatedAt) throw new Error('The reconciled row date is required.');
+    await assertMemberCanWriteAccount(app, accountId);
     const kind = anchorKind === 'adjustment' ? 'adjustment' : 'transaction';
     const result = await query(
         `INSERT INTO ${schema}.reconciliations (account_id, anchor_kind, anchor_ref_id, anchor_created_at, balance, note)
@@ -981,6 +1254,8 @@ async function createReconciliation(app, { accountId, anchorKind, anchorRefId, a
 
 async function deleteReconciliation(app, id) {
     const { schema } = await getSchemaInfo(app);
+    const existing = await query(`SELECT account_id AS "accountId" FROM ${schema}.reconciliations WHERE id = $1`, [id]);
+    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
     await query(`DELETE FROM ${schema}.reconciliations WHERE id = $1`, [id]);
 }
 
@@ -1044,12 +1319,21 @@ async function deleteTransactionsBulk(app, payload) {
     }
 
     if (transactionIds.length) {
-        const existing = await query(`SELECT created_at AS "createdAt" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE`, [transactionIds]);
+        const existing = await query(
+            `SELECT created_at AS "createdAt", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE`,
+            [transactionIds],
+        );
         await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
+        for (const row of existing.rows) {
+            await assertMemberCanWriteTransaction(app, { accountFromId: row.accountFromId, accountToId: row.accountToId });
+        }
     }
     if (adjustmentIds.length) {
-        const existing = await query(`SELECT created_at AS "createdAt" FROM ${schema}.client_adjustments WHERE id = ANY($1::bigint[])`, [adjustmentIds]);
+        const existing = await query(`SELECT created_at AS "createdAt", account_id AS "accountId" FROM ${schema}.client_adjustments WHERE id = ANY($1::bigint[])`, [adjustmentIds]);
         await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
+        for (const row of existing.rows) {
+            await assertMemberCanWriteAccount(app, row.accountId);
+        }
     }
 
     await withTransaction(async (executor) => {
@@ -1284,18 +1568,19 @@ async function bulkImportTransactions(app, { transactions = [], adjustments = []
 async function getWorkspaceSettings(app) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(
-        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits"
+        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits", treasury_enabled AS "treasuryEnabled"
          FROM ${schema}.workspace_settings WHERE id = 1`,
     );
     const row = result.rows[0];
     if (!row) {
-        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false };
+        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false, treasuryEnabled: false };
     }
     return {
         sharedEnabled: Boolean(row.sharedEnabled),
         settings: row.settings && typeof row.settings === 'object' ? row.settings : {},
         version: Number(row.version) || 0,
         lockPastEditsEnabled: Boolean(row.lockPastEdits),
+        treasuryEnabled: Boolean(row.treasuryEnabled),
     };
 }
 
@@ -1310,6 +1595,20 @@ async function saveWorkspacePastEditLock(app, enabled) {
         [Boolean(enabled)],
     );
     return { lockPastEditsEnabled: Boolean(enabled) };
+}
+
+// Toggles whether the Treasury & Cashbox nav item/page is shown at all — settable by owner
+// OR admin (same gate as the past-edit lock; see route.ts). Does not touch the underlying
+// Treasury/Cashbox clients/accounts, which persist regardless of this flag.
+async function saveTreasuryEnabled(app, enabled) {
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `INSERT INTO ${schema}.workspace_settings (id, treasury_enabled, updated_at)
+         VALUES (1, $1, NOW())
+         ON CONFLICT (id) DO UPDATE SET treasury_enabled = $1, updated_at = NOW()`,
+        [Boolean(enabled)],
+    );
+    return { treasuryEnabled: Boolean(enabled) };
 }
 
 // Whether "lock past-dated edits" is currently on for this workspace.
@@ -1429,6 +1728,9 @@ module.exports = {
     listAllClientAccounts,
     listClientAccounts,
     createClientAccount,
+    listSystemClients,
+    ensureTreasuryAndCashboxes,
+    ensureSystemAccount,
     updateClientAccountStartingBalance,
     updateClientAccountNote,
     updateClientAccount,
@@ -1464,6 +1766,7 @@ module.exports = {
     getWorkspaceSettings,
     saveWorkspaceSettings,
     saveWorkspacePastEditLock,
+    saveTreasuryEnabled,
     getUserTableSettings,
     saveUserTableSettings,
 };

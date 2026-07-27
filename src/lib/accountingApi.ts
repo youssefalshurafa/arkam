@@ -1,4 +1,5 @@
 import { localDateKey } from '@/shared/utils/date';
+import type { SystemClient } from '@/shared/types';
 
 const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
 
@@ -184,6 +185,17 @@ export const accountingApi = {
  listAllClientAccounts: () => request<unknown[]>({ action: 'listAllClientAccounts' }),
  listClientAccounts: (clientId: number) => request<unknown[]>({ action: 'listClientAccounts', payload: clientId }),
  createClientAccount: (account: unknown) => request<{ ok: true }>({ action: 'createClientAccount', payload: account }),
+ // Treasury & Cashbox: the hidden system `clients` rows themselves (id/name/kind/owner) —
+ // fetched separately from listClients since they're deliberately excluded from it.
+ listSystemClients: () => request<SystemClient[]>({ action: 'listSystemClients' }),
+ // Lazily bootstraps the workspace's Treasury + one Cashbox per non-viewer member. Safe to
+ // call on every Treasury-section mount (idempotent server-side).
+ ensureTreasuryAndCashboxes: () => request<{ ok: true; treasuryId: number | null }>({ action: 'ensureTreasuryAndCashboxes' }),
+ // Idempotently creates (if missing) and returns the id of a Treasury/Cashbox account for a
+ // given currency, used right before submitting an entry whose fixed side hasn't held that
+ // currency yet.
+ ensureSystemAccount: (payload: { systemClientId: number; currencyId: number }) =>
+  request<{ accountId: number }>({ action: 'ensureSystemAccount', payload }),
  updateClientAccountStartingBalance: (payload: unknown) => request<{ ok: true }>({ action: 'updateClientAccountStartingBalance', payload }),
  updateClientAccountNote: (payload: { accountId: number; note: string; noteShowInPdf: boolean }) =>
   request<{ ok: true }>({ action: 'updateClientAccountNote', payload }),
@@ -324,6 +336,7 @@ export const accountingApi = {
  saveWorkspaceSettings: (payload: { sharedEnabled?: boolean; settings?: Record<string, string> }) =>
   request<WorkspaceSharedSettings>({ action: 'saveWorkspaceSettings', payload }),
  saveWorkspacePastEditLock: (enabled: boolean) => request<{ lockPastEditsEnabled: boolean }>({ action: 'saveWorkspacePastEditLock', payload: enabled }),
+ saveTreasuryEnabled: (enabled: boolean) => request<{ treasuryEnabled: boolean }>({ action: 'saveTreasuryEnabled', payload: enabled }),
  getUserTableSettings: () => request<Record<string, string>>({ action: 'getUserTableSettings' }),
  saveUserTableSettings: (settings: Record<string, string>) => request<{ ok: true }>({ action: 'saveUserTableSettings', payload: settings }),
 };
@@ -335,6 +348,7 @@ export type WorkspaceSharedSettings = {
  settings: Record<string, string>;
  version: number;
  lockPastEditsEnabled: boolean;
+ treasuryEnabled: boolean;
 };
 
 export type BackupInfo = {

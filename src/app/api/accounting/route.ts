@@ -19,6 +19,7 @@ const readOnlyActions = new Set([
  'listClientAdjustments',
  'listReconciliations',
  'listHarvestRates',
+ 'listSystemClients',
  'exportWorkspaceData',
  // Backup marker: reads + the post-download stamp. Allowed for anyone who can
  // export (viewers included), so it stays out of the viewer-blocked writeActions.
@@ -43,6 +44,8 @@ const writeActions = new Set([
  'deleteClient',
  'deleteAllClients',
  'createClientAccount',
+ 'ensureTreasuryAndCashboxes',
+ 'ensureSystemAccount',
  'updateClientAccountStartingBalance',
  'updateClientAccountNote',
  'updateClientAccount',
@@ -73,6 +76,8 @@ const writeActions = new Set([
  'saveWorkspaceSettings',
  // Past-edit lock toggle: owner OR admin (gated further below).
  'saveWorkspacePastEditLock',
+ // Treasury & Cashbox nav visibility toggle: owner OR admin (gated further below).
+ 'saveTreasuryEnabled',
 ]);
 
 type Body = {
@@ -146,10 +151,12 @@ function getWorkspaceId(sessionWorkspaceId: string | null | undefined, headerWor
 // server's own clock — createdAt is treated as the user's naive local wall-clock time
 // everywhere else in this app (see shared/utils/date.ts), so the lock boundary must mean the
 // same "today" or it would be off by hours for a user outside the server's timezone.
-function createAppLike(workspaceId: string, todayKey: string | null) {
+function createAppLike(workspaceId: string, todayKey: string | null, userId: string, role: string) {
  return {
   workspaceId,
   todayKey,
+  userId,
+  role,
   getPath(name: string) {
    const root = process.cwd();
 
@@ -211,9 +218,17 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
   }
 
+  // The Treasury & Cashbox nav toggle is settable by the owner or an admin, same as the
+  // past-edit lock. Opening-balance edits are a stricter, owner-only guard enforced inside
+  // db.js's updateClientAccountStartingBalance itself (it needs to look up whether the target
+  // account is a Treasury/Cashbox account, which this route can't cheaply check up front).
+  if (action === 'saveTreasuryEnabled' && role !== 'owner' && role !== 'admin') {
+   return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
+  }
+
   const clientDateHeader = request.headers.get('x-client-date');
   const todayKey = clientDateHeader && /^\d{4}-\d{2}-\d{2}$/.test(clientDateHeader) ? clientDateHeader : null;
-  const appLike = createAppLike(workspaceId, todayKey);
+  const appLike = createAppLike(workspaceId, todayKey, userId, role);
 
   switch (action) {
    case 'getDbInfo':
@@ -251,6 +266,14 @@ export async function POST(request: NextRequest) {
    case 'createClientAccount':
     await db.createClientAccount(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'listSystemClients':
+    return NextResponse.json(await db.listSystemClients(appLike));
+   case 'ensureTreasuryAndCashboxes': {
+    const members = await authDb.listWorkspaceMembers({ workspaceId, userId });
+    return NextResponse.json(await db.ensureTreasuryAndCashboxes(appLike, { members }));
+   }
+   case 'ensureSystemAccount':
+    return NextResponse.json(await db.ensureSystemAccount(appLike, payload));
    case 'updateClientAccountStartingBalance':
     await db.updateClientAccountStartingBalance(appLike, payload);
     return NextResponse.json({ ok: true });
@@ -340,6 +363,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.saveWorkspaceSettings(appLike, payload));
    case 'saveWorkspacePastEditLock':
     return NextResponse.json(await db.saveWorkspacePastEditLock(appLike, payload));
+   case 'saveTreasuryEnabled':
+    return NextResponse.json(await db.saveTreasuryEnabled(appLike, payload));
    case 'getUserTableSettings':
     return NextResponse.json(await db.getUserTableSettings(appLike, userId));
    case 'saveUserTableSettings':

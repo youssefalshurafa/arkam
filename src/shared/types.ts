@@ -72,7 +72,31 @@ export type ClientAccount = {
  startingBalance: number;
  note: string;
  noteShowInPdf: boolean;
+ // Treasury/Cashbox accounts are ordinary client_accounts rows whose owning client is
+ // flagged hidden (see SystemClient below) — these three fields let normal account pickers
+ // (AccountSearchSelect, buildAccountOptions, etc.) filter them back out via
+ // filterRealClientAccounts, since listAllClientAccounts itself no longer excludes them.
+ isSystem: boolean;
+ systemKind: 'treasury' | 'cashbox' | null;
+ ownerUserId: string | null;
  createdAt: string;
+};
+
+// The hidden Treasury/Cashbox `clients` rows themselves — never part of the normal Client
+// list (see listClients' `is_system = FALSE` filter); fetched separately via
+// accountingApi.listSystemClients() only by the Treasury feature.
+export type SystemClient = {
+ id: number;
+ // Literal, untranslated "Cashbox - <name>"/"Treasury" — shown as-is wherever this account
+ // appears as a normal counterparty (a real client's own ledger, PDF exports, etc.), exactly
+ // like any other client name. The Treasury feature's OWN UI should prefer ownerName (below)
+ // with a translated "Cashbox — {{name}}" label instead of showing this raw string.
+ name: string;
+ systemKind: 'treasury' | 'cashbox';
+ ownerUserId: string | null;
+ // The cashbox owner's actual display name (null for the treasury row, or if the owning
+ // user's login was since deleted — see owner_user_id's no-FK rationale in postgres.js).
+ ownerName: string | null;
 };
 
 export type Currency = {
@@ -461,7 +485,7 @@ export type PdfSettings = {
  showCurrencySymbol: boolean;
  highlightNetChange: boolean;
 };
-export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf' | 'live-rates';
+export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf' | 'live-rates' | 'treasury';
 
 export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury' | 'harvest';
 export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest';

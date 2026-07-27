@@ -1,7 +1,6 @@
 import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
 import { buildLockBoundaries, isAtOrBeforeBoundary, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
 import type {
- Client,
  ClientAccount,
  ClientAccountLedger,
  ClientAdjustment,
@@ -75,7 +74,9 @@ export function computeAdjustmentNetChange(adj: Pick<ClientAdjustment, 'amount' 
 }
 
 type ComputeArgs = {
- selectedClientForLedger: Client | null;
+ // Only `.id` is read (the account filter below) — loosened from `Client` so the Treasury
+ // feature can pass a hidden system client (Treasury/a cashbox), which isn't a normal Client.
+ selectedClientForLedger: { id: number } | null;
  section: Section;
  pdfExportModal: unknown;
  clientAccounts: ClientAccount[];
@@ -84,13 +85,18 @@ type ComputeArgs = {
  reconciliations: Reconciliation[];
  clientAccountMap: Map<number, ClientAccount>;
  currencyMap: Map<number, Currency>;
+ // Explicit override for whether this call should compute ledgers at all. Omit to keep the
+ // original behavior (section === 'client-ledger' or a PDF export is in progress) — pass
+ // `true` for the Treasury/Cashbox page, whose own "section" value isn't 'client-ledger'.
+ enabled?: boolean;
 };
 
 // Per-account ledgers (entries + running balances) for the open client. Ported
 // verbatim from the page's selectedClientLedgers memo; pure over its inputs.
-export function computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, adjustments, reconciliations, clientAccountMap, currencyMap }: ComputeArgs): ClientAccountLedger[] {
+export function computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, adjustments, reconciliations, clientAccountMap, currencyMap, enabled }: ComputeArgs): ClientAccountLedger[] {
+  const isEnabled = enabled ?? (section === 'client-ledger' || !!pdfExportModal);
   // Skip expensive ledger computations unless the ledger view/modal is active.
-  if (!selectedClientForLedger || (section !== 'client-ledger' && !pdfExportModal)) {
+  if (!selectedClientForLedger || !isEnabled) {
    return [];
   }
 

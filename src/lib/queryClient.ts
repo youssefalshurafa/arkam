@@ -60,4 +60,10 @@ export const queryKeys = {
  // This user's own persisted table-layout settings, scoped per user AND workspace.
  userTableSettings: (userId: string | null | undefined, workspaceId: string | null | undefined) =>
   [...queryKeys.all, 'userTableSettings', userId ?? '__anon__', workspaceId ?? '__none__'] as const,
+ // Treasury/Cashbox: the hidden system clients (Treasury + visible cashboxes), fetched only
+ // when the Treasury section is mounted — deliberately NOT part of workspaceData's bundled
+ // snapshot (see listSystemClients). Scoped per user AND workspace like userTableSettings,
+ // since visibility is role-dependent (a member sees only their own cashbox + Treasury).
+ systemClients: (userId: string | null | undefined, workspaceId: string | null | undefined) =>
+  [...queryKeys.all, 'systemClients', userId ?? '__anon__', workspaceId ?? '__none__'] as const,
 } as const;

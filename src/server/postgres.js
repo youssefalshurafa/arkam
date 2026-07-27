@@ -501,6 +501,13 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- member including owner/admin — enforced server-side in db.js, not just the UI.
                 ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS lock_past_edits BOOLEAN NOT NULL DEFAULT FALSE;
 
+                -- Whether the Treasury & Cashbox nav item/page is shown at all (owner/admin
+                -- toggle, Settings > Treasury). Off by default: the feature needs opening
+                -- balances configured before it's meaningful for the team to see. The
+                -- underlying Treasury/Cashbox clients/accounts are unaffected by this flag —
+                -- it only controls visibility of the nav item and page (see page.tsx).
+                ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS treasury_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
                 -- Per-user table layout settings (ledger column visibility/order, transaction
                 -- table settings, etc. — the same snapshot shape as the owner-shared settings
                 -- above). Persisted server-side per (user, workspace) so a user's layout choices
@@ -578,6 +585,30 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- silently unresolvable everywhere. date::text always yields 'YYYY-MM-DD' and
                 -- text::text is a no-op, so this heals either type safely, every time.
                 ALTER TABLE ${schema}.harvest_rates ALTER COLUMN day TYPE TEXT USING day::text;
+
+                -- Treasury & Cashbox: the workspace's own cash position and each member's
+                -- personal cash-in-hand are ordinary rows in clients/client_accounts,
+                -- flagged hidden here so they never surface in the normal Clients
+                -- list/pickers/exports/Organizations page (see db.js's listClients filter).
+                -- This reuses balance replay, ledger rendering, and exchange-rate/commission
+                -- math verbatim instead of building a parallel set of tables.
+                ALTER TABLE ${schema}.clients ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT FALSE;
+                -- 'treasury' | 'cashbox' | NULL. JS-validated only (db.js), not a DB CHECK:
+                -- Postgres has no ADD CONSTRAINT IF NOT EXISTS, and this table predates this
+                -- column — same precedent as client_adjustments.direction/transactions.charges_payer.
+                ALTER TABLE ${schema}.clients ADD COLUMN IF NOT EXISTS system_kind TEXT;
+                -- Set only for system_kind='cashbox' rows: the owning member's public.users.id.
+                -- Deliberately a plain column, NOT a foreign key (mirrors admin_audit.target_user_id):
+                -- a cashbox's ledger history must survive the owning user's login being deleted,
+                -- and a real FK/cascade here would silently destroy that history plus the
+                -- counterparty side of every transfer recorded in Treasury's/other clients' ledgers.
+                ALTER TABLE ${schema}.clients ADD COLUMN IF NOT EXISTS owner_user_id TEXT;
+
+                CREATE UNIQUE INDEX IF NOT EXISTS clients_single_treasury_key
+                    ON ${schema}.clients (system_kind) WHERE system_kind = 'treasury';
+                CREATE UNIQUE INDEX IF NOT EXISTS clients_cashbox_owner_key
+                    ON ${schema}.clients (owner_user_id) WHERE system_kind = 'cashbox';
+                CREATE INDEX IF NOT EXISTS idx_clients_is_system ON ${schema}.clients (is_system);
             `);
 
             // NOTE: the currency catalog (ISO currencies + non-ISO extras like USDT) is
