@@ -2465,7 +2465,7 @@ function AuthenticatedHome() {
     onUpdateTransactionFields={onUpdateTransactionFields}
    />
 
-   <TransactionDetailsModal transactions={transactions} onUpdateTransactionFields={onUpdateTransactionFields} />
+   <TransactionDetailsModal transactions={transactions} clientAccounts={clientAccounts} onUpdateTransactionFields={onUpdateTransactionFields} />
 
    {showLedgerSettingsModal ? (
     <LedgerSettingsModal
