@@ -108,6 +108,8 @@ export function useLedgerActions({
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
+  transactions,
+  adjustments,
   clientAccountMap,
   lockPastEditsEnabled,
  });
