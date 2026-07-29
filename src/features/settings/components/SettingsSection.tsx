@@ -17,6 +17,7 @@ import ClientsSection from '@/features/clients/components/ClientsSection';
 import OrganizationsSection from '@/features/organizations/components/OrganizationsSection';
 import CurrenciesSection from '@/features/currencies/components/CurrenciesSection';
 import ExchangeSettingsTab from '@/features/settings/components/ExchangeSettings';
+import TreasurySettings from '@/features/treasury/components/TreasurySettings';
 import type {
  Client,
  ClientAccount,
@@ -41,6 +42,10 @@ type SettingsSectionProps = {
  setWorkspaceSharedSettingsEnabled: (enabled: boolean) => void;
  lockPastEditsEnabled: boolean;
  setWorkspacePastEditLock: (enabled: boolean) => void;
+ treasuryEnabled: boolean;
+ setTreasuryEnabled: (enabled: boolean) => void;
+ sessionUserId: string | null;
+ activeWorkspaceId: string | null;
  isBackingUp: boolean;
  isRestoringBackup: boolean;
  backupRestoreInputRef: React.RefObject<HTMLInputElement | null>;
@@ -92,6 +97,10 @@ export default function SettingsSection({
  setWorkspaceSharedSettingsEnabled,
  lockPastEditsEnabled,
  setWorkspacePastEditLock,
+ treasuryEnabled,
+ setTreasuryEnabled,
+ sessionUserId,
+ activeWorkspaceId,
  isBackingUp,
  isRestoringBackup,
  backupRestoreInputRef,
@@ -250,6 +259,18 @@ export default function SettingsSection({
       </div>
      ) : null}
     </div>
+   ) : null}
+   {settingsTab === 'treasury' ? (
+    <TreasurySettings
+     sessionUserId={sessionUserId}
+     workspaceId={activeWorkspaceId}
+     isWorkspaceOwner={isWorkspaceOwner}
+     isWorkspaceOwnerOrAdmin={isWorkspaceOwnerOrAdmin}
+     treasuryEnabled={treasuryEnabled}
+     setTreasuryEnabled={setTreasuryEnabled}
+     clientAccounts={clientAccounts}
+     enabledCurrencies={enabledCurrencies}
+    />
    ) : null}
    {settingsTab === 'database' ? (
     <DatabaseSettings

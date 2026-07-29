@@ -141,6 +141,8 @@ export function useTransactionActions({
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
+  transactions,
+  adjustments,
   clientAccountMap,
   lockPastEditsEnabled,
  });

@@ -5,7 +5,7 @@ import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
-import { buildLockBoundaries, violatedLock, reconciledImpact, type LockBoundary, type RowContribution } from '@/features/ledger/utils/reconciliation';
+import { buildLockBoundaries, buildLiveAnchorTimes, violatedLock, reconciledImpact, type LockBoundary, type RowContribution } from '@/features/ledger/utils/reconciliation';
 import { computeTransactionSideNetChange, computeAdjustmentNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { isBeforeToday } from '@/shared/utils/date';
 import type { ClientAccount, ClientAdjustment, Reconciliation, Transaction, TransactionUpdateInput } from '@/shared/types';
@@ -15,6 +15,10 @@ type LockHit = { accountId: number; boundary: LockBoundary } | null;
 
 type UseReconciliationLocksParams = {
  reconciliations: Reconciliation[];
+ // Live rows used to resolve each lock boundary's anchor to its CURRENT createdAt rather
+ // than the stale one-time snapshot stored on the reconciliation (see `buildLiveAnchorTimes`).
+ transactions: Transaction[];
+ adjustments: ClientAdjustment[];
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
  // Workspace-wide "lock past-dated edits" toggle (Settings > Team, owner/admin only). The
  // real enforcement is server-side (route.ts/db.js) — this only stops the request from
@@ -28,13 +32,14 @@ type UseReconciliationLocksParams = {
  * lock line (its newest reconciliation), so both need the same "warn once,
  * proceed if confirmed" behavior.
  */
-export function useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled }: UseReconciliationLocksParams) {
+export function useReconciliationLocks({ reconciliations, transactions, adjustments, clientAccountMap, lockPastEditsEnabled }: UseReconciliationLocksParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const setError = useAppStatusStore((s) => s.setError);
 
+ const liveAnchorTimes = useMemo(() => buildLiveAnchorTimes(transactions, adjustments), [transactions, adjustments]);
  // Newest reconciliation per client account = the lock line used by the guards below.
- const lockBoundaries = useMemo(() => buildLockBoundaries(reconciliations), [reconciliations]);
+ const lockBoundaries = useMemo(() => buildLockBoundaries(reconciliations, liveAnchorTimes), [reconciliations, liveAnchorTimes]);
 
  // Formats a reconciled balance for dialogs, e.g. "$100,553.00".
  function formatLockBalance(accountId: number, balance: number): string {

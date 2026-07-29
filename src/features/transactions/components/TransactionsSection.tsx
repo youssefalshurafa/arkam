@@ -25,6 +25,7 @@ import { useTransactionsStore, type ArchiveExportModalState } from '@/features/t
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
 import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
+import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
 import type {
  Client,
  ClientAccount,
@@ -340,8 +341,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   setTableZoom(z);
   saveTableZoom('transactions', z);
  };
- const txFromOptions = useMemo(() => buildAccountOptions(clientAccounts, txFromQuery, txFromExpandedClient), [clientAccounts, txFromQuery, txFromExpandedClient]);
- const txToOptions = useMemo(() => buildAccountOptions(clientAccounts, txToQuery, txToExpandedClient), [clientAccounts, txToQuery, txToExpandedClient]);
+ // Treasury/Cashbox accounts are ordinary client_accounts rows (see ClientAccount.isSystem) and
+ // must never appear as a selectable "real client" in this ordinary transaction form's pickers.
+ const realClientAccounts = useMemo(() => filterRealClientAccounts(clientAccounts), [clientAccounts]);
+ const txFromOptions = useMemo(() => buildAccountOptions(realClientAccounts, txFromQuery, txFromExpandedClient), [realClientAccounts, txFromQuery, txFromExpandedClient]);
+ const txToOptions = useMemo(() => buildAccountOptions(realClientAccounts, txToQuery, txToExpandedClient), [realClientAccounts, txToQuery, txToExpandedClient]);
 
  // Description autocomplete suggestions, kept as a memo (rather than computed inline in JSX)
  // so the keyboard handler and the dropdown render agree on the same indexed list.
@@ -2445,7 +2449,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <AccountSearchSelect
-                       accounts={clientAccounts}
+                       accounts={realClientAccounts}
                        value={draft.accountFromId}
                        onChange={(id) => updateTransactionTableDraft(txn.id, { accountFromId: id })}
                        placeholder={t('transaction_account_placeholder')}
@@ -2534,7 +2538,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     ) : isEditingRow && draft ? (
                      <div className="space-y-2">
                       <AccountSearchSelect
-                       accounts={clientAccounts}
+                       accounts={realClientAccounts}
                        value={draft.accountToId}
                        onChange={(id) => updateTransactionTableDraft(txn.id, { accountToId: id })}
                        placeholder={t('transaction_account_placeholder')}

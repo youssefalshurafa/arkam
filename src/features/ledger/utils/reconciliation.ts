@@ -18,13 +18,35 @@ export function reconciliationRefId(entry: Pick<ClientLedgerEntry, 'isAdjustment
  return entry.isAdjustment ? entry.adjustmentId ?? 0 : entry.transactionId;
 }
 
+// Live createdAt per anchor row, keyed `${anchorKind}:${anchorRefId}`. A reconciliation's
+// `anchorCreatedAt` is a one-time snapshot taken when the mark was created; drag-to-reorder
+// (onLedgerRowDrop) later reflows the createdAt of every row sharing the anchor's date —
+// including rows that weren't even dragged — to keep them evenly spaced in the new order, so
+// that snapshot silently goes stale the moment anything on the anchor's day gets reordered.
+// Passing this lookup into `buildLockBoundaries` makes every boundary re-resolve its anchor's
+// CURRENT position instead of trusting the frozen snapshot, so the locked/unlocked split
+// self-heals after a reorder rather than drifting out of sync with it.
+export type LiveAnchorTimes = Map<string, string>;
+
+export function buildLiveAnchorTimes(
+ transactions: Array<{ id: number; createdAt: string }>,
+ adjustments: Array<{ id: number; createdAt: string }>,
+): LiveAnchorTimes {
+ const map: LiveAnchorTimes = new Map();
+ for (const tx of transactions) map.set(`transaction:${tx.id}`, tx.createdAt);
+ for (const adj of adjustments) map.set(`adjustment:${adj.id}`, adj.createdAt);
+ return map;
+}
+
 // Newest reconciliation per account id. "Newest" uses the same ordering as the ledger:
-// later anchorCreatedAt wins, breaking ties by the higher anchorRefId.
-export function buildLockBoundaries(reconciliations: Reconciliation[]): Map<number, LockBoundary> {
+// later anchorCreatedAt wins, breaking ties by the higher anchorRefId. `liveAnchorTimes`
+// (see above) overrides each anchor's stored createdAt snapshot with its current one when
+// available, so the boundary always reflects the anchor row's true current position.
+export function buildLockBoundaries(reconciliations: Reconciliation[], liveAnchorTimes?: LiveAnchorTimes): Map<number, LockBoundary> {
  const byAccount = new Map<number, LockBoundary>();
  for (const rec of reconciliations) {
   const candidate: LockBoundary = {
-   anchorCreatedAt: rec.anchorCreatedAt,
+   anchorCreatedAt: liveAnchorTimes?.get(`${rec.anchorKind}:${rec.anchorRefId}`) ?? rec.anchorCreatedAt,
    anchorRefId: rec.anchorRefId,
    balance: rec.balance,
    note: rec.note,

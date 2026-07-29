@@ -695,6 +695,24 @@ function AuthenticatedHome() {
   }
  }
 
+ // --- Treasury & Cashbox nav visibility (owner/admin-controlled) ------------
+ // When off, the sidebar nav item is hidden and the Treasury page shows a disabled notice
+ // instead of the real ledger/entry UI — the underlying Treasury/Cashbox data is untouched,
+ // this only controls whether the team sees it (see saveTreasuryEnabled in db.js).
+ const treasuryEnabled = workspaceSettingsQuery.data?.treasuryEnabled ?? false;
+
+ async function setTreasuryEnabled(enabled: boolean) {
+  try {
+   const result = await accountingApi.saveTreasuryEnabled(enabled);
+   queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), (current: typeof workspaceSettingsQuery.data) =>
+    current ? { ...current, treasuryEnabled: result.treasuryEnabled } : current,
+   );
+   void workspaceSettingsQuery.refetch();
+  } catch (error) {
+   setError(error instanceof Error ? error.message : t('error_failed_save'));
+  }
+ }
+
  // Apply the owner's shared settings whenever the server version advances past what
  // this browser last applied (later local edits stand until the next owner push).
  useEffect(() => {
@@ -1280,7 +1298,7 @@ function AuthenticatedHome() {
   { key: 'transactions', label: t('nav_transactions'), icon: 'transactions' },
   { key: 'archive', label: t('nav_archive'), icon: 'archive' },
   { key: 'live-rates', label: t('nav_live_rates'), icon: 'rates' },
-  { key: 'treasury', label: t('nav_treasury'), icon: 'treasury' },
+  ...(treasuryEnabled ? [{ key: 'treasury' as const, label: t('nav_treasury'), icon: 'treasury' as IconName }] : []),
   ...(isSuperAdminUser ? [{ key: 'harvest' as const, label: t('nav_harvest'), icon: 'harvest' as IconName }] : []),
  ];
 
@@ -1299,6 +1317,9 @@ function AuthenticatedHome() {
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
+  // Treasury settings (nav toggle + opening balances) are owner/admin business — a member
+  // never manages other members' cashboxes or Treasury's own configuration.
+  ...(isWorkspaceOwnerOrAdmin ? [{ key: 'treasury' as const, label: t('settings_treasury_title'), icon: 'treasury' as IconName }] : []),
   ...(isEditorRole ? [] : [{ key: 'danger' as const, label: t('settings_danger_title'), icon: 'settings' as IconName }]),
  ];
 
@@ -1404,7 +1425,7 @@ function AuthenticatedHome() {
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, confirmIfAdjustmentEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
+ const { confirmIfTransactionEditLocked, confirmIfAdjustmentEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, transactions, adjustments, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoints the ledger edit uses. When not reversed the rate
@@ -1976,6 +1997,10 @@ function AuthenticatedHome() {
    setWorkspaceSharedSettingsEnabled={setWorkspaceSharedSettingsEnabled}
    lockPastEditsEnabled={lockPastEditsEnabled}
    setWorkspacePastEditLock={setWorkspacePastEditLock}
+   treasuryEnabled={treasuryEnabled}
+   setTreasuryEnabled={setTreasuryEnabled}
+   sessionUserId={sessionUserId}
+   activeWorkspaceId={activeWorkspaceId}
    isBackingUp={isBackingUp}
    isRestoringBackup={isRestoringBackup}
    backupRestoreInputRef={backupRestoreInputRef}
@@ -2331,7 +2356,22 @@ function AuthenticatedHome() {
        ) : null}
 
        {section === 'live-rates' ? <LiveRatesSection /> : null}
-       {section === 'treasury' ? <TreasurySection /> : null}
+       {section === 'treasury' ? (
+        <TreasurySection
+         sessionUserId={sessionUserId}
+         workspaceId={activeWorkspaceId}
+         workspaceRole={currentWorkspaceRole as 'owner' | 'admin' | 'member' | 'viewer' | ''}
+         treasuryEnabled={treasuryEnabled}
+         clientAccounts={clientAccounts}
+         transactions={transactions}
+         adjustments={adjustments}
+         enabledCurrencies={enabledCurrencies}
+         currencyMap={currencyMap}
+         lockPastEditsEnabled={lockPastEditsEnabled}
+         isRTL={isRTL}
+         invalidateWorkspace={loadData}
+        />
+       ) : null}
        {section === 'harvest' && isSuperAdminUser ? (
         <HarvestSection
          clientAccounts={clientAccounts}
