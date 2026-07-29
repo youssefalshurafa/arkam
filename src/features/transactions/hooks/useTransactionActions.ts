@@ -450,7 +450,9 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   // Editing an existing adjustment via the form → update in place instead of creating.
   if (editing && editing.isAdjustment) {
    const original = adjustments.find((a) => a.id === editing.id);
-   const updatedAdj = { ...adjPayload, id: editing.id } as ClientAdjustment;
+   // This form has no commission/counter-party inputs — carry the original values through
+   // untouched rather than silently clearing them.
+   const updatedAdj = { ...adjPayload, id: editing.id, commission: original?.commission ?? 0, counterParty: original?.counterParty ?? '' } as ClientAdjustment;
    if (original && !(await confirmIfAdjustmentEditLocked(original, updatedAdj))) {
     return;
    }
@@ -495,6 +497,8 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
      exchangeRate: adjPayload.exchangeRate,
      exchangeRateReversed: adjPayload.exchangeRateReversed,
      description: adjPayload.description,
+     commission: 0,
+     counterParty: '',
      createdAt: adjPayload.createdAt,
     },
    ]);
@@ -1756,6 +1760,7 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
    if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
     const account = clientAccountMap.get(draggedRow.accountFromId ?? -1);
     const selectedCurrency = currencyMap.get(draggedRow.currencyId);
+    const originalAdj = adjustments.find((a) => a.id === draggedRow.adjustmentId);
     await accountingApi.updateClientAdjustment({
      id: draggedRow.adjustmentId,
      accountId: draggedRow.accountFromId,
@@ -1767,6 +1772,8 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
      exchangeRate: draggedRow.exchangeRateFrom,
      exchangeRateReversed: !!draggedRow.exchangeRateFromReversed,
      description: draggedRow.description,
+     commission: originalAdj?.commission ?? 0,
+     counterParty: originalAdj?.counterParty ?? '',
      createdAt: newCreatedAt,
     });
    } else {
@@ -1822,6 +1829,10 @@ function buildTableAdjustmentUpdate(transactionId: number, draft: TransactionTab
  const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
  const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
 
+ // This table row editor has no commission/counter-party inputs — carry the original values
+ // through untouched rather than silently clearing them.
+ const originalAdj = adjustments.find((a) => a.id === draft.adjustmentId);
+
  const adjustmentPayload: ClientAdjustment = {
   id: draft.adjustmentId ?? 0,
   accountId: draft.accountFromId,
@@ -1833,6 +1844,8 @@ function buildTableAdjustmentUpdate(transactionId: number, draft: TransactionTab
   exchangeRate: adjRate,
   exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
   description: draft.description,
+  commission: originalAdj?.commission ?? 0,
+  counterParty: originalAdj?.counterParty ?? '',
   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
  };
  return { adjustmentPayload };
