@@ -811,6 +811,7 @@ async function listTransactions(app) {
                 COALESCE(t.description_to, '') AS "descriptionTo",
                 t.exchange_actual_amount AS "exchangeActualAmount",
                 COALESCE(t.archive_note, '') AS "archiveNote",
+                COALESCE(t.counter_party, '') AS "counterParty",
                 CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
                 t.distribution_location_id AS "distributionLocationId",
                 dloc.name AS "distributionLocationName",
@@ -942,10 +943,11 @@ async function createTransaction(app, txn) {
                     exchange_actual_amount,
                     is_archived,
                     archive_note,
+                    counter_party,
                     distribution_location_id,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
             `,
             [
                 txn.accountFromId || null,
@@ -970,6 +972,7 @@ async function createTransaction(app, txn) {
                 txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
                 isArchived,
                 txn.archiveNote?.trim() || '',
+                txn.counterParty?.trim() || '',
                 txn.distributionLocationId || null,
                 txn.createdAt.trim(),
             ],
@@ -1002,9 +1005,10 @@ async function createTransaction(app, txn) {
                 exchange_actual_amount,
                 is_archived,
                 archive_note,
+                counter_party,
                 distribution_location_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
         `,
         [
             txn.accountFromId || null,
@@ -1029,6 +1033,7 @@ async function createTransaction(app, txn) {
             txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
             isArchived,
             txn.archiveNote?.trim() || '',
+            txn.counterParty?.trim() || '',
             txn.distributionLocationId || null,
         ],
     );
@@ -1083,7 +1088,10 @@ async function updateTransaction(app, txn) {
                 -- Exchange actual-amount override is preserved (COALESCE) when a caller omits it, so
                 -- table inline-edit / reorder paths don't wipe an override set at creation time.
                 exchange_actual_amount = COALESCE($23, exchange_actual_amount),
-                distribution_location_id = $24
+                distribution_location_id = $24,
+                -- Only the one-sided-transaction path sends counterParty; other paths leave it
+                -- untouched via COALESCE (same precedent as archiveNote above).
+                counter_party = COALESCE($25, counter_party)
             WHERE id = $20
         `,
         [
@@ -1112,6 +1120,7 @@ async function updateTransaction(app, txn) {
             txn.descriptionTo === undefined || txn.descriptionTo === null ? null : String(txn.descriptionTo).trim(),
             txn.exchangeActualAmount === undefined ? null : txn.exchangeActualAmount,
             txn.distributionLocationId || null,
+            txn.counterParty === undefined || txn.counterParty === null ? null : String(txn.counterParty).trim(),
         ],
     );
 }

@@ -144,6 +144,10 @@ export type Transaction = {
  // amount × exchangeRateTo. null means no override (use the computed value).
  exchangeActualAmount: number | null;
  archiveNote: string;
+ // Free-text "who the missing side is" for an intentionally one-sided transaction (not a
+ // registered client) — see filterDisplayedTransactionRows, which excludes rows with this set
+ // from the Archive's missing-party list.
+ counterParty: string;
  isArchived: number;
  // Dormant: an earlier revision of the Commission Distribution report tagged transactions
  // against a pre-configured location list. The report now classifies by the transaction's
@@ -220,6 +224,7 @@ export type TransactionUpdateInput = {
  descriptionTo?: string;
  exchangeActualAmount?: number | null;
  archiveNote?: string;
+ counterParty?: string;
  distributionLocationId?: number | null;
  createdAt: string;
 };

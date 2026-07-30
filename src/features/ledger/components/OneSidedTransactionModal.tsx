@@ -107,6 +107,17 @@ export default function OneSidedTransactionModal({
            </div>
 
            <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('one_sided_counter_party')}</label>
+            <input
+             type="text"
+             value={modal.counterParty}
+             onChange={(e) => setModal((prev) => (prev ? { ...prev, counterParty: e.target.value } : prev))}
+             placeholder={t('one_sided_counter_party_placeholder')}
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+           </div>
+
+           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('transaction_type')}</label>
             <select
              value={modal.type}
@@ -233,8 +244,8 @@ export default function OneSidedTransactionModal({
                chargesExchangeRate={modal.chargesExchangeRate}
                onChargesExchangeRateChange={(value) => setModal((prev) => (prev ? { ...prev, chargesExchangeRate: value } : prev))}
                enabledCurrencies={enabledCurrencies}
-               fromLabel={isClientFrom ? clientName || t('transaction_account_from') : t('charges_payer_me')}
-               toLabel={isClientFrom ? t('charges_payer_me') : clientName || t('transaction_account_to')}
+               fromLabel={isClientFrom ? clientName || t('transaction_account_from') : modal.counterParty.trim() || t('charges_payer_me')}
+               toLabel={isClientFrom ? modal.counterParty.trim() || t('charges_payer_me') : clientName || t('transaction_account_to')}
                meLabel={t('charges_payer_me')}
                rateTargetCurrencyCode={accountCurrencyCode}
               />

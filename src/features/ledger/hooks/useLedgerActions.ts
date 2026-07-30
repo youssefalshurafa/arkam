@@ -247,6 +247,7 @@ function openOneSidedTransactionModal(accountId: number) {
   chargesExchangeRate: '1',
   chargesDescription: '',
   description: '',
+  counterParty: '',
  });
 }
 
@@ -312,6 +313,7 @@ async function onSubmitOneSidedTransaction() {
   descriptionTo: '',
   exchangeActualAmount: null,
   archiveNote: '',
+  counterParty: oneSidedTransactionModal.counterParty.trim(),
   distributionLocationId: null,
   createdAt,
  };

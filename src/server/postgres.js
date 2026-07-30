@@ -462,6 +462,10 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- the computed amount × exchange_rate_to. NULL means no override (use the computed value).
                 -- The house's exchange gain/loss is derivable as amount * exchange_rate_to - exchange_actual_amount.
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS exchange_actual_amount DOUBLE PRECISION;
+                -- Free-text "who the missing side is" name for an intentionally one-sided transaction
+                -- (e.g. paid to/received from someone not in the client list). A row with this set is
+                -- NOT treated as an incomplete transaction awaiting a party — see filterDisplayedTransactionRows.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS counter_party TEXT NOT NULL DEFAULT '';
 
                 -- Opt-in per-client feature (niche: a handful of "open account" agent clients
                 -- who receive money on the user's behalf across several cities/locations and

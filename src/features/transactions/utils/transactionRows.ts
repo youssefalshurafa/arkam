@@ -45,6 +45,7 @@ export function buildTransactionTableRows({ adjustments, clientAccounts, transac
     chargesDescription: '',
     description: adjustment.description,
     archiveNote: '',
+    counterParty: adjustment.counterParty || '',
     isArchived: 0,
     distributionLocationId: null,
     distributionLocationName: null,
@@ -84,8 +85,13 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
     return row ? [row] : [];
    });
   })();
+  // A missing party only counts as "incomplete, needs assignment" when the row has no
+  // counterParty — an intentionally one-sided transaction (free-text counterparty set) is
+  // already complete and shouldn't clutter the Archive's missing-party queue.
   let filtered =
-   section === 'archive' ? ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId))) : ordered.filter((row) => !row.isArchived);
+   section === 'archive'
+    ? ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId) && !row.counterParty?.trim()))
+    : ordered.filter((row) => !row.isArchived);
   if (txFilterSearch) {
    filtered = filtered.filter(
     (row) =>
