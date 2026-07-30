@@ -184,6 +184,19 @@ export type TransactionForm = {
  exchangeActualAmount: string;
  distributionLocationId: number | null;
 };
+
+// Form state for a true archive entry (a historical record from before this database — never
+// touches a ledger). Deliberately narrow: no type/rate/commission/charges/split-description,
+// since none of that applies. Independent from TransactionForm — see ArchiveEntryForm.tsx.
+export type ArchiveEntryForm = {
+ accountFromId: number | null;
+ accountToId: number | null;
+ currencyId: number | null;
+ amount: string;
+ description: string;
+ archiveNote: string;
+};
+
 export type TransactionUpdateInput = {
  id: number;
  accountFromId: number | null;

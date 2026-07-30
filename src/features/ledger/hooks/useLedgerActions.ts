@@ -130,6 +130,8 @@ export function useLedgerActions({
  const setSelectedLedgerEntryKeys = useLedgerStore((s) => s.setSelectedLedgerEntryKeys);
  const adjustmentModal = useLedgerStore((s) => s.adjustmentModal);
  const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);
+ const oneSidedTransactionModal = useLedgerStore((s) => s.oneSidedTransactionModal);
+ const setOneSidedTransactionModal = useLedgerStore((s) => s.setOneSidedTransactionModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
 
  // Undo/redo for already-SAVED edits — a separate bounded stack from `ledgerHistory`
@@ -224,6 +226,103 @@ function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
    counterParty: '',
    date: localDateKey(),
   });
+ }
+}
+
+function openOneSidedTransactionModal(accountId: number) {
+ const account = clientAccounts.find((a) => a.id === accountId);
+ setOneSidedTransactionModal({
+  accountId,
+  direction: 'client_from',
+  date: localDateKey(),
+  type: 'transfer',
+  amount: '',
+  currencyId: account?.currencyId ?? null,
+  exchangeRate: '',
+  exchangeRateReversed: false,
+  commission: '',
+  charges: '0',
+  chargesCurrencyId: null,
+  chargesPayer: '',
+  chargesExchangeRate: '1',
+  chargesDescription: '',
+  description: '',
+ });
+}
+
+async function onSubmitOneSidedTransaction() {
+ if (!accountingApi || !oneSidedTransactionModal) {
+  setError(t('error_bridge'));
+  return;
+ }
+
+ const amount = parseFloat(oneSidedTransactionModal.amount);
+ if (!Number.isFinite(amount) || amount <= 0) {
+  setError(t('adjustment_amount_required'));
+  return;
+ }
+ if (!oneSidedTransactionModal.currencyId) {
+  setError(t('transaction_currency_required'));
+  return;
+ }
+
+ const account = clientAccounts.find((a) => a.id === oneSidedTransactionModal.accountId);
+ const selectedCurrency = currencyMap.get(oneSidedTransactionModal.currencyId);
+ const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
+ const parsedRate = parseFloat(oneSidedTransactionModal.exchangeRate);
+ const rateSet = Number.isFinite(parsedRate) && parsedRate > 0;
+ const effectiveRate = !needsRate ? 1 : rateSet ? (oneSidedTransactionModal.exchangeRateReversed ? 1 / parsedRate : parsedRate) : 0;
+ const effectiveRateReversed = needsRate && rateSet ? oneSidedTransactionModal.exchangeRateReversed : false;
+
+ const createdAt = nextCreatedAtForDate(oneSidedTransactionModal.date, transactions, adjustments);
+ if (blockedByPastEditLock([createdAt])) {
+  return;
+ }
+
+ const isClientFrom = oneSidedTransactionModal.direction === 'client_from';
+ const accountFromId = isClientFrom ? oneSidedTransactionModal.accountId : null;
+ const accountToId = isClientFrom ? null : oneSidedTransactionModal.accountId;
+ const commissionValue = parseFloat(oneSidedTransactionModal.commission) || 0;
+
+ // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled history.
+ if (!(await confirmIfLocked([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID))) {
+  return;
+ }
+
+ const txPayload = {
+  accountFromId,
+  accountToId,
+  currencyId: oneSidedTransactionModal.currencyId,
+  amount,
+  type: oneSidedTransactionModal.type,
+  isArchived: false,
+  exchangeRateFrom: isClientFrom ? effectiveRate : 1,
+  commissionFrom: isClientFrom ? commissionValue : 0,
+  exchangeRateTo: isClientFrom ? 1 : effectiveRate,
+  commissionTo: isClientFrom ? 0 : commissionValue,
+  exchangeRateFromReversed: isClientFrom && effectiveRateReversed,
+  exchangeRateToReversed: !isClientFrom && effectiveRateReversed,
+  charges: parseFloat(oneSidedTransactionModal.charges) || 0,
+  chargesCurrencyId: oneSidedTransactionModal.chargesCurrencyId,
+  chargesPayer: oneSidedTransactionModal.chargesPayer,
+  chargesExchangeRate: parseFloat(oneSidedTransactionModal.chargesExchangeRate) || 1,
+  chargesDescription: oneSidedTransactionModal.chargesDescription,
+  description: oneSidedTransactionModal.description,
+  descriptionFrom: '',
+  descriptionTo: '',
+  exchangeActualAmount: null,
+  archiveNote: '',
+  distributionLocationId: null,
+  createdAt,
+ };
+
+ try {
+  await accountingApi.createTransaction(txPayload);
+  setOneSidedTransactionModal(null);
+  setError('');
+  await loadData();
+ } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_save'));
  }
 }
 
@@ -1387,6 +1486,8 @@ async function onExportLedgerExcel(
 
  return {
   openAdjustmentModal,
+  openOneSidedTransactionModal,
+  onSubmitOneSidedTransaction,
   onLedgerColumnDrop,
   getClientLedgerDraft,
   updateLedgerTransactionDraft,

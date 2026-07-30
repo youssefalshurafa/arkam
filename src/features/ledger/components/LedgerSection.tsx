@@ -78,6 +78,7 @@ type LedgerSectionProps = {
  onCancelAllEditingLedgerRows: () => void;
  onToggleLedgerEntrySelection: (key: string) => void;
  openAdjustmentModal: (accountId: number, existing?: ClientAdjustment) => void;
+ openOneSidedTransactionModal: (accountId: number) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openLedgerRowForEdit: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  openOrganizationClientsPage: (organization: Organization) => void;
@@ -93,7 +94,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
-  openAdjustmentModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
+  openAdjustmentModal, openOneSidedTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled,
  } = props;
  const router = useRouter();
@@ -467,6 +468,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
               className="cursor-pointer rounded border border-purple-500 bg-violet-bg px-4 py-2 text-sm font-semibold text-violet-text transition hover:bg-violet-bg"
              >
               {t('adjustment_add')}
+             </button>
+             <button
+              type="button"
+              onClick={() => {
+               const targetLedger =
+                selectedClientLedgers.length === 1
+                 ? selectedClientLedgers[0]
+                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
+               if (!targetLedger) return;
+               openOneSidedTransactionModal(targetLedger.accountId);
+              }}
+              className="cursor-pointer rounded border border-blue-600 bg-accent-weak px-4 py-2 text-sm font-semibold text-accent transition hover:bg-accent-weak"
+             >
+              {t('one_sided_transaction_add')}
              </button>
              {selectedClientForLedger?.distributionCommissionEnabled ? (
               <button

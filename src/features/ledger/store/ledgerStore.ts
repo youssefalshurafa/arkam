@@ -26,6 +26,33 @@ export type AdjustmentModalState = {
  date: string;
 };
 
+// A regular (non-adjustment) transaction with only one real party — the client whose ledger
+// this was opened from — and the other side left unset, meaning "me" personally rather than
+// another client account. Same field set as the normal Transactions-page form (type, rate,
+// commission, charges) minus the second account picker, since that side never exists. Its own
+// independent state/submit path (see openOneSidedTransactionModal/onSubmitOneSidedTransaction
+// in useLedgerActions.ts) — deliberately not sharing transactionForm/onTransactionSubmit with
+// the Transactions page, so an in-progress edit there can never collide with this modal.
+export type OneSidedTransactionModalState = {
+ accountId: number;
+ // 'client_from': the client is the sender (accountFromId), the other side (accountToId) is
+ // unset. 'client_to': the client is the receiver (accountToId), accountFromId is unset.
+ direction: 'client_from' | 'client_to';
+ date: string;
+ type: string;
+ amount: string;
+ currencyId: number | null;
+ exchangeRate: string;
+ exchangeRateReversed: boolean;
+ commission: string;
+ charges: string;
+ chargesCurrencyId: number | null;
+ chargesPayer: string;
+ chargesExchangeRate: string;
+ chargesDescription: string;
+ description: string;
+};
+
 // Commission Distribution report popup (see distributionCommission.ts) — scoped to one
 // client-currency account at a time. fromEntryKey/toEntryKey (set together) pin an exact
 // row-range picked via the ledger's highlight-pen mode, mirroring PdfExportModalState's
@@ -134,6 +161,8 @@ type LedgerStore = {
  setPdfExportModal: Dispatch<SetStateAction<PdfExportModalState | null>>;
  adjustmentModal: AdjustmentModalState | null;
  setAdjustmentModal: Dispatch<SetStateAction<AdjustmentModalState | null>>;
+ oneSidedTransactionModal: OneSidedTransactionModalState | null;
+ setOneSidedTransactionModal: Dispatch<SetStateAction<OneSidedTransactionModalState | null>>;
  commissionModal: CommissionModalState | null;
  setCommissionModal: Dispatch<SetStateAction<CommissionModalState | null>>;
  ledgerCounterpartyOpen: string | null;
@@ -235,6 +264,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setPdfExportModal: setter('pdfExportModal'),
   adjustmentModal: null,
   setAdjustmentModal: setter('adjustmentModal'),
+  oneSidedTransactionModal: null,
+  setOneSidedTransactionModal: setter('oneSidedTransactionModal'),
   commissionModal: null,
   setCommissionModal: setter('commissionModal'),
   ledgerCounterpartyOpen: null,
