@@ -1,4 +1,4 @@
-import type { TransactionForm } from '@/shared/types';
+import type { ArchiveEntryForm, TransactionForm } from '@/shared/types';
 
 export const emptyTransactionForm = (): TransactionForm => ({
  accountFromId: null,
@@ -21,4 +21,13 @@ export const emptyTransactionForm = (): TransactionForm => ({
  descriptionTo: '',
  exchangeActualAmount: '',
  distributionLocationId: null,
+});
+
+export const emptyArchiveEntryForm = (): ArchiveEntryForm => ({
+ accountFromId: null,
+ accountToId: null,
+ currencyId: null,
+ amount: '',
+ description: '',
+ archiveNote: '',
 });

@@ -103,6 +103,7 @@ import Sidebar from '@/shared/components/Sidebar';
 import AppHeader from '@/shared/components/AppHeader';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
 import AdjustmentModal from '@/features/ledger/components/AdjustmentModal';
+import OneSidedTransactionModal from '@/features/ledger/components/OneSidedTransactionModal';
 import PdfExportModal from '@/features/ledger/components/PdfExportModal';
 import CommissionReportModal from '@/features/ledger/components/CommissionReportModal';
 import TransactionDetailsModal from '@/features/transactions/components/TransactionDetailsModal';
@@ -1616,6 +1617,9 @@ function AuthenticatedHome() {
    onPasteCopiedTransaction,
    onEditTransactionInForm,
    onCancelEditTransaction,
+   onArchiveEntrySubmit,
+   onEditArchiveEntryInForm,
+   onCancelArchiveEntryEdit,
    onDeleteSelectedTransactions,
    onTransactionRowDrop,
    onSaveTransactionTableRow,
@@ -1720,6 +1724,8 @@ function AuthenticatedHome() {
 
   const {
    openAdjustmentModal,
+   openOneSidedTransactionModal,
+   onSubmitOneSidedTransaction,
    onLedgerColumnDrop,
    getClientLedgerDraft,
    updateLedgerTransactionDraft,
@@ -2324,6 +2330,7 @@ function AuthenticatedHome() {
          onCancelAllEditingLedgerRows={onCancelAllEditingLedgerRows}
          onToggleLedgerEntrySelection={onToggleLedgerEntrySelection}
          openAdjustmentModal={openAdjustmentModal}
+         openOneSidedTransactionModal={openOneSidedTransactionModal}
          openClientLedger={openClientLedger}
          openLedgerRowForEdit={openLedgerRowForEdit}
          openOrganizationClientsPage={openOrganizationClientsPage}
@@ -2431,6 +2438,9 @@ function AuthenticatedHome() {
          onPasteCopiedTransaction={onPasteCopiedTransaction}
          onEditTransactionInForm={onEditTransactionInForm}
          onCancelEditTransaction={onCancelEditTransaction}
+         onArchiveEntrySubmit={onArchiveEntrySubmit}
+         onEditArchiveEntryInForm={onEditArchiveEntryInForm}
+         onCancelArchiveEntryEdit={onCancelArchiveEntryEdit}
          onSaveAllTransactions={onSaveAllTransactions}
          onSaveTransactionTableRow={onSaveTransactionTableRow}
          onToggleSelectAllTransactions={onToggleSelectAllTransactions}
@@ -2494,6 +2504,17 @@ function AuthenticatedHome() {
     adjustments={adjustments}
     onSubmitAdjustment={onSubmitAdjustment}
     onDeleteAdjustment={onDeleteAdjustment}
+    lockPastEditsEnabled={lockPastEditsEnabled}
+   />
+
+   <OneSidedTransactionModal
+    selectedClientLedgers={selectedClientLedgers}
+    selectedClientForLedger={selectedClientForLedger}
+    localizedCurrencies={localizedCurrencies}
+    clientAccounts={clientAccounts}
+    currencyMap={currencyMap}
+    enabledCurrencies={enabledCurrencies}
+    onSubmitOneSidedTransaction={onSubmitOneSidedTransaction}
     lockPastEditsEnabled={lockPastEditsEnabled}
    />
 

@@ -24,7 +24,7 @@ import { saveArchiveTableSettings, saveTransactionTableSettings, getStoredExchan
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
 import { selectArchiveExportRows } from '@/features/transactions/utils/archiveExport';
-import { emptyTransactionForm } from '@/features/transactions/forms';
+import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
@@ -166,6 +166,15 @@ export function useTransactionActions({
  const setTxFromRateReversed = useTransactionsStore((s) => s.setTxFromRateReversed);
  const txToRateReversed = useTransactionsStore((s) => s.txToRateReversed);
  const setTxToRateReversed = useTransactionsStore((s) => s.setTxToRateReversed);
+
+ // Archive entry form — independent from transactionForm/editingTransaction above.
+ const archiveEntryForm = useTransactionsStore((s) => s.archiveEntryForm);
+ const setArchiveEntryForm = useTransactionsStore((s) => s.setArchiveEntryForm);
+ const editingArchiveEntry = useTransactionsStore((s) => s.editingArchiveEntry);
+ const setEditingArchiveEntry = useTransactionsStore((s) => s.setEditingArchiveEntry);
+ const newArchiveEntryDate = useTransactionsStore((s) => s.newArchiveEntryDate);
+ const setNewArchiveEntryDate = useTransactionsStore((s) => s.setNewArchiveEntryDate);
+ const setIsSubmittingArchiveEntry = useTransactionsStore((s) => s.setIsSubmittingArchiveEntry);
 
  const pendingImportData = useTransactionsStore((s) => s.pendingImportData);
  const setPendingImportData = useTransactionsStore((s) => s.setPendingImportData);
@@ -406,7 +415,6 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
  }
 
  const amount = parseFloat(normalizeDecimalInput(transactionForm.amount));
- const isArchiveCreate = section === 'archive';
  // When editing an existing row, the same submit updates it in place. Kept updates keep
  // the original timestamp (order) unless the user changed the date field.
  const editing = editingTransaction;
@@ -414,11 +422,11 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
  // ledger), after any same-day rows the user manually reordered.
  const newTransactionCreatedAt = editing ? resolveCreatedAt(newTransactionDate, editing.createdAt) : nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
 
- if (blockedByPastEditLock([editing?.createdAt, newTransactionCreatedAt], isArchiveCreate)) {
+ if (blockedByPastEditLock([editing?.createdAt, newTransactionCreatedAt])) {
   return;
  }
 
- if (isAdjustmentTransaction && !isArchiveCreate) {
+ if (isAdjustmentTransaction) {
   if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
    setError(t('adjustment_required'));
    return;
@@ -526,8 +534,8 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   return;
  }
 
- if (!transactionForm.currencyId || (!isArchiveCreate && !transactionForm.accountFromId && !transactionForm.accountToId)) {
-  setError(t(isArchiveCreate ? 'archive_create_required' : 'transaction_party_required'));
+ if (!transactionForm.currencyId || (!transactionForm.accountFromId && !transactionForm.accountToId)) {
+  setError(t('transaction_party_required'));
   return;
  }
 
@@ -545,7 +553,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
  const exchangeActualRaw = transactionForm.exchangeActualAmount.trim();
  const exchangeActualNum = parseFloat(normalizeDecimalInput(exchangeActualRaw));
  const exchangeActualAmountValue =
-  transactionForm.type === 'exchange' && !isArchiveCreate && transactionForm.accountToId != null && exchangeActualRaw !== '' && Number.isFinite(exchangeActualNum)
+  transactionForm.type === 'exchange' && transactionForm.accountToId != null && exchangeActualRaw !== '' && Number.isFinite(exchangeActualNum)
    ? exchangeActualNum
    : null;
 
@@ -566,7 +574,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   currencyId: transactionForm.currencyId,
   amount: amount || 0,
   type: transactionForm.type,
-  isArchived: isArchiveCreate,
+  isArchived: false,
   // Cross-currency sides with no rate entered are stored as 0 (unset → pending). Same-currency
   // sides are always 1. An entered rate (including 1) is stored as given.
   exchangeRateFrom: (() => {
@@ -647,9 +655,8 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   return;
  }
 
- // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled
- // history. Archive-only records never touch any ledger, so they are exempt.
- if (!isArchiveCreate && !(await confirmIfLocked([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID))) {
+ // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled history.
+ if (!(await confirmIfLocked([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID))) {
   return;
  }
 
@@ -699,7 +706,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
     descriptionTo: txPayload.descriptionTo,
     exchangeActualAmount: txPayload.exchangeActualAmount,
     archiveNote: '',
-    isArchived: txPayload.isArchived ? 1 : 0,
+    isArchived: 0,
     distributionLocationId: txPayload.distributionLocationId,
     distributionLocationName: null,
     distributionLocationKind: null,
@@ -719,7 +726,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   setIsNewTransactionExpensesOpen(false);
   setNewTransactionDate(localDateKey());
   setError('');
-  showToast(t(txPayload.isArchived ? 'toast_archive_transaction_created' : 'toast_transaction_created'));
+  showToast(t('toast_transaction_created'));
   void loadData();
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -1592,6 +1599,178 @@ function onCancelEditTransaction() {
  setError('');
 }
 
+// Independent create/edit submit for a true archive entry (ArchiveEntryForm) — a historical
+// record that never touches a ledger. No exchange rate/commission/charges/adjustment concepts
+// apply here; that full field set only exists on the regular Transaction form. An incomplete
+// but real transaction (missing a party, surfaced on the Archive page) is edited through
+// onEditTransactionInForm/onTransactionSubmit instead — see openRowMenu's routing.
+async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
+ event.preventDefault();
+ if (transactionSubmitLock.current) return;
+ if (!accountingApi) {
+  setError(t('error_bridge'));
+  return;
+ }
+
+ if (!archiveEntryForm.currencyId || (!archiveEntryForm.accountFromId && !archiveEntryForm.accountToId)) {
+  setError(t('archive_create_required'));
+  return;
+ }
+
+ const amount = parseFloat(normalizeDecimalInput(archiveEntryForm.amount)) || 0;
+ const editing = editingArchiveEntry;
+ const createdAt = editing ? resolveCreatedAt(newArchiveEntryDate, editing.createdAt) : nextCreatedAtForDate(newArchiveEntryDate, transactions, adjustments);
+
+ transactionSubmitLock.current = true;
+ setIsSubmittingArchiveEntry(true);
+ try {
+  if (editing) {
+   // Preserve every field this trimmed form has no input for (rate/commission/charges/type/
+   // distribution location) exactly as stored — only the fields ArchiveEntryForm actually
+   // exposes are allowed to change.
+   const original = transactions.find((tx) => tx.id === editing.id);
+   const updatePayload: TransactionUpdateInput = {
+    id: editing.id,
+    accountFromId: archiveEntryForm.accountFromId,
+    accountToId: archiveEntryForm.accountToId,
+    currencyId: archiveEntryForm.currencyId,
+    amount,
+    type: original?.type ?? 'transfer',
+    exchangeRateFrom: original?.exchangeRateFrom ?? 1,
+    commissionFrom: original?.commissionFrom ?? 0,
+    exchangeRateTo: original?.exchangeRateTo ?? 1,
+    commissionTo: original?.commissionTo ?? 0,
+    charges: original?.charges ?? 0,
+    chargesCurrencyId: original?.chargesCurrencyId ?? null,
+    chargesPayer: original?.chargesPayer ?? '',
+    chargesExchangeRate: original?.chargesExchangeRate ?? 1,
+    chargesDescription: original?.chargesDescription ?? '',
+    description: archiveEntryForm.description,
+    archiveNote: archiveEntryForm.archiveNote,
+    distributionLocationId: original?.distributionLocationId ?? null,
+    createdAt,
+   };
+   await accountingApi.updateTransaction(updatePayload);
+   applyTransactionPatch(updatePayload);
+   onCancelArchiveEntryEdit();
+   showToast(t('toast_transaction_updated'));
+   void loadData();
+   return;
+  }
+
+  const currency = currencyMap.get(archiveEntryForm.currencyId);
+  const txPayload = {
+   accountFromId: archiveEntryForm.accountFromId,
+   accountToId: archiveEntryForm.accountToId,
+   currencyId: archiveEntryForm.currencyId,
+   amount,
+   type: 'transfer',
+   isArchived: true,
+   exchangeRateFrom: 1,
+   commissionFrom: 0,
+   exchangeRateTo: 1,
+   commissionTo: 0,
+   exchangeRateFromReversed: 0,
+   exchangeRateToReversed: 0,
+   charges: 0,
+   chargesCurrencyId: null,
+   chargesPayer: '',
+   chargesExchangeRate: 1,
+   chargesDescription: '',
+   description: archiveEntryForm.description,
+   descriptionFrom: '',
+   descriptionTo: '',
+   exchangeActualAmount: null,
+   archiveNote: archiveEntryForm.archiveNote,
+   distributionLocationId: null,
+   createdAt,
+  };
+  await accountingApi.createTransaction(txPayload);
+
+  // Optimistically add the new row so the table updates instantly; a background reload
+  // reconciles it with the server (real id + any server-side normalization).
+  const fromAcc = txPayload.accountFromId != null ? clientAccountMap.get(txPayload.accountFromId) : undefined;
+  const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
+  setTransactions((prev) => [
+   ...prev,
+   {
+    id: -Date.now(),
+    accountFromId: txPayload.accountFromId,
+    clientFromName: fromAcc?.clientName ?? '',
+    accountFromCurrencyCode: fromAcc?.currencyCode ?? '',
+    accountFromCurrencySymbol: fromAcc?.currencySymbol ?? '',
+    accountToId: txPayload.accountToId,
+    clientToName: toAcc?.clientName ?? '',
+    accountToCurrencyCode: toAcc?.currencyCode ?? '',
+    accountToCurrencySymbol: toAcc?.currencySymbol ?? '',
+    currencyId: txPayload.currencyId ?? 0,
+    currencyCode: currency?.code ?? '',
+    currencySymbol: currency?.symbol ?? '',
+    amount: txPayload.amount,
+    type: txPayload.type,
+    exchangeRateFrom: txPayload.exchangeRateFrom,
+    commissionFrom: txPayload.commissionFrom,
+    exchangeRateTo: txPayload.exchangeRateTo,
+    commissionTo: txPayload.commissionTo,
+    exchangeRateFromReversed: txPayload.exchangeRateFromReversed,
+    exchangeRateToReversed: txPayload.exchangeRateToReversed,
+    charges: txPayload.charges,
+    chargesCurrencyId: txPayload.chargesCurrencyId,
+    chargesCurrencyCode: null,
+    chargesCurrencySymbol: null,
+    chargesPayer: txPayload.chargesPayer,
+    chargesExchangeRate: txPayload.chargesExchangeRate,
+    chargesDescription: txPayload.chargesDescription,
+    description: txPayload.description,
+    descriptionFrom: txPayload.descriptionFrom,
+    descriptionTo: txPayload.descriptionTo,
+    exchangeActualAmount: txPayload.exchangeActualAmount,
+    archiveNote: txPayload.archiveNote,
+    isArchived: 1,
+    distributionLocationId: txPayload.distributionLocationId,
+    distributionLocationName: null,
+    distributionLocationKind: null,
+    createdAt: txPayload.createdAt,
+   },
+  ]);
+
+  setArchiveEntryForm(emptyArchiveEntryForm());
+  setNewArchiveEntryDate(localDateKey());
+  setError('');
+  showToast(t('toast_archive_transaction_created'));
+  void loadData();
+ } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_save'));
+ } finally {
+  transactionSubmitLock.current = false;
+  setIsSubmittingArchiveEntry(false);
+ }
+}
+
+// Populates the trimmed archive form from an existing true-archive row (row.isArchived).
+function onEditArchiveEntryInForm(row: TransactionTableRow) {
+ setArchiveEntryForm({
+  accountFromId: row.accountFromId,
+  accountToId: row.accountToId,
+  currencyId: row.currencyId,
+  amount: row.amount ? formatAmountInput(String(row.amount)) : '',
+  description: row.description,
+  archiveNote: row.archiveNote ?? '',
+ });
+ setEditingArchiveEntry({ id: row.id, createdAt: row.createdAt });
+ setNewArchiveEntryDate(row.createdAt.slice(0, 10));
+ setIsNewArchiveSectionOpen(true);
+ setError('');
+}
+
+// Leaves archive-entry update mode and clears the form back to a blank create form.
+function onCancelArchiveEntryEdit() {
+ setEditingArchiveEntry(null);
+ setArchiveEntryForm(emptyArchiveEntryForm());
+ setNewArchiveEntryDate(localDateKey());
+ setError('');
+}
+
 async function onDeleteSelectedTransactions() {
  if (!accountingApi) {
   setError(t('error_bridge'));
@@ -2232,6 +2411,9 @@ async function onExportTransactionsExcel() {
   onPasteCopiedTransaction,
   onEditTransactionInForm,
   onCancelEditTransaction,
+  onArchiveEntrySubmit,
+  onEditArchiveEntryInForm,
+  onCancelArchiveEntryEdit,
   onDeleteSelectedTransactions,
   onTransactionRowDrop,
   onSaveTransactionTableRow,

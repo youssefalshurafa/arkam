@@ -941,10 +941,11 @@ async function createTransaction(app, txn) {
                     description_to,
                     exchange_actual_amount,
                     is_archived,
+                    archive_note,
                     distribution_location_id,
                     created_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
             `,
             [
                 txn.accountFromId || null,
@@ -968,6 +969,7 @@ async function createTransaction(app, txn) {
                 txn.descriptionTo?.trim() || '',
                 txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
                 isArchived,
+                txn.archiveNote?.trim() || '',
                 txn.distributionLocationId || null,
                 txn.createdAt.trim(),
             ],
@@ -999,9 +1001,10 @@ async function createTransaction(app, txn) {
                 description_to,
                 exchange_actual_amount,
                 is_archived,
+                archive_note,
                 distribution_location_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
         `,
         [
             txn.accountFromId || null,
@@ -1025,6 +1028,7 @@ async function createTransaction(app, txn) {
             txn.descriptionTo?.trim() || '',
             txn.exchangeActualAmount != null ? txn.exchangeActualAmount : null,
             isArchived,
+            txn.archiveNote?.trim() || '',
             txn.distributionLocationId || null,
         ],
     );

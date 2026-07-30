@@ -508,11 +508,16 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
      </div>
     ) : null}
 
-    {tx.archiveNote?.trim() ? (
+    {tx.isArchived ? (
      <div className="mt-3 divide-y divide-border rounded border border-border bg-surface-2 px-3">
       {row(
        t('archive_more_info'),
-       <EditableField editValue={tx.archiveNote} display={tx.archiveNote} onCommit={(raw) => update({ archiveNote: raw })} />,
+       <EditableField
+        editValue={tx.archiveNote}
+        display={tx.archiveNote || <span className="text-fg-faint">—</span>}
+        placeholder={t('archive_more_info_placeholder')}
+        onCommit={(raw) => update({ archiveNote: raw })}
+       />,
       )}
      </div>
     ) : null}

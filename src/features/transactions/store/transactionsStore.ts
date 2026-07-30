@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
 import { getStoredArchiveTableSettings, getStoredTransactionTableSettings } from '@/shared/lib/localStorage';
 import { localDateKey } from '@/shared/utils/date';
-import { emptyTransactionForm } from '@/features/transactions/forms';
+import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
 import type {
+ ArchiveEntryForm,
  ImportClientReview,
  ImportMappingState,
  ImportRowOverride,
@@ -160,6 +161,20 @@ type TransactionsStore = {
  // the modal itself is mounted once at page level where the full transaction list lives.
  infoTransactionId: number | null;
  setInfoTransactionId: Dispatch<SetStateAction<number | null>>;
+
+ // Archive entry form — fully independent from the regular transactionForm/editingTransaction
+ // above (see ArchiveEntryForm.tsx). Only used for true archive rows (isArchived); an
+ // incomplete-but-live row edited from the Archive page still uses the regular form fields.
+ // Its account pickers use AccountSearchSelect, which owns its own query/open state
+ // internally, so (unlike the regular form's From/To) no query/open store fields are needed.
+ archiveEntryForm: ArchiveEntryForm;
+ setArchiveEntryForm: Dispatch<SetStateAction<ArchiveEntryForm>>;
+ editingArchiveEntry: { id: number; createdAt: string } | null;
+ setEditingArchiveEntry: Dispatch<SetStateAction<{ id: number; createdAt: string } | null>>;
+ newArchiveEntryDate: string;
+ setNewArchiveEntryDate: Dispatch<SetStateAction<string>>;
+ isSubmittingArchiveEntry: boolean;
+ setIsSubmittingArchiveEntry: Dispatch<SetStateAction<boolean>>;
 };
 
 export const useTransactionsStore = create<TransactionsStore>((set) => {
@@ -285,5 +300,13 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setIsImportingTransactions: setter('isImportingTransactions'),
   infoTransactionId: null,
   setInfoTransactionId: setter('infoTransactionId'),
+  archiveEntryForm: emptyArchiveEntryForm(),
+  setArchiveEntryForm: setter('archiveEntryForm'),
+  editingArchiveEntry: null,
+  setEditingArchiveEntry: setter('editingArchiveEntry'),
+  newArchiveEntryDate: localDateKey(),
+  setNewArchiveEntryDate: setter('newArchiveEntryDate'),
+  isSubmittingArchiveEntry: false,
+  setIsSubmittingArchiveEntry: setter('isSubmittingArchiveEntry'),
  };
 });
