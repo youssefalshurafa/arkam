@@ -128,7 +128,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
         {
          transactionId: transaction.id,
          createdAt: transaction.createdAt,
-         counterpartyName: counterparty?.clientName || '-',
+         counterpartyName: counterparty?.clientName || transaction.counterParty?.trim() || '-',
          counterpartyClientId: counterparty?.clientId ?? null,
          counterpartyCurrencyCode: counterparty?.currencyCode || '',
          counterpartyCurrencySymbol: counterparty?.currencySymbol || '',
@@ -177,7 +177,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
         {
          transactionId: transaction.id,
          createdAt: transaction.createdAt,
-         counterpartyName: counterparty?.clientName || '-',
+         counterpartyName: counterparty?.clientName || transaction.counterParty?.trim() || '-',
          counterpartyClientId: counterparty?.clientId ?? null,
          counterpartyCurrencyCode: counterparty?.currencyCode || '',
          counterpartyCurrencySymbol: counterparty?.currencySymbol || '',

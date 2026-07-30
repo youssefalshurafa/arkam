@@ -130,6 +130,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
   rowContextMenu.close();
   setContextMenuRowKey(null);
  };
+ // "+" menu next to the ledger note area: Add Note / Add Expense / Add One-Sided Transaction,
+ // consolidated into one entry point instead of three separate buttons.
+ const addMenu = useContextMenu();
 
  // Selection mode: the per-row select checkboxes stay hidden until the user opts in via
  // the toolbar "Select" toggle. Turning it off also clears any current selection so a
@@ -455,34 +458,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
               </svg>
               {t('download')}
              </button>
-             <button
-              type="button"
-              onClick={() => {
-               const targetLedger =
-                selectedClientLedgers.length === 1
-                 ? selectedClientLedgers[0]
-                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-               if (!targetLedger) return;
-               openAdjustmentModal(targetLedger.accountId);
-              }}
-              className="cursor-pointer rounded border border-purple-500 bg-violet-bg px-4 py-2 text-sm font-semibold text-violet-text transition hover:bg-violet-bg"
-             >
-              {t('adjustment_add')}
-             </button>
-             <button
-              type="button"
-              onClick={() => {
-               const targetLedger =
-                selectedClientLedgers.length === 1
-                 ? selectedClientLedgers[0]
-                 : (selectedClientLedgers.find((l) => l.accountId === selectedLedgerAccountId) ?? selectedClientLedgers[0]);
-               if (!targetLedger) return;
-               openOneSidedTransactionModal(targetLedger.accountId);
-              }}
-              className="cursor-pointer rounded border border-blue-600 bg-accent-weak px-4 py-2 text-sm font-semibold text-accent transition hover:bg-accent-weak"
-             >
-              {t('one_sided_transaction_add')}
-             </button>
              {selectedClientForLedger?.distributionCommissionEnabled ? (
               <button
                type="button"
@@ -716,14 +691,34 @@ export default function LedgerSection(props: LedgerSectionProps) {
               </div>
              </div>
 
-             {/* Sticky note for this client-currency ledger. Free text plus an opt-in toggle for
-                 whether it appears on the exported PDF statement (see generateLedgerHtml). */}
-             {(() => {
+             {/* "+" menu: Add Note / Add Expense / Add One-Sided Transaction, consolidated into
+                 one entry point next to the sticky note (see generateLedgerHtml for the note's
+                 opt-in PDF-statement toggle). Always visible regardless of whether a note exists. */}
+             <div className="mt-4 flex items-start gap-2">
+              <button
+               type="button"
+               onClick={(e) =>
+                addMenu.open(e, [
+                 { key: 'note', label: t('ledger_note_add'), onSelect: () => beginEditNote(ledger) },
+                 { key: 'expense', label: t('adjustment_add'), onSelect: () => openAdjustmentModal(ledger.accountId) },
+                 { key: 'one-sided', label: t('one_sided_transaction_add'), onSelect: () => openOneSidedTransactionModal(ledger.accountId) },
+                ])
+               }
+               title={t('ledger_add_menu')}
+               aria-label={t('ledger_add_menu')}
+               className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded border border-dashed border-border-strong p-2 text-fg-muted transition hover:bg-surface-hover"
+              >
+               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 5v14M5 12h14" />
+               </svg>
+              </button>
+              <div className="min-w-0 flex-1">
+              {(() => {
               const isEditingNote = editingNoteAccountId === ledger.accountId;
               const hasNote = !!ledger.note.trim();
               if (isEditingNote) {
                return (
-                <div className="mt-4 rounded border-l-4 border-amber-400 bg-amber-50 p-3 dark:bg-amber-500/10">
+                <div className="rounded border-l-4 border-amber-400 bg-amber-50 p-3 dark:bg-amber-500/10">
                  <textarea
                   autoFocus
                   rows={3}
@@ -766,21 +761,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                );
               }
               if (!hasNote) {
-               return (
-                <button
-                 type="button"
-                 onClick={() => beginEditNote(ledger)}
-                 className="mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded border border-dashed border-border-strong px-3 py-2 text-sm text-fg-muted transition hover:bg-surface-hover"
-                >
-                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="M12 5v14M5 12h14" />
-                 </svg>
-                 {t('ledger_note_add')}
-                </button>
-               );
+               return null;
               }
               return (
-               <div className="mt-4 rounded border-l-4 border-amber-400 bg-amber-50 p-3 dark:bg-amber-500/10">
+               <div className="rounded border-l-4 border-amber-400 bg-amber-50 p-3 dark:bg-amber-500/10">
                 <div className="flex items-start justify-between gap-3">
                  <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">{t('ledger_note_title')}</p>
@@ -810,7 +794,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 </label>
                </div>
               );
-             })()}
+              })()}
+              </div>
+             </div>
 
              {ledger.entries.length === 0 ? (
               <p className="mt-5 text-sm text-fg-faint">{t('client_page_no_transactions')}</p>
@@ -3053,6 +3039,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
          )}
         </section>
    <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
+   <ContextMenu menu={addMenu.menu} onClose={addMenu.close} />
    {editingLedgerRowKeys.size > 0 && typeof document !== 'undefined' ? createPortal(
     <div className={`fixed bottom-6 z-30 flex flex-col gap-3 sm:hidden ${isRTL ? 'left-6' : 'right-6'}`}>
      <button

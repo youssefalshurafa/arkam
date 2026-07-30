@@ -51,6 +51,10 @@ export type OneSidedTransactionModalState = {
  chargesExchangeRate: string;
  chargesDescription: string;
  description: string;
+ // Free-text name for the unset side (not a registered client) — e.g. "cash payment to
+ // landlord". Keeps this row out of the Archive's missing-party list; see counterParty on
+ // the Transaction type / filterDisplayedTransactionRows.
+ counterParty: string;
 };
 
 // Commission Distribution report popup (see distributionCommission.ts) — scoped to one

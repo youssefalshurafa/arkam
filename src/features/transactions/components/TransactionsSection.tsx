@@ -194,7 +194,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const missingCounterpartyToday = useMemo(() => {
   if (section !== 'transactions') return [];
   const today = localDateKey();
-  return transactions.filter((txn) => !txn.isArchived && (!txn.accountFromId || !txn.accountToId) && txn.createdAt.slice(0, 10) === today);
+  return transactions.filter((txn) => !txn.isArchived && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim() && txn.createdAt.slice(0, 10) === today);
  }, [transactions, section]);
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry } = useTransactionsStore();
@@ -2610,6 +2610,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         <div>
                          {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </div>
+                       ) : txn.counterParty?.trim() ? (
+                        <span className="italic text-fg-faint">{txn.counterParty}</span>
                        ) : (
                         <span className="italic text-fg-faint">-</span>
                        );
@@ -2676,6 +2678,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         <div>
                          {txn.clientToName} <span className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </div>
+                       ) : txn.counterParty?.trim() ? (
+                        <span className="italic text-fg-faint">{txn.counterParty}</span>
                        ) : (
                         <span className="italic text-fg-faint">-</span>
                        );
