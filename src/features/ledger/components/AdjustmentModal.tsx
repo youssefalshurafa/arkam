@@ -59,6 +59,20 @@ export default function AdjustmentModal({
   return list;
  }, [adjustments]);
 
+ // Same idea for counter-party names already typed on past expenses.
+ const counterPartySuggestions = useMemo(() => {
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (let i = adjustments.length - 1; i >= 0 && list.length < 5; i--) {
+   const name = adjustments[i].counterParty.trim();
+   if (name && !seen.has(name)) {
+    seen.add(name);
+    list.push(name);
+   }
+  }
+  return list;
+ }, [adjustments]);
+
  return (
   <>
    {adjustmentModal
@@ -132,6 +146,24 @@ export default function AdjustmentModal({
              autoFocus
              className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
+           </div>
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('adjustment_commission')}</label>
+            <input
+             type="text"
+             inputMode="decimal"
+             dir="ltr"
+             value={formatAmountInput(adjustmentModal.commission)}
+             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, commission: normalizeDecimalInput(e.target.value) } : prev))}
+             placeholder="0"
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+            {parseFloat(adjustmentModal.commission) > 0 ? (
+             <span className="text-xs text-fg-faint">
+              {t('adjustment_commission_total_hint')}: {(amountValue + (parseFloat(adjustmentModal.commission) || 0)).toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+             </span>
+            ) : null}
            </div>
 
            <div className="flex flex-col gap-1">
@@ -231,6 +263,26 @@ export default function AdjustmentModal({
               <option
                key={desc}
                value={desc}
+              />
+             ))}
+            </datalist>
+           </div>
+
+           <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('adjustment_counter_party')}</label>
+            <input
+             type="text"
+             list="adjustment-counter-party-suggestions"
+             value={adjustmentModal.counterParty}
+             onChange={(e) => setAdjustmentModal((prev) => (prev ? { ...prev, counterParty: e.target.value } : prev))}
+             placeholder={t('adjustment_counter_party_placeholder')}
+             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+            />
+            <datalist id="adjustment-counter-party-suggestions">
+             {counterPartySuggestions.map((name) => (
+              <option
+               key={name}
+               value={name}
               />
              ))}
             </datalist>

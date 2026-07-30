@@ -421,6 +421,8 @@ async function ensureWorkspaceSchema(workspaceId) {
                     exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1,
                     exchange_rate_reversed BOOLEAN NOT NULL DEFAULT FALSE,
                     description TEXT NOT NULL DEFAULT '',
+                    commission DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    counter_party TEXT NOT NULL DEFAULT '',
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
 
@@ -429,6 +431,14 @@ async function ensureWorkspaceSchema(workspaceId) {
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS currency_symbol TEXT NOT NULL DEFAULT '';
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1;
                 ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS exchange_rate_reversed BOOLEAN NOT NULL DEFAULT FALSE;
+                -- Commission is folded into 'amount' at write time (amount = base expense + commission) so
+                -- every existing balance/ledger/reconciliation computation keeps working unchanged; this
+                -- column only remembers how much of that total was commission, for display/statements.
+                ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS commission DOUBLE PRECISION NOT NULL DEFAULT 0;
+                -- Free-text "paid to / received from" name, independent of the client this adjustment is
+                -- booked against — lets an expense record who it actually went to without requiring a
+                -- second known client record.
+                ALTER TABLE ${schema}.client_adjustments ADD COLUMN IF NOT EXISTS counter_party TEXT NOT NULL DEFAULT '';
 
                 -- Free-text "sticky note" attached to a single client-currency ledger. note_show_in_pdf
                 -- controls whether it's rendered on that ledger's exported PDF statement.

@@ -293,6 +293,8 @@ export default function CommissionReportModal({ ledgers, clientAccounts, onUpdat
    exchangeRate: '1',
    exchangeRateReversed: false,
    description: `${t('commission_report_description_prefix')}: ${descriptionBody}`,
+   commission: '',
+   counterParty: '',
    date: localDateKey(),
   });
   close();

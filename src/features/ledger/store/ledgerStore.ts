@@ -21,6 +21,8 @@ export type AdjustmentModalState = {
  exchangeRate: string;
  exchangeRateReversed: boolean;
  description: string;
+ commission: string;
+ counterParty: string;
  date: string;
 };
 

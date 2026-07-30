@@ -195,15 +195,19 @@ export function useLedgerActions({
 function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
  const account = clientAccounts.find((a) => a.id === accountId);
  if (existing) {
+  const commission = existing.commission || 0;
   setAdjustmentModal({
    accountId,
    editingId: existing.id,
-   amount: String(existing.amount),
+   // amount stored on the record is base + commission; the form shows the base amount back.
+   amount: String(existing.amount - commission),
    direction: existing.direction,
    currencyId: existing.currencyId ?? account?.currencyId ?? null,
    exchangeRate: existing.exchangeRate && existing.exchangeRate !== 1 ? String(existing.exchangeRate) : '',
    exchangeRateReversed: !!existing.exchangeRateReversed,
    description: existing.description,
+   commission: commission ? String(commission) : '',
+   counterParty: existing.counterParty || '',
    date: existing.createdAt.slice(0, 10),
   });
  } else {
@@ -216,6 +220,8 @@ function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
    exchangeRate: '',
    exchangeRateReversed: false,
    description: '',
+   commission: '',
+   counterParty: '',
    date: localDateKey(),
   });
  }
@@ -377,6 +383,10 @@ function buildLedgerAdjustmentUpdate(transactionId: number, ledgerAccountId: num
   exchangeRate: effectiveRate,
   exchangeRateReversed: needsRate && adjRateSet ? rateIsReversed : false,
   description: draft.description,
+  // This inline row-edit path has no commission/counter-party inputs of its own — carry the
+  // original values through untouched rather than silently clearing them.
+  commission: adj.commission,
+  counterParty: adj.counterParty,
   createdAt: resolveCreatedAt(draft.createdDate, adj.createdAt),
  };
  return { updatedAdj };
@@ -963,6 +973,12 @@ async function onSubmitAdjustment() {
   return;
  }
 
+ const commission = adjustmentModal.commission ? parseFloat(adjustmentModal.commission) : 0;
+ if (!Number.isFinite(commission) || commission < 0) {
+  setError(t('adjustment_commission_invalid'));
+  return;
+ }
+
  const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
  const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
  const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
@@ -978,7 +994,11 @@ async function onSubmitAdjustment() {
  const createdAt = existingAdj ? resolveCreatedAt(adjustmentModal.date, existingAdj.createdAt) : nextCreatedAtForDate(adjustmentModal.date, transactions, adjustments);
 
  const payloadBase = {
-  amount,
+  // Commission is added on top of the entered amount, so the client's balance moves by the
+  // full total; `commission` is kept alongside purely so the breakdown can be shown back.
+  amount: amount + commission,
+  commission,
+  counterParty: adjustmentModal.counterParty.trim(),
   direction: adjustmentModal.direction,
   currencyId: adjustmentModal.currencyId,
   currencyCode: selectedCurrency?.code || account?.currencyCode || '',
@@ -1079,6 +1099,8 @@ async function onUndoDeleteAdjustment(adj: ClientAdjustment) {
    exchangeRate: adj.exchangeRate,
    exchangeRateReversed: !!adj.exchangeRateReversed,
    description: adj.description,
+   commission: adj.commission,
+   counterParty: adj.counterParty,
    createdAt: adj.createdAt,
   });
   setError('');
@@ -1249,6 +1271,8 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
      exchangeRate: adj.exchangeRate,
      exchangeRateReversed: adj.exchangeRateReversed,
      description: adj.description,
+     commission: adj.commission,
+     counterParty: adj.counterParty,
      createdAt: newCreatedAt,
     });
    } else {

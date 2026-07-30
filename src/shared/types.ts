@@ -319,6 +319,10 @@ export type ClientAdjustment = {
  exchangeRate: number;
  exchangeRateReversed: boolean;
  description: string;
+ // Portion of `amount` that is commission (folded into amount, kept separately for display).
+ commission: number;
+ // Free-text "paid to / received from" name — not necessarily an existing client.
+ counterParty: string;
  createdAt: string;
 };
 

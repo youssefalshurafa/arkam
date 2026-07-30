@@ -1152,6 +1152,8 @@ async function listClientAdjustments(app) {
                 a.exchange_rate AS "exchangeRate",
                 a.exchange_rate_reversed AS "exchangeRateReversed",
                 a.description,
+                a.commission,
+                a.counter_party AS "counterParty",
                 a.created_at AS "createdAt"
             FROM ${schema}.client_adjustments a
             JOIN ${schema}.client_accounts ca ON ca.id = a.account_id
@@ -1164,19 +1166,20 @@ async function listClientAdjustments(app) {
     return result.rows;
 }
 
-async function createClientAdjustment(app, { accountId, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
+async function createClientAdjustment(app, { accountId, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, commission, counterParty, createdAt }) {
     const { schema } = await getSchemaInfo(app);
     if (!accountId) throw new Error('Account is required.');
     if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
     if (!['debit', 'credit'].includes(direction)) throw new Error('Direction must be debit or credit.');
+    if (commission != null && (typeof commission !== 'number' || commission < 0)) throw new Error('Commission must be zero or greater.');
     await assertMemberCanWriteAccount(app, accountId);
     if (createdAt) {
         await assertPastEditAllowed(app, app.todayKey, createdAt);
     }
     const rate = exchangeRate != null ? exchangeRate : 1;
     const reversed = exchangeRateReversed ? true : false;
-    const columns = ['account_id', 'amount', 'direction', 'currency_id', 'currency_code', 'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description'];
-    const values = [accountId, amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || ''];
+    const columns = ['account_id', 'amount', 'direction', 'currency_id', 'currency_code', 'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description', 'commission', 'counter_party'];
+    const values = [accountId, amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || '', commission ?? 0, counterParty?.trim() || ''];
     if (createdAt) {
         columns.push('created_at');
         values.push(createdAt);
@@ -1189,18 +1192,19 @@ async function createClientAdjustment(app, { accountId, amount, direction, curre
     return result.rows[0];
 }
 
-async function updateClientAdjustment(app, { id, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, createdAt }) {
+async function updateClientAdjustment(app, { id, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, commission, counterParty, createdAt }) {
     const { schema } = await getSchemaInfo(app);
     const existing = await query(`SELECT created_at AS "createdAt", account_id AS "accountId" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
     await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
     await assertPastEditAllowed(app, app.todayKey, existing.rows[0]?.createdAt, createdAt);
+    if (commission != null && (typeof commission !== 'number' || commission < 0)) throw new Error('Commission must be zero or greater.');
     const rate = exchangeRate != null ? exchangeRate : 1;
     const reversed = exchangeRateReversed ? true : false;
     await query(
         `UPDATE ${schema}.client_adjustments
-         SET amount=$1, direction=$2, currency_id=$3, currency_code=$4, currency_symbol=$5, exchange_rate=$6, exchange_rate_reversed=$7, description=$8, created_at=$9
-         WHERE id=$10`,
-        [amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || '', createdAt, id]
+         SET amount=$1, direction=$2, currency_id=$3, currency_code=$4, currency_symbol=$5, exchange_rate=$6, exchange_rate_reversed=$7, description=$8, commission=$9, counter_party=$10, created_at=$11
+         WHERE id=$12`,
+        [amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || '', commission ?? 0, counterParty?.trim() || '', createdAt, id]
     );
 }
 
