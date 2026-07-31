@@ -187,6 +187,13 @@ export type TransactionForm = {
  // Exchange (صرف) only: the real settled destination amount, as raw input text ('' = no override).
  exchangeActualAmount: string;
  distributionLocationId: number | null;
+ // Adjustment (expense) type only: a flat amount added on top of `amount` (see
+ // ClientAdjustment.commission) — distinct from commissionFrom/commissionTo, which are
+ // percentages that only apply to a real two-party transaction.
+ adjustmentCommission: string;
+ // Adjustment (expense) type only: free-text "paid to / received from" name, not a
+ // registered client — see ClientAdjustment.counterParty.
+ counterParty: string;
 };
 
 // Form state for a true archive entry (a historical record from before this database — never

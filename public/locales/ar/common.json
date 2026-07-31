@@ -570,6 +570,8 @@
  "ledger_note_title": "ملاحظة",
  "ledger_note_add": "إضافة ملاحظة",
  "ledger_add_menu": "إضافة ملاحظة أو مصروف أو معاملة أحادية الطرف",
+ "ledger_scroll_to_end": "الانتقال إلى نهاية الجدول",
+ "ledger_scroll_to_top": "الانتقال إلى أعلى الجدول",
  "ledger_note_placeholder": "أضف ملاحظة لهذا الكشف…",
  "ledger_note_show_in_pdf": "إظهار في ملف PDF المُصدَّر",
  "settings_danger_title": "منطقة خطرة",

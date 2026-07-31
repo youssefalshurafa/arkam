@@ -532,6 +532,8 @@
  "ledger_note_title": "Note",
  "ledger_note_add": "Add note",
  "ledger_add_menu": "Add note, expense, or one-sided transaction",
+ "ledger_scroll_to_end": "Scroll to end of table",
+ "ledger_scroll_to_top": "Scroll to top of table",
  "ledger_note_placeholder": "Add a note for this ledger…",
  "ledger_note_show_in_pdf": "Show in exported PDF",
  "settings_pdf_title": "PDF Export",

@@ -270,6 +270,7 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
   onCommitAccount: ((id: number | null) => void) | null;
   rate: number;
   reversed: boolean;
+  onToggleReversed: () => void;
   commissionPct: number;
   commissionAmount: number;
   onCommitRate: (raw: string) => void;
@@ -300,16 +301,30 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
     )}
    </div>
    <div className="mt-2 divide-y divide-border border-t border-border">
-    {row(
-     t('exchange_rate'),
-     <EditableField
-      editValue={opts.rate === 0 ? '' : String(opts.reversed ? 1 / opts.rate : opts.rate)}
-      display={rateDisplay(opts.rate, opts.reversed)}
-      decimal
-      onCommit={opts.onCommitRate}
-     />,
-     'rate',
-    )}
+    <div className="flex items-start justify-between gap-4 py-1.5">
+     <span className="flex shrink-0 items-center gap-1 text-xs font-medium uppercase tracking-wide text-fg-faint">
+      {t('exchange_rate')}
+      <button
+       type="button"
+       title={t('reverse_rate')}
+       onClick={opts.onToggleReversed}
+       className="inline-flex items-center rounded p-0.5 text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+      >
+       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M7 4 3 8l4 4M3 8h13.5" />
+        <path d="M17 20l4-4-4-4m4 4H7.5" />
+       </svg>
+      </button>
+     </span>
+     <span className="min-w-0 break-words text-right text-sm font-medium text-fg">
+      <EditableField
+       editValue={opts.rate === 0 ? '' : String(opts.reversed ? 1 / opts.rate : opts.rate)}
+       display={rateDisplay(opts.rate, opts.reversed)}
+       decimal
+       onCommit={opts.onCommitRate}
+      />
+     </span>
+    </div>
     {row(
      t('commission'),
      <EditableField editValue={String(opts.commissionPct)} display={`${opts.commissionPct.toLocaleString(numLocale, { maximumFractionDigits: 2 })}%`} decimal onCommit={opts.onCommitCommission} />,
@@ -413,6 +428,7 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
           }),
       rate: tx.exchangeRateFrom,
       reversed: !!tx.exchangeRateFromReversed,
+      onToggleReversed: () => update({ exchangeRateFromReversed: tx.exchangeRateFromReversed ? 0 : 1 }),
       commissionPct: tx.commissionFrom,
       commissionAmount: fromCommissionAmount,
       onCommitRate: (raw) => {
@@ -446,6 +462,7 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
           }),
       rate: tx.exchangeRateTo,
       reversed: !!tx.exchangeRateToReversed,
+      onToggleReversed: () => update({ exchangeRateToReversed: tx.exchangeRateToReversed ? 0 : 1 }),
       commissionPct: tx.commissionTo,
       commissionAmount: toCommissionAmount,
       onCommitRate: (raw) => {

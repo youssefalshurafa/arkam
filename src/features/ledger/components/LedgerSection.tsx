@@ -1071,6 +1071,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      <path d="M20 9H9a5 5 0 0 0 0 10h1" />
                     </svg>
                    </button>
+                   <button
+                    type="button"
+                    title={t('ledger_scroll_to_end')}
+                    aria-label={t('ledger_scroll_to_end')}
+                    onClick={() => ledgerTableScrollRef.current?.scrollTo({ top: ledgerTableScrollRef.current.scrollHeight, behavior: 'smooth' })}
+                    className="cursor-pointer rounded border border-border-strong px-2 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
+                   >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                     <path d="m6 9 6 6 6-6" />
+                     <path d="m6 15 6 6 6-6" />
+                    </svg>
+                   </button>
                   </div>
                  </div>
                 );
@@ -3028,6 +3040,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      </button>
                     </>
                    )}
+                   <button
+                    type="button"
+                    title={t('ledger_scroll_to_top')}
+                    aria-label={t('ledger_scroll_to_top')}
+                    onClick={() => ledgerTableScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                    className="inline-flex h-7 items-center rounded border border-border-strong bg-surface-2 px-2 text-fg-muted transition hover:bg-surface-hover"
+                   >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                     <path d="m6 15 6-6 6 6" />
+                     <path d="m6 9 6-6 6 6" />
+                    </svg>
+                   </button>
                   </div>
                  </div>
                 );
