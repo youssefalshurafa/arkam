@@ -813,6 +813,7 @@ async function listTransactions(app) {
                 COALESCE(t.archive_note, '') AS "archiveNote",
                 COALESCE(t.counter_party, '') AS "counterParty",
                 CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
+                CASE WHEN t.archive_hidden THEN 1 ELSE 0 END AS "archiveHidden",
                 t.distribution_location_id AS "distributionLocationId",
                 dloc.name AS "distributionLocationName",
                 dloc.kind AS "distributionLocationKind",
@@ -1123,6 +1124,24 @@ async function updateTransaction(app, txn) {
             txn.counterParty === undefined || txn.counterParty === null ? null : String(txn.counterParty).trim(),
         ],
     );
+}
+
+// A pure display-filter toggle (Archive table row hidden/unhidden) — deliberately a small,
+// standalone action rather than going through updateTransaction: it never touches
+// balance-affecting fields, so it shouldn't require the full payload or trip the
+// past-edit-lock check the way a real edit does.
+async function setTransactionArchiveHidden(app, { id, hidden }) {
+    if (!id) {
+        throw new Error('Transaction id is required.');
+    }
+    const { schema } = await getSchemaInfo(app);
+    const existing = await query(`SELECT account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1`, [id]);
+    const existingRow = existing.rows[0];
+    if (!existingRow) {
+        throw new Error('Transaction not found.');
+    }
+    await assertMemberCanWriteTransaction(app, { accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId });
+    await query(`UPDATE ${schema}.transactions SET archive_hidden = $1 WHERE id = $2`, [Boolean(hidden), id]);
 }
 
 async function deleteTransaction(app, transactionId) {
@@ -1765,6 +1784,7 @@ module.exports = {
     listTransactions,
     createTransaction,
     updateTransaction,
+    setTransactionArchiveHidden,
     deleteTransaction,
     deleteTransactionsBulk,
     deleteAllTransactions,

@@ -149,6 +149,9 @@ export type Transaction = {
  // from the Archive's missing-party list.
  counterParty: string;
  isArchived: number;
+ // User-hidden from the Archive table view — a pure display filter (see
+ // filterDisplayedTransactionRows), never affects balances/ledgers.
+ archiveHidden: number;
  // Dormant: an earlier revision of the Commission Distribution report tagged transactions
  // against a pre-configured location list. The report now classifies by the transaction's
  // own description at calculation time instead, so this is never set by the UI anymore —
