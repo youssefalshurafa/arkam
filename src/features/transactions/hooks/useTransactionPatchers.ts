@@ -2,7 +2,7 @@
 
 import type { Dispatch, SetStateAction } from 'react';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
-import type { ClientAccount, ClientAdjustment, Currency, Transaction, TransactionUpdateInput } from '@/shared/types';
+import type { ClientAccount, Currency, Transaction, TransactionUpdateInput } from '@/shared/types';
 
 type UseTransactionPatchersParams = {
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
@@ -10,16 +10,15 @@ type UseTransactionPatchersParams = {
 };
 
 /**
- * Optimistic local-cache patchers shared by the ledger and transactions-table
- * edit flows — both edit the same underlying transaction/adjustment records
- * from different views, so both need to re-resolve the derived display
- * fields (client names, currency code/symbol) the same way after a save. A
- * background loadData() call afterward reconciles with the server.
+ * Optimistic local-cache patcher shared by the ledger and transactions-table edit
+ * flows — both edit the same underlying transaction records from different views,
+ * so both need to re-resolve the derived display fields (client names, currency
+ * code/symbol) the same way after a save. A background loadData() call afterward
+ * reconciles with the server.
  */
 export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTransactionPatchersParams) {
  const { setters } = useWorkspaceActions();
  const setTransactions = setters.setTransactions as Dispatch<SetStateAction<Transaction[]>>;
- const setAdjustments = setters.setAdjustments as Dispatch<SetStateAction<ClientAdjustment[]>>;
 
  function applyTransactionPatch(input: TransactionUpdateInput) {
   const fromAccount = input.accountFromId != null ? clientAccountMap.get(input.accountFromId) : undefined;
@@ -59,6 +58,7 @@ export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTra
         chargesDescription: input.chargesDescription,
         description: input.description,
         archiveNote: input.archiveNote ?? tx.archiveNote,
+        counterParty: input.counterParty ?? tx.counterParty,
         createdAt: input.createdAt,
        }
      : tx,
@@ -66,9 +66,5 @@ export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTra
   );
  }
 
- function applyAdjustmentPatch(input: ClientAdjustment) {
-  setAdjustments((prev) => prev.map((adjustment) => (adjustment.id === input.id ? { ...adjustment, ...input } : adjustment)));
- }
-
- return { applyTransactionPatch, applyAdjustmentPatch };
+ return { applyTransactionPatch };
 }

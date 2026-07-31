@@ -2,7 +2,6 @@ import { computeAccountBalances, SMALL_BALANCE_THRESHOLD } from '@/shared/utils/
 import type {
  Client,
  ClientAccount,
- ClientAdjustment,
  Currency,
  OverviewBalanceGroup,
  Transaction,
@@ -10,7 +9,6 @@ import type {
 
 type ComputeArgs = {
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  clientAccounts: ClientAccount[];
  clients: Client[];
  currencies: Currency[];
@@ -26,9 +24,9 @@ export type OverviewBalances = {
 // Net balance of every client account, grouped into (organization, currency) cards
 // for the overview. Ported verbatim from the page's overviewOrgBalances memo;
 // clientAccountMap/currencyMap are built here from the passed collections.
-export function computeOverviewBalances({ transactions, adjustments, clientAccounts, clients, currencies, language }: ComputeArgs): OverviewBalances {
+export function computeOverviewBalances({ transactions, clientAccounts, clients, currencies, language }: ComputeArgs): OverviewBalances {
  const currencyMap = new Map(currencies.map((currency) => [currency.id, currency]));
-  const balanceByAccount = computeAccountBalances({ clientAccounts, transactions, adjustments });
+  const balanceByAccount = computeAccountBalances({ clientAccounts, transactions });
 
   const clientById = new Map(clients.map((client) => [client.id, client]));
   const groupMap = new Map<string, OverviewBalanceGroup & { clientMap: Map<number, { clientId: number; clientName: string; balance: number }> }>();

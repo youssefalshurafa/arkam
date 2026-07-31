@@ -12,21 +12,7 @@ export type PdfExportModalState = {
  cols: PdfColVisibility;
 };
 
-export type AdjustmentModalState = {
- accountId: number;
- editingId: number | null;
- amount: string;
- direction: 'debit' | 'credit';
- currencyId: number | null;
- exchangeRate: string;
- exchangeRateReversed: boolean;
- description: string;
- commission: string;
- counterParty: string;
- date: string;
-};
-
-// A regular (non-adjustment) transaction with only one real party — the client whose ledger
+// A transaction with only one real party — the client whose ledger
 // this was opened from — and the other side left unset, meaning "me" personally rather than
 // another client account. Same field set as the normal Transactions-page form (type, rate,
 // commission, charges) minus the second account picker, since that side never exists. Its own
@@ -163,8 +149,6 @@ type LedgerStore = {
  setLedgerTransactionDrafts: Dispatch<SetStateAction<Record<string, LedgerTransactionDraft>>>;
  pdfExportModal: PdfExportModalState | null;
  setPdfExportModal: Dispatch<SetStateAction<PdfExportModalState | null>>;
- adjustmentModal: AdjustmentModalState | null;
- setAdjustmentModal: Dispatch<SetStateAction<AdjustmentModalState | null>>;
  oneSidedTransactionModal: OneSidedTransactionModalState | null;
  setOneSidedTransactionModal: Dispatch<SetStateAction<OneSidedTransactionModalState | null>>;
  commissionModal: CommissionModalState | null;
@@ -266,8 +250,6 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setLedgerTransactionDrafts: setter('ledgerTransactionDrafts'),
   pdfExportModal: null,
   setPdfExportModal: setter('pdfExportModal'),
-  adjustmentModal: null,
-  setAdjustmentModal: setter('adjustmentModal'),
   oneSidedTransactionModal: null,
   setOneSidedTransactionModal: setter('oneSidedTransactionModal'),
   commissionModal: null,

@@ -17,7 +17,6 @@ import { ledgerColumnOrderStorageKeyPrefix } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
-import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
 import { useTransactionPatchers } from '@/features/transactions/hooks/useTransactionPatchers';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
@@ -25,7 +24,6 @@ import type {
  Client,
  ClientAccount,
  ClientAccountLedger,
- ClientAdjustment,
  ClientLedgerEntry,
  Currency,
  LedgerColumnKey,
@@ -36,15 +34,14 @@ import type {
  Transaction,
 } from '@/shared/types';
 
-// One already-SAVED edit (to a ledger transaction or adjustment row), reversible/replayable
-// by re-issuing the same update API call with the previous/next persisted values. Distinct
-// from `DraftHistory`, which only rewinds unsaved keystrokes in a currently-open row.
+// One already-SAVED edit to a ledger row, reversible/replayable by re-issuing the same update
+// API call with the previous/next persisted values. Distinct from `DraftHistory`, which only
+// rewinds unsaved keystrokes in a currently-open row.
 type LedgerEditAction = { undo: () => Promise<void>; redo: () => Promise<void> };
 
 type UseLedgerActionsParams = {
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  reconciliations: Reconciliation[];
  currencyMap: Map<number, Currency>;
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
@@ -62,17 +59,16 @@ type UseLedgerActionsParams = {
 
 /**
  * Every client-ledger handler: inline row edit/save/cancel (single + "edit
- * all"), drag reorder, reconciliation mark/unmark + selection, adjustments
- * (create/delete/undo), the mid-ledger write-off, and PDF/Excel export.
- * Reconciliation-lock guards and the optimistic transaction/adjustment
- * patchers are shared with the (not-yet-extracted) transactions handlers, so
- * they come from useReconciliationLocks/useTransactionPatchers rather than
- * being duplicated here.
+ * all"), drag reorder, reconciliation mark/unmark + selection, one-sided
+ * transaction creation, the mid-ledger write-off, and PDF/Excel export.
+ * Reconciliation-lock guards and the optimistic transaction patcher are
+ * shared with the (not-yet-extracted) transactions handlers, so they come
+ * from useReconciliationLocks/useTransactionPatchers rather than being
+ * duplicated here.
  */
 export function useLedgerActions({
  clientAccounts,
  transactions,
- adjustments,
  reconciliations,
  currencyMap,
  clientAccountMap,
@@ -90,9 +86,7 @@ export function useLedgerActions({
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const { invalidate: loadData, setters, setError } = useWorkspaceActions();
- const showUndo = useAppStatusStore((s) => s.showUndo);
  const setTransactions = setters.setTransactions;
- const setAdjustments = setters.setAdjustments;
  const setReconciliations = setters.setReconciliations;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
@@ -100,20 +94,16 @@ export function useLedgerActions({
   lockBoundaries,
   formatLockBalance,
   confirmIfLocked,
-  confirmDeleteWithLock,
   confirmIfTransactionEditLocked,
-  confirmIfAdjustmentEditLocked,
   transactionEditImpact,
-  adjustmentEditImpact,
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
   transactions,
-  adjustments,
   clientAccountMap,
   lockPastEditsEnabled,
  });
- const { applyTransactionPatch, applyAdjustmentPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
+ const { applyTransactionPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
 
  const draggedLedgerColumn = useLedgerStore((s) => s.draggedLedgerColumn);
  const setDraggedLedgerColumn = useLedgerStore((s) => s.setDraggedLedgerColumn);
@@ -128,8 +118,6 @@ export function useLedgerActions({
  const setEditAllLedgerAccountIds = useLedgerStore((s) => s.setEditAllLedgerAccountIds);
  const selectedLedgerEntryKeys = useLedgerStore((s) => s.selectedLedgerEntryKeys);
  const setSelectedLedgerEntryKeys = useLedgerStore((s) => s.setSelectedLedgerEntryKeys);
- const adjustmentModal = useLedgerStore((s) => s.adjustmentModal);
- const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);
  const oneSidedTransactionModal = useLedgerStore((s) => s.oneSidedTransactionModal);
  const setOneSidedTransactionModal = useLedgerStore((s) => s.setOneSidedTransactionModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
@@ -194,48 +182,16 @@ export function useLedgerActions({
   },
  };
 
-function openAdjustmentModal(accountId: number, existing?: ClientAdjustment) {
- const account = clientAccounts.find((a) => a.id === accountId);
- if (existing) {
-  const commission = existing.commission || 0;
-  setAdjustmentModal({
-   accountId,
-   editingId: existing.id,
-   // amount stored on the record is base + commission; the form shows the base amount back.
-   amount: String(existing.amount - commission),
-   direction: existing.direction,
-   currencyId: existing.currencyId ?? account?.currencyId ?? null,
-   exchangeRate: existing.exchangeRate && existing.exchangeRate !== 1 ? String(existing.exchangeRate) : '',
-   exchangeRateReversed: !!existing.exchangeRateReversed,
-   description: existing.description,
-   commission: commission ? String(commission) : '',
-   counterParty: existing.counterParty || '',
-   date: existing.createdAt.slice(0, 10),
-  });
- } else {
-  setAdjustmentModal({
-   accountId,
-   editingId: null,
-   amount: '',
-   direction: 'debit',
-   currencyId: account?.currencyId ?? null,
-   exchangeRate: '',
-   exchangeRateReversed: false,
-   description: '',
-   commission: '',
-   counterParty: '',
-   date: localDateKey(),
-  });
- }
-}
-
-function openOneSidedTransactionModal(accountId: number) {
+// `type` lets a shortcut entry point (e.g. the ledger's "Add Expense" menu item) prefill a
+// different default than the generic "Add One-Sided Transaction" item — both open this exact
+// same modal/submit path, so there's no behavioral difference beyond the initial default.
+function openOneSidedTransactionModal(accountId: number, type: string = 'transfer') {
  const account = clientAccounts.find((a) => a.id === accountId);
  setOneSidedTransactionModal({
   accountId,
   direction: 'client_from',
   date: localDateKey(),
-  type: 'transfer',
+  type,
   amount: '',
   currencyId: account?.currencyId ?? null,
   exchangeRate: '',
@@ -275,7 +231,7 @@ async function onSubmitOneSidedTransaction() {
  const effectiveRate = !needsRate ? 1 : rateSet ? (oneSidedTransactionModal.exchangeRateReversed ? 1 / parsedRate : parsedRate) : 0;
  const effectiveRateReversed = needsRate && rateSet ? oneSidedTransactionModal.exchangeRateReversed : false;
 
- const createdAt = nextCreatedAtForDate(oneSidedTransactionModal.date, transactions, adjustments);
+ const createdAt = nextCreatedAtForDate(oneSidedTransactionModal.date, transactions);
  if (blockedByPastEditLock([createdAt])) {
   return;
  }
@@ -370,6 +326,7 @@ function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: 
   createdDate: transaction.createdAt.slice(0, 10),
   direction: isOutgoing ? 'outgoing' : 'incoming',
   counterpartyAccountId: isOutgoing ? transaction.accountToId : transaction.accountFromId,
+  counterParty: transaction.counterParty,
   type: transaction.type,
   currencyId: transaction.currencyId,
   amount: String(transaction.amount),
@@ -382,34 +339,6 @@ function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: 
   chargesExchangeRate: String(transaction.chargesExchangeRate || 1),
   chargesDescription: transaction.chargesDescription,
   distributionLocationId: transaction.distributionLocationId,
- };
-}
-
-function buildLedgerAdjustmentDraft(adj: ClientAdjustment, ledgerAccountId: number): LedgerTransactionDraft {
- const account = clientAccounts.find((a) => a.id === ledgerAccountId);
- const rateStr = adj.exchangeRate && adj.exchangeRate !== 1 ? formatRateValue(adj.exchangeRateReversed ? 1 / adj.exchangeRate : adj.exchangeRate) : '';
- return {
-  transactionId: -adj.id,
-  adjustmentId: adj.id,
-  isAdjustment: true,
-  adjustmentDirection: adj.direction,
-  ledgerAccountId,
-  createdDate: adj.createdAt.slice(0, 10),
-  direction: adj.direction === 'credit' ? 'outgoing' : 'incoming',
-  counterpartyAccountId: null,
-  type: 'adjustment',
-  currencyId: adj.currencyId ?? account?.currencyId ?? null,
-  amount: String(adj.amount),
-  exchangeRate: rateStr,
-  exchangeRateReversed: !!adj.exchangeRateReversed,
-  commission: '0',
-  description: adj.description,
-  charges: '0',
-  chargesCurrencyId: null,
-  chargesPayer: '',
-  chargesExchangeRate: '1',
-  chargesDescription: '',
-  distributionLocationId: null,
  };
 }
 
@@ -450,47 +379,8 @@ function getClientLedgerDraft(transactionId: number, ledgerAccountId: number) {
   return existingDraft;
  }
 
- if (transactionId < 0) {
-  const adj = adjustments.find((a) => a.id === -transactionId);
-  return adj ? buildLedgerAdjustmentDraft(adj, ledgerAccountId) : null;
- }
  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
  return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
-}
-
-// Builds the updated adjustment record a ledger-row edit would save, from its draft — shared
-// by the real save (`onSaveLedgerTransaction`) and the batch pre-check (`onSaveAllLedger`), so
-// both agree on exactly what the edit changes.
-function buildLedgerAdjustmentUpdate(transactionId: number, ledgerAccountId: number, draft: LedgerTransactionDraft, adj: ClientAdjustment): { updatedAdj: ClientAdjustment } | { error: string } {
- const amount = parseFloat(draft.amount);
- if (!Number.isFinite(amount) || amount <= 0) {
-  return { error: 'adjustment_amount_required' };
- }
- const account = clientAccounts.find((a) => a.id === ledgerAccountId);
- const selectedCurrency = draft.currencyId ? currencyMap.get(draft.currencyId) : undefined;
- const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
- const parsedRate = parseFloat(draft.exchangeRate);
- const adjRateSet = Number.isFinite(parsedRate) && parsedRate > 0;
- const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && adjRateSet;
- const effectiveRate = !needsRate ? 1 : adjRateSet ? (rateIsReversed ? 1 / parsedRate : parsedRate) : 0;
- const updatedAdj: ClientAdjustment = {
-  id: draft.adjustmentId ?? adj.id,
-  accountId: ledgerAccountId,
-  amount,
-  direction: draft.adjustmentDirection ?? 'debit',
-  currencyId: draft.currencyId ?? account?.currencyId ?? null,
-  currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-  currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-  exchangeRate: effectiveRate,
-  exchangeRateReversed: needsRate && adjRateSet ? rateIsReversed : false,
-  description: draft.description,
-  // This inline row-edit path has no commission/counter-party inputs of its own — carry the
-  // original values through untouched rather than silently clearing them.
-  commission: adj.commission,
-  counterParty: adj.counterParty,
-  createdAt: resolveCreatedAt(draft.createdDate, adj.createdAt),
- };
- return { updatedAdj };
 }
 
 // Builds the updated transaction record a ledger-row edit would save, from its draft — shared
@@ -575,6 +465,7 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
   chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
   chargesDescription: draft.chargesDescription,
   description: draft.description,
+  counterParty: draft.counterParty,
   distributionLocationId: draft.distributionLocationId,
   createdAt,
  };
@@ -588,50 +479,6 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  }
 
  const draft = ledgerTransactionDrafts[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
-
- // ── Adjustment (expense) save path ──────────────────────────────────────────
- if (draft?.isAdjustment && draft.adjustmentId) {
-  const adj = adjustments.find((a) => a.id === draft.adjustmentId);
-  if (!adj) return false;
-  const built = buildLedgerAdjustmentUpdate(transactionId, ledgerAccountId, draft, adj);
-  if ('error' in built) {
-   setError(t(built.error));
-   return false;
-  }
-  const { updatedAdj } = built;
-  if (blockedByPastEditLock([adj.createdAt, updatedAdj.createdAt])) {
-   return false;
-  }
-  // Single-row saves check the lock here; batch saves are checked once up-front in
-  // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
-  if (!skipReload && !(await confirmIfAdjustmentEditLocked(adj, updatedAdj))) {
-   return false;
-  }
-  try {
-   await accountingApi.updateClientAdjustment(updatedAdj);
-   setError('');
-   applyAdjustmentPatch(updatedAdj);
-   pushLedgerEditAction({
-    undo: async () => {
-     await accountingApi.updateClientAdjustment(adj);
-     applyAdjustmentPatch(adj);
-     await loadData();
-    },
-    redo: async () => {
-     await accountingApi.updateClientAdjustment(updatedAdj);
-     applyAdjustmentPatch(updatedAdj);
-     await loadData();
-    },
-   });
-   if (!skipReload) void loadData();
-   return true;
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-   return false;
-  }
- }
-
- // ── Transaction save path ────────────────────────────────────────────────────
  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
 
  if (!draft || !transaction) {
@@ -668,6 +515,7 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   chargesExchangeRate: transaction.chargesExchangeRate,
   chargesDescription: transaction.chargesDescription,
   description: transaction.description,
+  counterParty: transaction.counterParty,
   distributionLocationId: transaction.distributionLocationId,
   createdAt: transaction.createdAt,
  };
@@ -727,22 +575,13 @@ function onEditAllLedger(ledger: ClientAccountLedger) {
  const newKeys: string[] = [];
  for (const entry of ledger.entries) {
   const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-  if (entry.isAdjustment && entry.adjustmentId) {
-   const adj = adjustments.find((a) => a.id === entry.adjustmentId);
-   if (!adj) continue;
-   if (!ledgerTransactionDrafts[draftKey]) {
-    newDrafts[draftKey] = buildLedgerAdjustmentDraft(adj, ledger.accountId);
-    if (adj.exchangeRateReversed) newRateReversed[draftKey] = true;
-   }
-  } else {
-   const tx = transactions.find((t) => t.id === entry.transactionId);
-   if (!tx) continue;
-   if (!ledgerTransactionDrafts[draftKey]) {
-    newDrafts[draftKey] = buildLedgerTransactionDraft(tx, ledger.accountId);
-    const isOutgoing = tx.accountFromId === ledger.accountId;
-    if (isOutgoing ? tx.exchangeRateFromReversed : tx.exchangeRateToReversed) {
-     newRateReversed[draftKey] = true;
-    }
+  const tx = transactions.find((t) => t.id === entry.transactionId);
+  if (!tx) continue;
+  if (!ledgerTransactionDrafts[draftKey]) {
+   newDrafts[draftKey] = buildLedgerTransactionDraft(tx, ledger.accountId);
+   const isOutgoing = tx.accountFromId === ledger.accountId;
+   if (isOutgoing ? tx.exchangeRateFromReversed : tx.exchangeRateToReversed) {
+    newRateReversed[draftKey] = true;
    }
   }
   newKeys.push(draftKey);
@@ -786,19 +625,11 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
   const accId = parseInt(accIdStr, 10);
   const draft = ledgerTransactionDrafts[key];
   if (!draft) continue;
-  if (draft.isAdjustment && draft.adjustmentId) {
-   const adj = adjustments.find((a) => a.id === draft.adjustmentId);
-   if (!adj) continue;
-   const built = buildLedgerAdjustmentUpdate(transactionId, accId, draft, adj);
-   if ('error' in built) continue;
-   batchLockHit = adjustmentEditImpact(adj, built.updatedAdj);
-  } else {
-   const tx = transactions.find((t) => t.id === transactionId);
-   if (!tx) continue;
-   const built = buildLedgerTransactionUpdate(transactionId, accId, draft, tx);
-   if ('error' in built) continue;
-   batchLockHit = transactionEditImpact(tx, built.payload);
-  }
+  const tx = transactions.find((t) => t.id === transactionId);
+  if (!tx) continue;
+  const built = buildLedgerTransactionUpdate(transactionId, accId, draft, tx);
+  if ('error' in built) continue;
+  batchLockHit = transactionEditImpact(tx, built.payload);
   if (batchLockHit) break;
  }
  if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
@@ -879,17 +710,6 @@ function onCancelAllEditingLedgerRows() {
 
 function openLedgerRowForEdit(entry: ClientLedgerEntry, ledgerAccountId: number) {
  const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
- if (entry.isAdjustment && entry.adjustmentId) {
-  const adjustment = adjustments.find((a) => a.id === entry.adjustmentId);
-  if (adjustment && !ledgerTransactionDrafts[rowKey]) {
-   if (adjustment.exchangeRateReversed) {
-    setLedgerRateReversed((prev) => ({ ...prev, [rowKey]: true }));
-   }
-   setLedgerTransactionDrafts((prev) => ({ ...prev, [rowKey]: buildLedgerAdjustmentDraft(adjustment, ledgerAccountId) }));
-  }
-  setEditingLedgerRowKeys((prev) => new Set([...prev, rowKey]));
-  return;
- }
  const transaction = transactions.find((tx) => tx.id === entry.transactionId);
  if (transaction && !ledgerTransactionDrafts[rowKey]) {
   const isOutgoing = transaction.accountFromId === ledgerAccountId;
@@ -965,11 +785,7 @@ function onLedgerEditFieldArrowKey(
 
 async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
  const key = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
- if (entry.isAdjustment && entry.adjustmentId) {
-  await onDeleteAdjustment(entry.adjustmentId);
- } else {
-  await onDeleteTransaction(entry.transactionId);
- }
+ await onDeleteTransaction(entry.transactionId);
  setEditingLedgerRowKeys((prev) => {
   const n = new Set(prev);
   n.delete(key);
@@ -984,12 +800,10 @@ async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: nu
 
 async function onReconcileLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
  if (entry.reconciledMark) return; // already reconciled on this exact row
- const anchorKind: 'transaction' | 'adjustment' = entry.isAdjustment ? 'adjustment' : 'transaction';
- const anchorRefId = entry.isAdjustment ? entry.adjustmentId ?? 0 : entry.transactionId;
+ const anchorRefId = entry.transactionId;
  try {
   const created = await accountingApi.createReconciliation({
    accountId: ledgerAccountId,
-   anchorKind,
    anchorRefId,
    anchorCreatedAt: entry.createdAt,
    balance: entry.runningBalance,
@@ -997,7 +811,7 @@ async function onReconcileLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId:
   });
   setReconciliations((prev) => [
    ...prev,
-   { id: created.id, accountId: ledgerAccountId, anchorKind, anchorRefId, anchorCreatedAt: entry.createdAt, balance: entry.runningBalance, note: '', createdAt: new Date().toISOString() },
+   { id: created.id, accountId: ledgerAccountId, anchorKind: 'transaction', anchorRefId, anchorCreatedAt: entry.createdAt, balance: entry.runningBalance, note: '', createdAt: new Date().toISOString() },
   ]);
   setError('');
   await loadData();
@@ -1038,11 +852,7 @@ async function onDeleteSelectedLedgerEntries() {
   const ledger = selectedClientLedgers.find((l) => l.accountId === accId);
   const entry = ledger?.entries.find((e) => e.transactionId === txId);
   if (!entry) continue;
-  if (entry.isAdjustment && entry.adjustmentId) {
-   await onDeleteAdjustment(entry.adjustmentId, { offerUndo: false });
-  } else {
-   await onDeleteTransaction(entry.transactionId, { offerUndo: false });
-  }
+  await onDeleteTransaction(entry.transactionId, { offerUndo: false });
  }
  setSelectedLedgerEntryKeys(new Set());
  setError('');
@@ -1062,155 +872,6 @@ function onEditSelectedLedgerEntries() {
  }
 }
 
-async function onSubmitAdjustment() {
- if (!accountingApi || !adjustmentModal) {
-  setError(t('error_bridge'));
-  return;
- }
-
- const amount = parseFloat(adjustmentModal.amount);
- if (!Number.isFinite(amount) || amount <= 0) {
-  setError(t('adjustment_amount_required'));
-  return;
- }
-
- const commission = adjustmentModal.commission ? parseFloat(adjustmentModal.commission) : 0;
- if (!Number.isFinite(commission) || commission < 0) {
-  setError(t('adjustment_commission_invalid'));
-  return;
- }
-
- const account = clientAccounts.find((a) => a.id === adjustmentModal.accountId);
- const selectedCurrency = adjustmentModal.currencyId ? currencyMap.get(adjustmentModal.currencyId) : undefined;
- const needsRate = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
- // Cross-currency with no rate entered → 0 (unset → pending, excluded from balance until set).
- const parsedAdjRate = parseFloat(adjustmentModal.exchangeRate);
- const adjRateSet = Number.isFinite(parsedAdjRate) && parsedAdjRate > 0;
- const effectiveRate = !needsRate ? 1 : adjRateSet ? (adjustmentModal.exchangeRateReversed ? 1 / parsedAdjRate : parsedAdjRate) : 0;
-
- // Editing an existing expense must never change its position: preserve the original
- // timestamp (only the date shifts if the user changed it). A brand-new expense lands at
- // the end of its date's sequence, exactly like a newly created transaction.
- const existingAdj = adjustmentModal.editingId ? adjustments.find((a) => a.id === adjustmentModal.editingId) : undefined;
- const createdAt = existingAdj ? resolveCreatedAt(adjustmentModal.date, existingAdj.createdAt) : nextCreatedAtForDate(adjustmentModal.date, transactions, adjustments);
-
- const payloadBase = {
-  // Commission is added on top of the entered amount, so the client's balance moves by the
-  // full total; `commission` is kept alongside purely so the breakdown can be shown back.
-  amount: amount + commission,
-  commission,
-  counterParty: adjustmentModal.counterParty.trim(),
-  direction: adjustmentModal.direction,
-  currencyId: adjustmentModal.currencyId,
-  currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-  currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-  exchangeRate: effectiveRate,
-  exchangeRateReversed: needsRate && adjRateSet ? adjustmentModal.exchangeRateReversed : false,
-  description: adjustmentModal.description.trim(),
-  createdAt,
- };
-
- if (blockedByPastEditLock([existingAdj?.createdAt, createdAt])) {
-  return;
- }
-
- // Reconciliation guard: editing an expense that actually moves a reconciled balance warns
- // (balance-aware); creating/re-dating a brand-new one onto locked history always warns
- // (position-based — there's no "before" state to compare against).
- if (adjustmentModal.editingId && existingAdj) {
-  const updatedAdjForCheck: ClientAdjustment = { ...existingAdj, ...payloadBase };
-  if (!(await confirmIfAdjustmentEditLocked(existingAdj, updatedAdjForCheck))) {
-   return;
-  }
- } else if (!(await confirmIfLocked([adjustmentModal.accountId], createdAt, NEW_ROW_REF_ID))) {
-  return;
- }
-
- try {
-  if (adjustmentModal.editingId && existingAdj) {
-   const updatedAdj: ClientAdjustment = { ...existingAdj, ...payloadBase };
-   await accountingApi.updateClientAdjustment(updatedAdj);
-   applyAdjustmentPatch(updatedAdj);
-   pushLedgerEditAction({
-    undo: async () => {
-     await accountingApi.updateClientAdjustment(existingAdj);
-     applyAdjustmentPatch(existingAdj);
-     await loadData();
-    },
-    redo: async () => {
-     await accountingApi.updateClientAdjustment(updatedAdj);
-     applyAdjustmentPatch(updatedAdj);
-     await loadData();
-    },
-   });
-  } else {
-   await accountingApi.createClientAdjustment({
-    accountId: adjustmentModal.accountId,
-    ...payloadBase,
-   });
-  }
-  setAdjustmentModal(null);
-  setError('');
-  await loadData();
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_save'));
- }
-}
-
-async function onDeleteAdjustment(id: number, opts: { offerUndo?: boolean } = {}) {
- const { offerUndo = true } = opts;
- if (!accountingApi) {
-  setError(t('error_bridge'));
-  return;
- }
-
- const adj = adjustments.find((a) => a.id === id);
- if (blockedByPastEditLock([adj?.createdAt])) {
-  return;
- }
- if (!(await confirmDeleteWithLock(adj ? [adj.accountId] : [], adj?.createdAt ?? '', id, 'adjustment_delete_confirm'))) {
-  return;
- }
-
- try {
-  await accountingApi.deleteClientAdjustment(id);
-  setError('');
-  await loadData();
-  if (offerUndo && adj) {
-   showUndo(t('toast_expense_deleted'), () => void onUndoDeleteAdjustment(adj));
-  }
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_delete'));
- }
-}
-
-async function onUndoDeleteAdjustment(adj: ClientAdjustment) {
- if (!accountingApi) {
-  setError(t('error_bridge'));
-  return;
- }
- try {
-  await accountingApi.createClientAdjustment({
-   accountId: adj.accountId,
-   amount: adj.amount,
-   direction: adj.direction,
-   currencyId: adj.currencyId,
-   currencyCode: adj.currencyCode,
-   currencySymbol: adj.currencySymbol,
-   exchangeRate: adj.exchangeRate,
-   exchangeRateReversed: !!adj.exchangeRateReversed,
-   description: adj.description,
-   commission: adj.commission,
-   counterParty: adj.counterParty,
-   createdAt: adj.createdAt,
-  });
-  setError('');
-  await loadData();
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_save'));
- }
-}
-
 async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: number) {
  if (!accountingApi) {
   setError(t('error_bridge'));
@@ -1225,9 +886,7 @@ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: nu
 
  // Time-place the write-off strictly after the target row (and before the next one when
  // there's room), so it sorts right after this row in the ledger. Must never land on the
- // exact same createdAt as the target: same-timestamp ties are broken by comparing raw
- // adjustmentId against transactionId (two independent id sequences), which can easily sort
- // a new write-off before the row it's meant to follow.
+ // exact same createdAt as the target.
  const ledger = selectedClientLedgers.find((l) => l.accountId === ledgerAccountId);
  const entries = ledger?.entries ?? [];
  const idx = entries.findIndex((e) => e.transactionId === entry.transactionId);
@@ -1254,17 +913,35 @@ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: nu
  // Reconciliation guard: inserting a row at/before a lock line rewrites reconciled history.
  if (!(await confirmIfLocked([ledgerAccountId], createdAt, NEW_ROW_REF_ID))) return;
 
+ // balance > 0 means this account is owed money — a write-off must move the balance DOWN
+ // toward zero, i.e. net negatively, which is the "to" side's sign (see
+ // computeTransactionSideNetChange); balance < 0 is the mirror "from" side case.
  try {
-  await accountingApi.createClientAdjustment({
-   accountId: ledgerAccountId,
-   amount,
-   direction: balance > 0 ? 'debit' : 'credit',
+  await accountingApi.createTransaction({
+   accountFromId: balance > 0 ? null : ledgerAccountId,
+   accountToId: balance > 0 ? ledgerAccountId : null,
    currencyId: account.currencyId,
-   currencyCode: account.currencyCode,
-   currencySymbol: account.currencySymbol,
-   exchangeRate: 1,
-   exchangeRateReversed: false,
+   amount,
+   type: 'adjustment',
+   isArchived: false,
+   exchangeRateFrom: 1,
+   commissionFrom: 0,
+   exchangeRateTo: 1,
+   commissionTo: 0,
+   exchangeRateFromReversed: false,
+   exchangeRateToReversed: false,
+   charges: 0,
+   chargesCurrencyId: null,
+   chargesPayer: '',
+   chargesExchangeRate: 1,
+   chargesDescription: '',
    description: t('write_off_description'),
+   descriptionFrom: '',
+   descriptionTo: '',
+   exchangeActualAmount: null,
+   archiveNote: '',
+   counterParty: '',
+   distributionLocationId: null,
    createdAt,
   });
   setError('');
@@ -1321,7 +998,7 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  if (boundary && targetDate === boundary.anchorCreatedAt.slice(0, 10)) {
   const refOf = (k: string) => {
    const e = entryMap.get(k);
-   return e ? (e.isAdjustment ? e.adjustmentId ?? 0 : e.transactionId) : null;
+   return e ? e.transactionId : null;
   };
   const oldAnchorIdx = dateGroup.findIndex((k) => refOf(k) === boundary.anchorRefId);
   const newAnchorIdx = next.findIndex((k) => refOf(k) === boundary.anchorRefId);
@@ -1345,12 +1022,6 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
    return nc ? { ...tx, createdAt: nc } : tx;
   }),
  );
- setAdjustments((prev) =>
-  prev.map((adj) => {
-   const nc = newTimes.get(`${-adj.id}:${accountId}`);
-   return nc ? { ...adj, createdAt: nc } : adj;
-  }),
- );
 
  try {
   for (const [key, newCreatedAt] of newTimes) {
@@ -1358,50 +1029,31 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
    if (!entry || !newCreatedAt) continue;
    // Skip rows whose timestamp didn't actually change, to avoid needless writes.
    if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
-   if (entry.isAdjustment && entry.adjustmentId) {
-    const adj = adjustments.find((a) => a.id === entry.adjustmentId);
-    if (!adj) continue;
-    await accountingApi.updateClientAdjustment({
-     id: adj.id,
-     accountId,
-     amount: adj.amount,
-     direction: adj.direction,
-     currencyId: adj.currencyId ?? clientAccounts.find((a) => a.id === accountId)?.currencyId ?? 0,
-     currencyCode: adj.currencyCode,
-     currencySymbol: adj.currencySymbol,
-     exchangeRate: adj.exchangeRate,
-     exchangeRateReversed: adj.exchangeRateReversed,
-     description: adj.description,
-     commission: adj.commission,
-     counterParty: adj.counterParty,
-     createdAt: newCreatedAt,
-    });
-   } else {
-    const tx = transactions.find((t) => t.id === entry.transactionId);
-    if (!tx) continue;
-    await accountingApi.updateTransaction({
-     id: tx.id,
-     accountFromId: tx.accountFromId,
-     accountToId: tx.accountToId,
-     currencyId: tx.currencyId,
-     amount: tx.amount,
-     type: tx.type,
-     exchangeRateFrom: tx.exchangeRateFrom,
-     commissionFrom: tx.commissionFrom,
-     exchangeRateTo: tx.exchangeRateTo,
-     commissionTo: tx.commissionTo,
-     exchangeRateFromReversed: tx.exchangeRateFromReversed,
-     exchangeRateToReversed: tx.exchangeRateToReversed,
-     charges: tx.charges,
-     chargesCurrencyId: tx.chargesCurrencyId,
-     chargesPayer: tx.chargesPayer,
-     chargesExchangeRate: tx.chargesExchangeRate,
-     chargesDescription: tx.chargesDescription,
-     description: tx.description,
-     distributionLocationId: tx.distributionLocationId,
-     createdAt: newCreatedAt,
-    });
-   }
+   const tx = transactions.find((t) => t.id === entry.transactionId);
+   if (!tx) continue;
+   await accountingApi.updateTransaction({
+    id: tx.id,
+    accountFromId: tx.accountFromId,
+    accountToId: tx.accountToId,
+    currencyId: tx.currencyId,
+    amount: tx.amount,
+    type: tx.type,
+    exchangeRateFrom: tx.exchangeRateFrom,
+    commissionFrom: tx.commissionFrom,
+    exchangeRateTo: tx.exchangeRateTo,
+    commissionTo: tx.commissionTo,
+    exchangeRateFromReversed: tx.exchangeRateFromReversed,
+    exchangeRateToReversed: tx.exchangeRateToReversed,
+    charges: tx.charges,
+    chargesCurrencyId: tx.chargesCurrencyId,
+    chargesPayer: tx.chargesPayer,
+    chargesExchangeRate: tx.chargesExchangeRate,
+    chargesDescription: tx.chargesDescription,
+    description: tx.description,
+    counterParty: tx.counterParty,
+    distributionLocationId: tx.distributionLocationId,
+    createdAt: newCreatedAt,
+   });
   }
   setError('');
   await loadData();
@@ -1453,11 +1105,11 @@ async function onExportLedgerExcel(
   const allCols: ExcelColDef[] = [
    { key: 'created', header: t('date'), cell: (e) => formatDateValue(e.createdAt, pdfSettings.dateFormat) },
    { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
-   { key: 'direction', header: t('direction'), cell: (e) => (e.isAdjustment ? t(e.direction === 'outgoing' ? 'adjustment_direction_credit' : 'adjustment_direction_debit') : t(e.direction === 'outgoing' ? 'outgoing' : 'incoming')) },
-   { key: 'type', header: t('transaction_type'), cell: (e) => (e.isAdjustment ? t('adjustment_label') : t(transactionTypeLabelKey(e.type))) },
+   { key: 'direction', header: t('direction'), cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming') },
+   { key: 'type', header: t('transaction_type'), cell: (e) => t(transactionTypeLabelKey(e.type)) },
    { key: 'amount', header: t('amount'), cell: (e) => e.amount },
-   { key: 'exchangeRate', header: t('exchange_rate'), cell: (e) => (e.pendingRate ? '' : e.isAdjustment ? (e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) : e.exchangeRate) },
-   { key: 'commission', header: t('commission'), cell: (e) => (e.isAdjustment ? '' : e.commission) },
+   { key: 'exchangeRate', header: t('exchange_rate'), cell: (e) => (e.pendingRate ? '' : e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) },
+   { key: 'commission', header: t('commission'), cell: (e) => e.commission },
    { key: 'netChange', header: t('net_change'), cell: (e) => (e.pendingRate ? '' : e.netChange) },
    { key: 'runningBalance', header: t('running_balance'), cell: (e) => e.runningBalance },
    { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
@@ -1487,7 +1139,6 @@ async function onExportLedgerExcel(
 }
 
  return {
-  openAdjustmentModal,
   openOneSidedTransactionModal,
   onSubmitOneSidedTransaction,
   onLedgerColumnDrop,
@@ -1507,8 +1158,6 @@ async function onExportLedgerExcel(
   onToggleLedgerEntrySelection,
   onDeleteSelectedLedgerEntries,
   onEditSelectedLedgerEntries,
-  onSubmitAdjustment,
-  onDeleteAdjustment,
   onWriteOffLedgerRow,
   onLedgerRowDrop,
   onExportLedgerPdf,

@@ -9,7 +9,6 @@ import { readDataCache, saveDataCache } from '@/shared/lib/localStorage';
 import type {
  Client,
  ClientAccount,
- ClientAdjustment,
  Currency,
  HarvestRate,
  Organization,
@@ -18,7 +17,7 @@ import type {
 } from '@/shared/types';
 
 /**
- * The full workspace snapshot. All six collections are fetched together (as the
+ * The full workspace snapshot. All collections are fetched together (as the
  * app always did in loadData) plus backup metadata, so a single query owns the
  * server cache and one invalidation refetches everything consistently.
  */
@@ -28,7 +27,6 @@ export type WorkspaceData = {
  currencies: Currency[];
  transactions: Transaction[];
  clientAccounts: ClientAccount[];
- adjustments: ClientAdjustment[];
  reconciliations: Reconciliation[];
  harvestRates: HarvestRate[];
  backup: BackupInfo | null;
@@ -72,17 +70,16 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
  return useQuery<WorkspaceData>({
   queryKey,
   queryFn: async () => {
-   const [organizations, clients, currencyRows, transactions, clientAccounts, adjustments, reconciliations, harvestRates, backup] = (await Promise.all([
+   const [organizations, clients, currencyRows, transactions, clientAccounts, reconciliations, harvestRates, backup] = (await Promise.all([
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
     accountingApi.listTransactions(),
     accountingApi.listAllClientAccounts(),
-    accountingApi.listClientAdjustments(),
     accountingApi.listReconciliations(),
     accountingApi.listHarvestRates(),
     accountingApi.getBackupInfo(),
-   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], ClientAdjustment[], Reconciliation[], HarvestRate[], BackupInfo];
+   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], Reconciliation[], HarvestRate[], BackupInfo];
 
    let currencies = currencyRows;
    // Seed (or repair) the currency catalog when it's empty or clearly under-seeded. A
@@ -96,8 +93,8 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
     currencies = (await accountingApi.listCurrencies()) as Currency[];
    }
 
-   saveDataCache({ organizations, clients, currencies, transactions, adjustments, clientAccounts, reconciliations, harvestRates }, userId, workspaceId);
-   return { organizations, clients, currencies, transactions, clientAccounts, adjustments, reconciliations, harvestRates, backup };
+   saveDataCache({ organizations, clients, currencies, transactions, clientAccounts, reconciliations, harvestRates }, userId, workspaceId);
+   return { organizations, clients, currencies, transactions, clientAccounts, reconciliations, harvestRates, backup };
   },
   initialData: () => {
    const cache = readDataCache(userId, workspaceId);
@@ -164,7 +161,6 @@ export function useWorkspaceCache(userId: string | null | undefined, workspaceId
    setCurrencies: bind('currencies'),
    setTransactions: bind('transactions'),
    setClientAccounts: bind('clientAccounts'),
-   setAdjustments: bind('adjustments'),
    setReconciliations: bind('reconciliations'),
    setHarvestRates: bind('harvestRates'),
   };

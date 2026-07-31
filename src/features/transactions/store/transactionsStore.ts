@@ -121,11 +121,10 @@ type TransactionsStore = {
  setNewTransactionDate: Dispatch<SetStateAction<string>>;
  copiedTransaction: TransactionTableRow | null;
  setCopiedTransaction: Dispatch<SetStateAction<TransactionTableRow | null>>;
- // When set, the new-transaction form is in "update" mode for this existing row
- // (id = transaction id, or adjustment id when isAdjustment). createdAt is the
- // original timestamp, preserved for ordering unless the user changes the date.
- editingTransaction: { id: number; isAdjustment: boolean; createdAt: string } | null;
- setEditingTransaction: Dispatch<SetStateAction<{ id: number; isAdjustment: boolean; createdAt: string } | null>>;
+ // When set, the new-transaction form is in "update" mode for this existing row.
+ // createdAt is the original timestamp, preserved for ordering unless the user changes the date.
+ editingTransaction: { id: number; createdAt: string } | null;
+ setEditingTransaction: Dispatch<SetStateAction<{ id: number; createdAt: string } | null>>;
  txFromQuery: string;
  setTxFromQuery: Dispatch<SetStateAction<string>>;
  txFromOpen: boolean;

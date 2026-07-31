@@ -1,5 +1,5 @@
 import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from './commission';
-import type { ClientAccount, ClientAdjustment, Transaction } from '@/shared/types';
+import type { ClientAccount, Transaction } from '@/shared/types';
 
 // chargesExchangeRate converts the charge's own currency into the *payer's* account
 // currency — it's meaningless (and must not be applied) for a side whose account currency
@@ -25,17 +25,12 @@ export function isPendingTransactionTo(transaction: Transaction, accountCurrency
  return transaction.currencyId !== accountCurrencyId && transaction.exchangeRateTo === 0;
 }
 
-export function isPendingAdjustment(adjustment: ClientAdjustment, accountCurrencyId: number): boolean {
- return adjustment.currencyId != null && adjustment.currencyId !== accountCurrencyId && (adjustment.exchangeRate ?? 0) === 0;
-}
-
-// Net balance (starting balance + every non-archived transaction + every adjustment)
-// of each client account. Shared by every feature that needs a per-account balance:
-// the clients list, the overview org/currency cards, and the organizations page.
-export function computeAccountBalances({ clientAccounts, transactions, adjustments }: {
+// Net balance (starting balance + every non-archived transaction) of each client account.
+// Shared by every feature that needs a per-account balance: the clients list, the overview
+// org/currency cards, and the organizations page.
+export function computeAccountBalances({ clientAccounts, transactions }: {
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
 }): Map<number, number> {
  const clientAccountMap = new Map(clientAccounts.map((account) => [account.id, account]));
  const balanceByAccount = new Map<number, number>();
@@ -70,15 +65,6 @@ export function computeAccountBalances({ clientAccounts, transactions, adjustmen
     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
    }
   }
- }
-
- for (const adj of adjustments) {
-  if (!balanceByAccount.has(adj.accountId)) continue;
-  const account = clientAccountMap.get(adj.accountId);
-  if (!account) continue;
-  const pending = isPendingAdjustment(adj, account.currencyId);
-  const netChange = pending ? 0 : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
-  balanceByAccount.set(adj.accountId, (balanceByAccount.get(adj.accountId) ?? 0) + netChange);
  }
 
  return balanceByAccount;

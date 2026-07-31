@@ -7,7 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { NEW_ROW_REF_ID, violatedLock, reconciledBalanceDelta, RECONCILED_DELTA_EPS } from '@/features/ledger/utils/reconciliation';
-import { computeTransactionSideNetChange, computeAdjustmentNetChange } from '@/features/ledger/utils/ledgerBalances';
+import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, localWallClock } from '@/shared/utils/date';
@@ -33,7 +33,6 @@ import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import type {
  Client,
  ClientAccount,
- ClientAdjustment,
  Currency,
  ImportClientReview,
  ImportRowOverride,
@@ -51,7 +50,6 @@ type UseTransactionActionsParams = {
  clients: Client[];
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  currencies: Currency[];
  enabledCurrencies: Currency[];
  organizations: Organization[];
@@ -66,14 +64,12 @@ type UseTransactionActionsParams = {
  section: Section;
  numLocale: string;
  isRTL: boolean;
- isAdjustmentTransaction: boolean;
  showExchangeRateFrom: boolean;
  showExchangeRateTo: boolean;
  transactionAccountFromCurrencyCode: string | undefined;
  transactionAccountToCurrencyCode: string | undefined;
  transactionsImportInputRef: RefObject<HTMLInputElement | null>;
  txTableHistory: DraftHistory;
- onDeleteAdjustment: (id: number, opts?: { offerUndo?: boolean }) => Promise<void>;
  pushSharedSettingsIfOwner: () => void;
  pushUserTableSettings: () => void;
  lockPastEditsEnabled: boolean;
@@ -86,14 +82,13 @@ type UseTransactionActionsParams = {
  * reorder, delete (+ undo), and PDF/Excel export — plus the transaction-table
  * draft builder helpers and the table-settings/export modal open/close/save
  * cluster they share. Reconciliation-lock guards and the optimistic
- * transaction/adjustment patchers come from useReconciliationLocks/
- * useTransactionPatchers (shared with the ledger handlers).
+ * transaction patcher come from useReconciliationLocks/useTransactionPatchers
+ * (shared with the ledger handlers).
  */
 export function useTransactionActions({
  clients,
  clientAccounts,
  transactions,
- adjustments,
  currencies,
  enabledCurrencies,
  organizations,
@@ -108,14 +103,12 @@ export function useTransactionActions({
  section,
  numLocale,
  isRTL,
- isAdjustmentTransaction,
  showExchangeRateFrom,
  showExchangeRateTo,
  transactionAccountFromCurrencyCode,
  transactionAccountToCurrencyCode,
  transactionsImportInputRef,
  txTableHistory,
- onDeleteAdjustment,
  pushSharedSettingsIfOwner,
  pushUserTableSettings,
  lockPastEditsEnabled,
@@ -126,7 +119,6 @@ export function useTransactionActions({
  const showToast = useAppStatusStore((s) => s.showToast);
  const showUndo = useAppStatusStore((s) => s.showUndo);
  const setTransactions = setters.setTransactions;
- const setAdjustments = setters.setAdjustments;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
  const {
@@ -135,18 +127,15 @@ export function useTransactionActions({
   confirmIfLocked,
   confirmDeleteWithLock,
   confirmIfTransactionEditLocked,
-  confirmIfAdjustmentEditLocked,
   transactionEditImpact,
-  adjustmentEditImpact,
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
   transactions,
-  adjustments,
   clientAccountMap,
   lockPastEditsEnabled,
  });
- const { applyTransactionPatch, applyAdjustmentPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
+ const { applyTransactionPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
 
  const transactionSubmitLock = useRef(false);
 
@@ -234,31 +223,28 @@ export function useTransactionActions({
  const setTransactionTableSettingsDraft = section === 'archive' ? setArchiveTableSettingsDraft : setTransactionTableSettingsDraftStore;
 
 function buildTransactionTableDraft(transaction: TransactionTableRow): TransactionTableDraft {
- const isAdjustment = !!transaction.isAdjustment;
  const fromReversed = !!transaction.exchangeRateFromReversed;
  const toReversed = !!transaction.exchangeRateToReversed;
  return {
   transactionId: transaction.id,
-  adjustmentId: transaction.adjustmentId,
-  isAdjustment,
   accountFromId: transaction.accountFromId,
-  accountToId: isAdjustment ? null : transaction.accountToId,
+  accountToId: transaction.accountToId,
   currencyId: transaction.currencyId,
   type: transaction.type,
-  adjustmentDirection: transaction.adjustmentDirection,
   amount: String(transaction.amount),
   exchangeRateFrom: fromReversed ? formatRateValue(1 / transaction.exchangeRateFrom) : formatRateValue(transaction.exchangeRateFrom),
   commissionFrom: formatRateValue(transaction.commissionFrom),
-  exchangeRateTo: isAdjustment ? '1.00' : toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : formatRateValue(transaction.exchangeRateTo),
+  exchangeRateTo: toReversed ? formatRateValue(1 / transaction.exchangeRateTo) : formatRateValue(transaction.exchangeRateTo),
   commissionTo: formatRateValue(transaction.commissionTo),
   charges: String(transaction.charges),
-  chargesCurrencyId: isAdjustment ? null : transaction.chargesCurrencyId,
-  chargesPayer: isAdjustment ? '' : transaction.chargesPayer,
-  chargesExchangeRate: isAdjustment ? '1.00' : formatRateValue(transaction.chargesExchangeRate),
+  chargesCurrencyId: transaction.chargesCurrencyId,
+  chargesPayer: transaction.chargesPayer,
+  chargesExchangeRate: formatRateValue(transaction.chargesExchangeRate),
   chargesDescription: transaction.chargesDescription,
   description: transaction.description,
+  counterParty: transaction.counterParty,
   archiveNote: transaction.archiveNote,
-  distributionLocationId: isAdjustment ? null : transaction.distributionLocationId,
+  distributionLocationId: transaction.distributionLocationId,
   createdDate: transaction.createdAt.slice(0, 10),
  };
 }
@@ -270,7 +256,7 @@ function beginTransactionsEditMode() {
   if (transaction.exchangeRateFromReversed) {
    fromReversed[transaction.id] = true;
   }
-  if (!transaction.isAdjustment && transaction.exchangeRateToReversed) {
+  if (transaction.exchangeRateToReversed) {
    toReversed[transaction.id] = true;
   }
  });
@@ -420,126 +406,9 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
  const editing = editingTransaction;
  // A new entry lands at the end of its date's sequence (top of the table / bottom of the
  // ledger), after any same-day rows the user manually reordered.
- const newTransactionCreatedAt = editing ? resolveCreatedAt(newTransactionDate, editing.createdAt) : nextCreatedAtForDate(newTransactionDate, transactions, adjustments);
+ const newTransactionCreatedAt = editing ? resolveCreatedAt(newTransactionDate, editing.createdAt) : nextCreatedAtForDate(newTransactionDate, transactions);
 
  if (blockedByPastEditLock([editing?.createdAt, newTransactionCreatedAt])) {
-  return;
- }
-
- if (isAdjustmentTransaction) {
-  if (!transactionForm.accountFromId || !transactionForm.currencyId || !amount) {
-   setError(t('adjustment_required'));
-   return;
-  }
-
-  const adjCommission = parseFloat(transactionForm.adjustmentCommission) || 0;
-  if (adjCommission < 0) {
-   setError(t('adjustment_commission_invalid'));
-   return;
-  }
-
-  const selectedCurrency = currencyMap.get(transactionForm.currencyId);
-  const account = clientAccountMap.get(transactionForm.accountFromId);
-
-  // Cross-currency adjustment with no rate entered → 0 (pending sentinel, excluded from
-  // balance until the user sets a rate). Same-currency stays 1.
-  const adjCrossCurrency = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
-  const adjRawRate = parseFloat(transactionForm.exchangeRateFrom);
-  const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
-  const adjExchangeRate = adjCrossCurrency ? (adjRateSet ? (txFromRateReversed ? 1 / adjRawRate : adjRawRate) : 0) : 1;
-
-  const adjPayload = {
-   accountId: transactionForm.accountFromId,
-   // Commission is added on top of the entered amount (same convention as the ledger's Add
-   // Expense dialog) so the client's balance moves by the full total; `commission` is kept
-   // alongside purely so the breakdown can be shown back.
-   amount: amount + adjCommission,
-   direction: transactionForm.adjustmentDirection,
-   currencyId: transactionForm.currencyId,
-   currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-   currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-   exchangeRate: adjExchangeRate,
-   exchangeRateReversed: txFromRateReversed && adjRateSet,
-   description: transactionForm.description,
-   commission: adjCommission,
-   counterParty: transactionForm.counterParty.trim(),
-   createdAt: newTransactionCreatedAt,
-  };
-
-  // Editing an existing adjustment via the form → update in place instead of creating.
-  if (editing && editing.isAdjustment) {
-   const original = adjustments.find((a) => a.id === editing.id);
-   const updatedAdj = { ...adjPayload, id: editing.id } as ClientAdjustment;
-   if (original && !(await confirmIfAdjustmentEditLocked(original, updatedAdj))) {
-    return;
-   }
-   transactionSubmitLock.current = true;
-   setIsSubmittingTransaction(true);
-   try {
-    await accountingApi.updateClientAdjustment(updatedAdj);
-    applyAdjustmentPatch(updatedAdj);
-    onCancelEditTransaction();
-    showToast(t('toast_transaction_updated'));
-    void loadData();
-   } catch (e) {
-    setError(e instanceof Error ? e.message : t('error_failed_update'));
-   } finally {
-    transactionSubmitLock.current = false;
-    setIsSubmittingTransaction(false);
-   }
-   return;
-  }
-
-  // Reconciliation guard: a new expense dated at or before the lock line rewrites history.
-  if (!(await confirmIfLocked([adjPayload.accountId], adjPayload.createdAt, NEW_ROW_REF_ID))) {
-   return;
-  }
-
-  transactionSubmitLock.current = true;
-  setIsSubmittingTransaction(true);
-  try {
-   const created = await accountingApi.createClientAdjustment(adjPayload);
-
-   // Optimistically add the new adjustment (the API returns its real id), then reconcile.
-   setAdjustments((prev) => [
-    ...prev,
-    {
-     id: created.id,
-     accountId: adjPayload.accountId,
-     amount: adjPayload.amount,
-     direction: adjPayload.direction,
-     currencyId: adjPayload.currencyId,
-     currencyCode: adjPayload.currencyCode,
-     currencySymbol: adjPayload.currencySymbol,
-     exchangeRate: adjPayload.exchangeRate,
-     exchangeRateReversed: adjPayload.exchangeRateReversed,
-     description: adjPayload.description,
-     commission: adjPayload.commission,
-     counterParty: adjPayload.counterParty,
-     createdAt: adjPayload.createdAt,
-    },
-   ]);
-
-   setTxSplitDescription(false);
-   setTransactionForm(emptyTransactionForm());
-   setTxFromQuery('');
-   setTxFromOpen(false);
-   setTxToQuery('');
-   setTxToOpen(false);
-   setTxFromRateReversed(false);
-   setTxToRateReversed(false);
-   // Keep the form open so several entries can be added in a row.
-   setIsNewTransactionExpensesOpen(false);
-   setNewTransactionDate(localDateKey());
-   setError('');
-   void loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_save'));
-  } finally {
-   transactionSubmitLock.current = false;
-   setIsSubmittingTransaction(false);
-  }
-
   return;
  }
 
@@ -612,11 +481,12 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
   exchangeActualAmount: exchangeActualAmountValue,
   distributionLocationId: transactionForm.distributionLocationId,
+  counterParty: transactionForm.counterParty.trim(),
   createdAt: newTransactionCreatedAt,
  };
 
  // Editing an existing transaction via the form → update in place instead of creating.
- if (editing && !editing.isAdjustment) {
+ if (editing) {
   const original = transactions.find((tx) => tx.id === editing.id);
   const updatePayload: TransactionUpdateInput = {
    id: editing.id,
@@ -642,6 +512,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
    exchangeActualAmount: txPayload.exchangeActualAmount,
    archiveNote: original?.archiveNote,
    distributionLocationId: txPayload.distributionLocationId,
+   counterParty: txPayload.counterParty,
    createdAt: txPayload.createdAt,
   };
   if (original && !(await confirmIfTransactionEditLocked(original, updatePayload))) {
@@ -715,7 +586,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
     descriptionTo: txPayload.descriptionTo,
     exchangeActualAmount: txPayload.exchangeActualAmount,
     archiveNote: '',
-    counterParty: '',
+    counterParty: txPayload.counterParty,
     isArchived: 0,
     archiveHidden: 0,
     distributionLocationId: txPayload.distributionLocationId,
@@ -1151,10 +1022,10 @@ async function onConfirmImportTransactions() {
   // otherwise the currency of the account the row resolves to.
   const currencyForAccount = (account: ClientAccount) => importCurrency ?? nextCurrencies.find((currency) => currency.id === account.currencyId) ?? null;
 
-  // Walk the rows, building two accumulator arrays instead of firing one HTTP
+  // Walk the rows, building one accumulator array instead of firing one HTTP
   // request per row. A single bulk call at the end inserts everything at once.
   const transactionsToCreate: object[] = [];
-  const adjustmentsToCreate: object[] = [];
+  let expenseRowCount = 0;
 
   for (let index = 0; index < importedRows.length; index += 1) {
    const row = importedRows[index];
@@ -1181,18 +1052,32 @@ async function onConfirmImportTransactions() {
      stats.skippedRows += 1;
      continue;
     }
-    adjustmentsToCreate.push({
-     accountId: account.id,
-     amount: row.amount,
-     direction: override.direction,
+    // direction:'credit' nets like a transaction's "from" side (+amount); 'debit' nets
+    // like the "to" side (-amount) — see computeTransactionSideNetChange in ledgerBalances.ts.
+    transactionsToCreate.push({
+     accountFromId: override.direction === 'credit' ? account.id : null,
+     accountToId: override.direction === 'credit' ? null : account.id,
      currencyId: adjustmentCurrency.id,
-     currencyCode: adjustmentCurrency.code,
-     currencySymbol: adjustmentCurrency.symbol,
-     exchangeRate: 1,
-     exchangeRateReversed: false,
+     amount: row.amount,
+     type: 'adjustment',
+     exchangeRateFrom: 1,
+     commissionFrom: 0,
+     exchangeRateTo: 1,
+     commissionTo: 0,
+     exchangeRateFromReversed: false,
+     exchangeRateToReversed: false,
+     charges: 0,
+     chargesCurrencyId: null,
+     chargesPayer: '',
+     chargesExchangeRate: 1,
+     chargesDescription: '',
      description: row.description || markerEntry?.originalName || '',
+     archiveNote: '',
+     isArchived: false,
+     counterParty: markerEntry?.originalName || '',
      createdAt: row.createdAt ?? null,
     });
+    expenseRowCount += 1;
     continue;
    }
 
@@ -1279,13 +1164,10 @@ async function onConfirmImportTransactions() {
    });
   }
 
-  if (transactionsToCreate.length > 0 || adjustmentsToCreate.length > 0) {
-   const bulkResult = await accountingApi.bulkImportTransactions({
-    transactions: transactionsToCreate,
-    adjustments: adjustmentsToCreate,
-   });
-   stats.createdTransactions = bulkResult.createdTransactions;
-   stats.createdExpenses = bulkResult.createdAdjustments;
+  if (transactionsToCreate.length > 0) {
+   const bulkResult = await accountingApi.bulkImportTransactions({ transactions: transactionsToCreate });
+   stats.createdTransactions = bulkResult.createdTransactions - expenseRowCount;
+   stats.createdExpenses = expenseRowCount;
   }
 
   if (!stats.createdTransactions && !stats.createdExpenses) {
@@ -1342,40 +1224,29 @@ async function onSaveAllTransactionDrafts() {
 
  // Build every row's planned update up front — the same payload the row's real save would
  // write — so the batch lock check and the actual save agree exactly on what's changing.
- type Plan = { adjustment: { original: ClientAdjustment; payload: ClientAdjustment } } | { transaction: { original: Transaction; payload: TransactionUpdateInput } };
+ type Plan = { original: Transaction; payload: TransactionUpdateInput };
  const plans: Plan[] = [];
  for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
   const draft = transactionTableDrafts[transactionId];
   const transaction = transactionTableRowMap.get(transactionId);
   if (!draft || !transaction) continue;
-  if (draft.isAdjustment && draft.adjustmentId) {
-   const original = adjustments.find((a) => a.id === draft.adjustmentId);
-   if (!original) continue;
-   const built = buildTableAdjustmentUpdate(transactionId, draft, transaction);
-   if ('error' in built) {
-    setError(t(built.error));
-    return;
-   }
-   plans.push({ adjustment: { original, payload: built.adjustmentPayload } });
-  } else {
-   if (!draft.accountFromId && !draft.accountToId) {
-    setError(t('transaction_party_required'));
-    return;
-   }
-   const built = buildTableTransactionUpdate(transactionId, draft, transaction);
-   if ('error' in built) {
-    setError(t(built.error));
-    return;
-   }
-   plans.push({ transaction: { original: transaction, payload: built.transactionPayload } });
+  if (!draft.accountFromId && !draft.accountToId) {
+   setError(t('transaction_party_required'));
+   return;
   }
+  const built = buildTableTransactionUpdate(transactionId, draft, transaction);
+  if ('error' in built) {
+   setError(t(built.error));
+   return;
+  }
+  plans.push({ original: transaction, payload: built.transactionPayload });
  }
 
  // One up-front lock check for the whole batch: warn once if any edited row's save would
  // actually move a reconciled balance (not merely because it sits at/before a lock line).
  let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
  for (const plan of plans) {
-  batchLockHit = 'adjustment' in plan ? adjustmentEditImpact(plan.adjustment.original, plan.adjustment.payload) : transactionEditImpact(plan.transaction.original, plan.transaction.payload);
+  batchLockHit = transactionEditImpact(plan.original, plan.payload);
   if (batchLockHit) break;
  }
  if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
@@ -1384,11 +1255,7 @@ async function onSaveAllTransactionDrafts() {
 
  try {
   for (const plan of plans) {
-   if ('adjustment' in plan) {
-    await accountingApi.updateClientAdjustment(plan.adjustment.payload);
-   } else {
-    await accountingApi.updateTransaction(plan.transaction.payload);
-   }
+   await accountingApi.updateTransaction(plan.payload);
   }
   setError('');
   cancelTransactionsEditMode();
@@ -1473,19 +1340,12 @@ function buildTransactionCreatePayload(tx: Transaction, createdAt: string) {
 }
 
 async function onDeleteTransactionTableRow(row: TransactionTableRow) {
- if (row.isAdjustment && row.adjustmentId) {
-  await onDeleteAdjustment(row.adjustmentId);
-  return;
- }
-
  await onDeleteTransaction(row.id);
 }
 
-// Archive-only: hide/unhide a row from the Archive list (pure display filter, never touches
-// balances — see setTransactionArchiveHidden in db.js). Not available for adjustment rows,
-// which never appear in Archive at all.
+// Archive-only: hide/unhide a row from the Archive list (pure display filter, never touches balances).
 async function onToggleTransactionArchiveHidden(row: TransactionTableRow) {
- if (!accountingApi || row.isAdjustment) return;
+ if (!accountingApi) return;
  const nextHidden = !row.archiveHidden;
  try {
   await accountingApi.setTransactionArchiveHidden({ id: row.id, hidden: nextHidden });
@@ -1534,19 +1394,15 @@ function onPasteCopiedTransaction() {
  if (!row) return;
  const fromReversed = !!row.exchangeRateFromReversed;
  const toReversed = !!row.exchangeRateToReversed;
- const isAdjustment = !!row.isAdjustment;
- const originalAdj = isAdjustment ? adjustments.find((a) => a.id === row.adjustmentId) : undefined;
- const adjCommission = originalAdj?.commission || 0;
  setTransactionForm({
   accountFromId: row.accountFromId,
-  accountToId: isAdjustment ? null : row.accountToId,
+  accountToId: row.accountToId,
   currencyId: row.currencyId,
-  amount: row.amount ? formatAmountInput(String(row.amount - adjCommission)) : '',
-  type: isAdjustment ? 'adjustment' : row.type,
-  adjustmentDirection: row.adjustmentDirection ?? 'debit',
+  amount: row.amount ? formatAmountInput(String(row.amount)) : '',
+  type: row.type,
   exchangeRateFrom: fromReversed ? formatRateValue(1 / row.exchangeRateFrom) : formatRateValue(row.exchangeRateFrom),
   commissionFrom: String(row.commissionFrom),
-  exchangeRateTo: isAdjustment ? '1.00' : toReversed ? formatRateValue(1 / row.exchangeRateTo) : formatRateValue(row.exchangeRateTo),
+  exchangeRateTo: toReversed ? formatRateValue(1 / row.exchangeRateTo) : formatRateValue(row.exchangeRateTo),
   commissionTo: String(row.commissionTo),
   charges: row.charges ? String(row.charges) : '',
   chargesCurrencyId: row.chargesCurrencyId,
@@ -1556,12 +1412,11 @@ function onPasteCopiedTransaction() {
   description: row.description,
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
-  exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
-  distributionLocationId: isAdjustment ? null : row.distributionLocationId,
-  adjustmentCommission: adjCommission ? String(adjCommission) : '',
-  counterParty: originalAdj?.counterParty || '',
+  exchangeActualAmount: row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
+  distributionLocationId: row.distributionLocationId,
+  counterParty: row.counterParty || '',
  });
- setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
+ setTxSplitDescription(Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);
  setTxToRateReversed(toReversed);
  setTxFromQuery('');
@@ -1576,21 +1431,15 @@ function onPasteCopiedTransaction() {
 function onEditTransactionInForm(row: TransactionTableRow) {
  const fromReversed = !!row.exchangeRateFromReversed;
  const toReversed = !!row.exchangeRateToReversed;
- const isAdjustment = !!row.isAdjustment;
- // The stored adjustment amount is base + commission; the form shows the base amount back
- // (see the ledger's Add Expense dialog for the same convention).
- const originalAdj = isAdjustment ? adjustments.find((a) => a.id === row.adjustmentId) : undefined;
- const adjCommission = originalAdj?.commission || 0;
  setTransactionForm({
   accountFromId: row.accountFromId,
-  accountToId: isAdjustment ? null : row.accountToId,
+  accountToId: row.accountToId,
   currencyId: row.currencyId,
-  amount: row.amount ? formatAmountInput(String(row.amount - adjCommission)) : '',
-  type: isAdjustment ? 'adjustment' : row.type,
-  adjustmentDirection: row.adjustmentDirection ?? 'debit',
+  amount: row.amount ? formatAmountInput(String(row.amount)) : '',
+  type: row.type,
   exchangeRateFrom: fromReversed ? formatRateValue(1 / row.exchangeRateFrom) : formatRateValue(row.exchangeRateFrom),
   commissionFrom: String(row.commissionFrom),
-  exchangeRateTo: isAdjustment ? '1.00' : toReversed ? formatRateValue(1 / row.exchangeRateTo) : formatRateValue(row.exchangeRateTo),
+  exchangeRateTo: toReversed ? formatRateValue(1 / row.exchangeRateTo) : formatRateValue(row.exchangeRateTo),
   commissionTo: String(row.commissionTo),
   charges: row.charges ? String(row.charges) : '',
   chargesCurrencyId: row.chargesCurrencyId,
@@ -1600,18 +1449,17 @@ function onEditTransactionInForm(row: TransactionTableRow) {
   description: row.description,
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
-  exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
-  distributionLocationId: isAdjustment ? null : row.distributionLocationId,
-  adjustmentCommission: adjCommission ? String(adjCommission) : '',
-  counterParty: originalAdj?.counterParty || '',
+  exchangeActualAmount: row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
+  distributionLocationId: row.distributionLocationId,
+  counterParty: row.counterParty || '',
  });
- setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
+ setTxSplitDescription(Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);
  setTxToRateReversed(toReversed);
  setTxFromQuery('');
  setTxToQuery('');
  setIsNewTransactionExpensesOpen(Boolean(row.charges) || Boolean(row.chargesPayer));
- setEditingTransaction({ id: isAdjustment ? (row.adjustmentId ?? row.id) : row.id, isAdjustment, createdAt: row.createdAt });
+ setEditingTransaction({ id: row.id, createdAt: row.createdAt });
  setNewTransactionDate(row.createdAt.slice(0, 10));
  if (section === 'archive') setIsNewArchiveSectionOpen(true);
  else setIsNewTransactionSectionOpen(true);
@@ -1654,7 +1502,7 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
 
  const amount = parseFloat(normalizeDecimalInput(archiveEntryForm.amount)) || 0;
  const editing = editingArchiveEntry;
- const createdAt = editing ? resolveCreatedAt(newArchiveEntryDate, editing.createdAt) : nextCreatedAtForDate(newArchiveEntryDate, transactions, adjustments);
+ const createdAt = editing ? resolveCreatedAt(newArchiveEntryDate, editing.createdAt) : nextCreatedAtForDate(newArchiveEntryDate, transactions);
 
  transactionSubmitLock.current = true;
  setIsSubmittingArchiveEntry(true);
@@ -1824,7 +1672,7 @@ async function onDeleteSelectedTransactions() {
  // so only non-archived rows' dates count toward the check — a mixed selection must still
  // be blocked on account of its non-archived members even if some rows are exempt.
  const selectedCreatedAts = idsToDelete
-  .map((id) => (id < 0 ? adjustments.find((a) => a.id === -id)?.createdAt : transactions.find((t) => t.id === id && !t.isArchived)?.createdAt))
+  .map((id) => transactions.find((t) => t.id === id && !t.isArchived)?.createdAt)
   .filter((value): value is string => Boolean(value));
  if (blockedByPastEditLock(selectedCreatedAts)) {
   return;
@@ -1834,13 +1682,8 @@ async function onDeleteSelectedTransactions() {
  // lock warning instead of the plain count confirm (one dialog either way).
  let bulkLockHit: { accountId: number; boundary: { balance: number } } | null = null;
  for (const id of idsToDelete) {
-  if (id < 0) {
-   const adj = adjustments.find((a) => a.id === -id);
-   if (adj) bulkLockHit = violatedLock([adj.accountId], adj.createdAt, adj.id, lockBoundaries);
-  } else {
-   const tx = transactions.find((t) => t.id === id);
-   if (tx) bulkLockHit = violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries);
-  }
+  const tx = transactions.find((t) => t.id === id);
+  if (tx) bulkLockHit = violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries);
   if (bulkLockHit) break;
  }
  const confirmed = bulkLockHit
@@ -1850,14 +1693,8 @@ async function onDeleteSelectedTransactions() {
   return;
  }
 
- // Negative ids represent adjustments (stored negated in the selection set);
- // positive ids are real transactions. Send both groups in one bulk request
- // instead of a request per row.
- const adjustmentIds = idsToDelete.filter((id) => id < 0).map((id) => -id);
- const transactionIds = idsToDelete.filter((id) => id > 0);
-
  try {
-  await accountingApi.deleteTransactionsBulk({ transactionIds, adjustmentIds });
+  await accountingApi.deleteTransactionsBulk({ transactionIds: idsToDelete });
   setSelectedTransactionIds(new Set());
   setError('');
   await loadData();
@@ -1934,16 +1771,14 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
   if (newCreatedAt.slice(0, 10) !== draggedRow.createdAt.slice(0, 10) && !dateChange) {
    dateChange = { from: draggedRow.createdAt.slice(0, 10), to: newCreatedAt.slice(0, 10) };
   }
-  const refId = draggedRow.isAdjustment ? draggedRow.adjustmentId ?? 0 : draggedRow.id;
-  const accIds = draggedRow.isAdjustment ? [draggedRow.accountFromId] : [draggedRow.accountFromId, draggedRow.accountToId];
+  const refId = draggedRow.id;
+  const accIds = [draggedRow.accountFromId, draggedRow.accountToId];
   for (const accId of accIds) {
    if (accId == null) continue;
    const boundary = lockBoundaries.get(accId);
    const account = clientAccountMap.get(accId);
    if (!boundary || !account) continue;
-   const net = draggedRow.isAdjustment
-    ? computeAdjustmentNetChange({ amount: draggedRow.amount, direction: draggedRow.adjustmentDirection ?? 'debit', currencyId: draggedRow.currencyId, exchangeRate: draggedRow.exchangeRateFrom }, account.currencyId)
-    : computeTransactionSideNetChange(draggedRow, account.currencyId, draggedRow.accountFromId === accId ? 'from' : 'to');
+   const net = computeTransactionSideNetChange(draggedRow, account.currencyId, draggedRow.accountFromId === accId ? 'from' : 'to');
    const delta = reconciledBalanceDelta(boundary, { createdAt: draggedRow.createdAt, refId, net, present: true }, { createdAt: newCreatedAt, refId, net, present: true });
    if (Math.abs(delta) > RECONCILED_DELTA_EPS) {
     dropImpactHit = { accountId: accId, boundary };
@@ -1973,49 +1808,29 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
    // display-only reorder for this row.
    if (!newCreatedAt || newCreatedAt === draggedRow.createdAt) continue;
 
-   if (draggedRow.isAdjustment && draggedRow.adjustmentId) {
-    const account = clientAccountMap.get(draggedRow.accountFromId ?? -1);
-    const selectedCurrency = currencyMap.get(draggedRow.currencyId);
-    const originalAdj = adjustments.find((a) => a.id === draggedRow.adjustmentId);
-    await accountingApi.updateClientAdjustment({
-     id: draggedRow.adjustmentId,
-     accountId: draggedRow.accountFromId,
-     amount: draggedRow.amount,
-     direction: draggedRow.adjustmentDirection ?? 'debit',
-     currencyId: draggedRow.currencyId,
-     currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-     currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-     exchangeRate: draggedRow.exchangeRateFrom,
-     exchangeRateReversed: !!draggedRow.exchangeRateFromReversed,
-     description: draggedRow.description,
-     commission: originalAdj?.commission ?? 0,
-     counterParty: originalAdj?.counterParty ?? '',
-     createdAt: newCreatedAt,
-    });
-   } else {
-    await accountingApi.updateTransaction({
-     id: draggedRow.id,
-     accountFromId: draggedRow.accountFromId,
-     accountToId: draggedRow.accountToId,
-     currencyId: draggedRow.currencyId,
-     amount: draggedRow.amount,
-     type: draggedRow.type,
-     exchangeRateFrom: draggedRow.exchangeRateFrom,
-     commissionFrom: draggedRow.commissionFrom,
-     exchangeRateTo: draggedRow.exchangeRateTo,
-     commissionTo: draggedRow.commissionTo,
-     exchangeRateFromReversed: draggedRow.exchangeRateFromReversed,
-     exchangeRateToReversed: draggedRow.exchangeRateToReversed,
-     charges: draggedRow.charges,
-     chargesCurrencyId: draggedRow.chargesCurrencyId,
-     chargesPayer: draggedRow.chargesPayer,
-     chargesExchangeRate: draggedRow.chargesExchangeRate,
-     chargesDescription: draggedRow.chargesDescription,
-     description: draggedRow.description,
-     distributionLocationId: draggedRow.distributionLocationId,
-     createdAt: newCreatedAt,
-    });
-   }
+   await accountingApi.updateTransaction({
+    id: draggedRow.id,
+    accountFromId: draggedRow.accountFromId,
+    accountToId: draggedRow.accountToId,
+    currencyId: draggedRow.currencyId,
+    amount: draggedRow.amount,
+    type: draggedRow.type,
+    exchangeRateFrom: draggedRow.exchangeRateFrom,
+    commissionFrom: draggedRow.commissionFrom,
+    exchangeRateTo: draggedRow.exchangeRateTo,
+    commissionTo: draggedRow.commissionTo,
+    exchangeRateFromReversed: draggedRow.exchangeRateFromReversed,
+    exchangeRateToReversed: draggedRow.exchangeRateToReversed,
+    charges: draggedRow.charges,
+    chargesCurrencyId: draggedRow.chargesCurrencyId,
+    chargesPayer: draggedRow.chargesPayer,
+    chargesExchangeRate: draggedRow.chargesExchangeRate,
+    chargesDescription: draggedRow.chargesDescription,
+    description: draggedRow.description,
+    counterParty: draggedRow.counterParty,
+    distributionLocationId: draggedRow.distributionLocationId,
+    createdAt: newCreatedAt,
+   });
   }
   setError('');
   const orderToKeep = next;
@@ -2025,46 +1840,6 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
   setError(e instanceof Error ? e.message : t('error_failed_update'));
   setManualRowOrder(currentOrder);
  }
-}
-
-// Builds the updated adjustment record a transactions-table row edit would save, from its
-// draft — shared by the real save (`onSaveTransactionTableRow`) and the batch pre-check
-// (`onSaveAllTransactionDrafts`), so both agree on exactly what the edit changes.
-function buildTableAdjustmentUpdate(transactionId: number, draft: TransactionTableDraft, transaction: Transaction): { adjustmentPayload: ClientAdjustment } | { error: string } {
- const amount = parseFloat(draft.amount);
- if (!draft.accountFromId || !draft.currencyId || !amount) {
-  return { error: 'transaction_required' };
- }
-
- const selectedCurrency = currencyMap.get(draft.currencyId);
- const account = clientAccountMap.get(draft.accountFromId);
-
- // Cross-currency with no rate entered → 0 (unset → pending); same-currency stays 1.
- const adjCross = !!(selectedCurrency && account && selectedCurrency.code !== account.currencyCode);
- const adjRawRate = parseFloat(draft.exchangeRateFrom);
- const adjRateSet = Number.isFinite(adjRawRate) && adjRawRate > 0;
- const adjRate = !adjCross ? 1 : adjRateSet ? (tableRateFromReversed[transactionId] ? 1 / adjRawRate : adjRawRate) : 0;
-
- // This table row editor has no commission/counter-party inputs — carry the original values
- // through untouched rather than silently clearing them.
- const originalAdj = adjustments.find((a) => a.id === draft.adjustmentId);
-
- const adjustmentPayload: ClientAdjustment = {
-  id: draft.adjustmentId ?? 0,
-  accountId: draft.accountFromId,
-  amount,
-  direction: draft.adjustmentDirection ?? 'debit',
-  currencyId: draft.currencyId,
-  currencyCode: selectedCurrency?.code || account?.currencyCode || '',
-  currencySymbol: selectedCurrency?.symbol || account?.currencySymbol || '',
-  exchangeRate: adjRate,
-  exchangeRateReversed: !!tableRateFromReversed[transactionId] && adjRateSet,
-  description: draft.description,
-  commission: originalAdj?.commission ?? 0,
-  counterParty: originalAdj?.counterParty ?? '',
-  createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
- };
- return { adjustmentPayload };
 }
 
 // Builds the updated transaction record a transactions-table row edit would save, from its
@@ -2112,6 +1887,7 @@ function buildTableTransactionUpdate(transactionId: number, draft: TransactionTa
   chargesDescription: draft.chargesDescription,
   description: draft.description,
   archiveNote: draft.archiveNote,
+  counterParty: draft.counterParty,
   distributionLocationId: draft.distributionLocationId,
   createdAt: resolveCreatedAt(draft.createdDate, transaction.createdAt),
  };
@@ -2144,38 +1920,6 @@ async function onSaveTransactionTableRow(transactionId: number, { skipReload = f
  }
 
  if (blockedByPastEditLock([transaction.createdAt, resolveCreatedAt(draft.createdDate, transaction.createdAt)], Boolean(transaction.isArchived))) {
-  return;
- }
-
- if (draft.isAdjustment && draft.adjustmentId) {
-  const built = buildTableAdjustmentUpdate(transactionId, draft, transaction);
-  if ('error' in built) {
-   setError(t(built.error));
-   return;
-  }
-  const { adjustmentPayload } = built;
-
-  // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
-  const originalAdj = adjustments.find((a) => a.id === draft.adjustmentId);
-  if (!skipReload && originalAdj && !(await confirmIfAdjustmentEditLocked(originalAdj, adjustmentPayload))) {
-   return;
-  }
-
-  try {
-   await accountingApi.updateClientAdjustment(adjustmentPayload);
-   setError('');
-   applyAdjustmentPatch(adjustmentPayload);
-   if (!skipReload) {
-    setEditingRowIds((prev) => {
-     const next = new Set(prev);
-     next.delete(transactionId);
-     return next;
-    });
-    void loadData();
-   }
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  }
   return;
  }
 
@@ -2350,22 +2094,20 @@ const buildTransactionExportData = (fromDate: string, toDate: string) => {
   if (columns.created) cells.push(formatDateValue(txn.createdAt, transactionTableSettings.dateFormat));
   if (columns.description) cells.push(txn.description || '');
   if (columns.accountFrom) {
-   cells.push(txn.accountFromId ? partyLabel(txn.clientFromName, txn.accountFromCurrencySymbol, txn.accountFromCurrencyCode, '') : t('archive_no_sender'));
+   cells.push(txn.accountFromId ? partyLabel(txn.clientFromName, txn.accountFromCurrencySymbol, txn.accountFromCurrencyCode, '') : txn.counterParty?.trim() || t('archive_no_sender'));
   }
   if (columns.accountTo) {
    cells.push(
-    txn.isAdjustment
-     ? t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')
-     : txn.accountToId
-       ? partyLabel(txn.clientToName, txn.accountToCurrencySymbol, txn.accountToCurrencyCode, '')
-       : t('archive_no_receiver'),
+    txn.accountToId
+     ? partyLabel(txn.clientToName, txn.accountToCurrencySymbol, txn.accountToCurrencyCode, '')
+     : txn.counterParty?.trim() || t('archive_no_receiver'),
    );
   }
   if (columns.amount) {
    cells.push(txn.amount ? `${txn.amount.toLocaleString(numLocale)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
   }
   if (columns.charges) {
-   if (txn.isAdjustment || !txn.charges) {
+   if (!txn.charges) {
     cells.push('-');
    } else {
     const parts = [`${txn.charges.toLocaleString(numLocale)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
@@ -2375,14 +2117,10 @@ const buildTransactionExportData = (fromDate: string, toDate: string) => {
    }
   }
   if (columns.commission) {
-   if (txn.isAdjustment) {
-    cells.push('-');
-   } else {
-    const parts: string[] = [];
-    if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
-    if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
-    cells.push(parts.length ? parts.join(' — ') : '-');
-   }
+   const parts: string[] = [];
+   if (txn.commissionFrom) parts.push(`${txn.clientFromName}: ${txn.commissionFrom.toFixed(2)}%`);
+   if (txn.commissionTo) parts.push(`${txn.clientToName}: ${txn.commissionTo.toFixed(2)}%`);
+   cells.push(parts.length ? parts.join(' — ') : '-');
   }
   return cells;
  });

@@ -31,7 +31,6 @@ import type {
  Client,
  ClientAccount,
  ClientAccountLedger,
- ClientAdjustment,
  ClientLedgerEntry,
  Currency,
  LedgerColumnKey,
@@ -77,8 +76,7 @@ type LedgerSectionProps = {
  onSaveAllEditingLedgerRows: () => void;
  onCancelAllEditingLedgerRows: () => void;
  onToggleLedgerEntrySelection: (key: string) => void;
- openAdjustmentModal: (accountId: number, existing?: ClientAdjustment) => void;
- openOneSidedTransactionModal: (accountId: number) => void;
+ openOneSidedTransactionModal: (accountId: number, type?: string) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openLedgerRowForEdit: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  openOrganizationClientsPage: (organization: Organization) => void;
@@ -94,7 +92,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
-  openAdjustmentModal, openOneSidedTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
+  openOneSidedTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled,
  } = props;
  const router = useRouter();
@@ -700,7 +698,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                onClick={(e) =>
                 addMenu.open(e, [
                  { key: 'note', label: t('ledger_add_menu_note'), onSelect: () => beginEditNote(ledger) },
-                 { key: 'expense', label: t('ledger_add_menu_expense'), onSelect: () => openAdjustmentModal(ledger.accountId) },
+                 { key: 'expense', label: t('ledger_add_menu_expense'), onSelect: () => openOneSidedTransactionModal(ledger.accountId, 'adjustment') },
                  { key: 'one-sided', label: t('ledger_add_menu_one_sided'), onSelect: () => openOneSidedTransactionModal(ledger.accountId) },
                 ])
                }
@@ -1400,7 +1398,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     // boundary line (bottom border) and lock indicator (left border) must extend
                     // to that sub-row instead of stopping at the main row, so the block reads as
                     // one unit rather than cutting the line off above the expense.
-                    const hasVisibleChargesRow = !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount;
+                    const hasVisibleChargesRow = entry.charges > 0 && entry.chargeAffectsThisAccount;
                     // Shared by the row's onContextMenu (desktop right-click) and its visible
                     // "⋮" button (touch devices have no right-click event to hook into).
                     const openRowMenu = (event: ReactMouseEvent) => {
@@ -1429,7 +1427,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        .sort((a, b) => {
                         const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
                         if (diff !== 0) return diff;
-                        return (a.isAdjustment ? (a.adjustmentId ?? 0) : a.transactionId) - (b.isAdjustment ? (b.adjustmentId ?? 0) : b.transactionId);
+                        return a.transactionId - b.transactionId;
                        });
                       const highlighted = sorted.filter((e) => highlightedLedgerRows.has(e.rowKey));
                       if (highlighted.length === 0) return;
@@ -1439,9 +1437,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      };
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
-                      ...(entry.isAdjustment
-                       ? []
-                       : [{ key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) }]),
+                      { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) },
                       entry.reconciledMark
                        ? { key: 'unreconcile', label: t('reconcile_remove_action'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
                        : { key: 'reconcile', label: t('reconcile_action'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
@@ -1703,35 +1699,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className="px-4 py-3 font-medium text-fg whitespace-nowrap"
                              >
-                              {entry.isAdjustment && draft ? (
-                               // Mirrors the 'direction' column's edit toggle (kept there too for when that
-                               // optional column is shown) — repeated here because 'direction' defaults to
-                               // hidden, and this is the only always-visible cell for an adjustment row.
-                               <div className="grid grid-cols-2 gap-1">
-                                <button
-                                 type="button"
-                                 onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
-                                 className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                                 }`}
-                                >
-                                 {t('adjustment_direction_debit_short')}
-                                </button>
-                                <button
-                                 type="button"
-                                 onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
-                                 className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                  draft.adjustmentDirection === 'credit'
-                                   ? 'border-emerald-500 bg-good-bg text-good-text'
-                                   : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                                 }`}
-                                >
-                                 {t('adjustment_direction_credit_short')}
-                                </button>
-                               </div>
-                              ) : entry.isAdjustment ? (
-                               <span className="text-fg-faint">-</span>
-                              ) : draft ? (
+                              {draft ? (
                                (() => {
                                 const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                                 const selectedAccount = clientAccounts.find((account) => account.id === draft.counterpartyAccountId);
@@ -2059,6 +2027,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     </ul>
                                    )}
                                   </div>
+                                  {!draft.counterpartyAccountId ? (
+                                   <input
+                                    type="text"
+                                    value={draft.counterParty}
+                                    onChange={(e) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { counterParty: e.target.value })}
+                                    placeholder={t('adjustment_counter_party_placeholder')}
+                                    style={{ width: '8rem' }}
+                                    className={`${seamlessInputClassName} text-xs text-fg`}
+                                   />
+                                  ) : null}
                                   <button
                                    type="button"
                                    title={t('ledger_swap_parties')}
@@ -2117,36 +2095,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className="px-4 py-3"
                              >
-                              {entry.isAdjustment && draft ? (
-                               <div className="grid grid-cols-2 gap-1">
-                                <button
-                                 type="button"
-                                 onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'debit' })}
-                                 className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                  draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                                 }`}
-                                >
-                                 {t('adjustment_direction_debit_short')}
-                                </button>
-                                <button
-                                 type="button"
-                                 onClick={() => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { adjustmentDirection: 'credit' })}
-                                 className={`rounded border px-2 py-1 text-xs font-semibold transition ${
-                                  draft.adjustmentDirection === 'credit'
-                                   ? 'border-emerald-500 bg-good-bg text-good-text'
-                                   : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                                 }`}
-                                >
-                                 {t('adjustment_direction_credit_short')}
-                                </button>
-                               </div>
-                              ) : entry.isAdjustment ? (
-                               <span
-                                className={`inline-flex rounded px-2.5 py-1 text-xs font-semibold ${entry.direction === 'outgoing' ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}
-                               >
-                                {entry.direction === 'outgoing' ? t('adjustment_direction_credit') : t('adjustment_direction_debit')}
-                               </span>
-                              ) : draft ? (
+                              {draft ? (
                                <select
                                 value={draft.direction}
                                 onChange={(event) =>
@@ -2173,9 +2122,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className="px-4 py-3 text-fg-muted"
                              >
-                              {entry.isAdjustment ? (
-                               <span className="inline-flex rounded bg-violet-bg px-2.5 py-1 text-xs font-semibold text-violet-text">{t('adjustment_label')}</span>
-                              ) : draft ? (
+                              {draft ? (
                                <select
                                 value={draft.type}
                                 onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { type: event.target.value })}
@@ -2186,6 +2133,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 <option value="sell">{t('transaction_type_sell')}</option>
                                 <option value="exchange">{t('transaction_type_exchange')}</option>
                                 <option value="transfer">{t('transaction_type_transfer')}</option>
+                                <option value="adjustment">{t('transaction_type_adjustment')}</option>
                                </select>
                               ) : (
                                t(transactionTypeLabelKey(entry.type))
@@ -2276,10 +2224,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   // save behind.
                                   const txCurr = enabledCurrencies.find((cur) => cur.id === draft.currencyId)?.code ?? entry.currencyCode;
                                   const accCurr = ledger.currencyCode;
-                                  // Adjustment with same currency as account: no rate needed
-                                  if (entry.isAdjustment && txCurr === accCurr) {
-                                   return <span className="text-fg-faint">-</span>;
-                                  }
                                   return (
                                    <div className="flex items-center gap-1">
                                     <input
@@ -2317,8 +2261,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       });
 
                                       // Spread each pasted value down consecutive editable rate inputs,
-                                      // starting at the row that received the paste. Adjustment rows and
-                                      // rows not in edit mode have no rate input, so they are skipped.
+                                      // starting at the row that received the paste. Rows not in edit
+                                      // mode have no rate input, so they are skipped.
                                       // Locate the start row by key in the full (unpaginated) visible list —
                                       // entryIdx is page-relative, so it can't be used to index `visible`.
                                       const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -2330,7 +2274,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       let valueIdx = 0;
                                       for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
                                        const target = visible[i];
-                                       if (target.isAdjustment) continue;
                                        const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
                                        if (!editingLedgerRowKeys.has(key)) continue;
                                        patches[key] = normalizeDecimalInput(values[valueIdx]);
@@ -2444,9 +2387,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className="px-4 py-3 text-fg-muted"
                              >
-                              {draft && entry.isAdjustment ? (
-                               <span className="text-fg-faint">-</span>
-                              ) : draft ? (
+                              {draft ? (
                                (() => {
                                 const commVal = parseFloat(draft.commission) || 0;
                                 return (
@@ -2493,7 +2434,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     let valueIdx = 0;
                                     for (let i = startIdx; i < visible.length && valueIdx < values.length; i += 1) {
                                      const target = visible[i];
-                                     if (target.isAdjustment) continue;
                                      const key = getLedgerTransactionDraftKey(target.transactionId, ledger.accountId);
                                      if (!editingLedgerRowKeys.has(key)) continue;
                                      patches[key] = normalizeDecimalInput(values[valueIdx]);
@@ -2709,7 +2649,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       // doesn't vanish mid-edit while the user is changing the dropdown.
                       const chargesBelongHere = entry.charges <= 0 || entry.chargeAffectsThisAccount;
 
-                      if (isEditingThisRow && chargesDraft && !entry.isAdjustment && chargesBelongHere) {
+                      if (isEditingThisRow && chargesDraft && chargesBelongHere) {
                        const isZero = parseFloat(chargesDraft.charges) === 0;
                        const expanded = ledgerExpensesExpandedKeys.has(chargesRowKey);
                        if (isZero && !expanded) {
@@ -2774,7 +2714,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        );
                       }
 
-                      if (!isEditingThisRow && !entry.isAdjustment && entry.charges > 0 && entry.chargeAffectsThisAccount) {
+                      if (!isEditingThisRow && entry.charges > 0 && entry.chargeAffectsThisAccount) {
                        return (
                         <tr
                          key={`${ledger.accountId}-${entry.transactionId}-charges-view`}

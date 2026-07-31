@@ -6,7 +6,6 @@ export const emptyTransactionForm = (): TransactionForm => ({
  currencyId: null,
  amount: '',
  type: 'transfer',
- adjustmentDirection: 'debit',
  exchangeRateFrom: '1.00',
  commissionFrom: '',
  exchangeRateTo: '1.00',
@@ -21,7 +20,6 @@ export const emptyTransactionForm = (): TransactionForm => ({
  descriptionTo: '',
  exchangeActualAmount: '',
  distributionLocationId: null,
- adjustmentCommission: '',
  counterParty: '',
 });
 

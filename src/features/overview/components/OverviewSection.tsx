@@ -14,7 +14,6 @@ import { localDateKey } from '@/shared/utils/date';
 import type {
  Client,
  ClientAccount,
- ClientAdjustment,
  Currency,
  HarvestRate,
  Organization,
@@ -33,14 +32,13 @@ type OverviewSectionProps = {
  clientAccounts: ClientAccount[];
  currencies: Currency[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  harvestRates: HarvestRate[];
  isLoading: boolean;
  navigateToSection: (section: Section) => void;
  onExportOverviewPdf: (cards: OverviewPdfCard[], mainCode: string, mainSymbol: string) => void;
 };
 
-export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, adjustments, harvestRates, isLoading, navigateToSection, onExportOverviewPdf }: OverviewSectionProps) {
+export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, harvestRates, isLoading, navigateToSection, onExportOverviewPdf }: OverviewSectionProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
@@ -101,8 +99,8 @@ export default function OverviewSection({ organizations, clients, clientAccounts
  const mainCurrency = useMemo(() => currencies.find((currency) => currency.isMain === 1) ?? null, [currencies]);
 
  const overviewOrgBalances = useMemo(
-  () => computeOverviewBalances({ transactions, adjustments, clientAccounts, clients, currencies, language }),
-  [transactions, adjustments, clientAccounts, clients, currencies, language],
+  () => computeOverviewBalances({ transactions, clientAccounts, clients, currencies, language }),
+  [transactions, clientAccounts, clients, currencies, language],
  );
 
  // Flat {key, name} list for the organisation search box, derived from the same grouping
@@ -139,7 +137,7 @@ export default function OverviewSection({ organizations, clients, clientAccounts
   { label: t('overview_currencies'), value: currencies.filter((currency) => currency.isEnabled === 1).length },
   { label: t('overview_organizations'), value: organizations.length },
   { label: t('overview_clients'), value: clients.length },
-  { label: t('overview_transactions'), value: transactions.length + adjustments.length },
+  { label: t('overview_transactions'), value: transactions.length },
  ];
 
  if (isLoading) {

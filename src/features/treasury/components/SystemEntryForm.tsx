@@ -12,7 +12,7 @@ import { localDateKey } from '@/shared/utils/date';
 import { nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { filterRealClientAccounts, cashboxOwnerName } from '@/shared/utils/systemAccounts';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
-import type { ClientAccount, ClientAdjustment, Currency, SystemClient, Transaction } from '@/shared/types';
+import type { ClientAccount, Currency, SystemClient, Transaction } from '@/shared/types';
 
 type Direction = 'pays' | 'receives';
 type CounterpartyKind = 'client' | 'transfer';
@@ -24,7 +24,6 @@ type SystemEntryFormProps = {
  systemClients: SystemClient[];
  enabledCurrencies: Currency[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  lockPastEditsEnabled: boolean;
  isRTL: boolean;
  onSubmitted: () => void;
@@ -37,7 +36,6 @@ export default function SystemEntryForm({
  systemClients,
  enabledCurrencies,
  transactions,
- adjustments,
  lockPastEditsEnabled,
  isRTL,
  onSubmitted,
@@ -133,7 +131,7 @@ export default function SystemEntryForm({
    const exchangeRateFromReversed = direction === 'receives' && needsRate && rateReversed;
    const exchangeRateToReversed = direction === 'pays' && needsRate && rateReversed;
 
-   const createdAt = nextCreatedAtForDate(date, transactions, adjustments);
+   const createdAt = nextCreatedAtForDate(date, transactions);
 
    await accountingApi.createTransaction({
     accountFromId,

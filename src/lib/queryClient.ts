@@ -50,7 +50,6 @@ export const queryKeys = {
  currencies: () => [...queryKeys.all, 'currencies'] as const,
  transactions: () => [...queryKeys.all, 'transactions'] as const,
  clientAccounts: () => [...queryKeys.all, 'clientAccounts'] as const,
- clientAdjustments: () => [...queryKeys.all, 'clientAdjustments'] as const,
  backupInfo: () => [...queryKeys.all, 'backupInfo'] as const,
  workspaces: () => [...queryKeys.all, 'workspaces'] as const,
  // Live external FX/gold quotes (proxied via /api/live-rates); polled on an interval.

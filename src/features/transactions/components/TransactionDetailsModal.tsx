@@ -232,7 +232,6 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
  // (the ledger/table use their own coarser display decimals; this is the full-precision view).
  const fmt = (value: number) => value.toLocaleString(numLocale, { maximumFractionDigits: 4 });
  const isExchange = tx.type === 'exchange';
- const isAdjustment = tx.type === 'adjustment';
 
  // Each side's commission is charged on that side's own base amount (mirrors the ledger's
  // per-side net-change formulas): the sender pays on amount × rateFrom; the receiver on the
@@ -372,20 +371,17 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
     <div className="mt-4 divide-y divide-border rounded border border-border bg-surface-2 px-3">
      {row(
       t('transaction_type'),
-      isAdjustment ? (
-       <span className="text-fg-faint">{t('adjustment_label')}</span>
-      ) : (
-       <select
-        value={tx.type}
-        onChange={(e) => update({ type: e.target.value })}
-        className={`${seamlessSelectClassName} text-sm text-fg text-right`}
-       >
-        <option value="buy">{t('transaction_type_buy')}</option>
-        <option value="sell">{t('transaction_type_sell')}</option>
-        <option value="exchange">{t('transaction_type_exchange')}</option>
-        <option value="transfer">{t('transaction_type_transfer')}</option>
-       </select>
-      ),
+      <select
+       value={tx.type}
+       onChange={(e) => update({ type: e.target.value })}
+       className={`${seamlessSelectClassName} text-sm text-fg text-right`}
+      >
+       <option value="buy">{t('transaction_type_buy')}</option>
+       <option value="sell">{t('transaction_type_sell')}</option>
+       <option value="exchange">{t('transaction_type_exchange')}</option>
+       <option value="transfer">{t('transaction_type_transfer')}</option>
+       <option value="adjustment">{t('transaction_type_adjustment')}</option>
+      </select>,
      )}
      {row(
       t('transaction_amount'),
@@ -419,13 +415,11 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       name: tx.clientFromName,
       currencyCode: tx.accountFromCurrencyCode,
       accountId: tx.accountFromId,
-      onCommitAccount: isAdjustment
-       ? null
-       : (id) =>
-          update({
-           accountFromId: id,
-           exchangeRateFrom: resetRateForAccountChange(id, tx.exchangeRateFrom, !!tx.exchangeRateFromReversed),
-          }),
+      onCommitAccount: (id) =>
+       update({
+        accountFromId: id,
+        exchangeRateFrom: resetRateForAccountChange(id, tx.exchangeRateFrom, !!tx.exchangeRateFromReversed),
+       }),
       rate: tx.exchangeRateFrom,
       reversed: !!tx.exchangeRateFromReversed,
       onToggleReversed: () => update({ exchangeRateFromReversed: tx.exchangeRateFromReversed ? 0 : 1 }),
@@ -453,13 +447,11 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       name: tx.clientToName,
       currencyCode: tx.accountToCurrencyCode,
       accountId: tx.accountToId,
-      onCommitAccount: isAdjustment
-       ? null
-       : (id) =>
-          update({
-           accountToId: id,
-           exchangeRateTo: resetRateForAccountChange(id, tx.exchangeRateTo, !!tx.exchangeRateToReversed),
-          }),
+      onCommitAccount: (id) =>
+       update({
+        accountToId: id,
+        exchangeRateTo: resetRateForAccountChange(id, tx.exchangeRateTo, !!tx.exchangeRateToReversed),
+       }),
       rate: tx.exchangeRateTo,
       reversed: !!tx.exchangeRateToReversed,
       onToggleReversed: () => update({ exchangeRateToReversed: tx.exchangeRateToReversed ? 0 : 1 }),

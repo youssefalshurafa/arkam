@@ -21,11 +21,12 @@ type OneSidedTransactionModalProps = {
  lockPastEditsEnabled: boolean;
 };
 
-// A regular (non-adjustment) transaction with only one real party — the client whose ledger
-// this was opened from. The other side is left unset (meaning "me" personally), so there's no
-// second account picker; everything else (type, rate, commission, charges, description) is the
-// same field set the Transactions page's own form has. See ledgerStore.ts's
-// OneSidedTransactionModalState comment for why this doesn't share state with that form.
+// A transaction with only one real party — the client whose ledger this was opened from. The
+// other side is left unset (meaning "me" personally), so there's no second account picker;
+// everything else (type, rate, commission, charges, description) is the same field set the
+// Transactions page's own form has. Also backs the ledger's "Add Expense" menu item, which just
+// prefills `type: 'adjustment'` — see ledgerStore.ts's OneSidedTransactionModalState comment for
+// why this doesn't share state with the Transactions page's own form.
 export default function OneSidedTransactionModal({
  selectedClientLedgers,
  selectedClientForLedger,
@@ -128,6 +129,7 @@ export default function OneSidedTransactionModal({
              <option value="sell">{t('transaction_type_sell')}</option>
              <option value="exchange">{t('transaction_type_exchange')}</option>
              <option value="transfer">{t('transaction_type_transfer')}</option>
+             <option value="adjustment">{t('transaction_type_adjustment')}</option>
             </select>
            </div>
 

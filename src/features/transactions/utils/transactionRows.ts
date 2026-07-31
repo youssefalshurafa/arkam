@@ -1,67 +1,17 @@
-import type { ClientAccount, ClientAdjustment, Section, Transaction, TransactionTableRow } from '@/shared/types';
+import type { Section, Transaction, TransactionTableRow } from '@/shared/types';
 import { amountMatchesSearch, textMatchesSearch } from '@/shared/utils/searchMatch';
 
-// Combines transactions with adjustment-derived rows and sorts by date (then id).
-// Ported verbatim from the page's transactionTableRows memo.
-export function buildTransactionTableRows({ adjustments, clientAccounts, transactions, txSortDir }: {
- adjustments: ClientAdjustment[];
- clientAccounts: ClientAccount[];
+// Sorts transactions by date (then id). Ported verbatim from the page's
+// transactionTableRows memo.
+export function buildTransactionTableRows({ transactions, txSortDir }: {
  transactions: Transaction[];
  txSortDir: 'asc' | 'desc';
 }): TransactionTableRow[] {
-  const adjustmentRows = adjustments.map((adjustment) => {
-   const account = clientAccounts.find((currentAccount) => currentAccount.id === adjustment.accountId);
-
-   return {
-    id: -adjustment.id,
-    adjustmentId: adjustment.id,
-    isAdjustment: true,
-    adjustmentDirection: adjustment.direction,
-    accountFromId: adjustment.accountId,
-    clientFromName: account?.clientName || '',
-    accountFromCurrencyCode: account?.currencyCode || '',
-    accountFromCurrencySymbol: account?.currencySymbol || '',
-    accountToId: 0,
-    clientToName: '',
-    accountToCurrencyCode: '',
-    accountToCurrencySymbol: '',
-    currencyId: adjustment.currencyId ?? account?.currencyId ?? 0,
-    currencyCode: adjustment.currencyCode || account?.currencyCode || '',
-    currencySymbol: adjustment.currencySymbol || account?.currencySymbol || '',
-    amount: adjustment.amount,
-    type: 'adjustment',
-    exchangeRateFrom: adjustment.exchangeRate || 1,
-    commissionFrom: 0,
-    exchangeRateTo: 1,
-    commissionTo: 0,
-    exchangeRateFromReversed: adjustment.exchangeRateReversed ? 1 : 0,
-    exchangeRateToReversed: 0,
-    charges: 0,
-    chargesCurrencyId: null,
-    chargesCurrencyCode: null,
-    chargesCurrencySymbol: null,
-    chargesPayer: '',
-    chargesExchangeRate: 1,
-    chargesDescription: '',
-    description: adjustment.description,
-    archiveNote: '',
-    counterParty: adjustment.counterParty || '',
-    isArchived: 0,
-    archiveHidden: 0,
-    distributionLocationId: null,
-    distributionLocationName: null,
-    distributionLocationKind: null,
-    createdAt: adjustment.createdAt,
-   };
-  });
-
-  return ([...transactions, ...adjustmentRows] as TransactionTableRow[]).sort((left, right) => {
+  return [...transactions].sort((left, right) => {
    const dateDiff = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
    if (dateDiff !== 0) return txSortDir === 'desc' ? dateDiff : -dateDiff;
    // Stable tiebreaker: higher DB id = inserted later = shown first within the same date
-   const leftId = left.isAdjustment ? (left.adjustmentId ?? 0) : left.id;
-   const rightId = right.isAdjustment ? (right.adjustmentId ?? 0) : right.id;
-   return txSortDir === 'desc' ? rightId - leftId : leftId - rightId;
+   return txSortDir === 'desc' ? right.id - left.id : left.id - right.id;
   });
 }
 
@@ -90,7 +40,7 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
   // A missing party only counts as "incomplete, needs assignment" when the row has no
   // counterParty — an intentionally one-sided transaction (free-text counterparty set) is
   // already complete and shouldn't clutter the Archive's missing-party queue.
-  const isArchiveEligible = (row: TransactionTableRow) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId) && !row.counterParty?.trim());
+  const isArchiveEligible = (row: TransactionTableRow) => row.isArchived || ((!row.accountFromId || !row.accountToId) && !row.counterParty?.trim());
   // Rows the user explicitly hid from the Archive list (see setTransactionArchiveHidden) stay
   // out of it unless "show hidden" is on — a pure display filter, doesn't affect balances.
   let filtered =
@@ -116,7 +66,7 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
    filtered = filtered.filter((row) => row.createdAt.slice(0, 10) <= txFilterDateTo);
   }
   if (txFilterHideExpenses) {
-   filtered = filtered.filter((row) => !row.isAdjustment);
+   filtered = filtered.filter((row) => row.type !== 'adjustment');
   }
   return filtered;
 }

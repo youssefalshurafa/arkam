@@ -162,11 +162,7 @@ export type Transaction = {
  createdAt: string;
 };
 
-export type TransactionTableRow = Transaction & {
- adjustmentId?: number;
- isAdjustment?: boolean;
- adjustmentDirection?: 'debit' | 'credit';
-};
+export type TransactionTableRow = Transaction;
 
 export type TransactionForm = {
  accountFromId: number | null;
@@ -174,7 +170,6 @@ export type TransactionForm = {
  currencyId: number | null;
  amount: string;
  type: string;
- adjustmentDirection: 'debit' | 'credit';
  exchangeRateFrom: string;
  commissionFrom: string;
  exchangeRateTo: string;
@@ -190,12 +185,8 @@ export type TransactionForm = {
  // Exchange (صرف) only: the real settled destination amount, as raw input text ('' = no override).
  exchangeActualAmount: string;
  distributionLocationId: number | null;
- // Adjustment (expense) type only: a flat amount added on top of `amount` (see
- // ClientAdjustment.commission) — distinct from commissionFrom/commissionTo, which are
- // percentages that only apply to a real two-party transaction.
- adjustmentCommission: string;
- // Adjustment (expense) type only: free-text "paid to / received from" name, not a
- // registered client — see ClientAdjustment.counterParty.
+ // Free-text "paid to / received from" name for whichever side (from/to) has no registered
+ // account — see Transaction.counterParty.
  counterParty: string;
 };
 
@@ -241,13 +232,10 @@ export type TransactionUpdateInput = {
 
 export type TransactionTableDraft = {
  transactionId: number;
- adjustmentId?: number;
- isAdjustment?: boolean;
  accountFromId: number | null;
  accountToId: number | null;
  currencyId: number | null;
  type: string;
- adjustmentDirection?: 'debit' | 'credit';
  amount: string;
  exchangeRateFrom: string;
  commissionFrom: string;
@@ -259,6 +247,7 @@ export type TransactionTableDraft = {
  chargesExchangeRate: string;
  chargesDescription: string;
  description: string;
+ counterParty: string;
  archiveNote: string;
  distributionLocationId: number | null;
  createdDate: string;
@@ -266,13 +255,11 @@ export type TransactionTableDraft = {
 
 export type LedgerTransactionDraft = {
  transactionId: number;
- adjustmentId?: number;
- isAdjustment?: boolean;
- adjustmentDirection?: 'debit' | 'credit';
  ledgerAccountId: number;
  createdDate: string;
  direction: 'incoming' | 'outgoing';
  counterpartyAccountId: number | null;
+ counterParty: string;
  type: string;
  currencyId: number | null;
  amount: string;
@@ -290,7 +277,9 @@ export type LedgerTransactionDraft = {
 
 export type ClientLedgerEntry = {
  transactionId: number;
- adjustmentId?: number;
+ // Derived display convenience (type === 'adjustment'), not a separate storage kind —
+ // every entry is backed by a real Transaction row. Used only where "Hide expenses"-style
+ // filtering is intentional (e.g. CommissionReportModal).
  isAdjustment?: boolean;
  createdAt: string;
  counterpartyName: string;
@@ -336,24 +325,6 @@ export type ClientLedgerEntry = {
  distributionLocationKind: 'receiving' | 'settlement' | null;
 };
 
-export type ClientAdjustment = {
- id: number;
- accountId: number;
- amount: number;
- direction: 'debit' | 'credit';
- currencyId: number | null;
- currencyCode: string;
- currencySymbol: string;
- exchangeRate: number;
- exchangeRateReversed: boolean;
- description: string;
- // Portion of `amount` that is commission (folded into amount, kept separately for display).
- commission: number;
- // Free-text "paid to / received from" name — not necessarily an existing client.
- counterParty: string;
- createdAt: string;
-};
-
 // A reconciliation mark: the client agreed their balance was correct as of one
 // ledger row in one client account. `anchorCreatedAt` + `anchorRefId` reproduce the
 // ledger sort order (createdAt, then id) and form the lock boundary — entries at or
@@ -361,7 +332,7 @@ export type ClientAdjustment = {
 export type Reconciliation = {
  id: number;
  accountId: number;
- anchorKind: 'transaction' | 'adjustment';
+ anchorKind: 'transaction';
  anchorRefId: number;
  anchorCreatedAt: string;
  balance: number;
@@ -473,7 +444,6 @@ export type DataCache = {
  clients: Client[];
  currencies: Currency[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  clientAccounts: ClientAccount[];
  reconciliations: Reconciliation[];
  harvestRates: HarvestRate[];

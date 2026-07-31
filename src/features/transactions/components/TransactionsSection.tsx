@@ -219,7 +219,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // fields below; an incomplete-but-real transaction surfaced on the Archive page (missing a
  // party) is still edited with the full Transaction form — see openRowMenu's isArchived routing.
  const isArchiveEntryMode = section === 'archive' && !editingTransaction;
- const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
  // Exchange (صرف) transactions get the الفعلي (actual settled destination amount) section in
  // place of the "Extra Expenses" block. Archive-only records never touch a ledger, so they keep
  // the plain Extra Expenses behaviour.
@@ -264,7 +263,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
    { key: 'edit', label: t('edit'), onSelect: () => (txn.isArchived ? onEditArchiveEntryInForm(txn) : onEditTransactionInForm(txn)), disabled: rowLocked },
    { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(txn.id) },
    { key: 'copy', label: t('copy_transaction'), onSelect: () => onCopyTransactionRow(txn) },
-   ...(section === 'archive' && !txn.isAdjustment
+   ...(section === 'archive'
     ? [{ key: 'archive-hidden', label: t(txn.archiveHidden ? 'tx_unhide_from_archive' : 'tx_hide_from_archive'), onSelect: () => void onToggleTransactionArchiveHidden(txn) }]
     : []),
    { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const, disabled: rowLocked },
@@ -658,13 +657,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             <label className="block text-sm font-medium">{t('transaction_type')}</label>
             <select
              value={transactionForm.type}
-             onChange={(event) =>
-              setTransactionForm((current) => ({
-               ...current,
-               type: event.target.value,
-               chargesPayer: event.target.value === 'adjustment' ? '' : current.chargesPayer,
-              }))
-             }
+             onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
              className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             >
              <option value="buy">{t('transaction_type_buy')}</option>
@@ -684,38 +677,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             />
 
-            {isAdjustmentTransaction ? (
-             <div className="mt-4">
-              <label className="block text-sm font-medium">{t('adjustment_direction')}</label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-               <button
-                type="button"
-                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'debit' }))}
-                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                 transactionForm.adjustmentDirection === 'debit'
-                  ? 'border-red-500 bg-bad-bg text-bad-text'
-                  : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                }`}
-               >
-                {t('adjustment_direction_debit')}
-               </button>
-               <button
-                type="button"
-                onClick={() => setTransactionForm((current) => ({ ...current, adjustmentDirection: 'credit' }))}
-                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                 transactionForm.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-good-bg text-good-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                }`}
-               >
-                {t('adjustment_direction_credit')}
-               </button>
-              </div>
-             </div>
-            ) : null}
-
-            <label className="block text-sm font-medium">
-             {isAdjustmentTransaction ? t('client') : t('transaction_account_from')}
-             {isAdjustmentTransaction ? <span className="text-bad-text"> *</span> : null}
-            </label>
+            <label className="block text-sm font-medium">{t('transaction_account_from')}</label>
             <div className="relative mt-2">
              <input
               type="text"
@@ -871,8 +833,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              )}
             </div>
 
-            {!isAdjustmentTransaction ? (
-             <>
+            <>
               <label className="mt-4 block text-sm font-medium">{t('transaction_account_to')}</label>
               <div className="relative mt-2">
                <input
@@ -1029,12 +990,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                )}
               </div>
              </>
-            ) : null}
 
-            <label className="mt-4 block text-sm font-medium">
-             {t('transaction_amount')}
-             {isAdjustmentTransaction ? <span className="text-bad-text"> *</span> : null}
-            </label>
+            <label className="mt-4 block text-sm font-medium">{t('transaction_amount')}</label>
             <div className="mt-2 flex gap-2">
              <input
               type="text"
@@ -1132,38 +1089,22 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 />
                </div>
               )}
-              {isAdjustmentTransaction ? (
-               <div>
-                <label className="block text-xs font-medium text-fg-faint">{t('adjustment_commission')}</label>
-                <input
-                 type="text"
-                 inputMode="decimal"
-                 dir="ltr"
-                 value={formatAmountInput(transactionForm.adjustmentCommission)}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, adjustmentCommission: normalizeDecimalInput(event.target.value) }))}
-                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder="0"
-                />
-               </div>
-              ) : (
-               <div>
-                <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_from')} (%)</label>
-                <input
-                 type="text"
-                 inputMode="decimal"
-                 dir="ltr"
-                 value={transactionForm.commissionFrom}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizePlainDecimalInput(event.target.value) }))}
-                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder="0"
-                />
-               </div>
-              )}
+              <div>
+               <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_from')} (%)</label>
+               <input
+                type="text"
+                inputMode="decimal"
+                dir="ltr"
+                value={transactionForm.commissionFrom}
+                onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizePlainDecimalInput(event.target.value) }))}
+                className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                placeholder="0"
+               />
+              </div>
              </div>
             </div>
 
-            {!isAdjustmentTransaction ? (
-             <div className="mt-3 rounded border border-border bg-surface-2 p-4">
+            <div className="mt-3 rounded border border-border bg-surface-2 p-4">
               <h3 className="text-sm font-semibold text-fg-muted">
                {t('transaction_account_to')}
                {transactionForm.accountToId && clientAccountMap.get(transactionForm.accountToId)?.clientName ? (
@@ -1240,7 +1181,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                </div>
               </div>
              </div>
-            ) : null}
 
             {isExchangeTransaction
              ? (() => {
@@ -1290,7 +1230,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                })()
              : null}
 
-            {!isAdjustmentTransaction && !isExchangeTransaction ? (
+            {!isExchangeTransaction ? (
              <div className="mt-4">
               <button
                type="button"
@@ -1455,66 +1395,60 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              )}
             </div>
 
-            {isAdjustmentTransaction ? (
-             <>
-              <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
+            <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
+            <input
+             type="text"
+             value={transactionForm.counterParty}
+             onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
+             placeholder={t('adjustment_counter_party_placeholder')}
+             className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+            />
+
+            <div className="mt-3">
+             <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
               <input
-               type="text"
-               value={transactionForm.counterParty}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
-               placeholder={t('adjustment_counter_party_placeholder')}
-               className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+               type="checkbox"
+               checked={txSplitDescription}
+               onChange={(event) => setTxSplitDescription(event.target.checked)}
+               className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-300"
               />
-             </>
-            ) : null}
+              {t('transaction_description_split')}
+             </label>
 
-            {!isAdjustmentTransaction ? (
-             <div className="mt-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-               <input
-                type="checkbox"
-                checked={txSplitDescription}
-                onChange={(event) => setTxSplitDescription(event.target.checked)}
-                className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-300"
-               />
-               {t('transaction_description_split')}
-              </label>
-
-              {txSplitDescription ? (
-               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div>
-                 <label className="block text-xs font-medium text-fg-faint">
-                  {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? t('transaction_account_from')}
-                 </label>
-                 <textarea
-                  value={transactionForm.descriptionFrom}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionFrom: event.target.value }))}
-                  className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  placeholder={transactionForm.description || t('transaction_description_placeholder')}
-                 />
-                </div>
-                <div>
-                 <label className="block text-xs font-medium text-fg-faint">
-                  {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? t('transaction_account_to')}
-                 </label>
-                 <textarea
-                  value={transactionForm.descriptionTo}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionTo: event.target.value }))}
-                  className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  placeholder={transactionForm.description || t('transaction_description_placeholder')}
-                 />
-                </div>
+             {txSplitDescription ? (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+               <div>
+                <label className="block text-xs font-medium text-fg-faint">
+                 {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? t('transaction_account_from')}
+                </label>
+                <textarea
+                 value={transactionForm.descriptionFrom}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionFrom: event.target.value }))}
+                 className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 placeholder={transactionForm.description || t('transaction_description_placeholder')}
+                />
                </div>
-              ) : null}
-             </div>
-            ) : null}
+               <div>
+                <label className="block text-xs font-medium text-fg-faint">
+                 {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? t('transaction_account_to')}
+                </label>
+                <textarea
+                 value={transactionForm.descriptionTo}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionTo: event.target.value }))}
+                 className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 placeholder={transactionForm.description || t('transaction_description_placeholder')}
+                />
+               </div>
+              </div>
+             ) : null}
+            </div>
 
             <button
              type="submit"
              disabled={isSubmittingTransaction}
              className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-             {editingTransaction ? t('update_transaction') : isAdjustmentTransaction ? t('adjustment_add') : t('save_transaction')}
+             {editingTransaction ? t('update_transaction') : t('save_transaction')}
             </button>
            </form>
            )}
@@ -2249,7 +2183,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 e.preventDefault();
                 void onSaveTransactionTableRow(txn.id);
                }}
-               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${!txn.isArchived && !txn.isAdjustment && (!txn.accountFromId || !txn.accountToId) ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
+               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${!txn.isArchived && (!txn.accountFromId || !txn.accountToId) ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
                 section === 'archive' && txn.archiveHidden ? 'opacity-50' : ''
                } ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
@@ -2432,7 +2366,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        <path d="M9 6V4h6v2" />
                       </svg>
                      </button>
-                     {!txn.isAdjustment && draft && (
+                     {draft && (
                       <button
                        type="button"
                        title={t('ledger_swap_parties')}
@@ -2581,9 +2515,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   ) : null}
                   {transactionTableSettings.columns.type ? (
                    <td className="px-4 py-3 text-fg-muted whitespace-nowrap">
-                    {txn.isAdjustment ? (
-                     <span className="inline-flex rounded bg-violet-bg px-2.5 py-1 text-xs font-semibold text-violet-text">{t('adjustment_label')}</span>
-                    ) : isEditingRow && draft ? (
+                    {isEditingRow && draft ? (
                      <select
                       value={draft.type}
                       onChange={(event) => updateTransactionTableDraft(txn.id, { type: event.target.value })}
@@ -2594,6 +2526,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       <option value="sell">{t('transaction_type_sell')}</option>
                       <option value="exchange">{t('transaction_type_exchange')}</option>
                       <option value="transfer">{t('transaction_type_transfer')}</option>
+                      <option value="adjustment">{t('transaction_type_adjustment')}</option>
                      </select>
                     ) : (
                      t(transactionTypeLabelKey(txn.type))
@@ -2612,32 +2545,14 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        clearLabel={t('clear_selection')}
                        isRTL={isRTL}
                       />
+                      <input
+                       type="text"
+                       value={draft.counterParty}
+                       onChange={(event) => updateTransactionTableDraft(txn.id, { counterParty: event.target.value })}
+                       placeholder={t('adjustment_counter_party_placeholder')}
+                       className={`${seamlessInputClassName} w-full text-xs text-fg`}
+                      />
                      </div>
-                    ) : txn.isAdjustment ? (
-                     <>
-                      {(() => {
-                       const fromAccount = clientAccountMap.get(txn.accountFromId ?? -1);
-                       const fromClient = fromAccount ? clientMap.get(fromAccount.clientId) : null;
-
-                       return fromClient ? (
-                        <a
-                         href={`/clients/${fromClient.id}`}
-                         onClick={(e) => {
-                          if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-                          e.preventDefault();
-                          openClientLedger(fromClient, 'clients', fromAccount?.id);
-                         }}
-                         className="cursor-pointer text-left hover:text-accent hover:underline"
-                        >
-                         {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                        </a>
-                       ) : (
-                        <div>
-                         {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
-                        </div>
-                       );
-                      })()}
-                     </>
                     ) : (
                      <>
                       {(() => {
@@ -2672,28 +2587,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   ) : null}
                   {transactionTableSettings.columns.accountTo ? (
                    <td className={`px-4 py-3 font-medium text-fg whitespace-nowrap${isEditingRow ? ' min-w-52' : ''}`}>
-                    {isEditingRow && draft && txn.isAdjustment ? (
-                     <div className="grid grid-cols-2 gap-2">
-                      <button
-                       type="button"
-                       onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'debit' })}
-                       className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                        draft.adjustmentDirection === 'debit' ? 'border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                       }`}
-                      >
-                       {t('adjustment_direction_debit_short')}
-                      </button>
-                      <button
-                       type="button"
-                       onClick={() => updateTransactionTableDraft(txn.id, { adjustmentDirection: 'credit' })}
-                       className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                        draft.adjustmentDirection === 'credit' ? 'border-emerald-500 bg-good-bg text-good-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                       }`}
-                      >
-                       {t('adjustment_direction_credit_short')}
-                      </button>
-                     </div>
-                    ) : isEditingRow && draft ? (
+                    {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <AccountSearchSelect
                        accounts={realClientAccounts}
@@ -2704,8 +2598,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        isRTL={isRTL}
                       />
                      </div>
-                    ) : txn.isAdjustment ? (
-                     <div>{t(txn.adjustmentDirection === 'credit' ? 'adjustment_direction_credit_short' : 'adjustment_direction_debit_short')}</div>
                     ) : (
                      <>
                       {(() => {
@@ -2828,9 +2720,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         />
                        </div>
                       ) : null}
-                      {/* To-leg rate — adjustments have no destination leg, so only regular
-                          transfers whose received currency differs from the destination account. */}
-                      {!txn.isAdjustment && txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode ? (
+                      {/* To-leg rate — only when the received currency differs from the destination account. */}
+                      {txn.currencyCode && txn.accountToCurrencyCode && txn.currencyCode !== txn.accountToCurrencyCode ? (
                        <div className="space-y-1">
                         <div className="flex items-center justify-between gap-1">
                          <span className="text-xs text-fg-faint">
@@ -2867,14 +2758,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        </div>
                       ) : null}
                      </div>
-                    ) : txn.isAdjustment ? (
-                     txn.exchangeRateFrom !== 1 && txn.currencyCode !== txn.accountFromCurrencyCode ? (
-                      <div className="text-xs text-fg-faint">
-                       {txn.clientFromName}: {txn.exchangeRateFromReversed ? formatRateValue(1 / txn.exchangeRateFrom) : formatRateValue(txn.exchangeRateFrom)}
-                      </div>
-                     ) : (
-                      <span className="text-fg-faint">-</span>
-                     )
                     ) : txn.exchangeRateFrom !== 1 || txn.exchangeRateTo !== 1 ? (
                      <div className="space-y-0.5 text-xs">
                       {txn.exchangeRateFrom !== 1 ? (
@@ -2895,9 +2778,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   ) : null}
                   {transactionTableSettings.columns.charges ? (
                    <td className="px-4 py-3 text-fg-muted">
-                    {txn.isAdjustment ? (
-                     <span className="text-fg-faint">-</span>
-                    ) : isEditingRow && draft ? (
+                    {isEditingRow && draft ? (
                      (() => {
                       const isZero = parseFloat(draft.charges) === 0;
                       const expanded = expensesExpandedTxns.has(txn.id);
@@ -2968,9 +2849,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   ) : null}
                   {transactionTableSettings.columns.commission ? (
                    <td className="px-4 py-3 text-fg-muted">
-                    {txn.isAdjustment ? (
-                     <span className="text-fg-faint">—</span>
-                    ) : isEditingRow && draft ? (
+                    {isEditingRow && draft ? (
                      (() => {
                       const bothZero = parseFloat(draft.commissionFrom) === 0 && parseFloat(draft.commissionTo) === 0;
                       const expanded = commissionExpandedTxns.has(txn.id);

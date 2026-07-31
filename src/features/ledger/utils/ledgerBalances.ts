@@ -3,7 +3,6 @@ import { buildLockBoundaries, buildLiveAnchorTimes, isAtOrBeforeBoundary, reconc
 import type {
  ClientAccount,
  ClientAccountLedger,
- ClientAdjustment,
  ClientLedgerEntry,
  Currency,
  Reconciliation,
@@ -63,16 +62,6 @@ export function computeTransactionSideNetChange(tx: NetChangeSideInput, accountC
  return -(toBase - getCommissionAmount(toBase, commission)) + chargeEffect;
 }
 
-// The net ledger effect of an adjustment on its account balance — mirrors the adjustment
-// branch inside computeClientLedgers. Used by the reconciliation guard to tell whether an
-// adjustment edit/create/delete/move actually changes the reconciled balance.
-export function computeAdjustmentNetChange(adj: Pick<ClientAdjustment, 'amount' | 'direction' | 'currencyId' | 'exchangeRate'>, accountCurrencyId: number): number {
- const rate = adj.exchangeRate ?? 0;
- const pendingRate = adj.currencyId != null && adj.currencyId !== accountCurrencyId && rate === 0;
- if (pendingRate) return 0;
- return (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1);
-}
-
 type ComputeArgs = {
  // Only `.id` is read (the account filter below) — loosened from `Client` so the Treasury
  // feature can pass a hidden system client (Treasury/a cashbox), which isn't a normal Client.
@@ -81,7 +70,6 @@ type ComputeArgs = {
  pdfExportModal: unknown;
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  reconciliations: Reconciliation[];
  clientAccountMap: Map<number, ClientAccount>;
  currencyMap: Map<number, Currency>;
@@ -93,14 +81,14 @@ type ComputeArgs = {
 
 // Per-account ledgers (entries + running balances) for the open client. Ported
 // verbatim from the page's selectedClientLedgers memo; pure over its inputs.
-export function computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, adjustments, reconciliations, clientAccountMap, currencyMap, enabled }: ComputeArgs): ClientAccountLedger[] {
+export function computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, reconciliations, clientAccountMap, currencyMap, enabled }: ComputeArgs): ClientAccountLedger[] {
   const isEnabled = enabled ?? (section === 'client-ledger' || !!pdfExportModal);
   // Skip expensive ledger computations unless the ledger view/modal is active.
   if (!selectedClientForLedger || !isEnabled) {
    return [];
   }
 
-  const lockBoundaries = buildLockBoundaries(reconciliations, buildLiveAnchorTimes(transactions, adjustments));
+  const lockBoundaries = buildLockBoundaries(reconciliations, buildLiveAnchorTimes(transactions));
   // Marks keyed per account by the exact row they sit on, for the ✓ badge.
   const marksByAccount = new Map<number, Map<string, Reconciliation>>();
   for (const rec of reconciliations) {
@@ -134,6 +122,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          counterpartyCurrencySymbol: counterparty?.currencySymbol || '',
          direction: 'outgoing' as const,
          type: transaction.type,
+         isAdjustment: transaction.type === 'adjustment',
          amount: transaction.amount,
          currencyCode: transaction.currencyCode,
          currencySymbol: transaction.currencySymbol,
@@ -183,6 +172,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          counterpartyCurrencySymbol: counterparty?.currencySymbol || '',
          direction: 'incoming' as const,
          type: transaction.type,
+         isAdjustment: transaction.type === 'adjustment',
          amount: transaction.amount,
          currencyCode: transaction.currencyCode,
          currencySymbol: transaction.currencySymbol,
@@ -215,55 +205,10 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
 
       return [];
      })
-     .concat(
-      adjustments
-       .filter((adj) => adj.accountId === account.id)
-       .map((adj) => ({
-        transactionId: -adj.id,
-        adjustmentId: adj.id,
-        isAdjustment: true as const,
-        createdAt: adj.createdAt,
-        counterpartyName: '',
-        counterpartyClientId: null,
-        counterpartyCurrencyCode: '',
-        counterpartyCurrencySymbol: '',
-        // debit: client owes us (e.g. gas money) ? balance moves in our favor (negative)
-        // credit: we owe the client (e.g. iPhone) ? balance moves in their favor (positive)
-        direction: (adj.direction === 'credit' ? 'outgoing' : 'incoming') as 'incoming' | 'outgoing',
-        type: 'adjustment',
-        amount: adj.amount,
-        currencyCode: adj.currencyCode || account.currencyCode,
-        currencySymbol: adj.currencySymbol || account.currencySymbol,
-        exchangeRate: adj.exchangeRate || 1,
-        exchangeRateReversed: !!adj.exchangeRateReversed,
-        pendingRate: adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0,
-        commission: 0,
-        // amount is in the adjustment's own currency; convert to account currency via exchangeRate.
-        // A cross-currency adjustment with no rate set (0) is pending and excluded from the balance.
-        netChange:
-         adj.currencyId != null && adj.currencyId !== account.currencyId && (adj.exchangeRate ?? 0) === 0
-          ? 0
-          : (adj.direction === 'credit' ? 1 : -1) * adj.amount * (adj.exchangeRate || 1),
-        runningBalance: 0,
-        description: adj.description,
-        charges: 0,
-        chargesCurrencyCode: null,
-        chargesPayer: '',
-        chargesExchangeRate: 1,
-        chargesDescription: '',
-        isChargesPayerThisAccount: false,
-        chargeAffectsThisAccount: false,
-        distributionLocationId: null,
-        distributionLocationName: null,
-        distributionLocationKind: null,
-       })),
-     )
      .sort((left, right) => {
       const dateDiff = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
       if (dateDiff !== 0) return dateDiff;
-      const leftId = left.isAdjustment ? (left.adjustmentId ?? 0) : left.transactionId;
-      const rightId = right.isAdjustment ? (right.adjustmentId ?? 0) : right.transactionId;
-      return leftId - rightId;
+      return left.transactionId - right.transactionId;
      });
 
     // Entries are ordered purely by createdAt (drag-to-reorder persists the order by
@@ -274,7 +219,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
     const entriesWithBalance = entries.map((entry) => {
      runningBalance += entry.netChange;
      const refId = reconciliationRefId(entry);
-     const mark = rowMarks?.get(`${entry.isAdjustment ? 'adjustment' : 'transaction'}:${refId}`);
+     const mark = rowMarks?.get(`transaction:${refId}`);
      return {
       ...entry,
       runningBalance,

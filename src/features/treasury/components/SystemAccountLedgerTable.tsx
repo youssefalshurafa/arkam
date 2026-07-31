@@ -67,7 +67,7 @@ export default function SystemAccountLedgerTable({ ledgers }: { ledgers: ClientA
          </tr>
         ) : (
          ledger.entries.map((entry) => (
-          <tr key={entry.isAdjustment ? `adj-${entry.adjustmentId}` : `tx-${entry.transactionId}`}>
+          <tr key={`tx-${entry.transactionId}`}>
            <td className="px-3 py-2 whitespace-nowrap text-fg-muted">{entry.createdAt.slice(0, 10)}</td>
            <td className="px-3 py-2 whitespace-nowrap text-fg">{entry.counterpartyName || '-'}</td>
            <td className="px-3 py-2 text-fg-muted">{entry.description || '-'}</td>

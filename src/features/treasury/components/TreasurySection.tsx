@@ -11,7 +11,7 @@ import { useSystemClients, useInvalidateSystemClients } from '@/features/treasur
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
 import SystemAccountLedgerTable from '@/features/treasury/components/SystemAccountLedgerTable';
 import SystemEntryForm from '@/features/treasury/components/SystemEntryForm';
-import type { ClientAccount, ClientAdjustment, Currency, Transaction } from '@/shared/types';
+import type { ClientAccount, Currency, Transaction } from '@/shared/types';
 
 type TreasurySectionProps = {
  sessionUserId: string | null;
@@ -24,7 +24,6 @@ type TreasurySectionProps = {
  treasuryEnabled: boolean;
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  enabledCurrencies: Currency[];
  currencyMap: Map<number, Currency>;
  lockPastEditsEnabled: boolean;
@@ -46,7 +45,6 @@ export default function TreasurySection({
  treasuryEnabled,
  clientAccounts,
  transactions,
- adjustments,
  enabledCurrencies,
  currencyMap,
  lockPastEditsEnabled,
@@ -111,12 +109,11 @@ export default function TreasurySection({
    enabled: true,
    clientAccounts,
    transactions,
-   adjustments,
    reconciliations: [],
    clientAccountMap,
    currencyMap,
   });
- }, [selected, clientAccounts, transactions, adjustments, clientAccountMap, currencyMap]);
+ }, [selected, clientAccounts, transactions, clientAccountMap, currencyMap]);
 
  if (!treasuryEnabled) {
   return <div className={`${panelClassName} text-sm text-fg-faint`}>{t('treasury_disabled_notice')}</div>;
@@ -172,7 +169,6 @@ export default function TreasurySection({
         systemClients={systemClients}
         enabledCurrencies={enabledCurrencies}
         transactions={transactions}
-        adjustments={adjustments}
         lockPastEditsEnabled={lockPastEditsEnabled}
         isRTL={isRTL}
         onSubmitted={() => {

@@ -5,21 +5,20 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { computeOverviewBalances } from '@/features/overview/utils/overviewBalances';
-import type { Client, ClientAccount, ClientAdjustment, Currency, Organization, Transaction } from '@/shared/types';
+import type { Client, ClientAccount, Currency, Organization, Transaction } from '@/shared/types';
 
 type OrganizationsReadOnlyProps = {
  organizations: Organization[];
  clients: Client[];
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  currencies: Currency[];
  openOrganizationClientsPage: (organization: Organization) => void;
  onOpenSettings: () => void;
 };
 
 export default function OrganizationsReadOnly({
- organizations, clients, clientAccounts, transactions, adjustments, currencies, openOrganizationClientsPage, onOpenSettings,
+ organizations, clients, clientAccounts, transactions, currencies, openOrganizationClientsPage, onOpenSettings,
 }: OrganizationsReadOnlyProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -30,8 +29,8 @@ export default function OrganizationsReadOnly({
  // Per-organization, per-currency net balance (summed across all of the org's clients).
  // Shown as a breakdown badge per currency, so no exchange-rate conversion is needed.
  const { byOrg } = useMemo(
-  () => computeOverviewBalances({ transactions, adjustments, clientAccounts, clients, currencies, language }),
-  [transactions, adjustments, clientAccounts, clients, currencies, language],
+  () => computeOverviewBalances({ transactions, clientAccounts, clients, currencies, language }),
+  [transactions, clientAccounts, clients, currencies, language],
  );
 
  // Per-organization cell pieces shared by the desktop table and the mobile card list (below md).

@@ -12,7 +12,7 @@ import { renderIcon } from '@/shared/utils/icons';
 import { formatDateValue, formatTimeValue, localDateKey } from '@/shared/utils/date';
 import { formatRateValue } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import type { Client, ClientAccount, ClientAdjustment, Currency, HarvestRate, Section, Transaction } from '@/shared/types';
+import type { Client, ClientAccount, Currency, HarvestRate, Section, Transaction } from '@/shared/types';
 import type { PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import PendingPricingModal from '@/features/organizations/components/PendingPricingModal';
 import { computeGeneralBalance } from '../utils/harvestBalance';
@@ -26,7 +26,6 @@ type HarvestSectionProps = {
   clients: Client[];
   currencies: Currency[];
   transactions: Transaction[];
-  adjustments: ClientAdjustment[];
   harvestRates: HarvestRate[];
   isLoading: boolean;
   navigateToSection: (section: Section) => void;
@@ -51,7 +50,7 @@ function orgGroupKey(organizationId: number | null): string {
   return `org:${organizationId ?? 'none'}`;
 }
 
-export default function HarvestSection({ clientAccounts, clients, currencies, transactions, adjustments, harvestRates, isLoading, navigateToSection, onSaveRate }: HarvestSectionProps) {
+export default function HarvestSection({ clientAccounts, clients, currencies, transactions, harvestRates, isLoading, navigateToSection, onSaveRate }: HarvestSectionProps) {
   const { language, isRTL } = useLanguage();
   const { t } = useTranslation(language);
   const numLocale = language === 'fr' ? 'en-US' : language;
@@ -108,12 +107,12 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   );
 
   const todayBalance = useMemo(
-    () => computeGeneralBalance({ transactions, adjustments, clientAccounts, clients, currencies, language, day: selectedDay, refRate: refRateForOrgOnDay(selectedDay) }),
-    [transactions, adjustments, clientAccounts, clients, currencies, language, selectedDay, refRateForOrgOnDay],
+    () => computeGeneralBalance({ transactions, clientAccounts, clients, currencies, language, day: selectedDay, refRate: refRateForOrgOnDay(selectedDay) }),
+    [transactions, clientAccounts, clients, currencies, language, selectedDay, refRateForOrgOnDay],
   );
   const yesterdayBalance = useMemo(
-    () => computeGeneralBalance({ transactions, adjustments, clientAccounts, clients, currencies, language, day: dayBefore, refRate: refRateForOrgOnDay(dayBefore) }),
-    [transactions, adjustments, clientAccounts, clients, currencies, language, dayBefore, refRateForOrgOnDay],
+    () => computeGeneralBalance({ transactions, clientAccounts, clients, currencies, language, day: dayBefore, refRate: refRateForOrgOnDay(dayBefore) }),
+    [transactions, clientAccounts, clients, currencies, language, dayBefore, refRateForOrgOnDay],
   );
   const profitLossMain = todayBalance.totalMain - yesterdayBalance.totalMain;
 
@@ -170,8 +169,8 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   // organization page and client ledger show, surfaced via the "N transactions awaiting
   // pricing" popup. Cumulative like the General Balance above it, not same-day-only.
   const awaitingPricingByClient = useMemo(
-    () => computeHarvestAwaitingPricingByClient({ transactions, adjustments, clientAccounts, day: selectedDay }),
-    [transactions, adjustments, clientAccounts, selectedDay],
+    () => computeHarvestAwaitingPricingByClient({ transactions, clientAccounts, day: selectedDay }),
+    [transactions, clientAccounts, selectedDay],
   );
   const awaitingPricingTotalCount = useMemo(
     () => [...awaitingPricingByClient.values()].reduce((sum, entries) => sum + entries.length, 0),

@@ -16,7 +16,6 @@ const readOnlyActions = new Set([
  'listClientAccounts',
  'listCurrencies',
  'listTransactions',
- 'listClientAdjustments',
  'listReconciliations',
  'listHarvestRates',
  'listSystemClients',
@@ -65,9 +64,6 @@ const writeActions = new Set([
  'deleteTransaction',
  'deleteTransactionsBulk',
  'deleteAllTransactions',
- 'createClientAdjustment',
- 'updateClientAdjustment',
- 'deleteClientAdjustment',
  'createReconciliation',
  'deleteReconciliation',
  'saveHarvestRate',
@@ -333,16 +329,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.deleteTransactionsBulk(appLike, payload));
    case 'deleteAllTransactions':
     await db.deleteAllTransactions(appLike);
-    return NextResponse.json({ ok: true });
-   case 'listClientAdjustments':
-    return NextResponse.json(await db.listClientAdjustments(appLike));
-   case 'createClientAdjustment':
-    return NextResponse.json(await db.createClientAdjustment(appLike, payload));
-   case 'updateClientAdjustment':
-    await db.updateClientAdjustment(appLike, payload);
-    return NextResponse.json({ ok: true });
-   case 'deleteClientAdjustment':
-    await db.deleteClientAdjustment(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'listReconciliations':
     return NextResponse.json(await db.listReconciliations(appLike));

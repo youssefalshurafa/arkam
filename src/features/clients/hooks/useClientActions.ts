@@ -14,7 +14,7 @@ import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { clientsOrgOrderStorageKey } from '@/shared/lib/localStorage';
 import { nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { localDateKey } from '@/shared/utils/date';
-import type { Client, ClientAccount, ClientAdjustment, Currency, Section, Transaction } from '@/shared/types';
+import type { Client, ClientAccount, Currency, Section, Transaction } from '@/shared/types';
 
 type ClientsByOrganizationGroup = { id: number | null; clients: Client[] };
 
@@ -22,7 +22,6 @@ type UseClientActionsParams = {
  clients: Client[];
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  numLocale: string;
  selectedClientForAccounts: Client | null;
  setSelectedClientForAccounts: Dispatch<SetStateAction<Client | null>>;
@@ -44,7 +43,6 @@ export function useClientActions({
  clients,
  clientAccounts,
  transactions,
- adjustments,
  numLocale,
  selectedClientForAccounts,
  setSelectedClientForAccounts,
@@ -261,18 +259,36 @@ async function onWriteOffBalance(accountId: number, balance: number) {
  });
  if (!confirmed) return;
 
+ // balance > 0 means this account is owed money — a write-off must move the balance DOWN
+ // toward zero, i.e. net negatively, which is the "to" side's sign (see
+ // computeTransactionSideNetChange); balance < 0 is the mirror "from" side case.
  try {
-  await accountingApi.createClientAdjustment({
-   accountId,
-   amount,
-   direction: balance > 0 ? 'debit' : 'credit',
+  await accountingApi.createTransaction({
+   accountFromId: balance > 0 ? null : accountId,
+   accountToId: balance > 0 ? accountId : null,
    currencyId: account.currencyId,
-   currencyCode: account.currencyCode,
-   currencySymbol: account.currencySymbol,
-   exchangeRate: 1,
-   exchangeRateReversed: false,
+   amount,
+   type: 'adjustment',
+   isArchived: false,
+   exchangeRateFrom: 1,
+   commissionFrom: 0,
+   exchangeRateTo: 1,
+   commissionTo: 0,
+   exchangeRateFromReversed: false,
+   exchangeRateToReversed: false,
+   charges: 0,
+   chargesCurrencyId: null,
+   chargesPayer: '',
+   chargesExchangeRate: 1,
+   chargesDescription: '',
    description: t('write_off_description'),
-   createdAt: nextCreatedAtForDate(localDateKey(), transactions, adjustments),
+   descriptionFrom: '',
+   descriptionTo: '',
+   exchangeActualAmount: null,
+   archiveNote: '',
+   counterParty: '',
+   distributionLocationId: null,
+   createdAt: nextCreatedAtForDate(localDateKey(), transactions),
   });
   setError('');
   await loadData();

@@ -26,7 +26,7 @@ type CommissionReportModalProps = {
 // a "receiving" candidate (assign a commission rate, or leave ignored) and every distinct
 // description among outgoing rows becomes a "settlement" candidate (mark as settlement, or leave
 // ignored). Only classified rows enter the math. Never books anything on its own — "Insert
-// commission" hands off to the existing add-adjustment modal for the user to review and confirm.
+// commission" hands off to the one-sided-transaction modal for the user to review and confirm.
 export default function CommissionReportModal({ ledgers, clientAccounts, onUpdateTransactionFields }: CommissionReportModalProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -35,7 +35,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts, onUpdat
  const highlightedLedgerRows = useLedgerStore((s) => s.highlightedLedgerRows);
  const commissionModal = useLedgerStore((s) => s.commissionModal);
  const setCommissionModal = useLedgerStore((s) => s.setCommissionModal);
- const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);
+ const setOneSidedTransactionModal = useLedgerStore((s) => s.setOneSidedTransactionModal);
 
  // Every table header/cell in this modal aligns this way — RTL mirrors the table itself, so
  // text-align needs the explicit flip too (same convention as the main ledger table).
@@ -50,7 +50,7 @@ export default function CommissionReportModal({ ledgers, clientAccounts, onUpdat
    .sort((a, b) => {
     const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     if (diff !== 0) return diff;
-    return (a.isAdjustment ? (a.adjustmentId ?? 0) : a.transactionId) - (b.isAdjustment ? (b.adjustmentId ?? 0) : b.transactionId);
+    return a.transactionId - b.transactionId;
    });
  }, [ledger]);
 
@@ -125,10 +125,10 @@ export default function CommissionReportModal({ ledgers, clientAccounts, onUpdat
  const breakdownByDescription = new Map(breakdown.receiving.map((row) => [row.description, row]));
  const includedReceivingCount = breakdown.receiving.length;
  const includedSettlementCount = settlementGroups.filter((g) => commissionModal.settlementSelections[g.description]).length;
- // Real transactions (not adjustments) among the checked settlement rows — these are what can
- // actually carry a per-row commission % (adjustments have no exchange-rate/commission fields).
+ // Checked settlement rows that can carry a per-row commission % (every entry is a real
+ // transaction now, with real exchange-rate/commission fields).
  const settlementTransactionTargets = rangeEntries.filter(
-  (entry) => entry.direction === 'outgoing' && !entry.isAdjustment && commissionModal.settlementSelections[entry.description],
+  (entry) => entry.direction === 'outgoing' && commissionModal.settlementSelections[entry.description],
  );
 
  function close() {
@@ -284,18 +284,23 @@ export default function CommissionReportModal({ ledgers, clientAccounts, onUpdat
   const descriptionBody = breakdown.receiving
    .map((row) => `${row.description} ${row.commissionRate.toLocaleString(numLocale, { maximumFractionDigits: 2 })}%`)
    .join(' · ');
-  setAdjustmentModal({
+  setOneSidedTransactionModal({
    accountId: ledger!.accountId,
-   editingId: null,
+   direction: 'client_to',
+   date: localDateKey(),
+   type: 'adjustment',
    amount: breakdown.totalCommission.toFixed(0),
-   direction: 'debit',
    currencyId: account?.currencyId ?? null,
    exchangeRate: '1',
    exchangeRateReversed: false,
-   description: `${t('commission_report_description_prefix')}: ${descriptionBody}`,
    commission: '',
+   charges: '0',
+   chargesCurrencyId: null,
+   chargesPayer: '',
+   chargesExchangeRate: '1',
+   chargesDescription: '',
+   description: `${t('commission_report_description_prefix')}: ${descriptionBody}`,
    counterParty: '',
-   date: localDateKey(),
   });
   close();
  }
