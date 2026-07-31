@@ -432,6 +432,12 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
    return;
   }
 
+  const adjCommission = parseFloat(transactionForm.adjustmentCommission) || 0;
+  if (adjCommission < 0) {
+   setError(t('adjustment_commission_invalid'));
+   return;
+  }
+
   const selectedCurrency = currencyMap.get(transactionForm.currencyId);
   const account = clientAccountMap.get(transactionForm.accountFromId);
 
@@ -444,7 +450,10 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
 
   const adjPayload = {
    accountId: transactionForm.accountFromId,
-   amount,
+   // Commission is added on top of the entered amount (same convention as the ledger's Add
+   // Expense dialog) so the client's balance moves by the full total; `commission` is kept
+   // alongside purely so the breakdown can be shown back.
+   amount: amount + adjCommission,
    direction: transactionForm.adjustmentDirection,
    currencyId: transactionForm.currencyId,
    currencyCode: selectedCurrency?.code || account?.currencyCode || '',
@@ -452,15 +461,15 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
    exchangeRate: adjExchangeRate,
    exchangeRateReversed: txFromRateReversed && adjRateSet,
    description: transactionForm.description,
+   commission: adjCommission,
+   counterParty: transactionForm.counterParty.trim(),
    createdAt: newTransactionCreatedAt,
   };
 
   // Editing an existing adjustment via the form → update in place instead of creating.
   if (editing && editing.isAdjustment) {
    const original = adjustments.find((a) => a.id === editing.id);
-   // This form has no commission/counter-party inputs — carry the original values through
-   // untouched rather than silently clearing them.
-   const updatedAdj = { ...adjPayload, id: editing.id, commission: original?.commission ?? 0, counterParty: original?.counterParty ?? '' } as ClientAdjustment;
+   const updatedAdj = { ...adjPayload, id: editing.id } as ClientAdjustment;
    if (original && !(await confirmIfAdjustmentEditLocked(original, updatedAdj))) {
     return;
    }
@@ -505,8 +514,8 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
      exchangeRate: adjPayload.exchangeRate,
      exchangeRateReversed: adjPayload.exchangeRateReversed,
      description: adjPayload.description,
-     commission: 0,
-     counterParty: '',
+     commission: adjPayload.commission,
+     counterParty: adjPayload.counterParty,
      createdAt: adjPayload.createdAt,
     },
    ]);
@@ -1511,11 +1520,13 @@ function onPasteCopiedTransaction() {
  const fromReversed = !!row.exchangeRateFromReversed;
  const toReversed = !!row.exchangeRateToReversed;
  const isAdjustment = !!row.isAdjustment;
+ const originalAdj = isAdjustment ? adjustments.find((a) => a.id === row.adjustmentId) : undefined;
+ const adjCommission = originalAdj?.commission || 0;
  setTransactionForm({
   accountFromId: row.accountFromId,
   accountToId: isAdjustment ? null : row.accountToId,
   currencyId: row.currencyId,
-  amount: row.amount ? formatAmountInput(String(row.amount)) : '',
+  amount: row.amount ? formatAmountInput(String(row.amount - adjCommission)) : '',
   type: isAdjustment ? 'adjustment' : row.type,
   adjustmentDirection: row.adjustmentDirection ?? 'debit',
   exchangeRateFrom: fromReversed ? formatRateValue(1 / row.exchangeRateFrom) : formatRateValue(row.exchangeRateFrom),
@@ -1532,6 +1543,8 @@ function onPasteCopiedTransaction() {
   descriptionTo: row.descriptionTo ?? '',
   exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
   distributionLocationId: isAdjustment ? null : row.distributionLocationId,
+  adjustmentCommission: adjCommission ? String(adjCommission) : '',
+  counterParty: originalAdj?.counterParty || '',
  });
  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);
@@ -1549,11 +1562,15 @@ function onEditTransactionInForm(row: TransactionTableRow) {
  const fromReversed = !!row.exchangeRateFromReversed;
  const toReversed = !!row.exchangeRateToReversed;
  const isAdjustment = !!row.isAdjustment;
+ // The stored adjustment amount is base + commission; the form shows the base amount back
+ // (see the ledger's Add Expense dialog for the same convention).
+ const originalAdj = isAdjustment ? adjustments.find((a) => a.id === row.adjustmentId) : undefined;
+ const adjCommission = originalAdj?.commission || 0;
  setTransactionForm({
   accountFromId: row.accountFromId,
   accountToId: isAdjustment ? null : row.accountToId,
   currencyId: row.currencyId,
-  amount: row.amount ? formatAmountInput(String(row.amount)) : '',
+  amount: row.amount ? formatAmountInput(String(row.amount - adjCommission)) : '',
   type: isAdjustment ? 'adjustment' : row.type,
   adjustmentDirection: row.adjustmentDirection ?? 'debit',
   exchangeRateFrom: fromReversed ? formatRateValue(1 / row.exchangeRateFrom) : formatRateValue(row.exchangeRateFrom),
@@ -1570,6 +1587,8 @@ function onEditTransactionInForm(row: TransactionTableRow) {
   descriptionTo: row.descriptionTo ?? '',
   exchangeActualAmount: !isAdjustment && row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
   distributionLocationId: isAdjustment ? null : row.distributionLocationId,
+  adjustmentCommission: adjCommission ? String(adjCommission) : '',
+  counterParty: originalAdj?.counterParty || '',
  });
  setTxSplitDescription(!isAdjustment && Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);

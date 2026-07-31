@@ -567,6 +567,8 @@
  "ledger_note_title": "Note",
  "ledger_note_add": "Ajouter une note",
  "ledger_add_menu": "Ajouter une note, une depense ou une transaction unilaterale",
+ "ledger_scroll_to_end": "Aller a la fin du tableau",
+ "ledger_scroll_to_top": "Aller au debut du tableau",
  "ledger_note_placeholder": "Ajouter une note pour ce registre…",
  "ledger_note_show_in_pdf": "Afficher dans le PDF exporté",
  "settings_danger_title": "Zone dangereuse",

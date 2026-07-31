@@ -1069,10 +1069,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <h3 className="text-sm font-semibold text-fg-muted">
               {t('transaction_account_from')}
               {transactionForm.accountFromId && clientAccountMap.get(transactionForm.accountFromId)?.clientName ? (
-               <span className="ml-1.5 font-normal text-fg-faint">— {clientAccountMap.get(transactionForm.accountFromId)!.clientName}</span>
+               <span className="ml-1.5 font-normal text-fg-faint">
+                — {clientAccountMap.get(transactionForm.accountFromId)!.clientName}
+                {clientAccountMap.get(transactionForm.accountFromId)!.currencyCode ? ` · ${clientAccountMap.get(transactionForm.accountFromId)!.currencyCode}` : ''}
+               </span>
               ) : null}
              </h3>
-             <div className={`mt-2 grid gap-2 ${showExchangeRateFrom && !isAdjustmentTransaction ? 'sm:grid-cols-2' : ''}`}>
+             <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
               {showExchangeRateFrom && (
                <div>
                 <div className="flex items-center justify-between">
@@ -1125,7 +1128,20 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 />
                </div>
               )}
-              {!isAdjustmentTransaction ? (
+              {isAdjustmentTransaction ? (
+               <div>
+                <label className="block text-xs font-medium text-fg-faint">{t('adjustment_commission')}</label>
+                <input
+                 type="text"
+                 inputMode="decimal"
+                 dir="ltr"
+                 value={formatAmountInput(transactionForm.adjustmentCommission)}
+                 onChange={(event) => setTransactionForm((current) => ({ ...current, adjustmentCommission: normalizeDecimalInput(event.target.value) }))}
+                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 placeholder="0"
+                />
+               </div>
+              ) : (
                <div>
                 <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_from')} (%)</label>
                 <input
@@ -1138,7 +1154,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  placeholder="0"
                 />
                </div>
-              ) : null}
+              )}
              </div>
             </div>
 
@@ -1147,7 +1163,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <h3 className="text-sm font-semibold text-fg-muted">
                {t('transaction_account_to')}
                {transactionForm.accountToId && clientAccountMap.get(transactionForm.accountToId)?.clientName ? (
-                <span className="ml-1.5 font-normal text-fg-faint">— {clientAccountMap.get(transactionForm.accountToId)!.clientName}</span>
+                <span className="ml-1.5 font-normal text-fg-faint">
+                 — {clientAccountMap.get(transactionForm.accountToId)!.clientName}
+                 {clientAccountMap.get(transactionForm.accountToId)!.currencyCode ? ` · ${clientAccountMap.get(transactionForm.accountToId)!.currencyCode}` : ''}
+                </span>
                ) : null}
               </h3>
               <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
@@ -1431,6 +1450,19 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </ul>
              )}
             </div>
+
+            {isAdjustmentTransaction ? (
+             <>
+              <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
+              <input
+               type="text"
+               value={transactionForm.counterParty}
+               onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
+               placeholder={t('adjustment_counter_party_placeholder')}
+               className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+              />
+             </>
+            ) : null}
 
             {!isAdjustmentTransaction ? (
              <div className="mt-3">
