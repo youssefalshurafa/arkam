@@ -699,9 +699,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                type="button"
                onClick={(e) =>
                 addMenu.open(e, [
-                 { key: 'note', label: t('ledger_note_add'), onSelect: () => beginEditNote(ledger) },
-                 { key: 'expense', label: t('adjustment_add'), onSelect: () => openAdjustmentModal(ledger.accountId) },
-                 { key: 'one-sided', label: t('one_sided_transaction_add'), onSelect: () => openOneSidedTransactionModal(ledger.accountId) },
+                 { key: 'note', label: t('ledger_add_menu_note'), onSelect: () => beginEditNote(ledger) },
+                 { key: 'expense', label: t('ledger_add_menu_expense'), onSelect: () => openAdjustmentModal(ledger.accountId) },
+                 { key: 'one-sided', label: t('ledger_add_menu_one_sided'), onSelect: () => openOneSidedTransactionModal(ledger.accountId) },
                 ])
                }
                title={t('ledger_add_menu')}

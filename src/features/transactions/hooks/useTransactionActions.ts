@@ -717,6 +717,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
     archiveNote: '',
     counterParty: '',
     isArchived: 0,
+    archiveHidden: 0,
     distributionLocationId: txPayload.distributionLocationId,
     distributionLocationName: null,
     distributionLocationKind: null,
@@ -1480,6 +1481,20 @@ async function onDeleteTransactionTableRow(row: TransactionTableRow) {
  await onDeleteTransaction(row.id);
 }
 
+// Archive-only: hide/unhide a row from the Archive list (pure display filter, never touches
+// balances — see setTransactionArchiveHidden in db.js). Not available for adjustment rows,
+// which never appear in Archive at all.
+async function onToggleTransactionArchiveHidden(row: TransactionTableRow) {
+ if (!accountingApi || row.isAdjustment) return;
+ const nextHidden = !row.archiveHidden;
+ try {
+  await accountingApi.setTransactionArchiveHidden({ id: row.id, hidden: nextHidden });
+  setTransactions((prev) => prev.map((tx) => (tx.id === row.id ? { ...tx, archiveHidden: nextHidden ? 1 : 0 } : tx)));
+ } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_update'));
+ }
+}
+
 function onToggleTransactionSelection(transactionId: number) {
  setSelectedTransactionIds((current) => {
   const next = new Set(current);
@@ -1748,6 +1763,7 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
     archiveNote: txPayload.archiveNote,
     counterParty: '',
     isArchived: 1,
+    archiveHidden: 0,
     distributionLocationId: txPayload.distributionLocationId,
     distributionLocationName: null,
     distributionLocationKind: null,
@@ -2426,6 +2442,7 @@ async function onExportTransactionsExcel() {
   onCancelImportTransactions,
   onDeleteTransaction,
   onDeleteTransactionTableRow,
+  onToggleTransactionArchiveHidden,
   onToggleTransactionSelection,
   onToggleSelectAllTransactions,
   onCopyTransactionRow,

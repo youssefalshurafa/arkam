@@ -307,6 +307,8 @@ function AuthenticatedHome() {
  const txFilterDateTo = useTransactionsStore((s) => s.txFilterDateTo);
  const setTxFilterDateTo = useTransactionsStore((s) => s.setTxFilterDateTo);
  const txFilterHideExpenses = useTransactionsStore((s) => s.txFilterHideExpenses);
+ const txFilterShowHidden = useTransactionsStore((s) => s.txFilterShowHidden);
+ const setTxFilterShowHidden = useTransactionsStore((s) => s.setTxFilterShowHidden);
  const setCommissionExpandedTxns = useTransactionsStore((s) => s.setCommissionExpandedTxns);
  const setExpensesExpandedTxns = useTransactionsStore((s) => s.setExpensesExpandedTxns);
  const setLedgerExpensesExpandedKeys = useLedgerStore((s) => s.setLedgerExpensesExpandedKeys);
@@ -841,8 +843,8 @@ function AuthenticatedHome() {
  // The Archive section shows only transactions missing a party; the main
  // Transactions section shows everything (including those archived rows).
  const displayedTransactionRows = useMemo<TransactionTableRow[]>(
-  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }),
-  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses],
+  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden }),
+  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden],
  );
 
  const txFilterClientOptions = useMemo(() => {
@@ -1611,6 +1613,7 @@ function AuthenticatedHome() {
    onCancelImportTransactions,
    onDeleteTransaction,
    onDeleteTransactionTableRow,
+   onToggleTransactionArchiveHidden,
    onToggleTransactionSelection,
    onToggleSelectAllTransactions,
    onCopyTransactionRow,
@@ -2431,6 +2434,7 @@ function AuthenticatedHome() {
          onCopyTransactionRow={onCopyTransactionRow}
          onDeleteSelectedTransactions={onDeleteSelectedTransactions}
          onDeleteTransactionTableRow={onDeleteTransactionTableRow}
+         onToggleTransactionArchiveHidden={onToggleTransactionArchiveHidden}
          onEditAllTransactions={onEditAllTransactions}
          onExportArchivePdf={onExportArchivePdf}
          openArchiveExportModal={openArchiveExportModal}

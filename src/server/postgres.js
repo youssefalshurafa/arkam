@@ -466,6 +466,10 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- (e.g. paid to/received from someone not in the client list). A row with this set is
                 -- NOT treated as an incomplete transaction awaiting a party — see filterDisplayedTransactionRows.
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS counter_party TEXT NOT NULL DEFAULT '';
+                -- User-hidden from the Archive table view (e.g. an incomplete row they don't want
+                -- cluttering the list but aren't ready to delete or assign a party to yet). Purely a
+                -- display filter — never affects balances/ledgers. See filterDisplayedTransactionRows.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS archive_hidden BOOLEAN NOT NULL DEFAULT FALSE;
 
                 -- Opt-in per-client feature (niche: a handful of "open account" agent clients
                 -- who receive money on the user's behalf across several cities/locations and

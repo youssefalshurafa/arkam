@@ -47,6 +47,7 @@ export function buildTransactionTableRows({ adjustments, clientAccounts, transac
     archiveNote: '',
     counterParty: adjustment.counterParty || '',
     isArchived: 0,
+    archiveHidden: 0,
     distributionLocationId: null,
     distributionLocationName: null,
     distributionLocationKind: null,
@@ -66,7 +67,7 @@ export function buildTransactionTableRows({ adjustments, clientAccounts, transac
 
 // Applies manual ordering, the archive/transactions split, and the active filters.
 // Ported verbatim from the page's displayedTransactionRows memo.
-export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses }: {
+export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden }: {
  transactionTableRows: TransactionTableRow[];
  manualRowOrder: number[] | null;
  section: Section;
@@ -76,6 +77,7 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
  txFilterDateFrom: string;
  txFilterDateTo: string;
  txFilterHideExpenses: boolean;
+ txFilterShowHidden: boolean;
 }): TransactionTableRow[] {
   const ordered = (() => {
    if (!manualRowOrder) return transactionTableRows;
@@ -88,9 +90,12 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
   // A missing party only counts as "incomplete, needs assignment" when the row has no
   // counterParty — an intentionally one-sided transaction (free-text counterparty set) is
   // already complete and shouldn't clutter the Archive's missing-party queue.
+  const isArchiveEligible = (row: TransactionTableRow) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId) && !row.counterParty?.trim());
+  // Rows the user explicitly hid from the Archive list (see setTransactionArchiveHidden) stay
+  // out of it unless "show hidden" is on — a pure display filter, doesn't affect balances.
   let filtered =
    section === 'archive'
-    ? ordered.filter((row) => row.isArchived || (!row.isAdjustment && (!row.accountFromId || !row.accountToId) && !row.counterParty?.trim()))
+    ? ordered.filter((row) => isArchiveEligible(row) && (txFilterShowHidden || !row.archiveHidden))
     : ordered.filter((row) => !row.isArchived);
   if (txFilterSearch) {
    filtered = filtered.filter(

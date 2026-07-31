@@ -133,6 +133,7 @@ type TransactionsSectionProps = {
  onCopyTransactionRow: (row: TransactionTableRow) => void;
  onDeleteSelectedTransactions: () => void;
  onDeleteTransactionTableRow: (row: TransactionTableRow) => void;
+ onToggleTransactionArchiveHidden: (row: TransactionTableRow) => void;
  onEditAllTransactions: () => void;
  onExportArchivePdf: (range?: ArchiveExportModalState) => void;
  openArchiveExportModal: () => void;
@@ -168,7 +169,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
   txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopyTransactionRow, onDeleteSelectedTransactions,
-  onDeleteTransactionTableRow, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction, onEditTransactionInForm, onCancelEditTransaction,
+  onDeleteTransactionTableRow, onToggleTransactionArchiveHidden, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction, onEditTransactionInForm, onCancelEditTransaction,
   onArchiveEntrySubmit, onEditArchiveEntryInForm, onCancelArchiveEntryEdit,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
@@ -197,7 +198,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   return transactions.filter((txn) => !txn.isArchived && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim() && txn.createdAt.slice(0, 10) === today);
  }, [transactions, section]);
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, txFilterShowHidden, setTxFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -263,6 +264,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
    { key: 'edit', label: t('edit'), onSelect: () => (txn.isArchived ? onEditArchiveEntryInForm(txn) : onEditTransactionInForm(txn)), disabled: rowLocked },
    { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(txn.id) },
    { key: 'copy', label: t('copy_transaction'), onSelect: () => onCopyTransactionRow(txn) },
+   ...(section === 'archive' && !txn.isAdjustment
+    ? [{ key: 'archive-hidden', label: t(txn.archiveHidden ? 'tx_unhide_from_archive' : 'tx_hide_from_archive'), onSelect: () => void onToggleTransactionArchiveHidden(txn) }]
+    : []),
    { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const, disabled: rowLocked },
   ]);
  };
@@ -1899,9 +1903,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
             {t('tx_filter_toggle')}
-            {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo || txFilterHideExpenses) && (
+            {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo || txFilterHideExpenses || txFilterShowHidden) && (
              <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">
-              {[txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses].filter(Boolean).length}
+              {[txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden].filter(Boolean).length}
              </span>
             )}
             <svg
@@ -2026,7 +2030,18 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               />
               {t('tx_filter_hide_expenses')}
              </label>
-             {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo || txFilterHideExpenses) && (
+             {section === 'archive' ? (
+              <label className="flex cursor-pointer select-none items-center gap-2 self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover">
+               <input
+                type="checkbox"
+                checked={txFilterShowHidden}
+                onChange={(e) => setTxFilterShowHidden(e.target.checked)}
+                className="h-4 w-4 cursor-pointer rounded border-border-strong text-accent focus:ring-blue-300"
+               />
+               {t('tx_filter_show_hidden')}
+              </label>
+             ) : null}
+             {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo || txFilterHideExpenses || txFilterShowHidden) && (
               <button
                type="button"
                onClick={() => {
@@ -2036,6 +2051,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 setTxFilterDateFrom('');
                 setTxFilterDateTo('');
                 setTxFilterHideExpenses(false);
+                setTxFilterShowHidden(false);
                }}
                className="self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover"
               >
@@ -2234,6 +2250,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 void onSaveTransactionTableRow(txn.id);
                }}
                className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${!txn.isArchived && !txn.isAdjustment && (!txn.accountFromId || !txn.accountToId) ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
+                section === 'archive' && txn.archiveHidden ? 'opacity-50' : ''
+               } ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
                 dragOverRowId === txn.id && dragOverHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''

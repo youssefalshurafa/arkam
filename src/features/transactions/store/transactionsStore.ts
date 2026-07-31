@@ -93,6 +93,10 @@ type TransactionsStore = {
  setTxFilterDateTo: Dispatch<SetStateAction<string>>;
  txFilterHideExpenses: boolean;
  setTxFilterHideExpenses: Dispatch<SetStateAction<boolean>>;
+ // Archive-only: rows marked archiveHidden are excluded from the Archive list unless this is
+ // on, so a user can reveal (and un-hide) them again later.
+ txFilterShowHidden: boolean;
+ setTxFilterShowHidden: Dispatch<SetStateAction<boolean>>;
  commissionExpandedTxns: Set<number>;
  setCommissionExpandedTxns: Dispatch<SetStateAction<Set<number>>>;
  expensesExpandedTxns: Set<number>;
@@ -240,6 +244,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTxFilterDateTo: setter('txFilterDateTo'),
   txFilterHideExpenses: false,
   setTxFilterHideExpenses: setter('txFilterHideExpenses'),
+  txFilterShowHidden: false,
+  setTxFilterShowHidden: setter('txFilterShowHidden'),
   commissionExpandedTxns: new Set(),
   setCommissionExpandedTxns: setter('commissionExpandedTxns'),
   expensesExpandedTxns: new Set(),
