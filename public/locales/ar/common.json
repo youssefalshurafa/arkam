@@ -286,6 +286,7 @@
  "balance": "الرصيد",
  "organization_pending_pricing": "بانتظار التسعير",
  "pending_pricing_modal_title": "قيود بانتظار التسعير",
+ "pending_pricing_no_clients": "لا يوجد عملاء لديهم قيود بانتظار التسعير.",
  "pending_pricing_rate_hint": "1 {{from}} = ؟ {{to}}",
  "pending_pricing_rate_placeholder": "السعر",
  "pending_pricing_set_rate": "تعيين السعر",

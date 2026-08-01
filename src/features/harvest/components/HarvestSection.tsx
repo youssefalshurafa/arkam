@@ -543,7 +543,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
 
       {pendingPricingClientId != null ? (
         <PendingPricingModal
-          clientName={clients.find((c) => c.id === pendingPricingClientId)?.name ?? null}
+          subtitle={clients.find((c) => c.id === pendingPricingClientId)?.name ?? null}
           entries={awaitingPricingByClient.get(pendingPricingClientId) ?? []}
           numLocale={numLocale}
           ledgerDecimals={ledgerDecimals}

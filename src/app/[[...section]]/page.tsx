@@ -72,6 +72,7 @@ import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadO
 import OrganizationsReadOnly from '@/features/organizations/components/OrganizationsReadOnly';
 import OrganizationClientsSection from '@/features/organizations/components/OrganizationClientsSection';
 import PendingPricingModal from '@/features/organizations/components/PendingPricingModal';
+import OrgPendingPricingClientsModal from '@/features/organizations/components/OrgPendingPricingClientsModal';
 import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
 import SettingsSection from '@/features/settings/components/SettingsSection';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
@@ -1412,6 +1413,18 @@ function AuthenticatedHome() {
   [clientAccounts, transactions],
  );
  const [pendingPricingModalClientId, setPendingPricingModalClientId] = useState<number | null>(null);
+ // Organizations-list "awaiting pricing" column: clicking an org's count first opens a list of
+ // just that org's clients-with-pending-rows (this id); clicking a client in that list closes
+ // it and sets pendingPricingModalClientId instead, reusing the single-client modal above.
+ const [pendingPricingModalOrgId, setPendingPricingModalOrgId] = useState<number | null>(null);
+ const pendingPricingModalOrgClients = useMemo(() => {
+  if (pendingPricingModalOrgId == null) return [];
+  return clients
+   .filter((client) => client.organizationId === pendingPricingModalOrgId)
+   .map((client) => ({ id: client.id, name: client.name, pendingCount: clientPendingPricingCounts.get(client.id) ?? 0 }))
+   .filter((client) => client.pendingCount > 0)
+   .sort((a, b) => a.name.localeCompare(b.name, language, { sensitivity: 'base' }));
+ }, [pendingPricingModalOrgId, clients, clientPendingPricingCounts, language]);
 
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
@@ -2211,11 +2224,13 @@ function AuthenticatedHome() {
          clientAccounts={clientAccounts}
          transactions={transactions}
          currencies={currencies}
+         clientPendingPricingCounts={clientPendingPricingCounts}
          openOrganizationClientsPage={openOrganizationClientsPage}
          onOpenSettings={() => {
           setSettingsTab('organizations');
           navigateToSection('settings');
          }}
+         setPendingPricingModalOrgId={setPendingPricingModalOrgId}
         />
        ) : null}
 
@@ -2516,13 +2531,27 @@ function AuthenticatedHome() {
        field so the pricing can be done right here, not only in the client ledger. */}
    {pendingPricingModalClientId != null ? (
     <PendingPricingModal
-     clientName={clients.find((c) => c.id === pendingPricingModalClientId)?.name ?? null}
+     subtitle={clients.find((c) => c.id === pendingPricingModalClientId)?.name ?? null}
      entries={clientPendingPricingEntries.get(pendingPricingModalClientId) ?? []}
      numLocale={numLocale}
      ledgerDecimals={ledgerDecimals}
      ledgerDateFormat={ledgerDateFormat}
      onClose={() => setPendingPricingModalClientId(null)}
      onSaveRate={onSavePendingPricingRate}
+    />
+   ) : null}
+
+   {/* Organizations-list "awaiting pricing" column: step 1 of 2 — this org's clients that
+       have pending rows. Clicking a client hands off to the single-client modal above. */}
+   {pendingPricingModalOrgId != null ? (
+    <OrgPendingPricingClientsModal
+     organizationName={organizations.find((o) => o.id === pendingPricingModalOrgId)?.name ?? null}
+     clients={pendingPricingModalOrgClients}
+     onSelectClient={(clientId) => {
+      setPendingPricingModalOrgId(null);
+      setPendingPricingModalClientId(clientId);
+     }}
+     onClose={() => setPendingPricingModalOrgId(null)}
     />
    ) : null}
   </div>

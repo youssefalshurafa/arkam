@@ -39,8 +39,11 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
   })();
   // A missing party only counts as "incomplete, needs assignment" when the row has no
   // counterParty — an intentionally one-sided transaction (free-text counterparty set) is
-  // already complete and shouldn't clutter the Archive's missing-party queue.
-  const isArchiveEligible = (row: TransactionTableRow) => row.isArchived || ((!row.accountFromId || !row.accountToId) && !row.counterParty?.trim());
+  // already complete and shouldn't clutter the Archive's missing-party queue. Expenses/write-offs
+  // (type === 'adjustment') are inherently, permanently one-sided by design — not a data gap
+  // awaiting a second party — so they never belong in this queue regardless of counterParty.
+  const isArchiveEligible = (row: TransactionTableRow) =>
+   row.isArchived || (row.type !== 'adjustment' && (!row.accountFromId || !row.accountToId) && !row.counterParty?.trim());
   // Rows the user explicitly hid from the Archive list (see setTransactionArchiveHidden) stay
   // out of it unless "show hidden" is on — a pure display filter, doesn't affect balances.
   let filtered =

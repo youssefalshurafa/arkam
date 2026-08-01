@@ -284,6 +284,7 @@
  "balance": "Balance",
  "organization_pending_pricing": "Pending Pricing",
  "pending_pricing_modal_title": "Entries awaiting pricing",
+ "pending_pricing_no_clients": "No clients with entries awaiting pricing.",
  "pending_pricing_rate_hint": "1 {{from}} = ? {{to}}",
  "pending_pricing_rate_placeholder": "Rate",
  "pending_pricing_set_rate": "Set rate",

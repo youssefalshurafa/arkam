@@ -9,7 +9,11 @@ import type { PdfSettings } from '@/shared/types';
 import type { PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 
 type PendingPricingModalProps = {
- clientName: string | null;
+ // Names whose pending rows these are — a single client's name. Reused verbatim by the
+ // organizations-list flow: clicking an org's count first opens OrgPendingPricingClientsModal
+ // (a per-client list), and clicking a client there opens THIS modal for just that client, so
+ // it never needs to represent more than one client at a time.
+ subtitle: string | null;
  entries: PendingPricingEntry[];
  numLocale: string;
  ledgerDecimals: number;
@@ -22,11 +26,11 @@ type PendingPricingModalProps = {
  onSaveRate: (entry: PendingPricingEntry, rate: string, reversed: boolean) => Promise<boolean>;
 };
 
-// Organization-page popup listing a client's cross-currency rows that still have no
-// exchange rate (excluded from the balance until priced). Each row now carries an inline
-// rate field so the pricing can be done here, instead of only in the client ledger.
+// Popup listing one client's cross-currency rows that still have no exchange rate (excluded
+// from the balance until priced). Each row carries an inline rate field so the pricing can be
+// done here, instead of only in the client ledger.
 export default function PendingPricingModal({
- clientName,
+ subtitle,
  entries,
  numLocale,
  ledgerDecimals,
@@ -76,7 +80,7 @@ export default function PendingPricingModal({
     <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3 sm:px-5 sm:py-4">
      <div>
       <h2 className="text-lg font-semibold text-fg">{t('pending_pricing_modal_title')}</h2>
-      {clientName ? <p className="mt-0.5 text-sm text-fg-faint">{clientName}</p> : null}
+      {subtitle ? <p className="mt-0.5 text-sm text-fg-faint">{subtitle}</p> : null}
      </div>
      <button
       type="button"
