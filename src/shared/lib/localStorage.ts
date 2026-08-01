@@ -1,4 +1,5 @@
 import type {
+ AiSettings,
  DataCache,
  ExchangeSettings,
  LedgerColumnKey,
@@ -463,6 +464,31 @@ export function saveExchangeSettings(settings: ExchangeSettings) {
  if (typeof window === 'undefined') return;
  try {
   window.localStorage.setItem(exchangeSettingsStorageKey, JSON.stringify(settings));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+// Per-browser AI-features toggle. Plain localStorage (like pdfSettings) rather than the
+// workspace-shared mechanism — this is a personal preference, not a workspace-wide rule.
+export const aiSettingsStorageKey = 'arkam:ai-settings';
+export const defaultAiSettings: AiSettings = {
+ enabled: false,
+};
+export function getStoredAiSettings(): AiSettings {
+ if (typeof window === 'undefined') return defaultAiSettings;
+ try {
+  const raw = window.localStorage.getItem(aiSettingsStorageKey);
+  if (!raw) return defaultAiSettings;
+  const parsed = JSON.parse(raw);
+  return { enabled: Boolean(parsed?.enabled) };
+ } catch {
+  return defaultAiSettings;
+ }
+}
+export function saveAiSettings(settings: AiSettings) {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify(settings));
  } catch {
   /* ignore quota / privacy-mode errors */
  }

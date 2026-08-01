@@ -164,6 +164,10 @@ function AuthenticatedHome() {
  // Gates the in-development حصاد اليوم (Today's Harvest) profit page — nav entry,
  // URL→section resolution, and render guard all check this.
  const isSuperAdminUser = authSession?.user?.isSuperAdmin === true;
+ // Per-user AI-features access, granted by a super admin (src/app/admin/users/[userId]) — off
+ // by default. Gates the Settings "AI Features" tab (nav entry + render guard, same pattern as
+ // isSuperAdminUser above); the real enforcement is server-side in the src/app/api/ai/* routes.
+ const aiFeatureAccess = authSession?.user?.aiEnabled === true;
  const queryClient = useQueryClient();
  useState(() => {
   if (ensureCacheOwner(sessionUserId)) {
@@ -1308,6 +1312,9 @@ function AuthenticatedHome() {
   { key: 'appearance', label: t('settings_appearance_title'), icon: 'settings' },
   { key: 'pdf', label: t('settings_pdf_title'), icon: 'settings' },
   { key: 'live-rates', label: t('settings_live_rates_title'), icon: 'rates' },
+  // AI features are opt-in per user, granted by a super admin — hidden entirely for anyone
+  // who hasn't been granted access, same pattern as the Harvest section's isSuperAdminUser gate.
+  ...(aiFeatureAccess ? [{ key: 'ai' as const, label: t('settings_ai_title'), icon: 'settings' as IconName }] : []),
   { key: 'clients', label: t('nav_clients'), icon: 'clients' },
   { key: 'organizations', label: t('nav_organizations'), icon: 'organizations' },
   { key: 'currencies', label: t('nav_currencies'), icon: 'currencies' },
@@ -2013,6 +2020,7 @@ function AuthenticatedHome() {
    isEditorRole={isEditorRole}
    isWorkspaceOwner={isWorkspaceOwner}
    isWorkspaceOwnerOrAdmin={isWorkspaceOwnerOrAdmin}
+   aiFeatureAccess={aiFeatureAccess}
    sharedSettingsEnabled={sharedSettingsEnabled}
    setWorkspaceSharedSettingsEnabled={setWorkspaceSharedSettingsEnabled}
    lockPastEditsEnabled={lockPastEditsEnabled}

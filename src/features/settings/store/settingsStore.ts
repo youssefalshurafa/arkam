@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { ExchangeSettings, PdfSettings } from '@/shared/types';
-import { getStoredPdfSettings, pdfSettingsStorageKey, getStoredExchangeSettings, saveExchangeSettings } from '@/shared/lib/localStorage';
+import type { AiSettings, ExchangeSettings, PdfSettings } from '@/shared/types';
+import { getStoredPdfSettings, pdfSettingsStorageKey, getStoredExchangeSettings, saveExchangeSettings, getStoredAiSettings, saveAiSettings } from '@/shared/lib/localStorage';
 
 /**
  * App-wide settings that persist per browser. The PDF export formatting options
@@ -14,6 +14,8 @@ type SettingsStore = {
  updatePdfSettings: (partial: Partial<PdfSettings>) => void;
  exchangeSettings: ExchangeSettings;
  updateExchangeSettings: (partial: Partial<ExchangeSettings>) => void;
+ aiSettings: AiSettings;
+ updateAiSettings: (partial: Partial<AiSettings>) => void;
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -32,5 +34,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   const next = { ...get().exchangeSettings, ...partial };
   saveExchangeSettings(next);
   set({ exchangeSettings: next });
+ },
+ aiSettings: getStoredAiSettings(),
+ updateAiSettings: (partial) => {
+  const next = { ...get().aiSettings, ...partial };
+  saveAiSettings(next);
+  set({ aiSettings: next });
  },
 }));

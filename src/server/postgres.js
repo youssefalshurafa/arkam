@@ -212,6 +212,11 @@ async function ensurePublicSchema() {
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
+
+                    -- Super-admin-controlled access to the in-app AI features (ledger review,
+                    -- natural-language transaction entry). Off by default for everyone; only a
+                    -- super admin can turn it on per user, from the admin user-detail page.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN NOT NULL DEFAULT FALSE;
                     ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
                     ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT '';
                     ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';

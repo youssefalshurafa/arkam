@@ -20,6 +20,7 @@ export type AdminUser = {
  phone: string | null;
  subscriptionStartedAt: string | null;
  subscriptionEndsAt: string | null;
+ aiEnabled: boolean;
  workspaceCount: number;
  workspaces: Workspace[];
 };
@@ -91,6 +92,7 @@ export type UserDetail = {
  phone: string;
  subscriptionStartedAt: string | null;
  subscriptionEndsAt: string | null;
+ aiEnabled: boolean;
 };
 
 export type PendingAccessRequest = {
