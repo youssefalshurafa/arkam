@@ -1063,6 +1063,15 @@ function AuthenticatedHome() {
   });
  }
 
+ // Clears every highlighted row for the currently open client's ledger.
+ function clearLedgerRowHighlights() {
+  setHighlightedLedgerRows(new Map());
+  const clientId = selectedClientForLedger?.id;
+  if (clientId && typeof window !== 'undefined') {
+   window.localStorage.removeItem(ledgerHighlightsStorageKeyPrefix + clientId);
+  }
+ }
+
  // Explicit mode setter for the highlight / copy / none row-click group shown above the table.
  // 'none' disengages both modes for a neutral pointer; picking highlight/copy re-engages and
  // persists which of the two is preferred.
@@ -2550,6 +2559,7 @@ function AuthenticatedHome() {
      toggleLedgerCurrencySymbol={toggleLedgerCurrencySymbol}
      toggleLedgerHighlightNetChange={toggleLedgerHighlightNetChange}
      toggleLedgerColumn={toggleLedgerColumn}
+     clearLedgerRowHighlights={clearLedgerRowHighlights}
     />
    ) : null}
 

@@ -537,6 +537,7 @@
  "commission_from_him": "Commission du client — cliquez pour la mettre pour le client",
  "commission_for_him": "Commission pour le client — cliquez pour la mettre du client",
  "ledger_row_highlight_color": "Couleur de surlignage des lignes",
+ "ledger_clear_row_highlights": "Désurligner toutes les lignes",
  "ledger_row_click_toggle": "Cliquer sur une ligne pour la surligner",
  "ledger_click_highlight_mode": "Cliquer sur les lignes pour surligner",
  "ledger_click_copy_mode": "Cliquer sur les cellules pour copier",

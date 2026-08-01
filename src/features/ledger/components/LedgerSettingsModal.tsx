@@ -15,15 +15,17 @@ type LedgerSettingsModalProps = {
  toggleLedgerCurrencySymbol: () => void;
  toggleLedgerHighlightNetChange: () => void;
  toggleLedgerColumn: (column: LedgerColumnKey) => void;
+ clearLedgerRowHighlights: () => void;
 };
 
 export default function LedgerSettingsModal({
  orderedLedgerColumnOptions, persistLedgerSettings, updateLedgerDecimals, updateLedgerDateFormat,
  updateLedgerRowHighlightColor, updateLedgerNetChangeHighlightColor, toggleLedgerCurrencySymbol, toggleLedgerHighlightNetChange, toggleLedgerColumn,
+ clearLedgerRowHighlights,
 }: LedgerSettingsModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
- const { showLedgerSettingsModal, setShowLedgerSettingsModal, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowHighlightColor, ledgerRowClickHighlight, setLedgerRowClickHighlight, showLedgerCurrencySymbol, setShowLedgerCurrencySymbol, ledgerColumnVisibility, setLedgerColumnVisibility, setLedgerColumnOrder } = useLedgerStore();
+ const { showLedgerSettingsModal, setShowLedgerSettingsModal, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowHighlightColor, ledgerRowClickHighlight, setLedgerRowClickHighlight, showLedgerCurrencySymbol, setShowLedgerCurrencySymbol, ledgerColumnVisibility, setLedgerColumnVisibility, setLedgerColumnOrder, highlightedLedgerRows } = useLedgerStore();
 
  return (
     <div
@@ -140,6 +142,14 @@ export default function LedgerSettingsModal({
           {ledgerRowHighlightColor}
          </span>
         </div>
+        <button
+         type="button"
+         onClick={() => clearLedgerRowHighlights()}
+         disabled={highlightedLedgerRows.size === 0}
+         className="mt-2 cursor-pointer rounded border border-border-strong bg-surface px-3 py-1.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-30"
+        >
+         {t('ledger_clear_row_highlights')}
+        </button>
        </div>
 
        {/* Column visibility */}
