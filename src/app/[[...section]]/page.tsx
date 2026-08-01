@@ -79,6 +79,7 @@ import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
+import { buildRateSamples, checkLedgerEntry, type RateAnomaly, buildCommissionSamples, checkLedgerEntryCommission, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, computeClientReconciledStatus, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
@@ -1683,6 +1684,36 @@ function AuthenticatedHome() {
   [reconciliations, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
  );
 
+ // Flags rows whose exchange rate deviates sharply from other transactions in the same
+ // currency pair (most notably a ×/÷ toggle mistake) so LedgerSection can badge them while
+ // browsing, ahead of the blocking export-time check in useLedgerActions.
+ const ledgerRateAnomalies: Map<number, RateAnomaly> = useMemo(() => {
+  const samples = buildRateSamples(transactions);
+  const map = new Map<number, RateAnomaly>();
+  for (const ledger of selectedClientLedgers) {
+   for (const entry of ledger.entries) {
+    const anomaly = checkLedgerEntry(entry, ledger.currencyCode, samples);
+    if (anomaly) map.set(entry.transactionId, anomaly);
+   }
+  }
+  return map;
+ }, [selectedClientLedgers, transactions]);
+
+ // Flags exchange-transaction commissions that break from an account's own commission
+ // history (e.g. an always commission-free account suddenly getting one) so LedgerSection
+ // can badge them while browsing, ahead of the blocking export-time check in useLedgerActions.
+ const ledgerCommissionAnomalies: Map<number, CommissionAnomaly> = useMemo(() => {
+  const samples = buildCommissionSamples(transactions);
+  const map = new Map<number, CommissionAnomaly>();
+  for (const ledger of selectedClientLedgers) {
+   for (const entry of ledger.entries) {
+    const anomaly = checkLedgerEntryCommission(entry, ledger.accountId, samples);
+    if (anomaly) map.set(entry.transactionId, anomaly);
+   }
+  }
+  return map;
+ }, [selectedClientLedgers, transactions]);
+
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
    return '';
@@ -2291,6 +2322,8 @@ function AuthenticatedHome() {
          setSelectedLedgerAccountId={setSelectedLedgerAccountId}
          selectedOrganizationForClients={selectedOrganizationForClients}
          selectedClientLedgers={selectedClientLedgers}
+         ledgerRateAnomalies={ledgerRateAnomalies}
+         ledgerCommissionAnomalies={ledgerCommissionAnomalies}
          orderedLedgerColumnOptions={orderedLedgerColumnOptions}
          ledgerHistory={combinedLedgerHistory}
          getClientLedgerDraft={getClientLedgerDraft}

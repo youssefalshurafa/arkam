@@ -9,6 +9,7 @@ import { accountingApi } from '@/lib/accountingApi';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
+import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
@@ -1060,6 +1061,51 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  }
 }
 
+function selectLedgerEntriesForRange(
+ ledger: ClientAccountLedger,
+ fromDate: string,
+ toDate: string,
+ fromEntryKey?: string | null,
+ toEntryKey?: string | null,
+): ClientLedgerEntry[] {
+ const candidates = ledger.entries.filter((e) => {
+  const d = e.createdAt.slice(0, 10);
+  return d >= fromDate && d <= toDate;
+ });
+ const startIdx = fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey)) : 0;
+ const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
+ const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
+ return startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
+}
+
+// A last-line-of-defense "second accountant" check before a ledger leaves the app: flags
+// exchange rates that deviate sharply from other transactions in the same currency pair
+// (most notably a ×/÷ toggle mistake, which is off by 10s-to-100s-x), plus exchange-transaction
+// commissions that break from this account's own commission history — and requires the user
+// to explicitly acknowledge before export proceeds. Mirrors the confirmIfLocked pattern.
+async function confirmIfLedgerAnomalies(entries: ClientLedgerEntry[], ledgerCurrencyCode: string, accountId: number): Promise<boolean> {
+ const rateSamples = buildRateSamples(transactions);
+ const commissionSamples = buildCommissionSamples(transactions);
+ const flaggedRates = entries
+  .map((entry) => ({ entry, anomaly: checkLedgerEntry(entry, ledgerCurrencyCode, rateSamples) }))
+  .filter((x): x is { entry: ClientLedgerEntry; anomaly: NonNullable<typeof x.anomaly> } => x.anomaly != null)
+  .map(({ entry, anomaly }) => `${formatDateValue(entry.createdAt, pdfSettings.dateFormat)} · ${entry.description || entry.counterpartyName} — ${t('ledger_anomaly_entered')}: ${formatRateValue(anomaly.enteredRate)}, ${t('ledger_anomaly_expected')}: ~${formatRateValue(anomaly.referenceRate)}`);
+ const flaggedCommissions = entries
+  .map((entry) => ({ entry, anomaly: checkLedgerEntryCommission(entry, accountId, commissionSamples) }))
+  .filter((x): x is { entry: ClientLedgerEntry; anomaly: NonNullable<typeof x.anomaly> } => x.anomaly != null)
+  .map(({ entry, anomaly }) => `${formatDateValue(entry.createdAt, pdfSettings.dateFormat)} · ${entry.description || entry.counterpartyName} — ${t('ledger_anomaly_entered')}: ${anomaly.enteredCommission}%, ${t('ledger_anomaly_expected')}: ~${formatRateValue(anomaly.referenceCommission)}%`);
+ const allLines = [...flaggedRates, ...flaggedCommissions];
+ if (allLines.length === 0) return true;
+ const shown = allLines.slice(0, 8);
+ if (allLines.length > shown.length) shown.push(t('ledger_anomaly_more', { count: String(allLines.length - shown.length) }));
+ return confirmDialog({
+  title: t('ledger_anomaly_warn_title'),
+  message: `${t('ledger_anomaly_warn_message')}\n\n${shown.join('\n')}`,
+  confirmText: t('ledger_anomaly_warn_confirm'),
+  tone: 'danger',
+ });
+}
+
 async function onExportLedgerPdf(
  ledger: ClientAccountLedger,
  fromDate: string,
@@ -1070,6 +1116,8 @@ async function onExportLedgerPdf(
 ) {
  if (!accountingApi) return;
  try {
+  const selected = selectLedgerEntriesForRange(ledger, fromDate, toDate, fromEntryKey, toEntryKey);
+  if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
   const html = generateLedgerHtml({ t, numLocale, isRTL, language, pdfSettings }, { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectedClientForLedger, transactions, ledgerColumnOrder });
   const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
   const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
@@ -1089,14 +1137,8 @@ async function onExportLedgerExcel(
  toEntryKey?: string | null,
 ) {
  try {
-  const candidates = ledger.entries.filter((e) => {
-   const d = e.createdAt.slice(0, 10);
-   return d >= fromDate && d <= toDate;
-  });
-  const startIdx = fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey)) : 0;
-  const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
-  const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
-  const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
+  const selected = selectLedgerEntriesForRange(ledger, fromDate, toDate, fromEntryKey, toEntryKey);
+  if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
 
   type ExcelColDef = { key: LedgerColumnKey; header: string; cell: (e: ClientLedgerEntry) => string | number };
   const allCols: ExcelColDef[] = [

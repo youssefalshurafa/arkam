@@ -23,6 +23,7 @@ import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch } from '@/features/ledger/utils/ledgerEntries';
+import type { RateAnomaly, CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
@@ -51,6 +52,8 @@ type LedgerSectionProps = {
  setSelectedLedgerAccountId: (id: number | null) => void;
  selectedOrganizationForClients: Organization | null;
  selectedClientLedgers: ClientAccountLedger[];
+ ledgerRateAnomalies: Map<number, RateAnomaly>;
+ ledgerCommissionAnomalies: Map<number, CommissionAnomaly>;
  orderedLedgerColumnOptions: Array<{ key: LedgerColumnKey; label: string }>;
  ledgerHistory: DraftHistory;
  getClientLedgerDraft: (transactionId: number, ledgerAccountId: number) => LedgerTransactionDraft | null;
@@ -88,7 +91,7 @@ type LedgerSectionProps = {
 export default function LedgerSection(props: LedgerSectionProps) {
  const {
   isLoading, clients, clientAccounts, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
-  selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers,
+  selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, ledgerRateAnomalies, ledgerCommissionAnomalies,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
@@ -2346,10 +2349,23 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    );
                                   }
                                   if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
-                                   return formatRateValue(entry.exchangeRate);
+                                   const sameCurrencyAnomaly = ledgerRateAnomalies.get(entry.transactionId);
+                                   if (!sameCurrencyAnomaly) return formatRateValue(entry.exchangeRate);
+                                   return (
+                                    <div className="flex items-center gap-1">
+                                     <span>{formatRateValue(entry.exchangeRate)}</span>
+                                     <span
+                                      title={t('ledger_anomaly_badge_hint', { entered: formatRateValue(sameCurrencyAnomaly.enteredRate), expected: formatRateValue(sameCurrencyAnomaly.referenceRate) })}
+                                      className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text"
+                                     >
+                                      ⚠ {t('ledger_anomaly_badge')}
+                                     </span>
+                                    </div>
+                                   );
                                   }
                                   const rateNumber = isReversed ? formatRateValue(1 / entry.exchangeRate) : formatRateValue(entry.exchangeRate);
                                   const rateLabel = `${entry.counterpartyName}: ${rateNumber}`;
+                                  const anomaly = ledgerRateAnomalies.get(entry.transactionId);
                                   return (
                                    <div className="flex items-center gap-1">
                                     <span title={rateLabel}>{rateNumber}</span>
@@ -2377,6 +2393,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       {isReversed ? '÷' : '×'}
                                      </span>
                                     </button>
+                                    {anomaly ? (
+                                     <span
+                                      title={t('ledger_anomaly_badge_hint', { entered: formatRateValue(anomaly.enteredRate), expected: formatRateValue(anomaly.referenceRate) })}
+                                      className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text"
+                                     >
+                                      ⚠ {t('ledger_anomaly_badge')}
+                                     </span>
+                                    ) : null}
                                    </div>
                                   );
                                  })()}
@@ -2483,9 +2507,24 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 );
                                })()
                               ) : entry.commission ? (
-                               <span className={entry.commission < 0 ? 'font-semibold text-bad-text' : 'font-semibold text-good-text'}>
-                                {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}%
-                               </span>
+                               (() => {
+                                const commissionAnomaly = ledgerCommissionAnomalies.get(entry.transactionId);
+                                return (
+                                 <span className="inline-flex items-center gap-1">
+                                  <span className={entry.commission < 0 ? 'font-semibold text-bad-text' : 'font-semibold text-good-text'}>
+                                   {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}%
+                                  </span>
+                                  {commissionAnomaly ? (
+                                   <span
+                                    title={t('ledger_anomaly_commission_badge_hint', { entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }), expected: formatRateValue(commissionAnomaly.referenceCommission) })}
+                                    className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text"
+                                   >
+                                    ⚠ {t('ledger_anomaly_commission_badge')}
+                                   </span>
+                                  ) : null}
+                                 </span>
+                                );
+                               })()
                               ) : (
                                <span className="text-fg-faint">-</span>
                               )}
