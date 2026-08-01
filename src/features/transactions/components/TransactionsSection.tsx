@@ -195,7 +195,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const missingCounterpartyToday = useMemo(() => {
   if (section !== 'transactions') return [];
   const today = localDateKey();
-  return transactions.filter((txn) => !txn.isArchived && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim() && txn.createdAt.slice(0, 10) === today);
+  return transactions.filter((txn) => !txn.isArchived && txn.type !== 'adjustment' && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim() && txn.createdAt.slice(0, 10) === today);
  }, [transactions, section]);
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
  const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, txFilterShowHidden, setTxFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry } = useTransactionsStore();
@@ -1395,14 +1395,18 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              )}
             </div>
 
-            <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
-            <input
-             type="text"
-             value={transactionForm.counterParty}
-             onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
-             placeholder={t('adjustment_counter_party_placeholder')}
-             className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-            />
+            {!transactionForm.accountFromId || !transactionForm.accountToId ? (
+             <>
+              <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
+              <input
+               type="text"
+               value={transactionForm.counterParty}
+               onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
+               placeholder={t('adjustment_counter_party_placeholder')}
+               className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+              />
+             </>
+            ) : null}
 
             <div className="mt-3">
              <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
@@ -2545,13 +2549,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        clearLabel={t('clear_selection')}
                        isRTL={isRTL}
                       />
-                      <input
-                       type="text"
-                       value={draft.counterParty}
-                       onChange={(event) => updateTransactionTableDraft(txn.id, { counterParty: event.target.value })}
-                       placeholder={t('adjustment_counter_party_placeholder')}
-                       className={`${seamlessInputClassName} w-full text-xs text-fg`}
-                      />
+                      {!draft.accountFromId || !draft.accountToId ? (
+                       <input
+                        type="text"
+                        value={draft.counterParty}
+                        onChange={(event) => updateTransactionTableDraft(txn.id, { counterParty: event.target.value })}
+                        placeholder={t('adjustment_counter_party_placeholder')}
+                        className={`${seamlessInputClassName} w-full text-xs text-fg`}
+                       />
+                      ) : null}
                      </div>
                     ) : (
                      <>

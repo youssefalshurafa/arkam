@@ -13,12 +13,16 @@ type OrganizationsReadOnlyProps = {
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
  currencies: Currency[];
+ // Per-client count of transactions awaiting a manually-entered exchange rate — same map the
+ // organization-clients page uses; summed per organization below for this page's own column.
+ clientPendingPricingCounts: Map<number, number>;
  openOrganizationClientsPage: (organization: Organization) => void;
  onOpenSettings: () => void;
+ setPendingPricingModalOrgId: (id: number | null) => void;
 };
 
 export default function OrganizationsReadOnly({
- organizations, clients, clientAccounts, transactions, currencies, openOrganizationClientsPage, onOpenSettings,
+ organizations, clients, clientAccounts, transactions, currencies, clientPendingPricingCounts, openOrganizationClientsPage, onOpenSettings, setPendingPricingModalOrgId,
 }: OrganizationsReadOnlyProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -32,6 +36,18 @@ export default function OrganizationsReadOnly({
   () => computeOverviewBalances({ transactions, clientAccounts, clients, currencies, language }),
   [transactions, clientAccounts, clients, currencies, language],
  );
+
+ // Per-organization sum of clientPendingPricingCounts, for this page's own "awaiting pricing"
+ // column — mirrors the organization-clients page's per-client column, just rolled up.
+ const orgPendingPricingCounts = useMemo(() => {
+  const map = new Map<number, number>();
+  for (const client of clients) {
+   if (client.organizationId == null) continue;
+   const count = clientPendingPricingCounts.get(client.id) ?? 0;
+   if (count > 0) map.set(client.organizationId, (map.get(client.organizationId) ?? 0) + count);
+  }
+  return map;
+ }, [clients, clientPendingPricingCounts]);
 
  // Per-organization cell pieces shared by the desktop table and the mobile card list (below md).
  // Plain render functions (not components) so reusing them in both layouts doesn't trip the
@@ -74,6 +90,23 @@ export default function OrganizationsReadOnly({
    </div>
   );
 
+ // The pending-count button (opens PendingPricingModal scoped to every client in this
+ // organization), or an em-dash — mirrors OrganizationClientsSection's per-client version.
+ const renderPendingMark = (organization: Organization) => {
+  const pendingCount = orgPendingPricingCounts.get(organization.id) ?? 0;
+  if (pendingCount === 0) return <span className="text-xs text-fg-faint">—</span>;
+  return (
+   <button
+    type="button"
+    onClick={() => setPendingPricingModalOrgId(organization.id)}
+    title={t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
+    className="cursor-pointer rounded bg-warn-bg px-1.5 py-0.5 font-mono text-xs font-semibold text-warn-text transition hover:bg-warn-bg"
+   >
+    {pendingCount}
+   </button>
+  );
+ };
+
  return (
   <section className={panelClassName}>
    <div className="flex items-start justify-between gap-4">
@@ -102,6 +135,7 @@ export default function OrganizationsReadOnly({
        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('name')}</th>
        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('overview_clients')}</th>
        <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('organizations_balance')}</th>
+       <th className={`px-4 py-3 font-semibold ${isRTL ? 'text-right' : 'text-left'}`}>{t('organization_pending_pricing')}</th>
       </tr>
      </thead>
      <tbody>
@@ -113,13 +147,14 @@ export default function OrganizationsReadOnly({
         <td className="whitespace-nowrap px-4 py-3">{renderNameLink(organization)}</td>
         <td className="px-4 py-3 text-fg-muted">{clientCount(organization)}</td>
         <td className="px-4 py-3">{renderBalanceChips(byOrg.get(String(organization.id)))}</td>
+        <td className="px-4 py-3">{renderPendingMark(organization)}</td>
        </tr>
       ))}
       {organizations.length === 0 ? (
        <tr>
         <td
          className="px-4 py-6 text-fg-faint"
-         colSpan={3}
+         colSpan={4}
         >
          {t('no_organizations')}
         </td>
@@ -148,7 +183,10 @@ export default function OrganizationsReadOnly({
           {count} {clientsCountWord(count)}
          </span>
         </div>
-        <div className="mt-2">{renderBalanceChips(byOrg.get(String(organization.id)))}</div>
+        <div className="mt-2 flex items-center justify-between gap-2">
+         {renderBalanceChips(byOrg.get(String(organization.id)))}
+         {orgPendingPricingCounts.get(organization.id) ? renderPendingMark(organization) : null}
+        </div>
        </div>
       );
      })

@@ -283,6 +283,7 @@
  "balance": "Solde",
  "organization_pending_pricing": "Tarification en attente",
  "pending_pricing_modal_title": "Écritures en attente de tarification",
+ "pending_pricing_no_clients": "Aucun client avec des écritures en attente de tarification.",
  "pending_pricing_rate_hint": "1 {{from}} = ? {{to}}",
  "pending_pricing_rate_placeholder": "Taux",
  "pending_pricing_set_rate": "Définir le taux",
