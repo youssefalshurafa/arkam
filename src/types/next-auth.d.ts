@@ -9,6 +9,7 @@ declare module 'next-auth' {
    image?: string | null;
    defaultWorkspaceId?: string | null;
    isSuperAdmin?: boolean;
+   aiEnabled?: boolean;
   };
  }
 
@@ -21,5 +22,6 @@ declare module 'next-auth' {
 declare module 'next-auth/jwt' {
  interface JWT {
   defaultWorkspaceId?: string | null;
+  aiEnabled?: boolean;
  }
 }

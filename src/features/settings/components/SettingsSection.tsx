@@ -12,6 +12,7 @@ import AppearanceSettings from '@/features/settings/components/AppearanceSetting
 import DangerZone from '@/features/settings/components/DangerZone';
 import PdfSettingsTab from '@/features/settings/components/PdfSettings';
 import LiveRatesSettings from '@/features/settings/components/LiveRatesSettings';
+import AiSettingsTab from '@/features/settings/components/AiSettings';
 import DatabaseSettings from '@/features/settings/components/DatabaseSettings';
 import ClientsSection from '@/features/clients/components/ClientsSection';
 import OrganizationsSection from '@/features/organizations/components/OrganizationsSection';
@@ -38,6 +39,7 @@ type SettingsSectionProps = {
  isEditorRole: boolean;
  isWorkspaceOwner: boolean;
  isWorkspaceOwnerOrAdmin: boolean;
+ aiFeatureAccess: boolean;
  sharedSettingsEnabled: boolean;
  setWorkspaceSharedSettingsEnabled: (enabled: boolean) => void;
  lockPastEditsEnabled: boolean;
@@ -93,6 +95,7 @@ export default function SettingsSection({
  isEditorRole,
  isWorkspaceOwner,
  isWorkspaceOwnerOrAdmin,
+ aiFeatureAccess,
  sharedSettingsEnabled,
  setWorkspaceSharedSettingsEnabled,
  lockPastEditsEnabled,
@@ -287,6 +290,7 @@ export default function SettingsSection({
    {settingsTab === 'appearance' ? <AppearanceSettings /> : null}
    {settingsTab === 'pdf' ? <PdfSettingsTab /> : null}
    {settingsTab === 'live-rates' ? <LiveRatesSettings /> : null}
+   {settingsTab === 'ai' && aiFeatureAccess ? <AiSettingsTab /> : null}
    {settingsTab === 'danger' && !isEditorRole ? (
     <DangerZone
      transactionCount={transactions.length}

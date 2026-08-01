@@ -96,8 +96,9 @@ export async function POST(request: NextRequest, context: Context) {
  }
 }
 
-// Updates the user's trusted contact (phone/WhatsApp) — the number the super admin calls to
-// verify identity out-of-band before approving a password reset request.
+// Updates fields on the user row that don't need their own dedicated flow (unlike subscription
+// days / password reset above, which have side effects worth keeping separate). Each field is
+// optional in the request body — the client sends only the one it's changing.
 export async function PATCH(request: NextRequest, context: Context) {
  const session = await getServerSession(authOptions);
 
@@ -106,17 +107,25 @@ export async function PATCH(request: NextRequest, context: Context) {
  }
 
  const { userId } = await context.params;
- const { phone } = (await request.json()) as { phone?: string };
-
- if (typeof phone !== 'string') {
-  return NextResponse.json({ error: 'phone is required.' }, { status: 400 });
- }
+ const { phone, aiEnabled } = (await request.json()) as { phone?: string; aiEnabled?: boolean };
 
  try {
-  await authDb.updateUserContact({ userId, phone });
-  return NextResponse.json({ ok: true, phone: phone.trim() });
+  if (typeof phone === 'string') {
+   await authDb.updateUserContact({ userId, phone });
+  }
+  if (typeof aiEnabled === 'boolean') {
+   await authDb.updateUserAiEnabled({ userId, aiEnabled });
+  }
+  if (typeof phone !== 'string' && typeof aiEnabled !== 'boolean') {
+   return NextResponse.json({ error: 'Nothing to update.' }, { status: 400 });
+  }
+  return NextResponse.json({
+   ok: true,
+   ...(typeof phone === 'string' ? { phone: phone.trim() } : {}),
+   ...(typeof aiEnabled === 'boolean' ? { aiEnabled } : {}),
+  });
  } catch (error) {
-  const message = error instanceof Error ? error.message : 'Failed to update contact.';
+  const message = error instanceof Error ? error.message : 'Failed to update user.';
   return NextResponse.json({ error: message }, { status: 400 });
  }
 }

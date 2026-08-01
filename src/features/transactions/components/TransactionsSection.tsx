@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useStableSession } from '@/hooks/useStableSession';
 import { useTheme } from '@/contexts/ThemeContext';
 import { resolveHighlightBg } from '@/shared/utils/highlightColor';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -22,6 +23,9 @@ import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
+import { useSettingsStore } from '@/features/settings/store/settingsStore';
+import { useAiParseTransaction } from '@/features/transactions/hooks/useAiParseTransaction';
+import { useSpeechToText } from '@/shared/hooks/useSpeechToText';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
 import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
@@ -223,6 +227,51 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // place of the "Extra Expenses" block. Archive-only records never touch a ledger, so they keep
  // the plain Extra Expenses behaviour.
  const isExchangeTransaction = section !== 'archive' && transactionForm.type === 'exchange';
+
+ // Natural-language "fill from text" affordance on the new-transaction form (AI features only,
+ // hidden otherwise). Never submits anything itself — it only pre-fills the same draft form the
+ // user would otherwise fill by hand, so the existing Save button is still the human review step.
+ const aiSettings = useSettingsStore((s) => s.aiSettings);
+ const { data: authSession } = useStableSession();
+ const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
+ const { parseTransactionText } = useAiParseTransaction();
+ const [aiParseText, setAiParseText] = useState('');
+ const [isParsingWithAi, setIsParsingWithAi] = useState(false);
+ const onFillFromText = async () => {
+  const text = aiParseText.trim();
+  if (!text) return;
+  setIsParsingWithAi(true);
+  try {
+   const parsed = await parseTransactionText(text, clientAccounts, enabledCurrencies, newTransactionDate);
+   if (!parsed) return;
+   setTransactionForm((current) => ({
+    ...current,
+    ...(parsed.type != null ? { type: parsed.type } : {}),
+    ...(parsed.accountFromId != null ? { accountFromId: parsed.accountFromId } : {}),
+    ...(parsed.accountToId != null ? { accountToId: parsed.accountToId } : {}),
+    ...(parsed.currencyId != null ? { currencyId: parsed.currencyId } : {}),
+    ...(parsed.amount != null ? { amount: String(parsed.amount) } : {}),
+    ...(parsed.exchangeRateFrom != null ? { exchangeRateFrom: String(parsed.exchangeRateFrom) } : {}),
+    ...(parsed.commissionFrom != null ? { commissionFrom: String(parsed.commissionFrom) } : {}),
+    ...(parsed.exchangeRateTo != null ? { exchangeRateTo: String(parsed.exchangeRateTo) } : {}),
+    ...(parsed.commissionTo != null ? { commissionTo: String(parsed.commissionTo) } : {}),
+    ...(parsed.description != null ? { description: parsed.description } : {}),
+    ...(parsed.charges != null ? { charges: String(parsed.charges) } : {}),
+    ...(parsed.chargesCurrencyId != null ? { chargesCurrencyId: parsed.chargesCurrencyId } : {}),
+    ...(parsed.chargesDescription != null ? { chargesDescription: parsed.chargesDescription } : {}),
+    ...(parsed.chargesPayer != null ? { chargesPayer: parsed.chargesPayer } : {}),
+   }));
+   if (parsed.date) setNewTransactionDate(parsed.date);
+   setAiParseText('');
+  } finally {
+   setIsParsingWithAi(false);
+  }
+ };
+ const speechLang = language === 'ar' ? 'ar-SA' : language === 'fr' ? 'fr-FR' : 'en-US';
+ const { isSupported: isSpeechSupported, isListening, start: startListening, stop: stopListening } = useSpeechToText(speechLang, (transcript) => {
+  if (!transcript) return;
+  setAiParseText((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
+ });
 
  // Shared by the row's onContextMenu (desktop right-click) and its visible "⋮" button
  // (touch devices have no right-click event to hook into). contextMenuRowId drives a
@@ -654,6 +703,62 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             onSubmit={onTransactionSubmit}
             className="mt-5 max-w-md"
            >
+            {aiFeatureAccess ? (
+             <div className="mb-4 rounded border border-border-strong bg-surface-2 p-3">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ai_fill_label')}</label>
+              <div className="mt-2 flex gap-2">
+               <input
+                type="text"
+                value={aiParseText}
+                onChange={(event) => setAiParseText(event.target.value)}
+                onKeyDown={(event) => {
+                 if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void onFillFromText();
+                 }
+                }}
+                placeholder={t('ai_fill_placeholder')}
+                className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               />
+               {isSpeechSupported ? (
+                <button
+                 type="button"
+                 title={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+                 aria-label={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+                 onClick={() => (isListening ? stopListening() : startListening())}
+                 className={`shrink-0 rounded border px-3 py-2 text-sm transition ${
+                  isListening ? 'animate-pulse border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+                 }`}
+                >
+                 <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                 >
+                  <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+                  <path d="M12 18v4M9 22h6" />
+                 </svg>
+                </button>
+               ) : null}
+               <button
+                type="button"
+                disabled={isParsingWithAi || !aiParseText.trim()}
+                onClick={() => void onFillFromText()}
+                className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+               >
+                {isParsingWithAi ? t('ai_fill_running') : t('ai_fill_button')}
+               </button>
+              </div>
+             </div>
+            ) : null}
+
             <label className="block text-sm font-medium">{t('transaction_type')}</label>
             <select
              value={transactionForm.type}

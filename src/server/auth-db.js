@@ -251,6 +251,30 @@ async function getDefaultWorkspaceIdByUserId(userId) {
     return row?.workspaceId || null;
 }
 
+// Read on (most) session refreshes via the jwt callback (auth-options.ts), same as
+// getDefaultWorkspaceIdByUserId above — so an admin's change here reaches an already-signed-in
+// user without forcing a re-login, just not perfectly instantly.
+async function getUserAiEnabled(userId) {
+    await ensurePublicSchema();
+
+    const row = await fetchOne('SELECT ai_enabled AS "aiEnabled" FROM users WHERE id = $1', [userId]);
+
+    return row?.aiEnabled === true;
+}
+
+// Super-admin-only: grants/revokes a user's access to the in-app AI features.
+async function updateUserAiEnabled({ userId, aiEnabled }) {
+    await ensurePublicSchema();
+
+    const user = await fetchOne('SELECT id FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+
+    await runQuery('UPDATE users SET ai_enabled = $1 WHERE id = $2', [aiEnabled === true, userId]);
+    return { ok: true, aiEnabled: aiEnabled === true };
+}
+
 async function getWorkspaceRole(userId, workspaceId) {
     await ensurePublicSchema();
 
@@ -1167,7 +1191,8 @@ async function getUserAccountInfo(userId) {
     const user = await fetchOne(
         `SELECT email, name, status,
                 subscription_started_at AS "subscriptionStartedAt",
-                subscription_ends_at AS "subscriptionEndsAt"
+                subscription_ends_at AS "subscriptionEndsAt",
+                ai_enabled AS "aiEnabled"
          FROM users WHERE id = $1`,
         [userId],
     );
@@ -1236,6 +1261,7 @@ async function listAllUsers() {
             u.phone,
             u.subscription_started_at AS "subscriptionStartedAt",
             u.subscription_ends_at AS "subscriptionEndsAt",
+            u.ai_enabled AS "aiEnabled",
             COUNT(DISTINCT wm.workspace_id)::int AS "workspaceCount",
             COALESCE(
                 json_agg(
@@ -1277,7 +1303,8 @@ async function getUserDetailForAdmin(userId) {
             u.status,
             u.phone,
             u.subscription_started_at AS "subscriptionStartedAt",
-            u.subscription_ends_at AS "subscriptionEndsAt"
+            u.subscription_ends_at AS "subscriptionEndsAt",
+            u.ai_enabled AS "aiEnabled"
          FROM users u
          WHERE u.id = $1`,
         [userId],
@@ -1504,6 +1531,8 @@ module.exports = {
     verifyCredentials,
     listUserWorkspaces,
     getDefaultWorkspaceIdByUserId,
+    getUserAiEnabled,
+    updateUserAiEnabled,
     getWorkspaceRole,
     assertWorkspaceAccess,
     getWorkspaceBackupInfo,

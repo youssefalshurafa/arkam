@@ -18,6 +18,10 @@ type PendingPricingModalProps = {
  numLocale: string;
  ledgerDecimals: number;
  ledgerDateFormat: PdfSettings['dateFormat'];
+ // Present only when this modal was reached via OrgPendingPricingClientsModal (the
+ // organizations-list flow) — renders a back arrow that returns to that client list instead
+ // of closing everything.
+ onBack?: () => void;
  onClose: () => void;
  // Persists a rate for one pending entry. Resolves true on success (parent reloads,
  // dropping the now-priced entry from the list). When `reversed` is false the rate means
@@ -35,10 +39,11 @@ export default function PendingPricingModal({
  numLocale,
  ledgerDecimals,
  ledgerDateFormat,
+ onBack,
  onClose,
  onSaveRate,
 }: PendingPricingModalProps) {
- const { language } = useLanguage();
+ const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
 
  const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
@@ -78,9 +83,24 @@ export default function PendingPricingModal({
     onClick={(e) => e.stopPropagation()}
    >
     <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3 sm:px-5 sm:py-4">
-     <div>
-      <h2 className="text-lg font-semibold text-fg">{t('pending_pricing_modal_title')}</h2>
-      {subtitle ? <p className="mt-0.5 text-sm text-fg-faint">{subtitle}</p> : null}
+     <div className="flex items-start gap-2">
+      {onBack ? (
+       <button
+        type="button"
+        onClick={onBack}
+        aria-label={t('import_back')}
+        title={t('import_back')}
+        className="mt-0.5 shrink-0 rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-fg-muted"
+       >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+         <path d={isRTL ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6'} />
+        </svg>
+       </button>
+      ) : null}
+      <div>
+       <h2 className="text-lg font-semibold text-fg">{t('pending_pricing_modal_title')}</h2>
+       {subtitle ? <p className="mt-0.5 text-sm text-fg-faint">{subtitle}</p> : null}
+      </div>
      </div>
      <button
       type="button"

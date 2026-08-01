@@ -1,12 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useStableSession } from '@/hooks/useStableSession';
 import { savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
 import { formatDateValue } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
+import { useAiLedgerReview } from '@/features/ledger/hooks/useAiLedgerReview';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility } from '@/shared/types';
 
 type PdfExportModalProps = {
@@ -24,9 +27,14 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
  const numLocale = language === 'fr' ? 'en-US' : language;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
+ const aiSettings = useSettingsStore((s) => s.aiSettings);
+ const { data: authSession } = useStableSession();
+ const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
  const pdfExportModal = useLedgerStore((s) => s.pdfExportModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
  const highlightedLedgerRows = useLedgerStore((s) => s.highlightedLedgerRows);
+ const { reviewLedgerWithAi } = useAiLedgerReview();
+ const [isReviewingWithAi, setIsReviewingWithAi] = useState(false);
 
  return (
   <>
@@ -34,13 +42,36 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
     ? (() => {
        const ledger = selectedClientLedgers.find((l) => l.accountId === pdfExportModal.accountId);
        if (!ledger) return null;
+       const candidates = ledger.entries.filter((e) => {
+        const d = e.createdAt.slice(0, 10);
+        return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
+       });
+       const startIdx = pdfExportModal.fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)) : 0;
+       const endIdxRaw = pdfExportModal.toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey) : -1;
+       const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
+       const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
          <div className="w-full max-w-md rounded bg-surface p-6 shadow-2xl">
-          <h3 className="text-lg font-semibold text-fg">{t('export_ledger_title')}</h3>
-          <p className="mt-1 text-sm text-fg-faint">
-           {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
-          </p>
+          <div className="flex items-start justify-between gap-2">
+           <div>
+            <h3 className="text-lg font-semibold text-fg">{t('export_ledger_title')}</h3>
+            <p className="mt-1 text-sm text-fg-faint">
+             {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
+            </p>
+           </div>
+           <button
+            type="button"
+            onClick={() => setPdfExportModal(null)}
+            aria-label={t('cancel')}
+            className="cursor-pointer rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+           >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <line x1="18" y1="6" x2="6" y2="18" />
+             <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+           </button>
+          </div>
 
           <div className="mt-5 flex flex-col gap-4">
            <div className="flex flex-col gap-1">
@@ -196,19 +227,6 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            </div>
 
            {(() => {
-            const candidates = ledger.entries.filter((e) => {
-             const d = e.createdAt.slice(0, 10);
-             return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
-            });
-            const startIdx = pdfExportModal.fromEntryKey
-             ? Math.max(
-                0,
-                candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey),
-               )
-             : 0;
-            const endIdxRaw = pdfExportModal.toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey) : -1;
-            const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
-            const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
             const firstSelected = selected[0];
             const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
             const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
@@ -230,7 +248,24 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            })()}
           </div>
 
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+           {aiFeatureAccess ? (
+            <button
+             type="button"
+             disabled={isReviewingWithAi || selected.length === 0}
+             onClick={async () => {
+              setIsReviewingWithAi(true);
+              try {
+               await reviewLedgerWithAi(selected);
+              } finally {
+               setIsReviewingWithAi(false);
+              }
+             }}
+             className="flex items-center gap-1.5 rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+            >
+             {isReviewingWithAi ? t('ai_review_running') : t('ai_review_button')}
+            </button>
+           ) : null}
            <button
             type="button"
             onClick={() => setPdfExportModal(null)}

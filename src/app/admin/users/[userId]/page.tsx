@@ -47,6 +47,9 @@ export default function AdminUserDetailPage() {
  const [phoneError, setPhoneError] = useState('');
  const [phoneSaved, setPhoneSaved] = useState(false);
 
+ const [aiMutating, setAiMutating] = useState(false);
+ const [aiError, setAiError] = useState('');
+
  useEffect(() => {
   const daysLeft = data ? getSubscriptionState(data.user.subscriptionEndsAt).daysLeft : null;
   setDaysInput(daysLeft != null && daysLeft > 0 ? String(daysLeft) : '0');
@@ -75,6 +78,28 @@ export default function AdminUserDetailPage() {
    setPhoneError('Failed to save contact.');
   } finally {
    setPhoneMutating(false);
+  }
+ };
+
+ const onToggleAiEnabled = async (next: boolean) => {
+  setAiMutating(true);
+  setAiError('');
+  try {
+   const res = await fetch(`/api/admin/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ aiEnabled: next }),
+   });
+   const result = (await res.json()) as { ok?: boolean; aiEnabled?: boolean; error?: string };
+   if (!res.ok || !result.ok) {
+    setAiError(result.error || 'Failed to update AI access.');
+    return;
+   }
+   setData((prev) => (prev ? { ...prev, user: { ...prev.user, aiEnabled: result.aiEnabled ?? next } } : prev));
+  } catch {
+   setAiError('Failed to update AI access.');
+  } finally {
+   setAiMutating(false);
   }
  };
 
@@ -223,6 +248,22 @@ export default function AdminUserDetailPage() {
       {phoneSaved ? t('admin_saved') : t('admin_save')}
      </button>
     </div>
+   </div>
+
+   {/* AI features access */}
+   <div className="acp-card acp-card-pad">
+    <h3 className="acp-section-title" style={{ marginBottom: 2 }}>{t('admin_ud_ai_title')}</h3>
+    <p className="acp-faint" style={{ fontSize: 12, marginBottom: 12 }}>{t('admin_ud_ai_desc')}</p>
+    {aiError && <p style={{ color: 'var(--ad-bad-text)', fontSize: 13, marginBottom: 8 }}>{aiError}</p>}
+    <label className="acp-row" style={{ gap: 8, cursor: aiMutating ? 'default' : 'pointer' }}>
+     <input
+      type="checkbox"
+      checked={user.aiEnabled}
+      disabled={aiMutating}
+      onChange={(e) => void onToggleAiEnabled(e.target.checked)}
+     />
+     <span style={{ fontSize: 13 }}>{user.aiEnabled ? t('admin_ud_ai_on') : t('admin_ud_ai_off')}</span>
+    </label>
    </div>
 
    {/* Pending access request */}

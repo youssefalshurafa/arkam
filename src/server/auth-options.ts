@@ -106,6 +106,7 @@ export const authOptions: NextAuthOptions = {
 
    if (token.sub) {
     token.defaultWorkspaceId = await authDb.getDefaultWorkspaceIdByUserId(token.sub);
+    token.aiEnabled = await authDb.getUserAiEnabled(token.sub);
    }
 
    return token;
@@ -115,6 +116,7 @@ export const authOptions: NextAuthOptions = {
     session.user.id = token.sub;
     session.user.defaultWorkspaceId = (token.defaultWorkspaceId as string | null) || null;
     session.user.isSuperAdmin = isSuperAdmin(session.user.email);
+    session.user.aiEnabled = token.aiEnabled === true;
    }
 
    return session;
