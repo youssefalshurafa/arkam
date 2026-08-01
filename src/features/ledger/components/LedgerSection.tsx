@@ -76,7 +76,7 @@ type LedgerSectionProps = {
  onSaveAllEditingLedgerRows: () => void;
  onCancelAllEditingLedgerRows: () => void;
  onToggleLedgerEntrySelection: (key: string) => void;
- openOneSidedTransactionModal: (accountId: number, type?: string) => void;
+ openOneSidedTransactionModal: (accountId: number) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openLedgerRowForEdit: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  openOrganizationClientsPage: (organization: Organization) => void;
@@ -689,16 +689,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
               </div>
              </div>
 
-             {/* "+" menu: Add Note / Add Expense / Add One-Sided Transaction, consolidated into
-                 one entry point next to the sticky note (see generateLedgerHtml for the note's
-                 opt-in PDF-statement toggle). Always visible regardless of whether a note exists. */}
+             {/* "+" menu: Add Note / Add One-Sided Transaction, consolidated into one entry
+                 point next to the sticky note (see generateLedgerHtml for the note's opt-in
+                 PDF-statement toggle). Always visible regardless of whether a note exists.
+                 No separate "Add Expense" entry — a one-sided transaction already covers it
+                 (pick type "Expense" in the modal itself). */}
              <div className="mt-4 flex items-start gap-2">
               <button
                type="button"
                onClick={(e) =>
                 addMenu.open(e, [
                  { key: 'note', label: t('ledger_add_menu_note'), onSelect: () => beginEditNote(ledger) },
-                 { key: 'expense', label: t('ledger_add_menu_expense'), onSelect: () => openOneSidedTransactionModal(ledger.accountId, 'adjustment') },
                  { key: 'one-sided', label: t('ledger_add_menu_one_sided'), onSelect: () => openOneSidedTransactionModal(ledger.accountId) },
                 ])
                }

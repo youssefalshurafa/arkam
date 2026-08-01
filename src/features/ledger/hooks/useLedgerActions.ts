@@ -182,16 +182,13 @@ export function useLedgerActions({
   },
  };
 
-// `type` lets a shortcut entry point (e.g. the ledger's "Add Expense" menu item) prefill a
-// different default than the generic "Add One-Sided Transaction" item — both open this exact
-// same modal/submit path, so there's no behavioral difference beyond the initial default.
-function openOneSidedTransactionModal(accountId: number, type: string = 'transfer') {
+function openOneSidedTransactionModal(accountId: number) {
  const account = clientAccounts.find((a) => a.id === accountId);
  setOneSidedTransactionModal({
   accountId,
   direction: 'client_from',
   date: localDateKey(),
-  type,
+  type: 'transfer',
   amount: '',
   currencyId: account?.currencyId ?? null,
   exchangeRate: '',
