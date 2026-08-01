@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { GoogleGenAI } from '@google/genai';
 import * as z from 'zod/v4';
 import { authOptions } from '@/server/auth-options';
+import { AI_MODEL, AI_THINKING_CONFIG, AI_EXTRACTION_TEMPERATURE } from '@/server/ai-config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,6 @@ export const dynamic = 'force-dynamic';
 // applies unchanged. The model is given the real entries and must return only transactionIds that
 // were actually in that list — never left to guess an id.
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = 'gemini-3.6-flash';
 
 const MAX_COMMAND_LENGTH = 500;
 const MAX_ENTRIES = 300;
@@ -107,11 +107,20 @@ function buildSystemInstruction(languageName: string): string {
   '- Match a named entity against counterpartyName and description case-insensitively and ' +
   'tolerate minor spelling/transliteration differences, but only when reasonably confident — a ' +
   'name in the command that does not plausibly match anything in either field should simply ' +
-  'produce no edit for that name, not a guess at the closest unrelated name.\n' +
+  'produce no edit for that name, not a guess at the closest unrelated name. A name in the ' +
+  'command is also often partial (a first name only, a last name only, a nickname, or a fragment ' +
+  'of a longer counterpartyName/description) rather than an exact full match — treat a fragment ' +
+  'that uniquely identifies one entity as a confident match, the same way you would an exact ' +
+  'name.\n' +
   '- If a name matches MORE THAN ONE transaction (e.g. it appears twice within the date scope), ' +
   'include an edit for EVERY matching transaction rather than guessing which single one was ' +
   'meant — the human reviewing your proposal will decide which to keep.\n' +
-  '- newExchangeRate is the plain rate number as stated, not a percentage or a computed value.\n' +
+  '- newExchangeRate is the plain rate number as stated, not a percentage or a computed value. ' +
+  'The command may spell the rate out in words rather than digits (this is common with ' +
+  'voice-dictated commands) — compute its exact value by working out each place value and ' +
+  'summing them, never by concatenating or truncating the individual number words. For example ' +
+  'the Arabic "خمسة وعشرين ألف وأحد عشر" (literally "twenty-five thousand and eleven") is 25011, ' +
+  'not 2511.\n' +
   `- If nothing in the command matches anything in the entries, return an empty edits list.\n\n` +
   `The user's own language for this session is ${languageName}, but this only affects how you ` +
   'interpret the command text — your output is structured data, not prose, so there is nothing ' +
@@ -144,26 +153,39 @@ export async function POST(request: NextRequest) {
 
  try {
   const languageName = LANGUAGE_NAMES[parsedBody.language ?? 'en'] ?? LANGUAGE_NAMES.en;
-  const response = await client.models.generateContent({
-   model: MODEL,
+  const requestConfig = {
+   model: AI_MODEL,
    contents: JSON.stringify({ command: parsedBody.command, entries: parsedBody.entries }),
    config: {
     systemInstruction: buildSystemInstruction(languageName),
     responseMimeType: 'application/json',
     responseSchema: RESPONSE_SCHEMA,
+    thinkingConfig: AI_THINKING_CONFIG,
+    temperature: AI_EXTRACTION_TEMPERATURE,
    },
-  });
+  };
 
-  if (response.promptFeedback?.blockReason || response.candidates?.[0]?.finishReason === 'SAFETY') {
-   return NextResponse.json({ error: 'refused' }, { status: 502 });
+  // One retry on a malformed/schema-invalid response — a single bad generation shouldn't fail
+  // the whole request outright.
+  let result: z.infer<typeof ResultSchema> | null = null;
+  for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+   const response = await client.models.generateContent(requestConfig);
+
+   if (response.promptFeedback?.blockReason || response.candidates?.[0]?.finishReason === 'SAFETY') {
+    return NextResponse.json({ error: 'refused' }, { status: 502 });
+   }
+
+   const raw = response.text;
+   if (!raw) continue;
+   try {
+    result = ResultSchema.parse(JSON.parse(raw));
+   } catch {
+    result = null;
+   }
   }
-
-  const raw = response.text;
-  if (!raw) {
+  if (!result) {
    return NextResponse.json({ error: 'ai_request_failed' }, { status: 502 });
   }
-
-  const result = ResultSchema.parse(JSON.parse(raw));
 
   // Defense in depth: never trust an id back that wasn't in what we sent, and drop any
   // duplicate proposals for the same transaction (keep the first).

@@ -234,7 +234,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const aiSettings = useSettingsStore((s) => s.aiSettings);
  const { data: authSession } = useStableSession();
  const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
- const { parseTransactionText } = useAiParseTransaction();
+ const { parseTransactionText, stop: stopAiParse } = useAiParseTransaction();
  const [aiParseText, setAiParseText] = useState('');
  const [isParsingWithAi, setIsParsingWithAi] = useState(false);
  const onFillFromText = async (overrideText?: string) => {
@@ -751,14 +751,24 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  </svg>
                 </button>
                ) : null}
-               <button
-                type="button"
-                disabled={isParsingWithAi || !aiParseText.trim()}
-                onClick={() => void onFillFromText()}
-                className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-               >
-                {isParsingWithAi ? t('ai_fill_running') : t('ai_fill_button')}
-               </button>
+               {isParsingWithAi ? (
+                <button
+                 type="button"
+                 onClick={() => stopAiParse()}
+                 className="shrink-0 rounded border border-bad-text bg-bad-bg px-3 py-2 text-sm font-semibold text-bad-text transition hover:opacity-80"
+                >
+                 {t('ai_stop')}
+                </button>
+               ) : (
+                <button
+                 type="button"
+                 disabled={!aiParseText.trim()}
+                 onClick={() => void onFillFromText()}
+                 className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                 {t('ai_fill_button')}
+                </button>
+               )}
               </div>
              </div>
             ) : null}

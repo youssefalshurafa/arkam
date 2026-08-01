@@ -19,7 +19,7 @@ export default function AiChatPanel() {
  const { data: authSession } = useStableSession();
  const aiSettings = useSettingsStore((s) => s.aiSettings);
  const aiFeatureAccess = authSession?.user?.aiEnabled === true;
- const { messages, isSending, sendMessage, reset } = useAiChat();
+ const { messages, isSending, sendMessage, stop, reset } = useAiChat();
  const [isOpen, setIsOpen] = useState(false);
  const [input, setInput] = useState('');
  const listRef = useRef<HTMLDivElement | null>(null);
@@ -174,14 +174,24 @@ export default function AiChatPanel() {
          </svg>
         </button>
        ) : null}
-       <button
-        type="button"
-        onClick={() => void handleSubmit()}
-        disabled={isSending || !input.trim()}
-        className="shrink-0 rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
-       >
-        {t('ai_chat_send')}
-       </button>
+       {isSending ? (
+        <button
+         type="button"
+         onClick={() => stop()}
+         className="shrink-0 rounded bg-bad-bg px-3 py-2 text-sm font-semibold text-bad-text transition hover:opacity-80"
+        >
+         {t('ai_stop')}
+        </button>
+       ) : (
+        <button
+         type="button"
+         onClick={() => void handleSubmit()}
+         disabled={!input.trim()}
+         className="shrink-0 rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+         {t('ai_chat_send')}
+        </button>
+       )}
       </div>
      </div>
     </div>

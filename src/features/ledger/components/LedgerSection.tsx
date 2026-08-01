@@ -160,7 +160,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const aiSettings = useSettingsStore((s) => s.aiSettings);
  const { data: authSession } = useStableSession();
  const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
- const { proposeEdits } = useAiEditLedger();
+ const { proposeEdits, stop: stopAiEdit } = useAiEditLedger();
  const [aiEditText, setAiEditText] = useState('');
  const [isProposingAiEdit, setIsProposingAiEdit] = useState(false);
  const [isApplyingAiEdit, setIsApplyingAiEdit] = useState(false);
@@ -877,14 +877,24 @@ export default function LedgerSection(props: LedgerSectionProps) {
                   </svg>
                  </button>
                 ) : null}
-                <button
-                 type="button"
-                 disabled={isProposingAiEdit || !aiEditText.trim()}
-                 onClick={() => void onProposeAiLedgerEdits(ledger)}
-                 className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                 {isProposingAiEdit ? t('ai_edit_ledger_proposing') : t('ai_edit_ledger_propose')}
-                </button>
+                {isProposingAiEdit ? (
+                 <button
+                  type="button"
+                  onClick={() => stopAiEdit()}
+                  className="shrink-0 rounded border border-bad-text bg-bad-bg px-3 py-2 text-sm font-semibold text-bad-text transition hover:opacity-80"
+                 >
+                  {t('ai_stop')}
+                 </button>
+                ) : (
+                 <button
+                  type="button"
+                  disabled={!aiEditText.trim()}
+                  onClick={() => void onProposeAiLedgerEdits(ledger)}
+                  className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                 >
+                  {t('ai_edit_ledger_propose')}
+                 </button>
+                )}
                </div>
               </div>
              ) : null}

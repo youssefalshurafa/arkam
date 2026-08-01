@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -15,20 +15,24 @@ export function useAiChat() {
  const [messages, setMessages] = useState<AiChatMessage[]>([]);
  const [isSending, setIsSending] = useState(false);
  const [history, setHistory] = useState<unknown[]>([]);
+ const abortControllerRef = useRef<AbortController | null>(null);
 
  // Returns the model's reply text on success (so a voice-initiated question can be read back
- // aloud by the caller), or null on failure.
+ // aloud by the caller), or null on failure or user-initiated stop().
  async function sendMessage(text: string): Promise<string | null> {
   const trimmed = text.trim();
   if (!trimmed || isSending) return null;
   setMessages((prev) => [...prev, { role: 'user', text: trimmed }]);
   setIsSending(true);
+  const controller = new AbortController();
+  abortControllerRef.current = controller;
   try {
    const response = await fetch('/api/ai/chat', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ language, message: trimmed, history }),
+    signal: controller.signal,
    });
    const data = (await response.json().catch(() => null)) as { text?: string; history?: unknown[]; error?: string; detail?: string } | null;
    if (!response.ok || !data?.text) {
@@ -41,18 +45,26 @@ export function useAiChat() {
    setMessages((prev) => [...prev, { role: 'model', text: data.text as string }]);
    setHistory(data.history ?? []);
    return data.text as string;
-  } catch {
+  } catch (error) {
+   // A user-initiated stop() aborts the fetch — that's not a failure, so no error bubble.
+   if (error instanceof DOMException && error.name === 'AbortError') return null;
    setMessages((prev) => [...prev, { role: 'error', text: t('ai_chat_error') }]);
    return null;
   } finally {
    setIsSending(false);
+   abortControllerRef.current = null;
   }
  }
 
+ function stop() {
+  abortControllerRef.current?.abort();
+ }
+
  function reset() {
+  abortControllerRef.current?.abort();
   setMessages([]);
   setHistory([]);
  }
 
- return { messages, isSending, sendMessage, reset };
+ return { messages, isSending, sendMessage, stop, reset };
 }
