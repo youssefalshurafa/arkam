@@ -2266,7 +2266,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     </ul>
                                    )}
                                   </div>
-                                  {!draft.counterpartyAccountId ? (
+                                  {draft.type === 'adjustment' && !draft.counterpartyAccountId ? (
                                    <input
                                     type="text"
                                     value={draft.counterParty}

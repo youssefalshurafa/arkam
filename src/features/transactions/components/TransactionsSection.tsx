@@ -1514,7 +1514,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              )}
             </div>
 
-            {!transactionForm.accountFromId || !transactionForm.accountToId ? (
+            {transactionForm.type === 'adjustment' && (!transactionForm.accountFromId || !transactionForm.accountToId) ? (
              <>
               <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
               <input
@@ -2668,7 +2668,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        clearLabel={t('clear_selection')}
                        isRTL={isRTL}
                       />
-                      {!draft.accountFromId || !draft.accountToId ? (
+                      {draft.type === 'adjustment' && (!draft.accountFromId || !draft.accountToId) ? (
                        <input
                         type="text"
                         value={draft.counterParty}
