@@ -43,7 +43,6 @@ async function getWorkspaceStats(app) {
             (SELECT COUNT(*) FROM ${schema}.clients)::int AS "clientCount",
             (SELECT COUNT(*) FROM ${schema}.client_accounts)::int AS "accountCount",
             (SELECT COUNT(*) FROM ${schema}.transactions)::int AS "transactionCount",
-            (SELECT COUNT(*) FROM ${schema}.client_adjustments)::int AS "adjustmentCount",
             (SELECT MAX(created_at) FROM ${schema}.transactions) AS "lastTransactionAt"
     `);
     return (
@@ -52,7 +51,6 @@ async function getWorkspaceStats(app) {
             clientCount: 0,
             accountCount: 0,
             transactionCount: 0,
-            adjustmentCount: 0,
             lastTransactionAt: null,
         }
     );
@@ -586,10 +584,10 @@ async function deleteClientAccount(app, accountId) {
     await query(`DELETE FROM ${schema}.client_accounts WHERE id = $1`, [accountId]);
 }
 
-// Re-points every transaction (both the "from" and "to" sides) and every adjustment from one
-// account onto another, then leaves the now-empty source account in place. Both accounts must
-// share the same currency: the stored per-side exchange rates convert into the original account's
-// currency, so moving to a different-currency account would silently corrupt the ledger.
+// Re-points every transaction (both the "from" and "to" sides) from one account onto another,
+// then leaves the now-empty source account in place. Both accounts must share the same currency:
+// the stored per-side exchange rates convert into the original account's currency, so moving to a
+// different-currency account would silently corrupt the ledger.
 async function moveAccountTransactions(app, { fromAccountId, toAccountId }) {
     const from = Number(fromAccountId);
     const to = Number(toAccountId);
@@ -618,8 +616,7 @@ async function moveAccountTransactions(app, { fromAccountId, toAccountId }) {
     await withTransaction(async (executor) => {
         const fromSide = await query(`UPDATE ${schema}.transactions SET account_from_id = $1 WHERE account_from_id = $2`, [to, from], executor);
         const toSide = await query(`UPDATE ${schema}.transactions SET account_to_id = $1 WHERE account_to_id = $2`, [to, from], executor);
-        const adjustments = await query(`UPDATE ${schema}.client_adjustments SET account_id = $1 WHERE account_id = $2`, [to, from], executor);
-        moved = (fromSide.rowCount || 0) + (toSide.rowCount || 0) + (adjustments.rowCount || 0);
+        moved = (fromSide.rowCount || 0) + (toSide.rowCount || 0);
     });
 
     return { ok: true, moved };
@@ -710,19 +707,10 @@ async function updateCurrency(app, currency) {
     const code = currency.code.trim().toUpperCase();
     const symbol = currency.symbol?.trim() || '';
 
-    await withTransaction(async (client) => {
-        await query(
-            `UPDATE ${schema}.currencies SET code = $1, name = $2, symbol = $3 WHERE id = $4`,
-            [code, currency.name.trim(), symbol, currency.id],
-            client,
-        );
-        // client_adjustments stores a denormalized copy of the currency code/symbol; keep it in sync.
-        await query(
-            `UPDATE ${schema}.client_adjustments SET currency_code = $1, currency_symbol = $2 WHERE currency_id = $3`,
-            [code, symbol, currency.id],
-            client,
-        );
-    });
+    await query(
+        `UPDATE ${schema}.currencies SET code = $1, name = $2, symbol = $3 WHERE id = $4`,
+        [code, currency.name.trim(), symbol, currency.id],
+    );
 }
 
 async function deleteCurrency(app, currencyId) {
@@ -854,10 +842,10 @@ async function resolveSystemAccountInfo(app, accountIds) {
     return new Map(result.rows.map((row) => [Number(row.accountId), row]));
 }
 
-// Blocks a `member`-role user from posting a single-sided entry (adjustment/reconciliation)
-// directly against Treasury or another member's cashbox. owner/admin bypass (already have
-// full access to every account); viewer never reaches a write path (blocked earlier by the
-// binary writeActions gate in route.ts). A member's own cashbox is always allowed.
+// Blocks a `member`-role user from posting a single-sided entry (reconciliation) directly
+// against Treasury or another member's cashbox. owner/admin bypass (already have full access
+// to every account); viewer never reaches a write path (blocked earlier by the binary
+// writeActions gate in route.ts). A member's own cashbox is always allowed.
 async function assertMemberCanWriteAccount(app, accountId) {
     if (app?.role !== 'member' || accountId == null) return;
     const infoById = await resolveSystemAccountInfo(app, [accountId]);
@@ -1165,89 +1153,6 @@ async function deleteAllTransactions(app) {
     await query(`DELETE FROM ${schema}.transactions`);
 }
 
-async function listClientAdjustments(app) {
-    const { schema } = await getSchemaInfo(app);
-    const isMember = app?.role === 'member';
-    // Same visibility rule as listTransactions: a `member` sees adjustments on their own
-    // cashbox but not Treasury's or another member's (defense-in-depth — v1 UI never creates
-    // adjustments against a system account, but a crafted request shouldn't be able to list them).
-    const result = await query(
-        `
-            SELECT
-                a.id,
-                a.account_id AS "accountId",
-                a.amount,
-                a.direction,
-                a.currency_id AS "currencyId",
-                a.currency_code AS "currencyCode",
-                a.currency_symbol AS "currencySymbol",
-                a.exchange_rate AS "exchangeRate",
-                a.exchange_rate_reversed AS "exchangeRateReversed",
-                a.description,
-                a.commission,
-                a.counter_party AS "counterParty",
-                a.created_at AS "createdAt"
-            FROM ${schema}.client_adjustments a
-            JOIN ${schema}.client_accounts ca ON ca.id = a.account_id
-            JOIN ${schema}.clients c ON c.id = ca.client_id
-            ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
-            ORDER BY a.created_at ASC
-        `,
-        isMember ? [app.userId] : [],
-    );
-    return result.rows;
-}
-
-async function createClientAdjustment(app, { accountId, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, commission, counterParty, createdAt }) {
-    const { schema } = await getSchemaInfo(app);
-    if (!accountId) throw new Error('Account is required.');
-    if (!amount || amount <= 0) throw new Error('Amount must be greater than zero.');
-    if (!['debit', 'credit'].includes(direction)) throw new Error('Direction must be debit or credit.');
-    if (commission != null && (typeof commission !== 'number' || commission < 0)) throw new Error('Commission must be zero or greater.');
-    await assertMemberCanWriteAccount(app, accountId);
-    if (createdAt) {
-        await assertPastEditAllowed(app, app.todayKey, createdAt);
-    }
-    const rate = exchangeRate != null ? exchangeRate : 1;
-    const reversed = exchangeRateReversed ? true : false;
-    const columns = ['account_id', 'amount', 'direction', 'currency_id', 'currency_code', 'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description', 'commission', 'counter_party'];
-    const values = [accountId, amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || '', commission ?? 0, counterParty?.trim() || ''];
-    if (createdAt) {
-        columns.push('created_at');
-        values.push(createdAt);
-    }
-    const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
-    const result = await query(
-        `INSERT INTO ${schema}.client_adjustments (${columns.join(', ')}) VALUES (${placeholders}) RETURNING id`,
-        values
-    );
-    return result.rows[0];
-}
-
-async function updateClientAdjustment(app, { id, amount, direction, currencyId, currencyCode, currencySymbol, exchangeRate, exchangeRateReversed, description, commission, counterParty, createdAt }) {
-    const { schema } = await getSchemaInfo(app);
-    const existing = await query(`SELECT created_at AS "createdAt", account_id AS "accountId" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
-    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
-    await assertPastEditAllowed(app, app.todayKey, existing.rows[0]?.createdAt, createdAt);
-    if (commission != null && (typeof commission !== 'number' || commission < 0)) throw new Error('Commission must be zero or greater.');
-    const rate = exchangeRate != null ? exchangeRate : 1;
-    const reversed = exchangeRateReversed ? true : false;
-    await query(
-        `UPDATE ${schema}.client_adjustments
-         SET amount=$1, direction=$2, currency_id=$3, currency_code=$4, currency_symbol=$5, exchange_rate=$6, exchange_rate_reversed=$7, description=$8, commission=$9, counter_party=$10, created_at=$11
-         WHERE id=$12`,
-        [amount, direction, currencyId ?? null, currencyCode || '', currencySymbol || '', rate, reversed, description?.trim() || '', commission ?? 0, counterParty?.trim() || '', createdAt, id]
-    );
-}
-
-async function deleteClientAdjustment(app, id) {
-    const { schema } = await getSchemaInfo(app);
-    const existing = await query(`SELECT created_at AS "createdAt", account_id AS "accountId" FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
-    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
-    await assertPastEditAllowed(app, app.todayKey, existing.rows[0]?.createdAt);
-    await query(`DELETE FROM ${schema}.client_adjustments WHERE id = $1`, [id]);
-}
-
 async function listReconciliations(app) {
     const { schema } = await getSchemaInfo(app);
     const isMember = app?.role === 'member';
@@ -1273,17 +1178,16 @@ async function listReconciliations(app) {
     return result.rows;
 }
 
-async function createReconciliation(app, { accountId, anchorKind, anchorRefId, anchorCreatedAt, balance, note }) {
+async function createReconciliation(app, { accountId, anchorRefId, anchorCreatedAt, balance, note }) {
     const { schema } = await getSchemaInfo(app);
     if (!accountId) throw new Error('Account is required.');
     if (!anchorRefId) throw new Error('A ledger row to reconcile is required.');
     if (!anchorCreatedAt) throw new Error('The reconciled row date is required.');
     await assertMemberCanWriteAccount(app, accountId);
-    const kind = anchorKind === 'adjustment' ? 'adjustment' : 'transaction';
     const result = await query(
         `INSERT INTO ${schema}.reconciliations (account_id, anchor_kind, anchor_ref_id, anchor_created_at, balance, note)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [accountId, kind, anchorRefId, anchorCreatedAt, balance ?? 0, note?.trim() || ''],
+         VALUES ($1, 'transaction', $2, $3, $4, $5) RETURNING id`,
+        [accountId, anchorRefId, anchorCreatedAt, balance ?? 0, note?.trim() || ''],
     );
     return result.rows[0];
 }
@@ -1342,51 +1246,33 @@ async function saveHarvestRate(app, { day, organizationId, currencyId, rate }) {
     return { ok: true, row: result.rows[0] };
 }
 
-// Deletes many transactions and/or adjustments in a single round-trip so the UI
-// doesn't have to fire one request per selected row. Both deletes run inside one
-// transaction so the operation is atomic.
+// Deletes many transactions in a single round-trip so the UI doesn't have to fire one
+// request per selected row.
 async function deleteTransactionsBulk(app, payload) {
     const { schema } = await getSchemaInfo(app);
     const transactionIds = (payload?.transactionIds || []).map(Number).filter((id) => Number.isFinite(id));
-    const adjustmentIds = (payload?.adjustmentIds || []).map(Number).filter((id) => Number.isFinite(id));
 
-    if (!transactionIds.length && !adjustmentIds.length) {
+    if (!transactionIds.length) {
         return { ok: true, deleted: 0 };
     }
 
-    if (transactionIds.length) {
-        const existing = await query(
-            `SELECT created_at AS "createdAt", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE`,
-            [transactionIds],
-        );
-        await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
-        for (const row of existing.rows) {
-            await assertMemberCanWriteTransaction(app, { accountFromId: row.accountFromId, accountToId: row.accountToId });
-        }
-    }
-    if (adjustmentIds.length) {
-        const existing = await query(`SELECT created_at AS "createdAt", account_id AS "accountId" FROM ${schema}.client_adjustments WHERE id = ANY($1::bigint[])`, [adjustmentIds]);
-        await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
-        for (const row of existing.rows) {
-            await assertMemberCanWriteAccount(app, row.accountId);
-        }
+    const existing = await query(
+        `SELECT created_at AS "createdAt", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE`,
+        [transactionIds],
+    );
+    await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
+    for (const row of existing.rows) {
+        await assertMemberCanWriteTransaction(app, { accountFromId: row.accountFromId, accountToId: row.accountToId });
     }
 
-    await withTransaction(async (executor) => {
-        if (transactionIds.length) {
-            await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds], executor);
-        }
-        if (adjustmentIds.length) {
-            await query(`DELETE FROM ${schema}.client_adjustments WHERE id = ANY($1::bigint[])`, [adjustmentIds], executor);
-        }
-    });
+    await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds]);
 
-    return { ok: true, deleted: transactionIds.length + adjustmentIds.length };
+    return { ok: true, deleted: transactionIds.length };
 }
 
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
-const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'distribution_locations', 'transactions', 'client_adjustments', 'reconciliations', 'harvest_rates', 'user_table_settings'];
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'distribution_locations', 'transactions', 'reconciliations', 'harvest_rates', 'user_table_settings'];
 
 const BACKUP_FORMAT = 'arkam-backup';
 const BACKUP_VERSION = 1;
@@ -1514,45 +1400,29 @@ function txColValue(col, row, now) {
         case 'exchange_actual_amount': return row.exchangeActualAmount != null ? row.exchangeActualAmount : null;
         case 'archive_note': return row.archiveNote?.trim() || '';
         case 'is_archived': return row.isArchived ? true : false;
+        case 'counter_party': return row.counterParty?.trim() || '';
         case 'created_at': return row.createdAt ?? now;
         default: return null;
     }
 }
 
-// Maps a camelCase adjustment payload field to the value for a given DB column.
-function adjColValue(col, row, now) {
-    switch (col) {
-        case 'account_id': return row.accountId;
-        case 'amount': return row.amount;
-        case 'direction': return row.direction;
-        case 'currency_id': return row.currencyId ?? null;
-        case 'currency_code': return row.currencyCode || '';
-        case 'currency_symbol': return row.currencySymbol || '';
-        case 'exchange_rate': return row.exchangeRate ?? 1;
-        case 'exchange_rate_reversed': return row.exchangeRateReversed ? true : false;
-        case 'description': return row.description?.trim() || '';
-        case 'created_at': return row.createdAt ?? now;
-        default: return null;
-    }
-}
-
-// Inserts all reviewed import rows (transactions + adjustments) in bulk using
-// multi-row INSERTs, reducing ~1000 HTTP round-trips to a single request.
-async function bulkImportTransactions(app, { transactions = [], adjustments = [] } = {}) {
+// Inserts all reviewed import rows in bulk using multi-row INSERTs, reducing ~1000 HTTP
+// round-trips to a single request.
+async function bulkImportTransactions(app, { transactions = [] } = {}) {
     const { schema } = await getSchemaInfo(app);
     const now = new Date();
 
-    await withTransaction(async (client) => {
-        if (transactions.length > 0) {
-            const cols = [
-                'account_from_id', 'account_to_id', 'currency_id', 'amount', 'type',
-                'exchange_rate_from', 'commission_from', 'exchange_rate_to', 'commission_to',
-                'exchange_rate_from_reversed', 'exchange_rate_to_reversed',
-                'charges', 'charges_currency_id', 'charges_payer', 'charges_exchange_rate',
-                'charges_description', 'description', 'exchange_actual_amount', 'archive_note', 'is_archived', 'created_at',
-            ];
-            const quotedCols = cols.map((c) => `"${c}"`).join(', ');
-            const maxBatch = Math.max(1, Math.floor(60000 / cols.length));
+    if (transactions.length > 0) {
+        const cols = [
+            'account_from_id', 'account_to_id', 'currency_id', 'amount', 'type',
+            'exchange_rate_from', 'commission_from', 'exchange_rate_to', 'commission_to',
+            'exchange_rate_from_reversed', 'exchange_rate_to_reversed',
+            'charges', 'charges_currency_id', 'charges_payer', 'charges_exchange_rate',
+            'charges_description', 'description', 'exchange_actual_amount', 'archive_note', 'is_archived', 'counter_party', 'created_at',
+        ];
+        const quotedCols = cols.map((c) => `"${c}"`).join(', ');
+        const maxBatch = Math.max(1, Math.floor(60000 / cols.length));
+        await withTransaction(async (client) => {
             for (let i = 0; i < transactions.length; i += maxBatch) {
                 const batch = transactions.slice(i, i + maxBatch);
                 const values = [];
@@ -1569,35 +1439,10 @@ async function bulkImportTransactions(app, { transactions = [], adjustments = []
                     client,
                 );
             }
-        }
+        });
+    }
 
-        if (adjustments.length > 0) {
-            const cols = [
-                'account_id', 'amount', 'direction', 'currency_id', 'currency_code',
-                'currency_symbol', 'exchange_rate', 'exchange_rate_reversed', 'description', 'created_at',
-            ];
-            const quotedCols = cols.map((c) => `"${c}"`).join(', ');
-            const maxBatch = Math.max(1, Math.floor(60000 / cols.length));
-            for (let i = 0; i < adjustments.length; i += maxBatch) {
-                const batch = adjustments.slice(i, i + maxBatch);
-                const values = [];
-                const tuples = batch.map((row) => {
-                    const placeholders = cols.map((col) => {
-                        values.push(adjColValue(col, row, now));
-                        return `$${values.length}`;
-                    });
-                    return `(${placeholders.join(', ')})`;
-                });
-                await query(
-                    `INSERT INTO ${schema}.client_adjustments (${quotedCols}) VALUES ${tuples.join(', ')}`,
-                    values,
-                    client,
-                );
-            }
-        }
-    });
-
-    return { createdTransactions: transactions.length, createdAdjustments: adjustments.length };
+    return { createdTransactions: transactions.length };
 }
 
 // Workspace-wide shared UI settings (single row). Returns defaults when unset.
@@ -1788,10 +1633,6 @@ module.exports = {
     deleteTransaction,
     deleteTransactionsBulk,
     deleteAllTransactions,
-    listClientAdjustments,
-    createClientAdjustment,
-    updateClientAdjustment,
-    deleteClientAdjustment,
     listReconciliations,
     createReconciliation,
     deleteReconciliation,

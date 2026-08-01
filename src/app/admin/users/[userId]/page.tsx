@@ -300,7 +300,7 @@ export default function AdminUserDetailPage() {
      <StatTile label={t('admin_stat_orgs')} value={totals.organizationCount} />
      <StatTile label={t('admin_stat_clients')} value={totals.clientCount} />
      <StatTile label={t('admin_stat_accounts')} value={totals.accountCount} />
-     <StatTile label={t('admin_stat_transactions')} value={totals.transactionCount} sub={t('admin_ud_expenses').replace('{count}', String(totals.adjustmentCount))} />
+     <StatTile label={t('admin_stat_transactions')} value={totals.transactionCount} />
      <StatTile
       label={t('admin_stat_last_activity')}
       value={totals.lastTransactionAt ? formatDate(totals.lastTransactionAt, language) : '—'}

@@ -573,7 +573,6 @@
  "ledger_scroll_to_end": "الانتقال إلى نهاية الجدول",
  "ledger_scroll_to_top": "الانتقال إلى أعلى الجدول",
  "ledger_add_menu_note": "ملاحظة",
- "ledger_add_menu_expense": "مصروف",
  "ledger_add_menu_one_sided": "معاملة أحادية الطرف",
  "ledger_note_placeholder": "أضف ملاحظة لهذا الكشف…",
  "ledger_note_show_in_pdf": "إظهار في ملف PDF المُصدَّر",

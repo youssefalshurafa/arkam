@@ -3,7 +3,7 @@ import { amountMatchesSearch, textMatchesSearch } from '@/shared/utils/searchMat
 
 // Stable identifier for a ledger entry (used to pick exact start/end boundaries for PDF export).
 export function ledgerEntryKey(entry: ClientLedgerEntry) {
- return entry.isAdjustment ? `a-${entry.adjustmentId}` : `t-${entry.transactionId}`;
+ return `t-${entry.transactionId}`;
 }
 
 // Matches the ledger filter bar's free-text search against a single entry's

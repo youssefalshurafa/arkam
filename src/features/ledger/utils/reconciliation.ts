@@ -12,13 +12,13 @@ export type LockBoundary = {
  note: string;
 };
 
-// The id used to order an entry within a single timestamp, matching the ledger sort
-// tie-break in computeClientLedgers (adjustmentId for adjustments, transactionId otherwise).
-export function reconciliationRefId(entry: Pick<ClientLedgerEntry, 'isAdjustment' | 'adjustmentId' | 'transactionId'>): number {
- return entry.isAdjustment ? entry.adjustmentId ?? 0 : entry.transactionId;
+// The id used to order an entry within a single timestamp, matching the ledger sort tie-break
+// in computeClientLedgers — every entry is backed by a real Transaction row now.
+export function reconciliationRefId(entry: Pick<ClientLedgerEntry, 'transactionId'>): number {
+ return entry.transactionId;
 }
 
-// Live createdAt per anchor row, keyed `${anchorKind}:${anchorRefId}`. A reconciliation's
+// Live createdAt per anchor row, keyed `transaction:${anchorRefId}`. A reconciliation's
 // `anchorCreatedAt` is a one-time snapshot taken when the mark was created; drag-to-reorder
 // (onLedgerRowDrop) later reflows the createdAt of every row sharing the anchor's date —
 // including rows that weren't even dragged — to keep them evenly spaced in the new order, so
@@ -28,13 +28,9 @@ export function reconciliationRefId(entry: Pick<ClientLedgerEntry, 'isAdjustment
 // self-heals after a reorder rather than drifting out of sync with it.
 export type LiveAnchorTimes = Map<string, string>;
 
-export function buildLiveAnchorTimes(
- transactions: Array<{ id: number; createdAt: string }>,
- adjustments: Array<{ id: number; createdAt: string }>,
-): LiveAnchorTimes {
+export function buildLiveAnchorTimes(transactions: Array<{ id: number; createdAt: string }>): LiveAnchorTimes {
  const map: LiveAnchorTimes = new Map();
  for (const tx of transactions) map.set(`transaction:${tx.id}`, tx.createdAt);
- for (const adj of adjustments) map.set(`adjustment:${adj.id}`, adj.createdAt);
  return map;
 }
 

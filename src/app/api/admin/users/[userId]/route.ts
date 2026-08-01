@@ -46,11 +46,10 @@ export async function GET(request: NextRequest, context: Context) {
    clientCount: acc.clientCount + ws.stats.clientCount,
    accountCount: acc.accountCount + ws.stats.accountCount,
    transactionCount: acc.transactionCount + ws.stats.transactionCount,
-   adjustmentCount: acc.adjustmentCount + ws.stats.adjustmentCount,
    lastTransactionAt:
     !acc.lastTransactionAt || (ws.stats.lastTransactionAt && ws.stats.lastTransactionAt > acc.lastTransactionAt) ? ws.stats.lastTransactionAt : acc.lastTransactionAt,
   }),
-  { organizationCount: 0, clientCount: 0, accountCount: 0, transactionCount: 0, adjustmentCount: 0, lastTransactionAt: null as string | null },
+  { organizationCount: 0, clientCount: 0, accountCount: 0, transactionCount: 0, lastTransactionAt: null as string | null },
  );
 
  // Surface a pending renewal/signup request right on this page, so the admin doesn't

@@ -18,7 +18,6 @@ import type {
  Transaction,
  TransactionTableRow,
  TransactionUpdateInput,
- ClientAdjustment,
  ClientAccountLedger,
  Reconciliation,
  HarvestRate,
@@ -102,7 +101,6 @@ import ToastHost from '@/shared/components/ToastHost';
 import Sidebar from '@/shared/components/Sidebar';
 import AppHeader from '@/shared/components/AppHeader';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
-import AdjustmentModal from '@/features/ledger/components/AdjustmentModal';
 import OneSidedTransactionModal from '@/features/ledger/components/OneSidedTransactionModal';
 import PdfExportModal from '@/features/ledger/components/PdfExportModal';
 import CommissionReportModal from '@/features/ledger/components/CommissionReportModal';
@@ -117,7 +115,6 @@ const EMPTY_ORGANIZATIONS: Organization[] = [];
 const EMPTY_CLIENTS: Client[] = [];
 const EMPTY_CURRENCIES: Currency[] = [];
 const EMPTY_TRANSACTIONS: Transaction[] = [];
-const EMPTY_ADJUSTMENTS: ClientAdjustment[] = [];
 const EMPTY_RECONCILIATIONS: Reconciliation[] = [];
 const EMPTY_HARVEST_RATES: HarvestRate[] = [];
 const EMPTY_CLIENT_ACCOUNTS: ClientAccount[] = [];
@@ -179,7 +176,7 @@ function AuthenticatedHome() {
  const workspaceQuery = useWorkspaceData(sessionUserId, activeWorkspaceId);
  const workspaceData = workspaceQuery.data;
  const { invalidate: invalidateWorkspace, setters: workspaceSetters } = useWorkspaceCache(sessionUserId, activeWorkspaceId);
- const { setOrganizations, setClients, setTransactions, setAdjustments, setClientAccounts, setReconciliations } = workspaceSetters;
+ const { setOrganizations, setClients, setTransactions, setClientAccounts, setReconciliations } = workspaceSetters;
  const isLoading = workspaceQuery.isPending;
  const organizations = workspaceData?.organizations ?? EMPTY_ORGANIZATIONS;
  const clients = workspaceData?.clients ?? EMPTY_CLIENTS;
@@ -196,7 +193,6 @@ function AuthenticatedHome() {
  const setDragOverOrgKey = useClientsStore((s) => s.setDragOverOrgKey);
  const currencies = workspaceData?.currencies ?? EMPTY_CURRENCIES;
  const transactions = workspaceData?.transactions ?? EMPTY_TRANSACTIONS;
- const adjustments = workspaceData?.adjustments ?? EMPTY_ADJUSTMENTS;
  const reconciliations = workspaceData?.reconciliations ?? EMPTY_RECONCILIATIONS;
  const harvestRates = workspaceData?.harvestRates ?? EMPTY_HARVEST_RATES;
  const clientAccounts = workspaceData?.clientAccounts ?? EMPTY_CLIENT_ACCOUNTS;
@@ -373,8 +369,6 @@ function AuthenticatedHome() {
  const setIsMovingAccount = useClientsStore((s) => s.setIsMovingAccount);
  const pdfExportModal = useLedgerStore((s) => s.pdfExportModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
- const adjustmentModal = useLedgerStore((s) => s.adjustmentModal);
- const setAdjustmentModal = useLedgerStore((s) => s.setAdjustmentModal);
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
  const clientForm = useClientsStore((s) => s.clientForm);
@@ -821,8 +815,8 @@ function AuthenticatedHome() {
  }
 
  const transactionTableRows = useMemo<TransactionTableRow[]>(
-  () => buildTransactionTableRows({ adjustments, clientAccounts, transactions, txSortDir }),
-  [adjustments, clientAccounts, transactions, txSortDir],
+  () => buildTransactionTableRows({ transactions, txSortDir }),
+  [transactions, txSortDir],
  );
 
  useEffect(() => {
@@ -1179,16 +1173,11 @@ function AuthenticatedHome() {
  // Marks one ledger row as reconciled with the client at its running balance. The
  // captured balance + row (createdAt, id) become a lock line protecting earlier rows.
 
- // useOrganizationActions and useLedgerActions each need a handler the other produces
- // (a client-import-created org needs updateImportReviewEntry from useTransactionActions;
- // a ledger-entry delete needs onDeleteAdjustment from useLedgerActions itself is fine, but
- // useTransactionActions's row-delete needs onDeleteAdjustment from useLedgerActions, which
- // is called later). These stable indirections let every hook be called in any order —
- // each just forwards to whichever real implementation was wired in by the end of render.
+ // useOrganizationActions needs a handler useTransactionActions produces (a client-import-created
+ // org needs updateImportReviewEntry). This stable indirection lets both hooks be called in any
+ // order — it just forwards to whichever real implementation was wired in by the end of render.
  let updateImportReviewEntryImpl: ((key: string, patch: Partial<ImportClientReview>) => void) | null = null;
  const updateImportReviewEntry = (key: string, patch: Partial<ImportClientReview>) => updateImportReviewEntryImpl?.(key, patch);
- let onDeleteAdjustmentImpl: ((id: number, opts?: { offerUndo?: boolean }) => Promise<void>) | null = null;
- const onDeleteAdjustment = (id: number, opts?: { offerUndo?: boolean }) => onDeleteAdjustmentImpl?.(id, opts) ?? Promise.resolve();
 
   const { onOrganizationSubmit, onCreateOrgFromDialog, onDeleteOrganization } = useOrganizationActions({
    organizationForm,
@@ -1384,7 +1373,6 @@ function AuthenticatedHome() {
   clients,
   clientAccounts,
   transactions,
-  adjustments,
   numLocale,
   selectedClientForAccounts,
   setSelectedClientForAccounts,
@@ -1400,43 +1388,43 @@ function AuthenticatedHome() {
  // Per-client balances for the clients list/group view. Keyed by clientId, each value is
  // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
  const clientPageBalances = useMemo(
-  () => computeClientPageBalances({ clientAccounts, transactions, adjustments }),
-  [clientAccounts, transactions, adjustments],
+  () => computeClientPageBalances({ clientAccounts, transactions }),
+  [clientAccounts, transactions],
  );
 
- // Per-client count of transactions/adjustments awaiting a manually-entered exchange rate
- // (excluded from clientPageBalances above until set). Shown on the organization page.
+ // Per-client count of transactions awaiting a manually-entered exchange rate (excluded from
+ // clientPageBalances above until set). Shown on the organization page.
  const clientPendingPricingCounts = useMemo(
-  () => computeClientPendingPricingCounts({ clientAccounts, transactions, adjustments }),
-  [clientAccounts, transactions, adjustments],
+  () => computeClientPendingPricingCounts({ clientAccounts, transactions }),
+  [clientAccounts, transactions],
  );
 
  // Client ids whose most recent transaction is reconciled — drives the org page's per-client
  // "reconciled" mark.
  const clientReconciledStatus = useMemo(
-  () => computeClientReconciledStatus({ clientAccounts, transactions, adjustments, reconciliations }),
-  [clientAccounts, transactions, adjustments, reconciliations],
+  () => computeClientReconciledStatus({ clientAccounts, transactions, reconciliations }),
+  [clientAccounts, transactions, reconciliations],
  );
  // The actual pending rows behind those counts, keyed by client — drives the
  // org page's "waiting for pricing" popup (opened by clicking the count).
  const clientPendingPricingEntries = useMemo(
-  () => computeClientPendingPricingEntries({ clientAccounts, transactions, adjustments }),
-  [clientAccounts, transactions, adjustments],
+  () => computeClientPendingPricingEntries({ clientAccounts, transactions }),
+  [clientAccounts, transactions],
  );
  const [pendingPricingModalClientId, setPendingPricingModalClientId] = useState<number | null>(null);
 
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, confirmIfAdjustmentEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, transactions, adjustments, clientAccountMap, lockPastEditsEnabled });
+ const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, transactions, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
- // reusing the same update endpoints the ledger edit uses. When not reversed the rate
+ // reusing the same update endpoint the ledger edit uses. When not reversed the rate
  // multiplies the entry's amount into its account currency (1 <entry currency> = rate
  // <account currency>); when reversed the user typed "1 <account currency> = rate <entry
- // currency>", so the stored multiplier is 1/rate (mirroring the ledger/adjustment edit
- // paths, which persist the effective multiplier plus a reversed flag for display). Only the
- // pending side's rate is touched; every other field is preserved from the stored record.
+ // currency>", so the stored multiplier is 1/rate (mirroring the ledger edit path, which
+ // persists the effective multiplier plus a reversed flag for display). Only the pending
+ // side's rate is touched; every other field is preserved from the stored record.
  const onSavePendingPricingRate = useCallback(
   async (entry: PendingPricingEntry, rateInput: string, reversed: boolean): Promise<boolean> => {
    // Plain-decimal normalization: a rate has no thousands grouping, so a comma is the
@@ -1448,49 +1436,37 @@ function AuthenticatedHome() {
    }
    const rate = reversed ? 1 / rawRate : rawRate;
    try {
-    if (entry.kind === 'adjustment' && entry.adjustmentId != null) {
-     const adj = adjustments.find((a) => a.id === entry.adjustmentId);
-     if (!adj) return false;
-     if (blockedByPastEditLock([adj.createdAt])) return false;
-     const updatedAdj = { ...adj, exchangeRate: rate, exchangeRateReversed: reversed };
-     if (!(await confirmIfAdjustmentEditLocked(adj, updatedAdj))) {
-      return false;
-     }
-     await accountingApi.updateClientAdjustment(updatedAdj);
-    } else if (entry.kind === 'transaction' && entry.transactionId != null) {
-     const tx = transactions.find((x) => x.id === entry.transactionId);
-     if (!tx) return false;
-     const payload: TransactionUpdateInput = {
-      id: tx.id,
-      accountFromId: tx.accountFromId,
-      accountToId: tx.accountToId,
-      currencyId: tx.currencyId,
-      amount: tx.amount,
-      type: tx.type,
-      exchangeRateFrom: entry.side === 'from' ? rate : tx.exchangeRateFrom,
-      commissionFrom: tx.commissionFrom,
-      exchangeRateTo: entry.side === 'to' ? rate : tx.exchangeRateTo,
-      commissionTo: tx.commissionTo,
-      exchangeRateFromReversed: entry.side === 'from' ? (reversed ? 1 : 0) : tx.exchangeRateFromReversed,
-      exchangeRateToReversed: entry.side === 'to' ? (reversed ? 1 : 0) : tx.exchangeRateToReversed,
-      charges: tx.charges,
-      chargesCurrencyId: tx.chargesCurrencyId,
-      chargesPayer: tx.chargesPayer,
-      chargesExchangeRate: tx.chargesExchangeRate,
-      chargesDescription: tx.chargesDescription,
-      description: tx.description,
-      archiveNote: tx.archiveNote,
-      distributionLocationId: tx.distributionLocationId,
-      createdAt: tx.createdAt,
-     };
-     if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return false;
-     if (!(await confirmIfTransactionEditLocked(tx, payload))) {
-      return false;
-     }
-     await accountingApi.updateTransaction(payload);
-    } else {
+    const tx = transactions.find((x) => x.id === entry.transactionId);
+    if (!tx) return false;
+    const payload: TransactionUpdateInput = {
+     id: tx.id,
+     accountFromId: tx.accountFromId,
+     accountToId: tx.accountToId,
+     currencyId: tx.currencyId,
+     amount: tx.amount,
+     type: tx.type,
+     exchangeRateFrom: entry.side === 'from' ? rate : tx.exchangeRateFrom,
+     commissionFrom: tx.commissionFrom,
+     exchangeRateTo: entry.side === 'to' ? rate : tx.exchangeRateTo,
+     commissionTo: tx.commissionTo,
+     exchangeRateFromReversed: entry.side === 'from' ? (reversed ? 1 : 0) : tx.exchangeRateFromReversed,
+     exchangeRateToReversed: entry.side === 'to' ? (reversed ? 1 : 0) : tx.exchangeRateToReversed,
+     charges: tx.charges,
+     chargesCurrencyId: tx.chargesCurrencyId,
+     chargesPayer: tx.chargesPayer,
+     chargesExchangeRate: tx.chargesExchangeRate,
+     chargesDescription: tx.chargesDescription,
+     description: tx.description,
+     archiveNote: tx.archiveNote,
+     counterParty: tx.counterParty,
+     distributionLocationId: tx.distributionLocationId,
+     createdAt: tx.createdAt,
+    };
+    if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return false;
+    if (!(await confirmIfTransactionEditLocked(tx, payload))) {
      return false;
     }
+    await accountingApi.updateTransaction(payload);
     setError('');
     await loadData();
     return true;
@@ -1499,7 +1475,7 @@ function AuthenticatedHome() {
     return false;
    }
   },
-  [adjustments, transactions, confirmIfAdjustmentEditLocked, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
+  [transactions, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
  );
 
  // Applies a partial field patch to a stored transaction — every field not in `patch` is
@@ -1594,7 +1570,6 @@ function AuthenticatedHome() {
   [clients, selectedOrganizationForClients],
  );
 
- const isAdjustmentTransaction = section !== 'archive' && transactionForm.type === 'adjustment';
  const transactionSelectedCurrencyCode = transactionForm.currencyId ? currencyMap.get(transactionForm.currencyId)?.code : undefined;
  const transactionAccountFromCurrencyCode = transactionForm.accountFromId ? clientAccountMap.get(transactionForm.accountFromId)?.currencyCode : undefined;
  const transactionAccountToCurrencyCode = transactionForm.accountToId ? clientAccountMap.get(transactionForm.accountToId)?.currencyCode : undefined;
@@ -1643,7 +1618,6 @@ function AuthenticatedHome() {
    clients,
    clientAccounts,
    transactions,
-   adjustments,
    currencies,
    enabledCurrencies,
    organizations,
@@ -1658,14 +1632,12 @@ function AuthenticatedHome() {
    section,
    numLocale,
    isRTL,
-   isAdjustmentTransaction,
    showExchangeRateFrom,
    showExchangeRateTo,
    transactionAccountFromCurrencyCode,
    transactionAccountToCurrencyCode,
    transactionsImportInputRef,
    txTableHistory,
-   onDeleteAdjustment,
    pushSharedSettingsIfOwner,
    pushUserTableSettings,
    lockPastEditsEnabled,
@@ -1694,8 +1666,8 @@ function AuthenticatedHome() {
  const visibleTransactionColumnCount = Object.values(transactionTableSettings.columns).filter(Boolean).length + 2; // +1 actions col, +1 checkbox col
 
  const selectedClientLedgers: ClientAccountLedger[] = useMemo(
-  () => computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, adjustments, reconciliations, clientAccountMap, currencyMap }),
-  [adjustments, reconciliations, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
+  () => computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, reconciliations, clientAccountMap, currencyMap }),
+  [reconciliations, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
  );
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
@@ -1726,7 +1698,6 @@ function AuthenticatedHome() {
   .filter((column): column is { key: LedgerColumnKey; label: string } => Boolean(column));
 
   const {
-   openAdjustmentModal,
    openOneSidedTransactionModal,
    onSubmitOneSidedTransaction,
    onLedgerColumnDrop,
@@ -1746,8 +1717,6 @@ function AuthenticatedHome() {
    onToggleLedgerEntrySelection,
    onDeleteSelectedLedgerEntries,
    onEditSelectedLedgerEntries,
-   onSubmitAdjustment,
-   onDeleteAdjustment: onDeleteAdjustmentFromLedger,
    onWriteOffLedgerRow,
    onLedgerRowDrop,
    onExportLedgerPdf,
@@ -1756,7 +1725,6 @@ function AuthenticatedHome() {
   } = useLedgerActions({
    clientAccounts,
    transactions,
-   adjustments,
    reconciliations,
    currencyMap,
    clientAccountMap,
@@ -1771,7 +1739,6 @@ function AuthenticatedHome() {
    ledgerHistory,
    lockPastEditsEnabled,
   });
-  onDeleteAdjustmentImpl = onDeleteAdjustmentFromLedger;
 
  const transactionsPager = (() => {
   if (transactionTableRows.length === 0) return null;
@@ -2199,7 +2166,6 @@ function AuthenticatedHome() {
          clientAccounts={clientAccounts}
          currencies={currencies}
          transactions={transactions}
-         adjustments={adjustments}
          harvestRates={harvestRates}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
@@ -2244,7 +2210,6 @@ function AuthenticatedHome() {
          clients={clients}
          clientAccounts={clientAccounts}
          transactions={transactions}
-         adjustments={adjustments}
          currencies={currencies}
          openOrganizationClientsPage={openOrganizationClientsPage}
          onOpenSettings={() => {
@@ -2332,7 +2297,6 @@ function AuthenticatedHome() {
          onSaveAllEditingLedgerRows={onSaveAllEditingLedgerRows}
          onCancelAllEditingLedgerRows={onCancelAllEditingLedgerRows}
          onToggleLedgerEntrySelection={onToggleLedgerEntrySelection}
-         openAdjustmentModal={openAdjustmentModal}
          openOneSidedTransactionModal={openOneSidedTransactionModal}
          openClientLedger={openClientLedger}
          openLedgerRowForEdit={openLedgerRowForEdit}
@@ -2374,7 +2338,6 @@ function AuthenticatedHome() {
          treasuryEnabled={treasuryEnabled}
          clientAccounts={clientAccounts}
          transactions={transactions}
-         adjustments={adjustments}
          enabledCurrencies={enabledCurrencies}
          currencyMap={currencyMap}
          lockPastEditsEnabled={lockPastEditsEnabled}
@@ -2388,7 +2351,6 @@ function AuthenticatedHome() {
          clients={clients}
          currencies={currencies}
          transactions={transactions}
-         adjustments={adjustments}
          harvestRates={harvestRates}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
@@ -2497,19 +2459,6 @@ function AuthenticatedHome() {
      setShowCreateOrgDialog={setShowCreateOrgDialog}
     />
    ) : null}
-
-   <AdjustmentModal
-    selectedClientLedgers={selectedClientLedgers}
-    selectedClientForLedger={selectedClientForLedger}
-    localizedCurrencies={localizedCurrencies}
-    clientAccounts={clientAccounts}
-    currencyMap={currencyMap}
-    enabledCurrencies={enabledCurrencies}
-    adjustments={adjustments}
-    onSubmitAdjustment={onSubmitAdjustment}
-    onDeleteAdjustment={onDeleteAdjustment}
-    lockPastEditsEnabled={lockPastEditsEnabled}
-   />
 
    <OneSidedTransactionModal
     selectedClientLedgers={selectedClientLedgers}

@@ -570,7 +570,6 @@
  "ledger_scroll_to_end": "Aller a la fin du tableau",
  "ledger_scroll_to_top": "Aller au debut du tableau",
  "ledger_add_menu_note": "Note",
- "ledger_add_menu_expense": "Depense",
  "ledger_add_menu_one_sided": "Transaction unilaterale",
  "ledger_note_placeholder": "Ajouter une note pour ce registre…",
  "ledger_note_show_in_pdf": "Afficher dans le PDF exporté",

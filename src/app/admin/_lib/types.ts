@@ -72,7 +72,6 @@ export type WorkspaceStats = {
  clientCount: number;
  accountCount: number;
  transactionCount: number;
- adjustmentCount: number;
  lastTransactionAt: string | null;
 };
 

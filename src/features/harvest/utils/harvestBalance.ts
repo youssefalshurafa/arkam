@@ -1,5 +1,5 @@
 import { computeOverviewBalances } from '@/features/overview/utils/overviewBalances';
-import type { Client, ClientAccount, ClientAdjustment, Currency, OverviewBalanceGroup, Transaction } from '@/shared/types';
+import type { Client, ClientAccount, Currency, OverviewBalanceGroup, Transaction } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
 // حصاد اليوم (Today's Harvest) — general-balance profit/loss.
@@ -47,7 +47,6 @@ function isOnOrBeforeDay(iso: string, day: string): boolean {
 
 export function computeGeneralBalance({
   transactions,
-  adjustments,
   clientAccounts,
   clients,
   currencies,
@@ -56,7 +55,6 @@ export function computeGeneralBalance({
   refRate,
 }: {
   transactions: Transaction[];
-  adjustments: ClientAdjustment[];
   clientAccounts: ClientAccount[];
   clients: Client[];
   currencies: Currency[];
@@ -66,11 +64,9 @@ export function computeGeneralBalance({
   refRate: RefRateResolver;
 }): GeneralBalanceResult {
   const cutoffTransactions = transactions.filter((tx) => isOnOrBeforeDay(tx.createdAt, day));
-  const cutoffAdjustments = adjustments.filter((adj) => isOnOrBeforeDay(adj.createdAt, day));
 
   const balances = computeOverviewBalances({
     transactions: cutoffTransactions,
-    adjustments: cutoffAdjustments,
     clientAccounts,
     clients,
     currencies,

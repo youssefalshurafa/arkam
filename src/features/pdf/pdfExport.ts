@@ -1,5 +1,6 @@
 import { formatDateValue } from '@/shared/utils/date';
 import { formatRateValue } from '@/shared/utils/format';
+import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { ledgerEntryKey } from '@/features/ledger/utils/ledgerEntries';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction, TransactionColumnVisibility } from '@/shared/types';
 
@@ -313,13 +314,12 @@ export function generateLedgerHtml(
    {
     key: 'direction',
     header: t('direction'),
-    cell: (e) =>
-     e.isAdjustment ? t(e.direction === 'outgoing' ? 'adjustment_direction_credit' : 'adjustment_direction_debit') : t(e.direction === 'outgoing' ? 'outgoing' : 'incoming'),
+    cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming'),
    },
    {
     key: 'type',
     header: t('transaction_type'),
-    cell: (e) => (e.isAdjustment ? t('adjustment_label') : t(e.type === 'transfer' ? 'transaction_type_transfer' : 'transaction_type_exchange')),
+    cell: (e) => t(transactionTypeLabelKey(e.type)),
    },
    {
     key: 'amount',
@@ -327,7 +327,7 @@ export function generateLedgerHtml(
     isNum: true,
     cell: (e) => {
      const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
-     if (e.isAdjustment || e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
+     if (e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
      const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
      const desc = e.chargesDescription ? `<span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
@@ -348,7 +348,7 @@ export function generateLedgerHtml(
      return formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate);
     },
    },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (e.isAdjustment || !e.commission ? '-' : formatRateValue(e.commission)) },
+   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (!e.commission ? '-' : formatRateValue(e.commission)) },
    {
     key: 'netChange',
     header: t('net_change'),

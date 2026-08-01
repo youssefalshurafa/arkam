@@ -1,8 +1,8 @@
-import type { ClientAdjustment, Transaction } from '@/shared/types';
+import type { Transaction } from '@/shared/types';
 import { localDateKey, localWallClock, parseLocalWallClock } from '@/shared/utils/date';
 
 /**
- * Timestamp for a newly created transaction/adjustment dated `dateStr`.
+ * Timestamp for a newly created transaction dated `dateStr`.
  *
  * When `dateStr` is TODAY, the real current local time is used so displayed times are
  * accurate (the row still sorts to the top of today because real time advances past
@@ -16,17 +16,11 @@ import { localDateKey, localWallClock, parseLocalWallClock } from '@/shared/util
  * local wall-clock strings (see localWallClock) so the stored/displayed time is the local
  * time and the embedded date matches the user's calendar day.
  */
-export function nextCreatedAtForDate(dateStr: string, transactions: Transaction[], adjustments: ClientAdjustment[]): string {
+export function nextCreatedAtForDate(dateStr: string, transactions: Transaction[]): string {
  let maxEpoch = -Infinity;
  for (const tx of transactions) {
   if (tx.createdAt.slice(0, 10) === dateStr) {
    const e = parseLocalWallClock(tx.createdAt);
-   if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
-  }
- }
- for (const adj of adjustments) {
-  if (adj.createdAt.slice(0, 10) === dateStr) {
-   const e = parseLocalWallClock(adj.createdAt);
    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
   }
  }

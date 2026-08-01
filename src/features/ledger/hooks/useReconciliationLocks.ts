@@ -6,9 +6,9 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { buildLockBoundaries, buildLiveAnchorTimes, violatedLock, reconciledImpact, type LockBoundary, type RowContribution } from '@/features/ledger/utils/reconciliation';
-import { computeTransactionSideNetChange, computeAdjustmentNetChange } from '@/features/ledger/utils/ledgerBalances';
+import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { isBeforeToday } from '@/shared/utils/date';
-import type { ClientAccount, ClientAdjustment, Reconciliation, Transaction, TransactionUpdateInput } from '@/shared/types';
+import type { ClientAccount, Reconciliation, Transaction, TransactionUpdateInput } from '@/shared/types';
 
 // The account+boundary a change would violate, or null if it touches no locked history.
 type LockHit = { accountId: number; boundary: LockBoundary } | null;
@@ -18,7 +18,6 @@ type UseReconciliationLocksParams = {
  // Live rows used to resolve each lock boundary's anchor to its CURRENT createdAt rather
  // than the stale one-time snapshot stored on the reconciliation (see `buildLiveAnchorTimes`).
  transactions: Transaction[];
- adjustments: ClientAdjustment[];
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
  // Workspace-wide "lock past-dated edits" toggle (Settings > Team, owner/admin only). The
  // real enforcement is server-side (route.ts/db.js) — this only stops the request from
@@ -32,12 +31,12 @@ type UseReconciliationLocksParams = {
  * lock line (its newest reconciliation), so both need the same "warn once,
  * proceed if confirmed" behavior.
  */
-export function useReconciliationLocks({ reconciliations, transactions, adjustments, clientAccountMap, lockPastEditsEnabled }: UseReconciliationLocksParams) {
+export function useReconciliationLocks({ reconciliations, transactions, clientAccountMap, lockPastEditsEnabled }: UseReconciliationLocksParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const setError = useAppStatusStore((s) => s.setError);
 
- const liveAnchorTimes = useMemo(() => buildLiveAnchorTimes(transactions, adjustments), [transactions, adjustments]);
+ const liveAnchorTimes = useMemo(() => buildLiveAnchorTimes(transactions), [transactions]);
  // Newest reconciliation per client account = the lock line used by the guards below.
  const lockBoundaries = useMemo(() => buildLockBoundaries(reconciliations, liveAnchorTimes), [reconciliations, liveAnchorTimes]);
 
@@ -135,37 +134,9 @@ export function useReconciliationLocks({ reconciliations, transactions, adjustme
  }
 
  /**
-  * Pure (no dialog) balance-impact check for an adjustment edit, mirroring
-  * `transactionEditImpact` for the single-account adjustment case (its account can itself
-  * change on edit, e.g. reassigning which client account an expense belongs to).
-  */
- function adjustmentEditImpact(oldAdj: ClientAdjustment, newAdj: ClientAdjustment): LockHit {
-  const netOn = (adj: ClientAdjustment, accountId: number): number => {
-   const account = clientAccountMap.get(accountId);
-   if (!account) return 0;
-   return computeAdjustmentNetChange(adj, account.currencyId);
-  };
-  const accountIds = new Set<number>([oldAdj.accountId, newAdj.accountId]);
-  const contributions = [...accountIds].map((accountId) => {
-   const old: RowContribution = { createdAt: oldAdj.createdAt, refId: oldAdj.id, net: netOn(oldAdj, accountId), present: oldAdj.accountId === accountId };
-   const next: RowContribution = { createdAt: newAdj.createdAt, refId: oldAdj.id, net: netOn(newAdj, accountId), present: newAdj.accountId === accountId };
-   return { accountId, old, next };
-  });
-  return reconciledImpact(contributions, lockBoundaries);
- }
-
- /**
-  * Edit guard for an adjustment (expense) — warns only when the edit actually moves a
-  * reconciled balance (see `adjustmentEditImpact`). Returns true to proceed.
-  */
- async function confirmIfAdjustmentEditLocked(oldAdj: ClientAdjustment, newAdj: ClientAdjustment): Promise<boolean> {
-  return warnLockHit(adjustmentEditImpact(oldAdj, newAdj));
- }
-
- /**
   * Hard block (no confirm dialog, unlike the guards above) for the workspace's "lock
   * past-dated edits" toggle: when on, nobody — including owner/admin — can create, edit,
-  * re-date, or delete a transaction/adjustment dated yesterday or earlier. `createdAtValues`
+  * re-date, or delete a transaction dated yesterday or earlier. `createdAtValues`
   * should include both the row's CURRENT date (for edit/delete) and the date being written
   * (for create/edit), so re-dating either into or out of a locked day is caught. Archive-only
   * transactions are exempt (see db.js's createTransaction comment) — pass `isArchived: true`
@@ -186,9 +157,7 @@ export function useReconciliationLocks({ reconciliations, transactions, adjustme
   confirmIfLocked,
   confirmDeleteWithLock,
   confirmIfTransactionEditLocked,
-  confirmIfAdjustmentEditLocked,
   transactionEditImpact,
-  adjustmentEditImpact,
   blockedByPastEditLock,
  };
 }
