@@ -212,8 +212,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
   return { start: new Date(first.createdAt).getTime(), end: new Date(last.createdAt).getTime() };
  }
 
- async function onProposeAiLedgerEdits(ledger: ClientAccountLedger) {
-  const command = aiEditText.trim();
+ async function onProposeAiLedgerEdits(ledger: ClientAccountLedger, overrideCommand?: string) {
+  const command = (overrideCommand ?? aiEditText).trim();
   if (!command) return;
   setIsProposingAiEdit(true);
   try {
@@ -269,8 +269,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
  }
 
  const aiEditSpeechLang = language === 'ar' ? 'ar-SA' : language === 'fr' ? 'fr-FR' : 'en-US';
+ // The speech hook below is a single shared instance for every account's mic button (there's
+ // one recognition session at a time regardless), so this tracks which account's button started
+ // it — needed to know which ledger to auto-propose against once the transcript comes in.
+ const [aiEditListeningAccountId, setAiEditListeningAccountId] = useState<number | null>(null);
  const { isSupported: isAiEditSpeechSupported, isListening: isAiEditListening, start: startAiEditListening, stop: stopAiEditListening } = useSpeechToText(aiEditSpeechLang, (transcript) => {
-  if (transcript) setAiEditText(transcript);
+  if (!transcript) return;
+  setAiEditText(transcript);
+  // Auto-propose once voice input ends, same as pressing Enter would — this only runs the
+  // (reviewable, non-destructive) proposal step, never a save, so nothing is written automatically.
+  const targetLedger = selectedClientLedgers.find((l) => l.accountId === aiEditListeningAccountId);
+  if (targetLedger) void onProposeAiLedgerEdits(targetLedger, transcript);
  });
 
  // Row drag-to-reorder via pointer events (not native HTML5 drag-and-drop, which never fires
@@ -849,7 +858,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                   title={isAiEditListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
                   aria-label={isAiEditListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
                   disabled={isProposingAiEdit}
-                  onClick={() => (isAiEditListening ? stopAiEditListening() : startAiEditListening())}
+                  onClick={() => {
+                   if (isAiEditListening) {
+                    stopAiEditListening();
+                    return;
+                   }
+                   setAiEditListeningAccountId(ledger.accountId);
+                   startAiEditListening();
+                  }}
                   className={`shrink-0 rounded border px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
                    isAiEditListening ? 'animate-pulse border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
                   }`}

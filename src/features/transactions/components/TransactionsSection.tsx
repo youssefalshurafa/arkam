@@ -237,8 +237,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const { parseTransactionText } = useAiParseTransaction();
  const [aiParseText, setAiParseText] = useState('');
  const [isParsingWithAi, setIsParsingWithAi] = useState(false);
- const onFillFromText = async () => {
-  const text = aiParseText.trim();
+ const onFillFromText = async (overrideText?: string) => {
+  const text = (overrideText ?? aiParseText).trim();
   if (!text) return;
   setIsParsingWithAi(true);
   try {
@@ -270,7 +270,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const speechLang = language === 'ar' ? 'ar-SA' : language === 'fr' ? 'fr-FR' : 'en-US';
  const { isSupported: isSpeechSupported, isListening, start: startListening, stop: stopListening } = useSpeechToText(speechLang, (transcript) => {
   if (!transcript) return;
-  setAiParseText((current) => (current.trim() ? `${current.trim()} ${transcript}` : transcript));
+  // Auto-submit once voice input ends, same as pressing Enter would — this only runs the
+  // (reviewable, non-destructive) parse step, not a save, so nothing is written automatically.
+  const combined = aiParseText.trim() ? `${aiParseText.trim()} ${transcript}` : transcript;
+  setAiParseText(combined);
+  void onFillFromText(combined);
  });
 
  // Shared by the row's onContextMenu (desktop right-click) and its visible "⋮" button
