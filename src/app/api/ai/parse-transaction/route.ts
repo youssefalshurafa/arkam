@@ -46,6 +46,13 @@ const ParsedTransaction = z.object({
  description: z.string().nullable(),
  // YYYY-MM-DD, only when the text implies a date other than "today".
  date: z.string().nullable(),
+ // "Expenses" (labeled as such in the UI) — a fee/cost attached to this same transaction, e.g.
+ // "also 50 MAD for gas". Distinct from a standalone one-sided expense transaction, which this
+ // route does not create — see chargesPayer's rule below for why it is filled conservatively.
+ charges: z.number().nullable(),
+ chargesCurrencyId: z.number().nullable(),
+ chargesDescription: z.string().nullable(),
+ chargesPayer: z.enum(['from', 'to', 'me_to_from', 'me_to_to', 'from_to_me', 'to_to_me']).nullable(),
 });
 
 // Hand-written for the same reason as review-ledger's RESPONSE_SCHEMA: Gemini's responseSchema
@@ -65,8 +72,28 @@ const RESPONSE_SCHEMA = {
   commissionTo: { type: ['number', 'null'] },
   description: { type: ['string', 'null'] },
   date: { type: ['string', 'null'] },
+  charges: { type: ['number', 'null'] },
+  chargesCurrencyId: { type: ['number', 'null'] },
+  chargesDescription: { type: ['string', 'null'] },
+  chargesPayer: { type: ['string', 'null'], enum: ['from', 'to', 'me_to_from', 'me_to_to', 'from_to_me', 'to_to_me', 'null'] },
  },
- required: ['type', 'accountFromId', 'accountToId', 'currencyId', 'amount', 'exchangeRateFrom', 'commissionFrom', 'exchangeRateTo', 'commissionTo', 'description', 'date'],
+ required: [
+  'type',
+  'accountFromId',
+  'accountToId',
+  'currencyId',
+  'amount',
+  'exchangeRateFrom',
+  'commissionFrom',
+  'exchangeRateTo',
+  'commissionTo',
+  'description',
+  'date',
+  'charges',
+  'chargesCurrencyId',
+  'chargesDescription',
+  'chargesPayer',
+ ],
 };
 
 function buildSystemInstruction(languageName: string): string {
@@ -93,9 +120,23 @@ function buildSystemInstruction(languageName: string): string {
   'from "today" (e.g. "yesterday", "last Monday", an explicit date). Otherwise null.\n' +
   '- type: one of buy, sell, exchange, transfer, adjustment, based on what the sentence ' +
   'describes; null if unclear.\n' +
+  '- charges/chargesCurrencyId/chargesDescription/chargesPayer are the "Expenses" fields on ' +
+  'THIS SAME transaction (e.g. "...also 50 MAD for gas") — a fee/cost tied to this transaction, ' +
+  'NOT a separate transaction. If the text mentions an expense/fee/cost alongside the main ' +
+  'transaction, set charges to that plain positive number and chargesCurrencyId to its currency ' +
+  '(if named, else the main currencyId); chargesDescription is a short note of what it was for, ' +
+  'if given.\n' +
+  '- chargesPayer says who that expense is attributed to and is the one field in this whole ' +
+  'schema where being wrong silently misattributes money between two different clients\' ' +
+  'balances — treat null as the safe default and only set it when the sentence leaves no real ' +
+  'ambiguity: "from" = the accountFrom client bears it, "to" = the accountTo client bears it, ' +
+  '"me_to_from"/"me_to_to" = the workspace owner (a person the text may call "me"/"I") paid it ' +
+  'on behalf of that client, "from_to_me"/"to_to_me" = that client paid/owes it to the workspace ' +
+  'owner. If the sentence does not clearly say whose expense this is, leave chargesPayer null ' +
+  'and let the user pick it themselves — do not default to "from" or any other value.\n' +
   `- Any field you cannot confidently determine from the text MUST be null, not a guess. Write ` +
-  `the "description" field (if any) in ${languageName}, matching the sentence's own language ` +
-  'where possible.\n\n' +
+  `the "description"/"chargesDescription" fields (if any) in ${languageName}, matching the ` +
+  "sentence's own language where possible.\n\n" +
   'Respond with JSON matching the given schema.'
  );
 }
@@ -160,6 +201,7 @@ export async function POST(request: NextRequest) {
   if (result.accountFromId != null && !accountIds.has(result.accountFromId)) result.accountFromId = null;
   if (result.accountToId != null && !accountIds.has(result.accountToId)) result.accountToId = null;
   if (result.currencyId != null && !currencyIds.has(result.currencyId)) result.currencyId = null;
+  if (result.chargesCurrencyId != null && !currencyIds.has(result.chargesCurrencyId)) result.chargesCurrencyId = null;
 
   return NextResponse.json({ parsed: result });
  } catch {

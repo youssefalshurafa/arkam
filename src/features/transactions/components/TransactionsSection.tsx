@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useStableSession } from '@/hooks/useStableSession';
 import { useTheme } from '@/contexts/ThemeContext';
 import { resolveHighlightBg } from '@/shared/utils/highlightColor';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -231,6 +232,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // hidden otherwise). Never submits anything itself — it only pre-fills the same draft form the
  // user would otherwise fill by hand, so the existing Save button is still the human review step.
  const aiSettings = useSettingsStore((s) => s.aiSettings);
+ const { data: authSession } = useStableSession();
+ const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
  const { parseTransactionText } = useAiParseTransaction();
  const [aiParseText, setAiParseText] = useState('');
  const [isParsingWithAi, setIsParsingWithAi] = useState(false);
@@ -253,6 +256,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
     ...(parsed.exchangeRateTo != null ? { exchangeRateTo: String(parsed.exchangeRateTo) } : {}),
     ...(parsed.commissionTo != null ? { commissionTo: String(parsed.commissionTo) } : {}),
     ...(parsed.description != null ? { description: parsed.description } : {}),
+    ...(parsed.charges != null ? { charges: String(parsed.charges) } : {}),
+    ...(parsed.chargesCurrencyId != null ? { chargesCurrencyId: parsed.chargesCurrencyId } : {}),
+    ...(parsed.chargesDescription != null ? { chargesDescription: parsed.chargesDescription } : {}),
+    ...(parsed.chargesPayer != null ? { chargesPayer: parsed.chargesPayer } : {}),
    }));
    if (parsed.date) setNewTransactionDate(parsed.date);
    setAiParseText('');
@@ -696,7 +703,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             onSubmit={onTransactionSubmit}
             className="mt-5 max-w-md"
            >
-            {aiSettings.enabled ? (
+            {aiFeatureAccess ? (
              <div className="mb-4 rounded border border-border-strong bg-surface-2 p-3">
               <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ai_fill_label')}</label>
               <div className="mt-2 flex gap-2">

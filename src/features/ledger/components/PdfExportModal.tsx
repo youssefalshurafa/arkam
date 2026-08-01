@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useStableSession } from '@/hooks/useStableSession';
 import { savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
 import { formatDateValue } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
@@ -27,6 +28,8 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
  const numLocale = language === 'fr' ? 'en-US' : language;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
  const aiSettings = useSettingsStore((s) => s.aiSettings);
+ const { data: authSession } = useStableSession();
+ const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
  const pdfExportModal = useLedgerStore((s) => s.pdfExportModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
  const highlightedLedgerRows = useLedgerStore((s) => s.highlightedLedgerRows);
@@ -246,7 +249,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
           </div>
 
           <div className="mt-5 flex flex-wrap justify-end gap-2">
-           {aiSettings.enabled ? (
+           {aiFeatureAccess ? (
             <button
              type="button"
              disabled={isReviewingWithAi || selected.length === 0}

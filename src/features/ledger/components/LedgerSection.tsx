@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
@@ -24,6 +24,10 @@ import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch } from '@/features/ledger/utils/ledgerEntries';
 import type { RateAnomaly, CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
+import { useSettingsStore } from '@/features/settings/store/settingsStore';
+import { useStableSession } from '@/hooks/useStableSession';
+import { useAiEditLedger, type AiEditLedgerReviewRow } from '@/features/ledger/hooks/useAiEditLedger';
+import { useSpeechToText } from '@/shared/hooks/useSpeechToText';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
@@ -145,6 +149,129 @@ export default function LedgerSection(props: LedgerSectionProps) {
    return !on;
   });
  };
+
+ // Natural-language bulk exchange-rate edit ("starting from 27/07 the rate for Berlin is
+ // 10.76..."). This ONLY proposes edits (see useAiEditLedger) — nothing is saved until the user
+ // applies. Proposals are shown inline on the affected ledger rows themselves (old value struck
+ // through, new value next to it) with a per-row accept/decline toggle, rather than a blocking
+ // modal — see the exchangeRate cell below. Applied edits go through the exact same draft +
+ // onSaveAllLedger machinery a manual edit would use, so reconciliation-lock checks etc. still
+ // apply unchanged.
+ const aiSettings = useSettingsStore((s) => s.aiSettings);
+ const { data: authSession } = useStableSession();
+ const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
+ const { proposeEdits } = useAiEditLedger();
+ const [aiEditText, setAiEditText] = useState('');
+ const [isProposingAiEdit, setIsProposingAiEdit] = useState(false);
+ const [isApplyingAiEdit, setIsApplyingAiEdit] = useState(false);
+ const [aiEditReview, setAiEditReview] = useState<{ accountId: number; rows: AiEditLedgerReviewRow[] } | null>(null);
+ // Rows the user declined via the inline ✕ mark, excluded from Apply but kept visible (dimmed,
+ // with a ✓ to bring them back) so a misclick doesn't require re-running the AI command.
+ const [aiEditDeclinedIds, setAiEditDeclinedIds] = useState<Set<number>>(new Set());
+ const toggleAiEditRowDeclined = (transactionId: number) => {
+  setAiEditDeclinedIds((prev) => {
+   const next = new Set(prev);
+   if (next.has(transactionId)) next.delete(transactionId);
+   else next.add(transactionId);
+   return next;
+  });
+ };
+ const cancelAiEditReview = () => {
+  setAiEditReview(null);
+  setAiEditDeclinedIds(new Set());
+ };
+ // Set once confirmed edits have been written into drafts, so onSaveAllLedger runs on the
+ // NEXT render — its closure over ledgerTransactionDrafts/editingLedgerRowKeys must see the
+ // fresh values, which isn't guaranteed if it were called synchronously in the same tick.
+ const [aiEditPendingSaveAccountId, setAiEditPendingSaveAccountId] = useState<number | null>(null);
+
+ useEffect(() => {
+  if (aiEditPendingSaveAccountId == null) return;
+  const ledgerToSave = selectedClientLedgers.find((l) => l.accountId === aiEditPendingSaveAccountId);
+  setAiEditPendingSaveAccountId(null);
+  if (ledgerToSave) void onSaveAllLedger(ledgerToSave);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [aiEditPendingSaveAccountId]);
+
+ // Same "last two highlighted rows define an inclusive date range" convention as
+ // openCommissionModalFromHighlights below (the ledger's one existing "use highlighted rows"
+ // feature) — resolved deterministically here rather than left for the AI to infer from raw
+ // entries, so a stray highlight left over from earlier browsing can't silently widen the range.
+ function getHighlightedDateRange(ledger: ClientAccountLedger): { start: number; end: number } | null {
+  const sorted = [...ledger.entries]
+   .map((e) => ({ ...e, rowKey: getLedgerTransactionDraftKey(e.transactionId, ledger.accountId) }))
+   .sort((a, b) => {
+    const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    if (diff !== 0) return diff;
+    return a.transactionId - b.transactionId;
+   });
+  const highlighted = sorted.filter((e) => highlightedLedgerRows.has(e.rowKey));
+  if (highlighted.length === 0) return null;
+  const last = highlighted[highlighted.length - 1];
+  const first = highlighted.length >= 2 ? highlighted[highlighted.length - 2] : last;
+  return { start: new Date(first.createdAt).getTime(), end: new Date(last.createdAt).getTime() };
+ }
+
+ async function onProposeAiLedgerEdits(ledger: ClientAccountLedger) {
+  const command = aiEditText.trim();
+  if (!command) return;
+  setIsProposingAiEdit(true);
+  try {
+   const highlightedRange = getHighlightedDateRange(ledger);
+   const entries = ledger.entries.map((entry) => {
+    const entryTime = new Date(entry.createdAt).getTime();
+    return {
+     transactionId: entry.transactionId,
+     date: entry.createdAt.slice(0, 10),
+     counterpartyName: entry.counterpartyName,
+     description: entry.description,
+     exchangeRate: entry.exchangeRate,
+     currencyCode: entry.currencyCode,
+     isHighlighted: highlightedRange != null && entryTime >= highlightedRange.start && entryTime <= highlightedRange.end,
+    };
+   });
+   const proposed = await proposeEdits(command, entries);
+   if (!proposed) return;
+   if (proposed.length === 0) {
+    showToast(t('ai_edit_ledger_none_found'));
+    return;
+   }
+   const entryById = new Map(ledger.entries.map((entry) => [entry.transactionId, entry]));
+   const rows: AiEditLedgerReviewRow[] = proposed.flatMap((edit) => {
+    const entry = entryById.get(edit.transactionId);
+    if (!entry) return [];
+    return [{ transactionId: edit.transactionId, counterpartyName: entry.counterpartyName, date: formatDateValue(entry.createdAt, ledgerDateFormat), oldRate: entry.exchangeRate, newRate: edit.newExchangeRate }];
+   });
+   setAiEditDeclinedIds(new Set());
+   setAiEditReview({ accountId: ledger.accountId, rows });
+   setAiEditText('');
+  } finally {
+   setIsProposingAiEdit(false);
+  }
+ }
+
+ function onApplyAiLedgerEdits(ledger: ClientAccountLedger) {
+  setIsApplyingAiEdit(true);
+  try {
+   const acceptedRows = (aiEditReview?.rows ?? []).filter((row) => !aiEditDeclinedIds.has(row.transactionId));
+   const entryById = new Map(ledger.entries.map((entry) => [entry.transactionId, entry]));
+   for (const row of acceptedRows) {
+    const entry = entryById.get(row.transactionId);
+    if (!entry) continue;
+    openLedgerRowForEdit(entry, ledger.accountId);
+    updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { exchangeRate: String(row.newRate) });
+   }
+   cancelAiEditReview();
+   setAiEditPendingSaveAccountId(ledger.accountId);
+  } finally {
+   setIsApplyingAiEdit(false);
+  }
+ }
+
+ const aiEditSpeechLang = language === 'ar' ? 'ar-SA' : language === 'fr' ? 'fr-FR' : 'en-US';
+ const { isSupported: isAiEditSpeechSupported, isListening: isAiEditListening, start: startAiEditListening, stop: stopAiEditListening } = useSpeechToText(aiEditSpeechLang, (transcript) => {
+  if (transcript) setAiEditText(transcript);
+ });
 
  // Row drag-to-reorder via pointer events (not native HTML5 drag-and-drop, which never fires
  // from a touch gesture — the reason this was unusable on mobile). See usePointerDrag for why.
@@ -691,6 +818,88 @@ export default function LedgerSection(props: LedgerSectionProps) {
                </div>
               </div>
              </div>
+
+             {aiFeatureAccess ? (
+              <div className="mt-4 rounded border border-border-strong bg-surface-2 p-3">
+               <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ai_edit_ledger_label')}</label>
+               {(() => {
+                const highlightedCountForAccount = Array.from(highlightedLedgerRows.keys()).filter((key) => key.endsWith(`:${ledger.accountId}`)).length;
+                return highlightedCountForAccount > 0 ? (
+                 <p className="mt-1 text-xs text-fg-faint">{t('ai_edit_ledger_highlight_hint', { count: highlightedCountForAccount })}</p>
+                ) : null;
+               })()}
+               <div className="mt-2 flex gap-2">
+                <input
+                 type="text"
+                 value={aiEditText}
+                 onChange={(event) => setAiEditText(event.target.value)}
+                 onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                   event.preventDefault();
+                   void onProposeAiLedgerEdits(ledger);
+                  }
+                 }}
+                 placeholder={t('ai_edit_ledger_placeholder')}
+                 disabled={isProposingAiEdit}
+                 className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                />
+                {isAiEditSpeechSupported ? (
+                 <button
+                  type="button"
+                  title={isAiEditListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+                  aria-label={isAiEditListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+                  disabled={isProposingAiEdit}
+                  onClick={() => (isAiEditListening ? stopAiEditListening() : startAiEditListening())}
+                  className={`shrink-0 rounded border px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                   isAiEditListening ? 'animate-pulse border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+                  }`}
+                 >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                   <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                   <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+                   <path d="M12 18v4M9 22h6" />
+                  </svg>
+                 </button>
+                ) : null}
+                <button
+                 type="button"
+                 disabled={isProposingAiEdit || !aiEditText.trim()}
+                 onClick={() => void onProposeAiLedgerEdits(ledger)}
+                 className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                 {isProposingAiEdit ? t('ai_edit_ledger_proposing') : t('ai_edit_ledger_propose')}
+                </button>
+               </div>
+              </div>
+             ) : null}
+
+             {aiEditReview && aiEditReview.accountId === ledger.accountId
+              ? (() => {
+                 const acceptedCount = aiEditReview.rows.filter((row) => !aiEditDeclinedIds.has(row.transactionId)).length;
+                 return (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded border border-border-strong bg-surface-2 px-3 py-2 text-sm">
+                   <span className="text-fg-muted">{t('ai_edit_ledger_review_hint')}</span>
+                   <span className="ms-auto flex items-center gap-2">
+                    <button
+                     type="button"
+                     onClick={cancelAiEditReview}
+                     className="rounded border border-border-strong px-3 py-1.5 text-xs font-semibold text-fg-muted hover:bg-surface-hover"
+                    >
+                     {t('cancel')}
+                    </button>
+                    <button
+                     type="button"
+                     disabled={isApplyingAiEdit || acceptedCount === 0}
+                     onClick={() => onApplyAiLedgerEdits(ledger)}
+                     className="rounded bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                     {isApplyingAiEdit ? t('ai_edit_ledger_applying') : t('ai_edit_ledger_apply', { count: String(acceptedCount) })}
+                    </button>
+                   </span>
+                  </div>
+                 );
+                })()
+              : null}
 
              {/* "+" menu: Add Note / Add One-Sided Transaction, consolidated into one entry
                  point next to the sticky note (see generateLedgerHtml for the note's opt-in
@@ -2218,8 +2427,45 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className="px-4 py-3 text-fg-muted"
                              >
-                              {draft
-                               ? (() => {
+                              {(() => {
+                                // AI-proposed rate changes are shown inline on the row they apply to (old
+                                // value struck through, new value next to it, gray/dimmed when declined)
+                                // instead of a separate review dialog — see onProposeAiLedgerEdits above.
+                                // Nothing is written to the draft until the user clicks Apply.
+                                const aiProposal =
+                                 !draft && aiEditReview?.accountId === ledger.accountId ? aiEditReview.rows.find((r) => r.transactionId === entry.transactionId) : undefined;
+                                if (aiProposal) {
+                                 const isDeclined = aiEditDeclinedIds.has(entry.transactionId);
+                                 return (
+                                  <div className={`flex items-center gap-1.5 rounded px-1 ${isDeclined ? 'opacity-50' : 'bg-accent-bg/40'}`}>
+                                   <span className="text-fg-faint line-through">{formatRateValue(aiProposal.oldRate)}</span>
+                                   <span className="text-fg-faint">→</span>
+                                   <span className={`font-semibold ${isDeclined ? 'text-fg-faint line-through' : 'text-accent-text'}`}>{formatRateValue(aiProposal.newRate)}</span>
+                                   <button
+                                    type="button"
+                                    title={t('ai_edit_ledger_accept_row')}
+                                    onClick={() => {
+                                     if (isDeclined) toggleAiEditRowDeclined(entry.transactionId);
+                                    }}
+                                    className={`rounded p-0.5 text-xs ${isDeclined ? 'text-fg-faint hover:text-good-text' : 'text-good-text'}`}
+                                   >
+                                    ✓
+                                   </button>
+                                   <button
+                                    type="button"
+                                    title={t('ai_edit_ledger_decline_row')}
+                                    onClick={() => {
+                                     if (!isDeclined) toggleAiEditRowDeclined(entry.transactionId);
+                                    }}
+                                    className={`rounded p-0.5 text-xs ${isDeclined ? 'text-bad-text' : 'text-fg-faint hover:text-bad-text'}`}
+                                   >
+                                    ✕
+                                   </button>
+                                  </div>
+                                 );
+                                }
+                                return draft
+                                 ? (() => {
                                   const ledgerRateKey = `${entry.transactionId}:${ledger.accountId}`;
                                   const isLedgerRateReversed = ledgerRateReversed[ledgerRateKey] ?? false;
                                   // The draft's own (just-picked) currency decides whether a rate is needed —
@@ -2403,7 +2649,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     ) : null}
                                    </div>
                                   );
-                                 })()}
+                                 })();
+                               })()}
                              </td>
                             );
                            case 'commission':

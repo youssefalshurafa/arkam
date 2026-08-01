@@ -17,6 +17,10 @@ export type ParsedTransaction = {
  commissionTo: number | null;
  description: string | null;
  date: string | null;
+ charges: number | null;
+ chargesCurrencyId: number | null;
+ chargesDescription: string | null;
+ chargesPayer: TransactionForm['chargesPayer'] | null;
 };
 
 // Natural-language transaction entry: parses a typed sentence into a partial form payload.

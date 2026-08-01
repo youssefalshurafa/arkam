@@ -105,6 +105,7 @@ import AppHeader from '@/shared/components/AppHeader';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
 import OneSidedTransactionModal from '@/features/ledger/components/OneSidedTransactionModal';
 import PdfExportModal from '@/features/ledger/components/PdfExportModal';
+import AiChatPanel from '@/features/ai-chat/components/AiChatPanel';
 import CommissionReportModal from '@/features/ledger/components/CommissionReportModal';
 import TransactionDetailsModal from '@/features/transactions/components/TransactionDetailsModal';
 import TransactionExportModal from '@/features/transactions/components/TransactionExportModal';
@@ -2528,6 +2529,7 @@ function AuthenticatedHome() {
    />
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />
+   <AiChatPanel />
 
    <CommissionReportModal
     ledgers={selectedClientLedgers}
@@ -2577,21 +2579,26 @@ function AuthenticatedHome() {
      numLocale={numLocale}
      ledgerDecimals={ledgerDecimals}
      ledgerDateFormat={ledgerDateFormat}
-     onClose={() => setPendingPricingModalClientId(null)}
+     // Reached via the org-clients-list modal below when pendingPricingModalOrgId is still set
+     // (it's only cleared on X / outside-click) — show a back arrow that returns to that list
+     // instead of closing everything.
+     onBack={pendingPricingModalOrgId != null ? () => setPendingPricingModalClientId(null) : undefined}
+     onClose={() => {
+      setPendingPricingModalClientId(null);
+      setPendingPricingModalOrgId(null);
+     }}
      onSaveRate={onSavePendingPricingRate}
     />
    ) : null}
 
    {/* Organizations-list "awaiting pricing" column: step 1 of 2 — this org's clients that
-       have pending rows. Clicking a client hands off to the single-client modal above. */}
-   {pendingPricingModalOrgId != null ? (
+       have pending rows. Clicking a client hands off to the single-client modal above, keeping
+       this org id around so that modal can show a back button to here. */}
+   {pendingPricingModalOrgId != null && pendingPricingModalClientId == null ? (
     <OrgPendingPricingClientsModal
      organizationName={organizations.find((o) => o.id === pendingPricingModalOrgId)?.name ?? null}
      clients={pendingPricingModalOrgClients}
-     onSelectClient={(clientId) => {
-      setPendingPricingModalOrgId(null);
-      setPendingPricingModalClientId(clientId);
-     }}
+     onSelectClient={(clientId) => setPendingPricingModalClientId(clientId)}
      onClose={() => setPendingPricingModalOrgId(null)}
     />
    ) : null}
