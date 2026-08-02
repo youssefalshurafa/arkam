@@ -268,7 +268,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   }
  };
  const speechLang = language === 'ar' ? 'ar-SA' : language === 'fr' ? 'fr-FR' : 'en-US';
- const { isSupported: isSpeechSupported, isListening, start: startListening, stop: stopListening } = useSpeechToText(speechLang, (transcript) => {
+ const {
+  isSupported: isSpeechSupported,
+  isListening,
+  isUnsupportedEnv: isSpeechUnsupportedEnv,
+  start: startListening,
+  stop: stopListening,
+ } = useSpeechToText(speechLang, (transcript) => {
   if (!transcript) return;
   // Auto-submit once voice input ends, same as pressing Enter would — this only runs the
   // (reviewable, non-destructive) parse step, not a save, so nothing is written automatically.
@@ -710,6 +716,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             {aiFeatureAccess ? (
              <div className="mb-4 rounded border border-border-strong bg-surface-2 p-3">
               <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ai_fill_label')}</label>
+              {isSpeechUnsupportedEnv ? <p className="mt-1 text-xs text-fg-faint">{t('ai_fill_voice_unsupported')}</p> : null}
+              {isParsingWithAi ? <p className="mt-1 animate-pulse text-xs text-fg-faint">{t('ai_processing')}</p> : null}
               <div className="mt-2 flex gap-2">
                <input
                 type="text"
@@ -755,9 +763,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 <button
                  type="button"
                  onClick={() => stopAiParse()}
-                 className="shrink-0 rounded border border-bad-text bg-bad-bg px-3 py-2 text-sm font-semibold text-bad-text transition hover:opacity-80"
+                 title={t('ai_stop')}
+                 aria-label={t('ai_stop')}
+                 className="shrink-0 rounded border border-bad-text bg-bad-bg px-3 py-2 text-bad-text transition hover:opacity-80"
                 >
-                 {t('ai_stop')}
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                 </svg>
                 </button>
                ) : (
                 <button

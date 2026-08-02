@@ -229,7 +229,8 @@ export async function POST(request: NextRequest) {
   if (result.chargesCurrencyId != null && !currencyIds.has(result.chargesCurrencyId)) result.chargesCurrencyId = null;
 
   return NextResponse.json({ parsed: result });
- } catch {
+ } catch (error) {
+  console.error('[parse-transaction] request failed:', error);
   return NextResponse.json({ error: 'ai_request_failed' }, { status: 502 });
  }
 }

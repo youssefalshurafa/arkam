@@ -112,6 +112,13 @@ function buildSystemInstruction(languageName: string): string {
   'of a longer counterpartyName/description) rather than an exact full match — treat a fragment ' +
   'that uniquely identifies one entity as a confident match, the same way you would an exact ' +
   'name.\n' +
+  '- When the command names a country, region, or nationality (e.g. "Germany", "the UK", "Gulf ' +
+  'clients") rather than one specific place/person, treat every counterpartyName or description ' +
+  'that names any city, town, or place you know to be located in that country/region as a ' +
+  'confident match — including less globally-famous places, not only capitals or major cities. Be ' +
+  'liberal here: for a geographic filter, err toward including a plausible place in that country ' +
+  'rather than excluding it, since this is different from the cautious exact/fragment ' +
+  'name-matching described above.\n' +
   '- If a name matches MORE THAN ONE transaction (e.g. it appears twice within the date scope), ' +
   'include an edit for EVERY matching transaction rather than guessing which single one was ' +
   'meant — the human reviewing your proposal will decide which to keep.\n' +

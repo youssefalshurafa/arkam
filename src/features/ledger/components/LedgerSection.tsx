@@ -273,7 +273,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // one recognition session at a time regardless), so this tracks which account's button started
  // it — needed to know which ledger to auto-propose against once the transcript comes in.
  const [aiEditListeningAccountId, setAiEditListeningAccountId] = useState<number | null>(null);
- const { isSupported: isAiEditSpeechSupported, isListening: isAiEditListening, start: startAiEditListening, stop: stopAiEditListening } = useSpeechToText(aiEditSpeechLang, (transcript) => {
+ const {
+  isSupported: isAiEditSpeechSupported,
+  isListening: isAiEditListening,
+  isUnsupportedEnv: isAiEditSpeechUnsupportedEnv,
+  start: startAiEditListening,
+  stop: stopAiEditListening,
+ } = useSpeechToText(aiEditSpeechLang, (transcript) => {
   if (!transcript) return;
   setAiEditText(transcript);
   // Auto-propose once voice input ends, same as pressing Enter would — this only runs the
@@ -837,6 +843,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  <p className="mt-1 text-xs text-fg-faint">{t('ai_edit_ledger_highlight_hint', { count: highlightedCountForAccount })}</p>
                 ) : null;
                })()}
+               {isAiEditSpeechUnsupportedEnv && aiEditListeningAccountId === ledger.accountId ? (
+                <p className="mt-1 text-xs text-fg-faint">{t('ai_fill_voice_unsupported')}</p>
+               ) : null}
+               {isProposingAiEdit ? <p className="mt-1 animate-pulse text-xs text-fg-faint">{t('ai_processing')}</p> : null}
                <div className="mt-2 flex gap-2">
                 <input
                  type="text"
