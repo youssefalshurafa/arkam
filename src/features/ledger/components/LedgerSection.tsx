@@ -3028,10 +3028,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       }
 
                       if (!isEditingThisRow && entry.charges > 0 && entry.chargeAffectsThisAccount) {
+                       const chargesHighlightColor = highlightedLedgerRows.get(chargesRowKey);
                        return (
                         <tr
                          key={`${ledger.accountId}-${entry.transactionId}-charges-view`}
                          className={`${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''}`}
+                         style={chargesHighlightColor ? { backgroundColor: resolveHighlightBg(chargesHighlightColor, isDark) } : undefined}
                         >
                          <td
                           colSpan={colSpanCount}

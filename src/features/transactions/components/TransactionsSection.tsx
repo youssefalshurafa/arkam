@@ -2306,7 +2306,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 e.preventDefault();
                 void onSaveTransactionTableRow(txn.id);
                }}
-               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${!txn.isArchived && (!txn.accountFromId || !txn.accountToId) ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
+               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${txn.isArchived || (txn.type !== 'adjustment' && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim()) ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
                 section === 'archive' && txn.archiveHidden ? 'opacity-50' : ''
                } ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
