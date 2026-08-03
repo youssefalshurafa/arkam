@@ -14,7 +14,7 @@ import { accountingApi } from '@/lib/accountingApi';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkBar, SkTablePanel, SK_LEDGER } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
+import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, notifySettingsChanged, saveLedgerFilter, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
@@ -124,6 +124,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
   const el = ledgerTableScrollRef.current;
   if (el) el.scrollTop = el.scrollHeight;
  }, [selectedClientForLedger?.id, selectedLedgerAccountId]);
+
+ // Persist the search/date filter bar so it survives a refresh and follows the user
+ // to another device (see saveLedgerFilter in shared/lib/localStorage.ts).
+ useEffect(() => {
+  saveLedgerFilter({
+   search: ledgerFilterSearch,
+   wholeWord: ledgerFilterWholeWord,
+   counterparty: ledgerFilterCounterparty,
+   dateFrom: ledgerFilterDateFrom,
+   dateTo: ledgerFilterDateTo,
+  });
+ }, [ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
 
  // Right-click row actions (Edit/Reconcile/Write off/Delete) — replaces a cluster of
  // per-row icon buttons with a single context menu, decluttering the actions column.
@@ -2276,7 +2288,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     </ul>
                                    )}
                                   </div>
-                                  {draft.type === 'adjustment' && !draft.counterpartyAccountId ? (
+                                  {!draft.counterpartyAccountId ? (
                                    <input
                                     type="text"
                                     value={draft.counterParty}
@@ -2286,14 +2298,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     className={`${seamlessInputClassName} text-xs text-fg`}
                                    />
                                   ) : null}
+                                  {/* Labeled + colored like the read-only direction badge (see the 'direction'
+                                      column case below) so a one-sided row's credit/debit toggle is obvious —
+                                      an unlabeled icon-only button here was easy to miss entirely. */}
                                   <button
                                    type="button"
                                    title={t('ledger_swap_parties')}
                                    onClick={() =>
                                     updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: draft.direction === 'outgoing' ? 'incoming' : 'outgoing' })
                                    }
-                                   className="shrink-0 rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-accent"
+                                   className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold transition hover:opacity-80 ${
+                                    draft.direction === 'incoming' ? 'bg-bad-bg text-bad-text' : 'bg-good-bg text-good-text'
+                                   }`}
                                   >
+                                   {t(draft.direction === 'outgoing' ? 'outgoing' : 'incoming')}
                                    <svg
                                     width="14"
                                     height="14"
@@ -3259,7 +3277,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     onChange={(event) => {
                      const nextSize = Number(event.target.value);
                      setLedgerPageSize(nextSize);
-                     if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
+                     if (typeof window !== 'undefined') {
+                      window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
+                      notifySettingsChanged();
+                     }
                      setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
                     }}
                     className="h-7 rounded border border-border-strong bg-surface px-1.5 text-xs outline-none ring-blue-300 focus:ring"

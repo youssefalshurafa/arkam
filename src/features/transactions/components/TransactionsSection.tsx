@@ -12,7 +12,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings } from '@/shared/lib/localStorage';
+import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings, saveTxFilter } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
@@ -211,6 +211,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // is rare) so it doesn't inherit the Transactions form's open state when switching sections.
  const newSectionOpen = section === 'archive' ? isNewArchiveSectionOpen : isNewTransactionSectionOpen;
  const setNewSectionOpen = section === 'archive' ? setIsNewArchiveSectionOpen : setIsNewTransactionSectionOpen;
+ // Persist the search/date filter bar so it survives a refresh and follows the user
+ // to another device (see saveTxFilter in shared/lib/localStorage.ts).
+ useEffect(() => {
+  saveTxFilter({ search: txFilterSearch, wholeWord: txFilterWholeWord, dateFrom: txFilterDateFrom, dateTo: txFilterDateTo });
+ }, [txFilterSearch, txFilterWholeWord, txFilterDateFrom, txFilterDateTo]);
  // When a row is loaded into the form for editing, bring the form into view.
  const editFormRef = useRef<HTMLDivElement | null>(null);
  const transactionFormRef = useRef<HTMLFormElement | null>(null);

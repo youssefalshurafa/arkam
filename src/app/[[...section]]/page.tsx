@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import HomePage from '@/components/marketing/HomePage';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
@@ -45,6 +46,14 @@ import {
  ledgerHighlightsStorageKeyPrefix,
  txHighlightsStorageKey,
  txRowSettingsStorageKey,
+ notifySettingsChanged,
+ getStoredTheme,
+ getStoredClientsOrgOrder,
+ getStoredLiveRatesInterval,
+ getStoredPdfSettings,
+ getStoredAiSettings,
+ getStoredLedgerFilter,
+ getStoredTxFilter,
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { getSectionFromPath } from '@/shared/utils/section';
@@ -76,6 +85,7 @@ import OrgPendingPricingClientsModal from '@/features/organizations/components/O
 import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
 import SettingsSection from '@/features/settings/components/SettingsSection';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
+import { useLiveRatesSettingsStore } from '@/features/live-rates/store/liveRatesSettingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
@@ -135,6 +145,7 @@ function AuthenticatedHome() {
  const router = useRouter();
  const pathname = usePathname();
  const { language, setLanguage, isRTL } = useLanguage();
+ const { setTheme } = useTheme();
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
  const numLocale = language === 'fr' ? 'en-US' : language;
@@ -796,8 +807,40 @@ function AuthenticatedHome() {
    // Re-hydrate this user's private row highlights from the just-applied storage so a
    // fresh device shows the entries they highlighted elsewhere.
    setHighlightedTxRows(getStoredTxHighlights());
+   setHighlightedLedgerRows(getStoredLedgerHighlights(selectedClientForLedger?.id));
+   // The settings above are re-read fresh by their owning component on every
+   // navigation/mount, so writing them into localStorage is enough. These, however, are
+   // already-mounted singletons (a React context or a zustand store created at module
+   // load) whose in-memory state was captured before this fetch resolved — they need to
+   // be explicitly re-pushed into that state or the freshly-applied value stays invisible
+   // until a full reload.
+   setTheme(getStoredTheme());
+   const storedLanguage = window.localStorage.getItem('arkam_language');
+   if (storedLanguage === 'en' || storedLanguage === 'ar' || storedLanguage === 'fr') setLanguage(storedLanguage);
+   setIsSidebarCollapsed(window.localStorage.getItem('arkam:sidebar-collapsed') === 'true');
+   setClientsOrgOrder(getStoredClientsOrgOrder());
+   useLiveRatesSettingsStore.setState({ intervalSec: getStoredLiveRatesInterval() });
+   useSettingsStore.setState({ pdfSettings: getStoredPdfSettings(), aiSettings: getStoredAiSettings() });
+   const storedTxFilter = getStoredTxFilter();
+   useTransactionsStore.setState({
+    txFilterSearch: storedTxFilter.search,
+    txFilterWholeWord: storedTxFilter.wholeWord,
+    txFilterDateFrom: storedTxFilter.dateFrom,
+    txFilterDateTo: storedTxFilter.dateTo,
+   });
+   const storedLedgerPageSize = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
+   if ([25, 50, 100].includes(storedLedgerPageSize)) setLedgerPageSize(storedLedgerPageSize);
+   const storedLedgerFilter = getStoredLedgerFilter();
+   useLedgerStore.setState({
+    ledgerFilterSearch: storedLedgerFilter.search,
+    ledgerFilterWholeWord: storedLedgerFilter.wholeWord,
+    ledgerFilterCounterparty: storedLedgerFilter.counterparty,
+    ledgerFilterDateFrom: storedLedgerFilter.dateFrom,
+    ledgerFilterDateTo: storedLedgerFilter.dateTo,
+   });
   }
   lastPushedUserSnapshot.current = serializeSnapshot(snapshotUserSettings());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [userTableSettingsQuery.data, hydrateLedgerPrefsFromStorage, setTransactionTableSettingsStore, setArchiveTableSettings]);
 
  // Debounced push of this user's current settings snapshot — always on (unlike the
@@ -820,6 +863,19 @@ function AuthenticatedHome() {
     });
   }, 500);
  }
+
+ // Any change to a per-user-synced setting (see sharedTableSettings.ts's USER_ONLY_*/
+ // SHARED_* lists) fires this event so it gets pushed without having to hand-wire
+ // pushUserTableSettings()/pushSharedSettingsIfOwner() into every setting's write site.
+ useEffect(() => {
+  const handler = () => {
+   pushSharedSettingsIfOwner();
+   pushUserTableSettings();
+  };
+  window.addEventListener('arkam:settings-changed', handler);
+  return () => window.removeEventListener('arkam:settings-changed', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [sharedSettingsEnabled, isWorkspaceOwner, activeWorkspaceId, sessionUserId]);
 
  const transactionTableRows = useMemo<TransactionTableRow[]>(
   () => buildTransactionTableRows({ transactions, txSortDir }),
@@ -1058,6 +1114,7 @@ function AuthenticatedHome() {
    const clientId = selectedClientForLedger?.id;
    if (clientId && typeof window !== 'undefined') {
     window.localStorage.setItem(ledgerHighlightsStorageKeyPrefix + clientId, JSON.stringify(Object.fromEntries(next)));
+    notifySettingsChanged();
    }
    return next;
   });
@@ -1069,6 +1126,7 @@ function AuthenticatedHome() {
   const clientId = selectedClientForLedger?.id;
   if (clientId && typeof window !== 'undefined') {
    window.localStorage.removeItem(ledgerHighlightsStorageKeyPrefix + clientId);
+   notifySettingsChanged();
   }
  }
 

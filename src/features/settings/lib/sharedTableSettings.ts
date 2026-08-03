@@ -8,7 +8,27 @@ import {
  txRowSettingsStorageKey,
  txHighlightsStorageKey,
  exchangeSettingsStorageKey,
+ themeStorageKey,
+ clientsOrgOrderStorageKey,
+ liveRatesIntervalStorageKey,
+ harvestSortDirStorageKey,
+ pdfSettingsStorageKey,
+ aiSettingsStorageKey,
+ descriptionSuggestionExclusionsStorageKey,
+ ledgerFilterStorageKey,
+ txFilterStorageKey,
+ tableZoomStorageKeyPrefix,
+ ledgerLastAccountStorageKeyPrefix,
+ pdfColsStorageKeyPrefix,
+ pdfDateRangeStorageKeyPrefix,
+ ledgerHighlightsStorageKeyPrefix,
 } from '@/shared/lib/localStorage';
+
+// The language preference isn't stored under the shared `arkam:` prefix (legacy key
+// name), so it's spelled out here rather than imported.
+const languageStorageKey = 'arkam_language';
+const sidebarCollapsedStorageKey = 'arkam:sidebar-collapsed';
+const ledgerPageSizeStorageKey = 'arkam:ledger-page-size';
 
 // The localStorage entries that make up the shareable "table settings": the ledger's
 // per-client column visibility / order / display settings, plus the workspace-wide
@@ -21,14 +41,30 @@ function isSharedKey(key: string): boolean {
  return SHARED_EXACT_KEYS.includes(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
-// Per-user-only keys: the user's private row highlights. These ride along with the
-// always-on per-user settings sync (so a user's highlights follow them to another
-// device) but are deliberately kept OUT of isSharedKey — the owner's workspace-wide
-// shared snapshot must never carry one user's personal highlights to everyone else.
-const USER_ONLY_EXACT_KEYS = [txHighlightsStorageKey];
+// Per-user-only keys: personal device/browser preferences and private data (row
+// highlights, filter bars, theme, etc). These ride along with the always-on per-user
+// settings sync (so they follow the user to another device) but are deliberately kept
+// OUT of isSharedKey/SHARED_* — the owner's workspace-wide shared snapshot must never
+// carry one user's personal settings to everyone else.
+const USER_ONLY_EXACT_KEYS = [
+ txHighlightsStorageKey,
+ themeStorageKey,
+ languageStorageKey,
+ sidebarCollapsedStorageKey,
+ ledgerPageSizeStorageKey,
+ clientsOrgOrderStorageKey,
+ liveRatesIntervalStorageKey,
+ harvestSortDirStorageKey,
+ pdfSettingsStorageKey,
+ aiSettingsStorageKey,
+ descriptionSuggestionExclusionsStorageKey,
+ ledgerFilterStorageKey,
+ txFilterStorageKey,
+];
+const USER_ONLY_KEY_PREFIXES = [tableZoomStorageKeyPrefix, ledgerLastAccountStorageKeyPrefix, pdfColsStorageKeyPrefix, pdfDateRangeStorageKeyPrefix, ledgerHighlightsStorageKeyPrefix];
 
 function isUserOnlyKey(key: string): boolean {
- return USER_ONLY_EXACT_KEYS.includes(key);
+ return USER_ONLY_EXACT_KEYS.includes(key) || USER_ONLY_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 // Reads the current shareable settings out of localStorage into a plain map. This is
@@ -62,14 +98,17 @@ export function applySharedSettings(settings: Record<string, string>) {
  }
 }
 
-// Per-user snapshot = the shareable layout settings PLUS this user's private highlights.
-// Used only by the always-on per-user sync, so highlights persist across a user's own
-// devices without ever entering the owner's shared workspace snapshot.
+// Per-user snapshot = the shareable layout settings PLUS this user's private settings
+// (highlights, filters, theme, etc — see USER_ONLY_*). Used only by the always-on
+// per-user sync, so these follow a user across their own devices without ever entering
+// the owner's shared workspace snapshot.
 export function snapshotUserSettings(): Record<string, string> {
- const out = snapshotSharedSettings();
+ const out: Record<string, string> = {};
  if (typeof window === 'undefined') return out;
  try {
-  for (const key of USER_ONLY_EXACT_KEYS) {
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+   const key = window.localStorage.key(i);
+   if (!key || !(isSharedKey(key) || isUserOnlyKey(key))) continue;
    const value = window.localStorage.getItem(key);
    if (value != null) out[key] = value;
   }

@@ -11,7 +11,7 @@ import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
-import { clientsOrgOrderStorageKey } from '@/shared/lib/localStorage';
+import { clientsOrgOrderStorageKey, notifySettingsChanged } from '@/shared/lib/localStorage';
 import { nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { localDateKey } from '@/shared/utils/date';
 import type { Client, ClientAccount, Currency, Section, Transaction } from '@/shared/types';
@@ -395,6 +395,7 @@ function onClientsOrgDrop(targetKey: string) {
  setClientsOrgOrder(next);
  if (typeof window !== 'undefined') {
   window.localStorage.setItem(clientsOrgOrderStorageKey, JSON.stringify(next));
+  notifySettingsChanged();
  }
 }
 

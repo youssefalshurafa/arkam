@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
-import { getStoredArchiveTableSettings, getStoredTransactionTableSettings } from '@/shared/lib/localStorage';
+import { getStoredArchiveTableSettings, getStoredTransactionTableSettings, getStoredTxFilter } from '@/shared/lib/localStorage';
 import { localDateKey } from '@/shared/utils/date';
 import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
 import type {
@@ -186,6 +186,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   (updater: SetStateAction<TransactionsStore[K]>) =>
    set((s) => ({ [key]: typeof updater === 'function' ? (updater as (v: TransactionsStore[K]) => TransactionsStore[K])(s[key]) : updater } as Pick<TransactionsStore, K>));
 
+ const initialTxFilter = getStoredTxFilter();
+
  return {
   isTransactionsEditMode: false,
   setIsTransactionsEditMode: setter('isTransactionsEditMode'),
@@ -231,15 +233,15 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTxSortDir: setter('txSortDir'),
   txFilterOpen: false,
   setTxFilterOpen: setter('txFilterOpen'),
-  txFilterSearch: '',
+  txFilterSearch: initialTxFilter.search,
   setTxFilterSearch: setter('txFilterSearch'),
-  txFilterWholeWord: false,
+  txFilterWholeWord: initialTxFilter.wholeWord,
   setTxFilterWholeWord: setter('txFilterWholeWord'),
   txFilterClient: '',
   setTxFilterClient: setter('txFilterClient'),
-  txFilterDateFrom: '',
+  txFilterDateFrom: initialTxFilter.dateFrom,
   setTxFilterDateFrom: setter('txFilterDateFrom'),
-  txFilterDateTo: '',
+  txFilterDateTo: initialTxFilter.dateTo,
   setTxFilterDateTo: setter('txFilterDateTo'),
   txFilterHideExpenses: false,
   setTxFilterHideExpenses: setter('txFilterHideExpenses'),
