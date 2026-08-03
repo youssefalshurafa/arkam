@@ -1106,6 +1106,22 @@ async function confirmIfLedgerAnomalies(entries: ClientLedgerEntry[], ledgerCurr
  });
 }
 
+// Same "second accountant" gate as confirmIfLedgerAnomalies, for a different concern: entries
+// with no exchange rate entered yet (pendingRate, see ledgerBalances.ts) are excluded from the
+// running balance and rendered as a dash in the export — easy to miss unless flagged explicitly.
+async function confirmIfLedgerPendingPricing(entries: ClientLedgerEntry[]): Promise<boolean> {
+ const pending = entries.filter((entry) => entry.pendingRate);
+ if (pending.length === 0) return true;
+ const shown = pending.slice(0, 8).map((entry) => `${formatDateValue(entry.createdAt, pdfSettings.dateFormat)} · ${entry.description || entry.counterpartyName}`);
+ if (pending.length > shown.length) shown.push(t('ledger_anomaly_more', { count: String(pending.length - shown.length) }));
+ return confirmDialog({
+  title: t('ledger_pending_pricing_warn_title'),
+  message: `${t('ledger_pending_pricing_warn_message')}\n\n${shown.join('\n')}`,
+  confirmText: t('ledger_pending_pricing_warn_confirm'),
+  tone: 'danger',
+ });
+}
+
 async function onExportLedgerPdf(
  ledger: ClientAccountLedger,
  fromDate: string,
@@ -1118,6 +1134,7 @@ async function onExportLedgerPdf(
  try {
   const selected = selectLedgerEntriesForRange(ledger, fromDate, toDate, fromEntryKey, toEntryKey);
   if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
+  if (!(await confirmIfLedgerPendingPricing(selected))) return;
   const html = generateLedgerHtml({ t, numLocale, isRTL, language, pdfSettings }, { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectedClientForLedger, transactions, ledgerColumnOrder });
   const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
   const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
@@ -1139,6 +1156,7 @@ async function onExportLedgerExcel(
  try {
   const selected = selectLedgerEntriesForRange(ledger, fromDate, toDate, fromEntryKey, toEntryKey);
   if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
+  if (!(await confirmIfLedgerPendingPricing(selected))) return;
 
   type ExcelColDef = { key: LedgerColumnKey; header: string; cell: (e: ClientLedgerEntry) => string | number };
   const allCols: ExcelColDef[] = [

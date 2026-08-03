@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { GoogleGenAI } from '@google/genai';
 import * as z from 'zod/v4';
 import { authOptions } from '@/server/auth-options';
+import { AI_MODEL, AI_THINKING_CONFIG, AI_EXTRACTION_TEMPERATURE } from '@/server/ai-config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,7 +14,6 @@ export const dynamic = 'force-dynamic';
 // own description (e.g. a rate value typed into the commission field). Proxied server-side so
 // the API key never ships to the client, mirroring src/app/api/live-rates/route.ts.
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = 'gemini-3.6-flash';
 
 // Caps the request size (latency + cost) for very large export ranges. Reviewing this many
 // rows in one call is still enough for a meaningful pass; a larger range only reviews its
@@ -125,26 +125,39 @@ export async function POST(request: NextRequest) {
 
  try {
   const languageName = LANGUAGE_NAMES[parsedBody.language ?? 'en'] ?? LANGUAGE_NAMES.en;
-  const response = await client.models.generateContent({
-   model: MODEL,
+  const requestConfig = {
+   model: AI_MODEL,
    contents: JSON.stringify(parsedBody.entries.slice(0, MAX_ENTRIES)),
    config: {
     systemInstruction: buildSystemInstruction(languageName),
     responseMimeType: 'application/json',
     responseSchema: RESPONSE_SCHEMA,
+    thinkingConfig: AI_THINKING_CONFIG,
+    temperature: AI_EXTRACTION_TEMPERATURE,
    },
-  });
+  };
 
-  if (response.promptFeedback?.blockReason || response.candidates?.[0]?.finishReason === 'SAFETY') {
-   return NextResponse.json({ error: 'refused' }, { status: 502 });
+  // One retry on a malformed/schema-invalid response — a single bad generation shouldn't fail
+  // the whole request outright.
+  let result: z.infer<typeof ReviewResult> | null = null;
+  for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+   const response = await client.models.generateContent(requestConfig);
+
+   if (response.promptFeedback?.blockReason || response.candidates?.[0]?.finishReason === 'SAFETY') {
+    return NextResponse.json({ error: 'refused' }, { status: 502 });
+   }
+
+   const raw = response.text;
+   if (!raw) continue;
+   try {
+    result = ReviewResult.parse(JSON.parse(raw));
+   } catch {
+    result = null;
+   }
   }
-
-  const raw = response.text;
-  if (!raw) {
+  if (!result) {
    return NextResponse.json({ error: 'ai_request_failed' }, { status: 502 });
   }
-
-  const result = ReviewResult.parse(JSON.parse(raw));
   return NextResponse.json({ flagged: result.flagged });
  } catch {
   return NextResponse.json({ error: 'ai_request_failed' }, { status: 502 });

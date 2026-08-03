@@ -3,15 +3,27 @@ import type {
  DataCache,
  ExchangeSettings,
  LedgerColumnKey,
+ LedgerFilterState,
  PdfColVisibility,
  PdfSettings,
  StoredLedgerSettings,
  TransactionColumnVisibility,
  TransactionTableSettings,
+ TxFilterState,
 } from '@/shared/types';
 
-// Theme preference (Light / Dark / System). Stored per-device like the language
-// choice — never synced to the server. 'system' follows the OS via matchMedia.
+// Fired whenever any per-user-synced setting is written to localStorage (see the calls
+// below and the explicit call sites listed in sharedTableSettings.ts's callers). page.tsx
+// listens for this to debounce-push the user's settings snapshot to the server, so a
+// change made on one device shows up on the user's other devices/browsers.
+export function notifySettingsChanged(): void {
+ if (typeof window === 'undefined') return;
+ window.dispatchEvent(new Event('arkam:settings-changed'));
+}
+
+// Theme preference (Light / Dark / System). Synced per-user to the server (see
+// sharedTableSettings.ts) so it follows the user to another device/browser.
+// 'system' follows the OS via matchMedia.
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export const themeStorageKey = 'arkam:theme';
 
@@ -29,6 +41,7 @@ export function saveStoredTheme(theme: ThemeChoice): void {
  if (typeof window === 'undefined') return;
  try {
   window.localStorage.setItem(themeStorageKey, theme);
+  notifySettingsChanged();
  } catch {
   // Ignore write failures (private mode / quota) — theme just won't persist.
  }
@@ -98,6 +111,7 @@ export function getStoredTableZoom(key: 'ledger' | 'transactions'): number {
 export function saveTableZoom(key: 'ledger' | 'transactions', value: number) {
  try {
   window.localStorage.setItem(tableZoomStorageKeyPrefix + key, String(value));
+  notifySettingsChanged();
  } catch {
   /* ignore quota / privacy-mode errors */
  }
@@ -125,6 +139,7 @@ export function getStoredLiveRatesInterval(): number {
 export function saveLiveRatesInterval(value: number) {
  try {
   window.localStorage.setItem(liveRatesIntervalStorageKey, String(value));
+  notifySettingsChanged();
  } catch {
   /* ignore quota / privacy-mode errors */
  }
@@ -149,6 +164,7 @@ export function setStoredLedgerAccountId(clientId: number, accountId: number) {
  if (typeof window === 'undefined') return;
  try {
   window.localStorage.setItem(ledgerLastAccountStorageKeyPrefix + clientId, String(accountId));
+  notifySettingsChanged();
  } catch {
   /* ignore quota / privacy-mode errors */
  }
@@ -169,6 +185,7 @@ export function getStoredHarvestSortDir(): 'asc' | 'desc' {
 export function saveHarvestSortDir(dir: 'asc' | 'desc') {
  try {
   window.localStorage.setItem(harvestSortDirStorageKey, dir);
+  notifySettingsChanged();
  } catch {
   /* ignore */
  }
@@ -347,6 +364,7 @@ export function getStoredPdfCols(accountId: number): PdfColVisibility {
 export function savePdfCols(accountId: number, cols: PdfColVisibility) {
  try {
   window.localStorage.setItem(pdfColsStorageKeyPrefix + accountId, JSON.stringify(cols));
+  notifySettingsChanged();
  } catch {
   /* ignore */
  }
@@ -370,6 +388,7 @@ export function getStoredPdfDateRange(accountId: number): { fromDate: string; to
 export function savePdfDateRange(accountId: number, fromDate: string, toDate: string) {
  try {
   window.localStorage.setItem(pdfDateRangeStorageKeyPrefix + accountId, JSON.stringify({ fromDate, toDate }));
+  notifySettingsChanged();
  } catch {
   /* ignore */
  }
@@ -489,6 +508,7 @@ export function saveAiSettings(settings: AiSettings) {
  if (typeof window === 'undefined') return;
  try {
   window.localStorage.setItem(aiSettingsStorageKey, JSON.stringify(settings));
+  notifySettingsChanged();
  } catch {
   /* ignore quota / privacy-mode errors */
  }
@@ -513,6 +533,63 @@ export function getStoredDescriptionSuggestionExclusions(): Set<string> {
 export function saveDescriptionSuggestionExclusions(excluded: Set<string>) {
  try {
   window.localStorage.setItem(descriptionSuggestionExclusionsStorageKey, JSON.stringify(Array.from(excluded)));
+  notifySettingsChanged();
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+
+// Ledger and transactions search+date filter bars. Previously pure in-memory zustand
+// state (reset on every refresh); now persisted so a user's last filter follows them
+// across devices via the per-user settings sync.
+export const ledgerFilterStorageKey = 'arkam:ledger-filter';
+export const defaultLedgerFilter: LedgerFilterState = {
+ search: '',
+ wholeWord: false,
+ counterparty: '',
+ dateFrom: '',
+ dateTo: '',
+};
+export function getStoredLedgerFilter(): LedgerFilterState {
+ if (typeof window === 'undefined') return { ...defaultLedgerFilter };
+ try {
+  const raw = window.localStorage.getItem(ledgerFilterStorageKey);
+  if (!raw) return { ...defaultLedgerFilter };
+  return { ...defaultLedgerFilter, ...JSON.parse(raw) };
+ } catch {
+  return { ...defaultLedgerFilter };
+ }
+}
+export function saveLedgerFilter(filter: LedgerFilterState) {
+ try {
+  window.localStorage.setItem(ledgerFilterStorageKey, JSON.stringify(filter));
+  notifySettingsChanged();
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+
+export const txFilterStorageKey = 'arkam:tx-filter';
+export const defaultTxFilter: TxFilterState = {
+ search: '',
+ wholeWord: false,
+ dateFrom: '',
+ dateTo: '',
+};
+export function getStoredTxFilter(): TxFilterState {
+ if (typeof window === 'undefined') return { ...defaultTxFilter };
+ try {
+  const raw = window.localStorage.getItem(txFilterStorageKey);
+  if (!raw) return { ...defaultTxFilter };
+  return { ...defaultTxFilter, ...JSON.parse(raw) };
+ } catch {
+  return { ...defaultTxFilter };
+ }
+}
+export function saveTxFilter(filter: TxFilterState) {
+ try {
+  window.localStorage.setItem(txFilterStorageKey, JSON.stringify(filter));
+  notifySettingsChanged();
  } catch {
   /* ignore quota / privacy-mode errors */
  }

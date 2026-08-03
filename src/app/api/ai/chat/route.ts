@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { GoogleGenAI, Type, type Content } from '@google/genai';
 import { authOptions } from '@/server/auth-options';
+import { AI_MODEL, AI_THINKING_CONFIG } from '@/server/ai-config';
 import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
 import { computeAccountBalances } from '@/shared/utils/accountBalances';
 import type { Client, ClientAccount, Transaction } from '@/shared/types';
@@ -21,7 +22,6 @@ export const dynamic = 'force-dynamic';
 // holds the conversation history (opaque Content[] this route hands back each turn) and resends
 // it with the next message, same pattern as every other route in this app.
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = 'gemini-3.6-flash';
 
 const MAX_HISTORY_ENTRIES = 60;
 const MAX_MESSAGE_LENGTH = 1000;
@@ -186,9 +186,14 @@ function buildSystemInstruction(languageName: string): string {
   'balances, amounts, or transactions rather than guessing or computing from memory of earlier ' +
   'turns; call a tool again if you need up-to-date figures. A "client" and an "organization" (a ' +
   'group of clients) are different things with separate tools — pick whichever the question is ' +
-  'actually about, and if a name in the question does not clearly match anything either tool ' +
-  'returns, say so plainly rather than guessing which one was meant or answering about the wrong ' +
-  'one. If you are unable to get a real answer (e.g. after retrying), say briefly that you could not ' +
+  'actually about. A name in the question is often partial relative to what a tool returns — just ' +
+  'a first name, a last name, or a nickname rather than the full registered name (e.g. the ' +
+  'question says "الفرشم" but a returned row is named "رشيد الفرشم") — treat a fragment that ' +
+  'uniquely identifies exactly one row as a confident match rather than requiring an exact ' +
+  'full-string match. Only treat a name as not matching when it does not plausibly correspond to ' +
+  'any returned row, or could equally refer to more than one; in that case say so plainly rather ' +
+  'than guessing which one was meant or answering about the wrong one. If you are unable to get a ' +
+  'real answer (e.g. after retrying), say briefly that you could not ' +
   'find that information, rather than describing an internal error. Report currency amounts with ' +
   'their currency code (e.g. "1,000 EUR"). When stating a balance, NEVER describe it as ' +
   '"positive"/"negative" (or a translation of those words) — the balance tools return a signed ' +
@@ -258,10 +263,11 @@ export async function POST(request: NextRequest) {
    // of iterations and the user getting a bare technical error.
    const isLastAttempt = i === MAX_TOOL_ITERATIONS - 1;
    const response = await client.models.generateContent({
-    model: MODEL,
+    model: AI_MODEL,
     contents,
     config: {
      systemInstruction: buildSystemInstruction(languageName),
+     thinkingConfig: AI_THINKING_CONFIG,
      ...(isLastAttempt ? {} : { tools, automaticFunctionCalling: { disable: true } }),
     },
    });

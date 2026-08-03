@@ -11,6 +11,7 @@ import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/util
 import { seamlessInputClassName, seamlessSelectClassName } from '@/shared/styles';
 import { getCommissionAmount, exchangeToBase, parseChargesPayer, type ChargesPayerParty } from '@/shared/utils/commission';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
+import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
 import type { ClientAccount, Transaction, TransactionUpdateInput } from '@/shared/types';
 
@@ -517,7 +518,7 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
      </div>
     ) : null}
 
-    {tx.isArchived ? (
+    {isArchiveEligible(tx) ? (
      <div className="mt-3 divide-y divide-border rounded border border-border bg-surface-2 px-3">
       {row(
        t('archive_more_info'),

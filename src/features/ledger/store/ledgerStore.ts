@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
-import { defaultLedgerColumnOrder, defaultLedgerColumnVisibility } from '@/shared/lib/localStorage';
+import { defaultLedgerColumnOrder, defaultLedgerColumnVisibility, getStoredLedgerFilter } from '@/shared/lib/localStorage';
 import type { LedgerColumnKey, LedgerTransactionDraft, PdfColVisibility, PdfSettings } from '@/shared/types';
 
 export type PdfExportModalState = {
@@ -179,6 +179,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   (updater: SetStateAction<LedgerStore[K]>) =>
    set((s) => ({ [key]: typeof updater === 'function' ? (updater as (v: LedgerStore[K]) => LedgerStore[K])(s[key]) : updater } as Pick<LedgerStore, K>));
 
+ const initialLedgerFilter = getStoredLedgerFilter();
+
  return {
   clientLedgerBackSection: 'clients',
   setClientLedgerBackSection: setter('clientLedgerBackSection'),
@@ -196,15 +198,15 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setShowLedgerSettingsModal: setter('showLedgerSettingsModal'),
   ledgerFilterOpen: false,
   setLedgerFilterOpen: setter('ledgerFilterOpen'),
-  ledgerFilterSearch: '',
+  ledgerFilterSearch: initialLedgerFilter.search,
   setLedgerFilterSearch: setter('ledgerFilterSearch'),
-  ledgerFilterWholeWord: false,
+  ledgerFilterWholeWord: initialLedgerFilter.wholeWord,
   setLedgerFilterWholeWord: setter('ledgerFilterWholeWord'),
-  ledgerFilterCounterparty: '',
+  ledgerFilterCounterparty: initialLedgerFilter.counterparty,
   setLedgerFilterCounterparty: setter('ledgerFilterCounterparty'),
-  ledgerFilterDateFrom: '',
+  ledgerFilterDateFrom: initialLedgerFilter.dateFrom,
   setLedgerFilterDateFrom: setter('ledgerFilterDateFrom'),
-  ledgerFilterDateTo: '',
+  ledgerFilterDateTo: initialLedgerFilter.dateTo,
   setLedgerFilterDateTo: setter('ledgerFilterDateTo'),
   ledgerDecimals: 0,
   setLedgerDecimals: setter('ledgerDecimals'),

@@ -12,7 +12,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings } from '@/shared/lib/localStorage';
+import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings, saveTxFilter } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
@@ -211,6 +211,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // is rare) so it doesn't inherit the Transactions form's open state when switching sections.
  const newSectionOpen = section === 'archive' ? isNewArchiveSectionOpen : isNewTransactionSectionOpen;
  const setNewSectionOpen = section === 'archive' ? setIsNewArchiveSectionOpen : setIsNewTransactionSectionOpen;
+ // Persist the search/date filter bar so it survives a refresh and follows the user
+ // to another device (see saveTxFilter in shared/lib/localStorage.ts).
+ useEffect(() => {
+  saveTxFilter({ search: txFilterSearch, wholeWord: txFilterWholeWord, dateFrom: txFilterDateFrom, dateTo: txFilterDateTo });
+ }, [txFilterSearch, txFilterWholeWord, txFilterDateFrom, txFilterDateTo]);
  // When a row is loaded into the form for editing, bring the form into view.
  const editFormRef = useRef<HTMLDivElement | null>(null);
  const transactionFormRef = useRef<HTMLFormElement | null>(null);
@@ -234,7 +239,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const aiSettings = useSettingsStore((s) => s.aiSettings);
  const { data: authSession } = useStableSession();
  const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
- const { parseTransactionText } = useAiParseTransaction();
+ const { parseTransactionText, stop: stopAiParse } = useAiParseTransaction();
  const [aiParseText, setAiParseText] = useState('');
  const [isParsingWithAi, setIsParsingWithAi] = useState(false);
  const onFillFromText = async (overrideText?: string) => {
@@ -268,7 +273,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   }
  };
  const speechLang = language === 'ar' ? 'ar-SA' : language === 'fr' ? 'fr-FR' : 'en-US';
- const { isSupported: isSpeechSupported, isListening, start: startListening, stop: stopListening } = useSpeechToText(speechLang, (transcript) => {
+ const {
+  isSupported: isSpeechSupported,
+  isListening,
+  isUnsupportedEnv: isSpeechUnsupportedEnv,
+  start: startListening,
+  stop: stopListening,
+ } = useSpeechToText(speechLang, (transcript) => {
   if (!transcript) return;
   // Auto-submit once voice input ends, same as pressing Enter would — this only runs the
   // (reviewable, non-destructive) parse step, not a save, so nothing is written automatically.
@@ -710,6 +721,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             {aiFeatureAccess ? (
              <div className="mb-4 rounded border border-border-strong bg-surface-2 p-3">
               <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ai_fill_label')}</label>
+              {isSpeechUnsupportedEnv ? <p className="mt-1 text-xs text-fg-faint">{t('ai_fill_voice_unsupported')}</p> : null}
+              {isParsingWithAi ? <p className="mt-1 animate-pulse text-xs text-fg-faint">{t('ai_processing')}</p> : null}
               <div className="mt-2 flex gap-2">
                <input
                 type="text"
@@ -751,14 +764,28 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  </svg>
                 </button>
                ) : null}
-               <button
-                type="button"
-                disabled={isParsingWithAi || !aiParseText.trim()}
-                onClick={() => void onFillFromText()}
-                className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-               >
-                {isParsingWithAi ? t('ai_fill_running') : t('ai_fill_button')}
-               </button>
+               {isParsingWithAi ? (
+                <button
+                 type="button"
+                 onClick={() => stopAiParse()}
+                 title={t('ai_stop')}
+                 aria-label={t('ai_stop')}
+                 className="shrink-0 rounded border border-bad-text bg-bad-bg px-3 py-2 text-bad-text transition hover:opacity-80"
+                >
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                 </svg>
+                </button>
+               ) : (
+                <button
+                 type="button"
+                 disabled={!aiParseText.trim()}
+                 onClick={() => void onFillFromText()}
+                 className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                 {t('ai_fill_button')}
+                </button>
+               )}
               </div>
              </div>
             ) : null}
@@ -1504,7 +1531,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              )}
             </div>
 
-            {!transactionForm.accountFromId || !transactionForm.accountToId ? (
+            {transactionForm.type === 'adjustment' && (!transactionForm.accountFromId || !transactionForm.accountToId) ? (
              <>
               <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
               <input
@@ -2296,7 +2323,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 e.preventDefault();
                 void onSaveTransactionTableRow(txn.id);
                }}
-               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${!txn.isArchived && (!txn.accountFromId || !txn.accountToId) ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
+               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${txn.isArchived || (txn.type !== 'adjustment' && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim()) ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
                 section === 'archive' && txn.archiveHidden ? 'opacity-50' : ''
                } ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
@@ -2658,7 +2685,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                        clearLabel={t('clear_selection')}
                        isRTL={isRTL}
                       />
-                      {!draft.accountFromId || !draft.accountToId ? (
+                      {draft.type === 'adjustment' && (!draft.accountFromId || !draft.accountToId) ? (
                        <input
                         type="text"
                         value={draft.counterParty}

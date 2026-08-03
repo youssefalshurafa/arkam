@@ -14,7 +14,7 @@ import { accountingApi } from '@/lib/accountingApi';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkBar, SkTablePanel, SK_LEDGER } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, saveTableZoom } from '@/shared/lib/localStorage';
+import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, notifySettingsChanged, saveLedgerFilter, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
@@ -125,6 +125,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
   if (el) el.scrollTop = el.scrollHeight;
  }, [selectedClientForLedger?.id, selectedLedgerAccountId]);
 
+ // Persist the search/date filter bar so it survives a refresh and follows the user
+ // to another device (see saveLedgerFilter in shared/lib/localStorage.ts).
+ useEffect(() => {
+  saveLedgerFilter({
+   search: ledgerFilterSearch,
+   wholeWord: ledgerFilterWholeWord,
+   counterparty: ledgerFilterCounterparty,
+   dateFrom: ledgerFilterDateFrom,
+   dateTo: ledgerFilterDateTo,
+  });
+ }, [ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
+
  // Right-click row actions (Edit/Reconcile/Write off/Delete) — replaces a cluster of
  // per-row icon buttons with a single context menu, decluttering the actions column.
  // contextMenuRowKey drives a border on whichever row the open menu belongs to; closeRowMenu
@@ -160,7 +172,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const aiSettings = useSettingsStore((s) => s.aiSettings);
  const { data: authSession } = useStableSession();
  const aiFeatureAccess = aiSettings.enabled && authSession?.user?.aiEnabled === true;
- const { proposeEdits } = useAiEditLedger();
+ const { proposeEdits, stop: stopAiEdit } = useAiEditLedger();
  const [aiEditText, setAiEditText] = useState('');
  const [isProposingAiEdit, setIsProposingAiEdit] = useState(false);
  const [isApplyingAiEdit, setIsApplyingAiEdit] = useState(false);
@@ -273,7 +285,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // one recognition session at a time regardless), so this tracks which account's button started
  // it — needed to know which ledger to auto-propose against once the transcript comes in.
  const [aiEditListeningAccountId, setAiEditListeningAccountId] = useState<number | null>(null);
- const { isSupported: isAiEditSpeechSupported, isListening: isAiEditListening, start: startAiEditListening, stop: stopAiEditListening } = useSpeechToText(aiEditSpeechLang, (transcript) => {
+ const {
+  isSupported: isAiEditSpeechSupported,
+  isListening: isAiEditListening,
+  isUnsupportedEnv: isAiEditSpeechUnsupportedEnv,
+  start: startAiEditListening,
+  stop: stopAiEditListening,
+ } = useSpeechToText(aiEditSpeechLang, (transcript) => {
   if (!transcript) return;
   setAiEditText(transcript);
   // Auto-propose once voice input ends, same as pressing Enter would — this only runs the
@@ -837,6 +855,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  <p className="mt-1 text-xs text-fg-faint">{t('ai_edit_ledger_highlight_hint', { count: highlightedCountForAccount })}</p>
                 ) : null;
                })()}
+               {isAiEditSpeechUnsupportedEnv && aiEditListeningAccountId === ledger.accountId ? (
+                <p className="mt-1 text-xs text-fg-faint">{t('ai_fill_voice_unsupported')}</p>
+               ) : null}
+               {isProposingAiEdit ? <p className="mt-1 animate-pulse text-xs text-fg-faint">{t('ai_processing')}</p> : null}
                <div className="mt-2 flex gap-2">
                 <input
                  type="text"
@@ -877,14 +899,24 @@ export default function LedgerSection(props: LedgerSectionProps) {
                   </svg>
                  </button>
                 ) : null}
-                <button
-                 type="button"
-                 disabled={isProposingAiEdit || !aiEditText.trim()}
-                 onClick={() => void onProposeAiLedgerEdits(ledger)}
-                 className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                 {isProposingAiEdit ? t('ai_edit_ledger_proposing') : t('ai_edit_ledger_propose')}
-                </button>
+                {isProposingAiEdit ? (
+                 <button
+                  type="button"
+                  onClick={() => stopAiEdit()}
+                  className="shrink-0 rounded border border-bad-text bg-bad-bg px-3 py-2 text-sm font-semibold text-bad-text transition hover:opacity-80"
+                 >
+                  {t('ai_stop')}
+                 </button>
+                ) : (
+                 <button
+                  type="button"
+                  disabled={!aiEditText.trim()}
+                  onClick={() => void onProposeAiLedgerEdits(ledger)}
+                  className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                 >
+                  {t('ai_edit_ledger_propose')}
+                 </button>
+                )}
                </div>
               </div>
              ) : null}
@@ -2266,14 +2298,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     className={`${seamlessInputClassName} text-xs text-fg`}
                                    />
                                   ) : null}
+                                  {/* Labeled + colored like the read-only direction badge (see the 'direction'
+                                      column case below) so a one-sided row's credit/debit toggle is obvious —
+                                      an unlabeled icon-only button here was easy to miss entirely. */}
                                   <button
                                    type="button"
                                    title={t('ledger_swap_parties')}
                                    onClick={() =>
                                     updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { direction: draft.direction === 'outgoing' ? 'incoming' : 'outgoing' })
                                    }
-                                   className="shrink-0 rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-accent"
+                                   className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold transition hover:opacity-80 ${
+                                    draft.direction === 'incoming' ? 'bg-bad-bg text-bad-text' : 'bg-good-bg text-good-text'
+                                   }`}
                                   >
+                                   {t(draft.direction === 'outgoing' ? 'outgoing' : 'incoming')}
                                    <svg
                                     width="14"
                                     height="14"
@@ -3018,10 +3056,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       }
 
                       if (!isEditingThisRow && entry.charges > 0 && entry.chargeAffectsThisAccount) {
+                       const chargesHighlightColor = highlightedLedgerRows.get(chargesRowKey);
                        return (
                         <tr
                          key={`${ledger.accountId}-${entry.transactionId}-charges-view`}
                          className={`${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''}`}
+                         style={chargesHighlightColor ? { backgroundColor: resolveHighlightBg(chargesHighlightColor, isDark) } : undefined}
                         >
                          <td
                           colSpan={colSpanCount}
@@ -3237,7 +3277,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     onChange={(event) => {
                      const nextSize = Number(event.target.value);
                      setLedgerPageSize(nextSize);
-                     if (typeof window !== 'undefined') window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
+                     if (typeof window !== 'undefined') {
+                      window.localStorage.setItem('arkam:ledger-page-size', String(nextSize));
+                      notifySettingsChanged();
+                     }
                      setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: 99999 }));
                     }}
                     className="h-7 rounded border border-border-strong bg-surface px-1.5 text-xs outline-none ring-blue-300 focus:ring"

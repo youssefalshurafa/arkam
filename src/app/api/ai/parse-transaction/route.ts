@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { GoogleGenAI } from '@google/genai';
 import * as z from 'zod/v4';
 import { authOptions } from '@/server/auth-options';
+import { AI_MODEL, AI_THINKING_CONFIG, AI_EXTRACTION_TEMPERATURE } from '@/server/ai-config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,6 @@ export const dynamic = 'force-dynamic';
 // already applies to manual entry still applies here. Proxied server-side, mirroring
 // src/app/api/ai/review-ledger/route.ts.
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = 'gemini-3.6-flash';
 
 const MAX_TEXT_LENGTH = 500;
 const MAX_REFERENCE_ROWS = 500;
@@ -106,11 +106,23 @@ function buildSystemInstruction(languageName: string): string {
   'Rules:\n' +
   '- accountFromId/accountToId/currencyId MUST be an id from the given reference lists, or ' +
   'null if you cannot confidently match a name/currency mentioned in the text to one of them. ' +
-  'Never invent an id that is not in the list.\n' +
+  'Never invent an id that is not in the list. A name in the text is often partial relative to ' +
+  'how it\'s registered — just a first name, just a last/family name, a nickname, or a fragment ' +
+  'of a longer label (e.g. the text says "الفرشم" but the registered account is labeled "رشيد ' +
+  'الفرشم · EUR") — treat this as a confident match when that fragment uniquely identifies one ' +
+  'account in the list; do not require an exact full-string match. Only fall back to null when ' +
+  'the fragment could plausibly refer to more than one account in the list, or does not appear ' +
+  'in any of them at all.\n' +
   '- "from" is who the money/currency is leaving (paid by), "to" is who is receiving it — infer ' +
   'this from the sentence\'s wording (e.g. "received X from A" means A is accountFrom and the ' +
   'workspace\'s own side is accountTo; "sent/paid X to B" means B is accountTo).\n' +
-  '- amount is a plain positive number, no currency symbols or thousands separators.\n' +
+  '- amount is a plain positive number, no currency symbols or thousands separators. The text ' +
+  'may spell a number out in words rather than digits (this is common with voice-dictated text) ' +
+  '— compute its exact value by working out each place value (thousands, hundreds, tens, units) ' +
+  'and summing them; never concatenate or truncate the individual number words. For example the ' +
+  'Arabic "خمسة وعشرين ألف وأحد عشر" (literally "twenty-five thousand and eleven") is 25011, not ' +
+  '2511. The same care applies to exchangeRateFrom/exchangeRateTo/commissionFrom/commissionTo/ ' +
+  'charges below whenever they are spelled out in words too.\n' +
   '- exchangeRateFrom/exchangeRateTo/commissionFrom/commissionTo are plain numbers as mentioned ' +
   '(commission as a percentage, e.g. "1% commission" → 1). Leave null if not mentioned — do not ' +
   'default to 1 or 0 yourself, the app already has sensible defaults for anything you omit.\n' +
@@ -169,8 +181,8 @@ export async function POST(request: NextRequest) {
 
  try {
   const languageName = LANGUAGE_NAMES[parsedBody.language ?? 'en'] ?? LANGUAGE_NAMES.en;
-  const response = await client.models.generateContent({
-   model: MODEL,
+  const requestConfig = {
+   model: AI_MODEL,
    contents: JSON.stringify({
     text: parsedBody.text,
     today: parsedBody.today,
@@ -181,19 +193,32 @@ export async function POST(request: NextRequest) {
     systemInstruction: buildSystemInstruction(languageName),
     responseMimeType: 'application/json',
     responseSchema: RESPONSE_SCHEMA,
+    thinkingConfig: AI_THINKING_CONFIG,
+    temperature: AI_EXTRACTION_TEMPERATURE,
    },
-  });
+  };
 
-  if (response.promptFeedback?.blockReason || response.candidates?.[0]?.finishReason === 'SAFETY') {
-   return NextResponse.json({ error: 'refused' }, { status: 502 });
+  // One retry on a malformed/schema-invalid response — a single bad generation shouldn't fail
+  // the whole request outright.
+  let result: z.infer<typeof ParsedTransaction> | null = null;
+  for (let attempt = 0; attempt < 2 && !result; attempt += 1) {
+   const response = await client.models.generateContent(requestConfig);
+
+   if (response.promptFeedback?.blockReason || response.candidates?.[0]?.finishReason === 'SAFETY') {
+    return NextResponse.json({ error: 'refused' }, { status: 502 });
+   }
+
+   const raw = response.text;
+   if (!raw) continue;
+   try {
+    result = ParsedTransaction.parse(JSON.parse(raw));
+   } catch {
+    result = null;
+   }
   }
-
-  const raw = response.text;
-  if (!raw) {
+  if (!result) {
    return NextResponse.json({ error: 'ai_request_failed' }, { status: 502 });
   }
-
-  const result = ParsedTransaction.parse(JSON.parse(raw));
 
   // Defense in depth beyond the prompt: never trust an id back that wasn't in what we sent.
   const accountIds = new Set(parsedBody.accounts.map((a) => a.id));
@@ -204,7 +229,8 @@ export async function POST(request: NextRequest) {
   if (result.chargesCurrencyId != null && !currencyIds.has(result.chargesCurrencyId)) result.chargesCurrencyId = null;
 
   return NextResponse.json({ parsed: result });
- } catch {
+ } catch (error) {
+  console.error('[parse-transaction] request failed:', error);
   return NextResponse.json({ error: 'ai_request_failed' }, { status: 502 });
  }
 }

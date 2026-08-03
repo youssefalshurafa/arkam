@@ -492,6 +492,22 @@ export type PdfSettings = {
  showCurrencySymbol: boolean;
  highlightNetChange: boolean;
 };
+// Ledger/transactions search+date filter bar state, persisted so a user's last filter
+// survives a refresh or a new device instead of resetting to blank every time.
+export type LedgerFilterState = {
+ search: string;
+ wholeWord: boolean;
+ counterparty: string;
+ dateFrom: string;
+ dateTo: string;
+};
+export type TxFilterState = {
+ search: string;
+ wholeWord: boolean;
+ dateFrom: string;
+ dateTo: string;
+};
+
 export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf' | 'live-rates' | 'treasury' | 'ai';
 
 export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury' | 'harvest';

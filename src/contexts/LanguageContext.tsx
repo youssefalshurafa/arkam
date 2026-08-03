@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
+import { notifySettingsChanged } from '@/shared/lib/localStorage';
 
 export type Language = 'en' | 'ar' | 'fr';
 
@@ -29,6 +30,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
     localStorage.setItem('arkam_language', lang);
+    notifySettingsChanged();
     updateLanguage(lang);
   };
 

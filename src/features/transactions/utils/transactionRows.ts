@@ -15,6 +15,15 @@ export function buildTransactionTableRows({ transactions, txSortDir }: {
   });
 }
 
+// A missing party only counts as "incomplete, needs assignment" when the row has no
+// counterParty — an intentionally one-sided transaction (free-text counterparty set) is
+// already complete and shouldn't clutter the Archive's missing-party queue. Expenses/write-offs
+// (type === 'adjustment') are inherently, permanently one-sided by design — not a data gap
+// awaiting a second party — so they never belong in this queue regardless of counterParty.
+export function isArchiveEligible(row: Transaction): boolean {
+ return !!row.isArchived || (row.type !== 'adjustment' && (!row.accountFromId || !row.accountToId) && !row.counterParty?.trim());
+}
+
 // Applies manual ordering, the archive/transactions split, and the active filters.
 // Ported verbatim from the page's displayedTransactionRows memo.
 export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden }: {
@@ -37,13 +46,6 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
     return row ? [row] : [];
    });
   })();
-  // A missing party only counts as "incomplete, needs assignment" when the row has no
-  // counterParty — an intentionally one-sided transaction (free-text counterparty set) is
-  // already complete and shouldn't clutter the Archive's missing-party queue. Expenses/write-offs
-  // (type === 'adjustment') are inherently, permanently one-sided by design — not a data gap
-  // awaiting a second party — so they never belong in this queue regardless of counterParty.
-  const isArchiveEligible = (row: TransactionTableRow) =>
-   row.isArchived || (row.type !== 'adjustment' && (!row.accountFromId || !row.accountToId) && !row.counterParty?.trim());
   // Rows the user explicitly hid from the Archive list (see setTransactionArchiveHidden) stay
   // out of it unless "show hidden" is on — a pure display filter, doesn't affect balances.
   let filtered =

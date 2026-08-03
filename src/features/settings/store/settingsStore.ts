@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { AiSettings, ExchangeSettings, PdfSettings } from '@/shared/types';
-import { getStoredPdfSettings, pdfSettingsStorageKey, getStoredExchangeSettings, saveExchangeSettings, getStoredAiSettings, saveAiSettings } from '@/shared/lib/localStorage';
+import { getStoredPdfSettings, pdfSettingsStorageKey, getStoredExchangeSettings, saveExchangeSettings, getStoredAiSettings, saveAiSettings, notifySettingsChanged } from '@/shared/lib/localStorage';
 
 /**
  * App-wide settings that persist per browser. The PDF export formatting options
@@ -24,6 +24,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   const next = { ...get().pdfSettings, ...partial };
   try {
    window.localStorage.setItem(pdfSettingsStorageKey, JSON.stringify(next));
+   notifySettingsChanged();
   } catch {
    /* ignore */
   }

@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import { alertDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -37,14 +38,18 @@ export type AiEditLedgerReviewRow = {
 export function useAiEditLedger() {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
+ const abortControllerRef = useRef<AbortController | null>(null);
 
  async function proposeEdits(command: string, entries: AiLedgerEditEntry[]): Promise<ProposedLedgerEdit[] | null> {
+  const controller = new AbortController();
+  abortControllerRef.current = controller;
   try {
    const response = await fetch('/api/ai/edit-ledger', {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ language, command, entries }),
+    signal: controller.signal,
    });
    const data = (await response.json().catch(() => null)) as { edits?: ProposedLedgerEdit[] } | null;
    if (!response.ok || !data) {
@@ -52,11 +57,19 @@ export function useAiEditLedger() {
     return null;
    }
    return data.edits ?? [];
-  } catch {
+  } catch (error) {
+   // A user-initiated stop() aborts the fetch — that's not a failure, so no error dialog.
+   if (error instanceof DOMException && error.name === 'AbortError') return null;
    await alertDialog({ title: t('ai_edit_ledger_title'), message: t('ai_edit_ledger_error'), tone: 'danger' });
    return null;
+  } finally {
+   abortControllerRef.current = null;
   }
  }
 
- return { proposeEdits };
+ function stop() {
+  abortControllerRef.current?.abort();
+ }
+
+ return { proposeEdits, stop };
 }

@@ -19,7 +19,7 @@ export default function AiChatPanel() {
  const { data: authSession } = useStableSession();
  const aiSettings = useSettingsStore((s) => s.aiSettings);
  const aiFeatureAccess = authSession?.user?.aiEnabled === true;
- const { messages, isSending, sendMessage, reset } = useAiChat();
+ const { messages, isSending, sendMessage, stop, reset } = useAiChat();
  const [isOpen, setIsOpen] = useState(false);
  const [input, setInput] = useState('');
  const listRef = useRef<HTMLDivElement | null>(null);
@@ -54,7 +54,7 @@ export default function AiChatPanel() {
   if (viaVoice && reply) speak(reply);
  }
 
- const { isSupported: isSpeechSupported, isListening, start: startListening, stop: stopListening } = useSpeechToText(speechLang, (transcript) => {
+ const { isSupported: isSpeechSupported, isListening, isUnsupportedEnv: isSpeechUnsupportedEnv, start: startListening, stop: stopListening } = useSpeechToText(speechLang, (transcript) => {
   if (!transcript) return;
   setInput(transcript);
   void handleSubmit(transcript, true);
@@ -141,47 +141,64 @@ export default function AiChatPanel() {
        </div>
       </div>
 
-      <div className="flex gap-2 border-t border-border-strong p-3">
-       <input
-        type="text"
-        value={input}
-        onChange={(event) => setInput(event.target.value)}
-        onKeyDown={(event) => {
-         if (event.key === 'Enter') {
-          event.preventDefault();
-          void handleSubmit();
-         }
-        }}
-        placeholder={t('ai_chat_placeholder')}
-        disabled={isSending}
-        className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-       />
-       {isSpeechSupported ? (
-        <button
-         type="button"
-         title={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
-         aria-label={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+      <div className="border-t border-border-strong p-3">
+       {isSpeechUnsupportedEnv ? <p className="mb-2 text-xs text-fg-faint">{t('ai_fill_voice_unsupported')}</p> : null}
+       <div className="flex gap-2">
+        <input
+         type="text"
+         value={input}
+         onChange={(event) => setInput(event.target.value)}
+         onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+           event.preventDefault();
+           void handleSubmit();
+          }
+         }}
+         placeholder={t('ai_chat_placeholder')}
          disabled={isSending}
-         onClick={() => (isListening ? stopListening() : startListening())}
-         className={`shrink-0 rounded border px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
-          isListening ? 'animate-pulse border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-         }`}
-        >
-         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-          <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-          <path d="M12 18v4M9 22h6" />
-         </svg>
-        </button>
-       ) : null}
-       <button
-        type="button"
-        onClick={() => void handleSubmit()}
-        disabled={isSending || !input.trim()}
-        className="shrink-0 rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
-       >
-        {t('ai_chat_send')}
-       </button>
+         className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        />
+        {isSpeechSupported ? (
+         <button
+          type="button"
+          title={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+          aria-label={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+          disabled={isSending}
+          onClick={() => (isListening ? stopListening() : startListening())}
+          className={`shrink-0 rounded border px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+           isListening ? 'animate-pulse border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+          }`}
+         >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+           <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+           <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+           <path d="M12 18v4M9 22h6" />
+          </svg>
+         </button>
+        ) : null}
+        {isSending ? (
+         <button
+          type="button"
+          onClick={() => stop()}
+          title={t('ai_stop')}
+          aria-label={t('ai_stop')}
+          className="shrink-0 rounded bg-bad-bg px-3 py-2 text-bad-text transition hover:opacity-80"
+         >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+           <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
+         </button>
+        ) : (
+         <button
+          type="button"
+          onClick={() => void handleSubmit()}
+          disabled={!input.trim()}
+          className="shrink-0 rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+         >
+          {t('ai_chat_send')}
+         </button>
+        )}
+       </div>
       </div>
      </div>
     </div>

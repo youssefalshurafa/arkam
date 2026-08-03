@@ -9,6 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { renderIcon } from '@/shared/utils/icons';
+import { notifySettingsChanged } from '@/shared/lib/localStorage';
 import type { IconName, Section } from '@/shared/types';
 
 type SidebarItem = { id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void };
@@ -88,6 +89,7 @@ export default function Sidebar({
          const next = !current;
          try {
           localStorage.setItem('arkam:sidebar-collapsed', String(next));
+          notifySettingsChanged();
          } catch {}
          return next;
         })
