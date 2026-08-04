@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
-import { getStoredArchiveTableSettings, getStoredTransactionTableSettings, getStoredTxFilter } from '@/shared/lib/localStorage';
+import { getStoredArchiveTableSettings, getStoredTableZoom, getStoredTransactionTableSettings, getStoredTxFilter } from '@/shared/lib/localStorage';
 import { localDateKey } from '@/shared/utils/date';
 import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
 import type {
@@ -55,6 +55,13 @@ type TransactionsStore = {
  setTransactionsPage: Dispatch<SetStateAction<number>>;
  transactionsPageSize: number;
  setTransactionsPageSize: Dispatch<SetStateAction<number>>;
+ // Per-user-synced (see sharedTableSettings.ts) — kept in this store rather than a plain
+ // useState in TransactionsSection so page.tsx's post-login settings fetch can re-hydrate it
+ // into the already-mounted component; a bare useState's lazy initializer only ever reads
+ // localStorage once, before that fetch resolves, so a fresh device would stay stuck at the
+ // default zoom until a full reload.
+ tableZoom: number;
+ setTableZoom: Dispatch<SetStateAction<number>>;
  showTransactionTableSettingsModal: boolean;
  setShowTransactionTableSettingsModal: Dispatch<SetStateAction<boolean>>;
  transactionTableSettings: TransactionTableSettings;
@@ -209,6 +216,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTransactionsPage: setter('transactionsPage'),
   transactionsPageSize: 100,
   setTransactionsPageSize: setter('transactionsPageSize'),
+  tableZoom: getStoredTableZoom('transactions'),
+  setTableZoom: setter('tableZoom'),
   showTransactionTableSettingsModal: false,
   setShowTransactionTableSettingsModal: setter('showTransactionTableSettingsModal'),
   transactionTableSettings: getStoredTransactionTableSettings(),

@@ -14,7 +14,7 @@ import { accountingApi } from '@/lib/accountingApi';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkBar, SkTablePanel, SK_LEDGER } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredPdfCols, getStoredPdfDateRange, getStoredTableZoom, notifySettingsChanged, saveLedgerFilter, saveTableZoom } from '@/shared/lib/localStorage';
+import { getStoredPdfCols, getStoredPdfDateRange, notifySettingsChanged, saveLedgerFilter, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
@@ -73,6 +73,7 @@ type LedgerSectionProps = {
  onEditSelectedLedgerEntries: () => void;
  onReconcileLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
+ onIgnoreAnomaly: (kind: 'rate' | 'commission', transactionId: number, accountId: number) => void;
  onWriteOffLedgerRow: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
@@ -97,7 +98,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   isLoading, clients, clientAccounts, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, ledgerRateAnomalies, ledgerCommissionAnomalies,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
-  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onWriteOffLedgerRow, onEditAllLedger,
+  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openOneSidedTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled,
@@ -394,7 +395,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // the specific pending entries. Ephemeral UI state — no need to persist across sessions.
  const [pendingEntriesOpenAccountIds, setPendingEntriesOpenAccountIds] = useState<Set<number>>(new Set());
  // Spreadsheet-style zoom for the (often very wide) ledger table, so it fits on narrow screens.
- const [tableZoom, setTableZoom] = useState(() => getStoredTableZoom('ledger'));
+ const tableZoom = useLedgerStore((s) => s.tableZoom);
+ const setTableZoom = useLedgerStore((s) => s.setTableZoom);
  const changeTableZoom = (z: number) => {
   setTableZoom(z);
   saveTableZoom('ledger', z);
@@ -2654,12 +2656,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    return (
                                     <div className="flex items-center gap-1">
                                      <span>{formatRateValue(entry.exchangeRate)}</span>
-                                     <span
-                                      title={t('ledger_anomaly_badge_hint', { entered: formatRateValue(sameCurrencyAnomaly.enteredRate), expected: formatRateValue(sameCurrencyAnomaly.referenceRate) })}
-                                      className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text"
+                                     <button
+                                      type="button"
+                                      title={`${t('ledger_anomaly_badge_hint', { entered: formatRateValue(sameCurrencyAnomaly.enteredRate), expected: formatRateValue(sameCurrencyAnomaly.referenceRate) })} — ${t('ignore_anomaly_hint')}`}
+                                      onClick={() => onIgnoreAnomaly('rate', entry.transactionId, ledger.accountId)}
+                                      className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80"
                                      >
                                       ⚠ {t('ledger_anomaly_badge')}
-                                     </span>
+                                     </button>
                                     </div>
                                    );
                                   }
@@ -2694,12 +2698,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      </span>
                                     </button>
                                     {anomaly ? (
-                                     <span
-                                      title={t('ledger_anomaly_badge_hint', { entered: formatRateValue(anomaly.enteredRate), expected: formatRateValue(anomaly.referenceRate) })}
-                                      className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text"
+                                     <button
+                                      type="button"
+                                      title={`${t('ledger_anomaly_badge_hint', { entered: formatRateValue(anomaly.enteredRate), expected: formatRateValue(anomaly.referenceRate) })} — ${t('ignore_anomaly_hint')}`}
+                                      onClick={() => onIgnoreAnomaly('rate', entry.transactionId, ledger.accountId)}
+                                      className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80"
                                      >
                                       ⚠ {t('ledger_anomaly_badge')}
-                                     </span>
+                                     </button>
                                     ) : null}
                                    </div>
                                   );
@@ -2816,12 +2822,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    {entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}%
                                   </span>
                                   {commissionAnomaly ? (
-                                   <span
-                                    title={t('ledger_anomaly_commission_badge_hint', { entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }), expected: formatRateValue(commissionAnomaly.referenceCommission) })}
-                                    className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text"
+                                   <button
+                                    type="button"
+                                    title={`${t('ledger_anomaly_commission_badge_hint', { entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }), expected: formatRateValue(commissionAnomaly.referenceCommission) })} — ${t('ignore_anomaly_hint')}`}
+                                    onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId)}
+                                    className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80"
                                    >
                                     ⚠ {t('ledger_anomaly_commission_badge')}
-                                   </span>
+                                   </button>
                                   ) : null}
                                  </span>
                                 );

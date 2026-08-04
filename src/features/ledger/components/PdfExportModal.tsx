@@ -33,7 +33,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
  const pdfExportModal = useLedgerStore((s) => s.pdfExportModal);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
  const highlightedLedgerRows = useLedgerStore((s) => s.highlightedLedgerRows);
- const { reviewLedgerWithAi } = useAiLedgerReview();
+ const { reviewLedgerWithAi, stop: stopAiReview } = useAiLedgerReview();
  const [isReviewingWithAi, setIsReviewingWithAi] = useState(false);
 
  return (
@@ -250,21 +250,31 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
 
           <div className="mt-5 flex flex-wrap justify-end gap-2">
            {aiFeatureAccess ? (
-            <button
-             type="button"
-             disabled={isReviewingWithAi || selected.length === 0}
-             onClick={async () => {
-              setIsReviewingWithAi(true);
-              try {
-               await reviewLedgerWithAi(selected);
-              } finally {
-               setIsReviewingWithAi(false);
-              }
-             }}
-             className="flex items-center gap-1.5 rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-            >
-             {isReviewingWithAi ? t('ai_review_running') : t('ai_review_button')}
-            </button>
+            isReviewingWithAi ? (
+             <button
+              type="button"
+              onClick={() => stopAiReview()}
+              className="flex items-center gap-1.5 rounded border border-bad-text bg-bad-bg px-4 py-2 text-sm font-semibold text-bad-text transition hover:opacity-80"
+             >
+              {t('ai_stop')}
+             </button>
+            ) : (
+             <button
+              type="button"
+              disabled={selected.length === 0}
+              onClick={async () => {
+               setIsReviewingWithAi(true);
+               try {
+                await reviewLedgerWithAi(selected);
+               } finally {
+                setIsReviewingWithAi(false);
+               }
+              }}
+              className="flex items-center gap-1.5 rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+             >
+              {t('ai_review_button')}
+             </button>
+            )
            ) : null}
            <button
             type="button"

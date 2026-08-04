@@ -588,8 +588,11 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  .header-left .company-name { font-size: calc(${pdfSettings.fontSize}px + 6px); font-weight: bold; color: #1e293b; margin-bottom: 2px; }
  .header-left p { font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
- .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
- .card { border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; break-inside: avoid; }
+ /* flex-wrap, not CSS grid — Chromium's print/PDF engine paginates a multi-row grid very
+    unreliably (rows can end up shifted sideways or clipped when a tall card forces a page
+    break), while a wrapped flex layout breaks between cards cleanly. */
+ .grid { display: flex; flex-wrap: wrap; gap: 16px; }
+ .card { flex: 0 0 calc(50% - 8px); max-width: calc(50% - 8px); border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; break-inside: avoid; }
  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; }
  .card-head .org { font-size: ${pdfSettings.headFontSize}px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
  .card-head .cur { font-size: ${pdfSettings.headFontSize}px; font-weight: 700; }

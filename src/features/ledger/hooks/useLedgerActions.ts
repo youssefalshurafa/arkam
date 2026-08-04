@@ -7,7 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
+import { NEW_ROW_REF_ID, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
@@ -89,10 +89,10 @@ export function useLedgerActions({
  const { invalidate: loadData, setters, setError } = useWorkspaceActions();
  const setTransactions = setters.setTransactions;
  const setReconciliations = setters.setReconciliations;
+ const setIgnoredAnomalies = setters.setIgnoredAnomalies;
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
  const {
-  lockBoundaries,
   formatLockBalance,
   confirmIfLocked,
   confirmIfTransactionEditLocked,
@@ -822,6 +822,23 @@ async function onRemoveReconciliation(entry: ClientLedgerEntry, ledgerAccountId:
  }
 }
 
+// Dismisses a rate/commission anomaly badge (see ledgerAnomalies.ts) the user reviewed and
+// judged fine — shared workspace-wide, so it stops flagging for every member, not just the
+// one who ignored it. `accountId` is which side of the transaction this applies to.
+async function onIgnoreAnomaly(kind: 'rate' | 'commission', transactionId: number, accountId: number) {
+ if (!(await confirmDialog({ message: t('ignore_anomaly_confirm'), confirmText: t('ignore_anomaly_confirm_button') }))) return;
+ try {
+  const created = await accountingApi.createIgnoredAnomaly({ kind, transactionId, accountId });
+  if (created.id != null) {
+   setIgnoredAnomalies((prev) => [...prev, { id: created.id as number, kind, transactionId, accountId, createdAt: new Date().toISOString() }]);
+  }
+  setError('');
+  await loadData();
+ } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_save'));
+ }
+}
+
 function onToggleLedgerEntrySelection(key: string) {
  setSelectedLedgerEntryKeys((prev) => {
   const next = new Set(prev);
@@ -974,33 +991,34 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   newTimes.set(k, new Date(ts).toISOString());
  });
 
- // Reconciliation guard: reordering only changes the reconciled balance if a dragged row
- // CROSSES the lock's anchor row — moving from before it to after it, or vice versa. The
- // reconciled balance is the running balance at the anchor (the sum of every entry up to and
- // including it), so shuffling rows that all stay on the same side of the anchor leaves it
- // untouched and must NOT warn (e.g. reordering two old rows both before the reconciliation).
- // A reorder can only cross the anchor when the anchor sits on the same date being reflowed;
- // if it's on another date, no same-date reorder can reach it. Compared by ORDER INDEX (not
- // timestamp), since the reflow re-times the anchor too.
- const boundary = lockBoundaries.get(accountId);
- if (boundary && targetDate === boundary.anchorCreatedAt.slice(0, 10)) {
-  const refOf = (k: string) => {
-   const e = entryMap.get(k);
-   return e ? e.transactionId : null;
-  };
-  const oldAnchorIdx = dateGroup.findIndex((k) => refOf(k) === boundary.anchorRefId);
-  const newAnchorIdx = next.findIndex((k) => refOf(k) === boundary.anchorRefId);
-  const anchorMoved = orderedDragged.some((k) => refOf(k) === boundary.anchorRefId);
-  // A crossing only shifts the reconciled balance if the row that crosses carries a non-zero
-  // net change; moving a zero-net row (e.g. a pending/0-rate transaction) across the anchor
-  // leaves the balance untouched and must NOT warn.
-  const crosses =
-   oldAnchorIdx !== -1 &&
-   newAnchorIdx !== -1 &&
-   orderedDragged.some(
-    (k) => (dateGroup.indexOf(k) <= oldAnchorIdx) !== (next.indexOf(k) <= newAnchorIdx) && Math.abs(entryMap.get(k)?.netChange ?? 0) > 1e-6,
-   );
-  if ((anchorMoved || crosses) && !(await confirmIfLocked([accountId], boundary.anchorCreatedAt, boundary.anchorRefId))) return;
+ // Reconciliation guard: the reflow below rewrites createdAt for every row in the date group —
+ // not just the ones dragged — and each of those transactions touches TWO accounts (this
+ // ledger's own account and its counterparty), either of which may independently be reconciled.
+ // Re-time each affected transaction through the same balance-aware check a direct edit uses
+ // (transactionEditImpact: old createdAt vs new, evaluated against every account it touches),
+ // instead of a single-account order-index "crosses" check — that older check only ever looked
+ // at lockBoundaries for THIS account, so retiming a transaction shared with a different
+ // reconciled account (e.g. dragging in the counterparty's own ledger) went completely unguarded.
+ let dragLockHit: { accountId: number; boundary: LockBoundary } | null = null;
+ for (const [key, newCreatedAt] of newTimes) {
+  const entry = entryMap.get(key);
+  if (!entry) continue;
+  if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
+  const tx = transactions.find((t) => t.id === entry.transactionId);
+  if (!tx) continue;
+  dragLockHit = transactionEditImpact(tx, { ...tx, createdAt: newCreatedAt });
+  if (dragLockHit) break;
+ }
+ if (
+  dragLockHit &&
+  !(await confirmDialog({
+   title: t('reconcile_warn_title'),
+   message: t('reconcile_warn_message', { balance: formatLockBalance(dragLockHit.accountId, dragLockHit.boundary.balance) }),
+   confirmText: t('reconcile_warn_confirm'),
+   tone: 'danger',
+  }))
+ ) {
+  return;
  }
 
  // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
@@ -1202,6 +1220,7 @@ async function onExportLedgerExcel(
   onDeleteLedgerEntry,
   onReconcileLedgerEntry,
   onRemoveReconciliation,
+  onIgnoreAnomaly,
   onToggleLedgerEntrySelection,
   onDeleteSelectedLedgerEntries,
   onEditSelectedLedgerEntries,

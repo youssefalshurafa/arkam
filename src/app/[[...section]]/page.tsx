@@ -21,6 +21,7 @@ import type {
  TransactionUpdateInput,
  ClientAccountLedger,
  Reconciliation,
+ IgnoredAnomaly,
  HarvestRate,
  ImportClientReview,
  LedgerColumnKey,
@@ -54,6 +55,7 @@ import {
  getStoredAiSettings,
  getStoredLedgerFilter,
  getStoredTxFilter,
+ getStoredTableZoom,
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { getSectionFromPath } from '@/shared/utils/section';
@@ -89,7 +91,17 @@ import { useLiveRatesSettingsStore } from '@/features/live-rates/store/liveRates
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
-import { buildRateSamples, checkLedgerEntry, type RateAnomaly, buildCommissionSamples, checkLedgerEntryCommission, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
+import {
+ buildRateSamples,
+ checkLedgerEntry,
+ type RateAnomaly,
+ buildCommissionSamples,
+ checkLedgerEntryCommission,
+ type CommissionAnomaly,
+ buildIgnoredAnomalySet,
+ buildWorkspaceAnomalies,
+ anomalyKey,
+} from '@/features/ledger/utils/ledgerAnomalies';
 import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, computeClientReconciledStatus, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
@@ -129,6 +141,7 @@ const EMPTY_CLIENTS: Client[] = [];
 const EMPTY_CURRENCIES: Currency[] = [];
 const EMPTY_TRANSACTIONS: Transaction[] = [];
 const EMPTY_RECONCILIATIONS: Reconciliation[] = [];
+const EMPTY_IGNORED_ANOMALIES: IgnoredAnomaly[] = [];
 const EMPTY_HARVEST_RATES: HarvestRate[] = [];
 const EMPTY_CLIENT_ACCOUNTS: ClientAccount[] = [];
 
@@ -212,6 +225,7 @@ function AuthenticatedHome() {
  const currencies = workspaceData?.currencies ?? EMPTY_CURRENCIES;
  const transactions = workspaceData?.transactions ?? EMPTY_TRANSACTIONS;
  const reconciliations = workspaceData?.reconciliations ?? EMPTY_RECONCILIATIONS;
+ const ignoredAnomalies = workspaceData?.ignoredAnomalies ?? EMPTY_IGNORED_ANOMALIES;
  const harvestRates = workspaceData?.harvestRates ?? EMPTY_HARVEST_RATES;
  const clientAccounts = workspaceData?.clientAccounts ?? EMPTY_CLIENT_ACCOUNTS;
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
@@ -827,6 +841,7 @@ function AuthenticatedHome() {
     txFilterWholeWord: storedTxFilter.wholeWord,
     txFilterDateFrom: storedTxFilter.dateFrom,
     txFilterDateTo: storedTxFilter.dateTo,
+    tableZoom: getStoredTableZoom('transactions'),
    });
    const storedLedgerPageSize = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
    if ([25, 50, 100].includes(storedLedgerPageSize)) setLedgerPageSize(storedLedgerPageSize);
@@ -837,6 +852,7 @@ function AuthenticatedHome() {
     ledgerFilterCounterparty: storedLedgerFilter.counterparty,
     ledgerFilterDateFrom: storedLedgerFilter.dateFrom,
     ledgerFilterDateTo: storedLedgerFilter.dateTo,
+    tableZoom: getStoredTableZoom('ledger'),
    });
   }
   lastPushedUserSnapshot.current = serializeSnapshot(snapshotUserSettings());
@@ -1744,6 +1760,10 @@ function AuthenticatedHome() {
   [reconciliations, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
  );
 
+ // Anomaly badges the user already reviewed and dismissed via the ledger row's "ignore"
+ // action — excluded from every check below, workspace-wide.
+ const ignoredAnomalySet = useMemo(() => buildIgnoredAnomalySet(ignoredAnomalies), [ignoredAnomalies]);
+
  // Flags rows whose exchange rate deviates sharply from other transactions in the same
  // currency pair (most notably a ×/÷ toggle mistake) so LedgerSection can badge them while
  // browsing, ahead of the blocking export-time check in useLedgerActions.
@@ -1752,12 +1772,13 @@ function AuthenticatedHome() {
   const map = new Map<number, RateAnomaly>();
   for (const ledger of selectedClientLedgers) {
    for (const entry of ledger.entries) {
+    if (ignoredAnomalySet.has(anomalyKey('rate', entry.transactionId, ledger.accountId))) continue;
     const anomaly = checkLedgerEntry(entry, ledger.currencyCode, samples);
     if (anomaly) map.set(entry.transactionId, anomaly);
    }
   }
   return map;
- }, [selectedClientLedgers, transactions]);
+ }, [selectedClientLedgers, transactions, ignoredAnomalySet]);
 
  // Flags exchange-transaction commissions that break from an account's own commission
  // history (e.g. an always commission-free account suddenly getting one) so LedgerSection
@@ -1767,12 +1788,18 @@ function AuthenticatedHome() {
   const map = new Map<number, CommissionAnomaly>();
   for (const ledger of selectedClientLedgers) {
    for (const entry of ledger.entries) {
+    if (ignoredAnomalySet.has(anomalyKey('commission', entry.transactionId, ledger.accountId))) continue;
     const anomaly = checkLedgerEntryCommission(entry, ledger.accountId, samples);
     if (anomaly) map.set(entry.transactionId, anomaly);
    }
   }
   return map;
- }, [selectedClientLedgers, transactions]);
+ }, [selectedClientLedgers, transactions, ignoredAnomalySet]);
+
+ // Workspace-wide flagged entries (every client, every account) for the "needs review"
+ // indicator on the Transactions and Overview pages — unlike the two maps above, not scoped
+ // to whichever client's ledger happens to be open right now.
+ const workspaceAnomalies = useMemo(() => buildWorkspaceAnomalies(transactions, ignoredAnomalySet), [transactions, ignoredAnomalySet]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -1818,6 +1845,7 @@ function AuthenticatedHome() {
    onDeleteLedgerEntry,
    onReconcileLedgerEntry,
    onRemoveReconciliation,
+   onIgnoreAnomaly,
    onToggleLedgerEntrySelection,
    onDeleteSelectedLedgerEntries,
    onEditSelectedLedgerEntries,
@@ -2272,8 +2300,10 @@ function AuthenticatedHome() {
          currencies={currencies}
          transactions={transactions}
          harvestRates={harvestRates}
+         workspaceAnomalies={workspaceAnomalies}
          isLoading={isLoading}
          navigateToSection={navigateToSection}
+         openClientLedger={openClientLedger}
          onExportOverviewPdf={onExportOverviewPdf}
         />
        ) : null}
@@ -2394,6 +2424,7 @@ function AuthenticatedHome() {
          onDeleteLedgerEntry={onDeleteLedgerEntry}
          onReconcileLedgerEntry={onReconcileLedgerEntry}
          onRemoveReconciliation={onRemoveReconciliation}
+         onIgnoreAnomaly={onIgnoreAnomaly}
          onWriteOffLedgerRow={onWriteOffLedgerRow}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditSelectedLedgerEntries={onEditSelectedLedgerEntries}
@@ -2485,6 +2516,7 @@ function AuthenticatedHome() {
          visibleTransactionColumnCount={visibleTransactionColumnCount}
          selectedTransactionSums={selectedTransactionSums}
          archiveCurrencyTotals={archiveCurrencyTotals}
+         workspaceAnomalies={workspaceAnomalies}
          showExchangeRateFrom={showExchangeRateFrom}
          showExchangeRateTo={showExchangeRateTo}
          transactionAccountFromCurrencyCode={transactionAccountFromCurrencyCode}

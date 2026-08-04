@@ -17,6 +17,7 @@ const readOnlyActions = new Set([
  'listCurrencies',
  'listTransactions',
  'listReconciliations',
+ 'listIgnoredAnomalies',
  'listHarvestRates',
  'listSystemClients',
  'exportWorkspaceData',
@@ -66,6 +67,8 @@ const writeActions = new Set([
  'deleteAllTransactions',
  'createReconciliation',
  'deleteReconciliation',
+ 'createIgnoredAnomaly',
+ 'deleteIgnoredAnomaly',
  'saveHarvestRate',
  'importWorkspaceData',
  'bulkImportTransactions',
@@ -336,6 +339,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.createReconciliation(appLike, payload));
    case 'deleteReconciliation':
     await db.deleteReconciliation(appLike, payload);
+    return NextResponse.json({ ok: true });
+   case 'listIgnoredAnomalies':
+    return NextResponse.json(await db.listIgnoredAnomalies(appLike));
+   case 'createIgnoredAnomaly':
+    return NextResponse.json(await db.createIgnoredAnomaly(appLike, payload));
+   case 'deleteIgnoredAnomaly':
+    await db.deleteIgnoredAnomaly(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'listHarvestRates':
     return NextResponse.json(await db.listHarvestRates(appLike));

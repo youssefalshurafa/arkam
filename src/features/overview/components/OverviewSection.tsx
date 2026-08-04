@@ -11,6 +11,8 @@ import { panelClassName, mutedPanelClassName } from '@/shared/styles';
 import { renderIcon } from '@/shared/utils/icons';
 import { normalizeDecimalInput } from '@/shared/utils/decimal';
 import { localDateKey } from '@/shared/utils/date';
+import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
+import { anomalyKey, type FlaggedAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import type {
  Client,
  ClientAccount,
@@ -33,12 +35,26 @@ type OverviewSectionProps = {
  currencies: Currency[];
  transactions: Transaction[];
  harvestRates: HarvestRate[];
+ workspaceAnomalies: FlaggedAnomaly[];
  isLoading: boolean;
  navigateToSection: (section: Section) => void;
+ openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  onExportOverviewPdf: (cards: OverviewPdfCard[], mainCode: string, mainSymbol: string) => void;
 };
 
-export default function OverviewSection({ organizations, clients, clientAccounts, currencies, transactions, harvestRates, isLoading, navigateToSection, onExportOverviewPdf }: OverviewSectionProps) {
+export default function OverviewSection({
+ organizations,
+ clients,
+ clientAccounts,
+ currencies,
+ transactions,
+ harvestRates,
+ workspaceAnomalies,
+ isLoading,
+ navigateToSection,
+ openClientLedger,
+ onExportOverviewPdf,
+}: OverviewSectionProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
@@ -97,6 +113,12 @@ export default function OverviewSection({ organizations, clients, clientAccounts
   });
 
  const mainCurrency = useMemo(() => currencies.find((currency) => currency.isMain === 1) ?? null, [currencies]);
+
+ // "Needs review" alert: workspace-wide rate/commission anomaly badges (ledgerAnomalies.ts)
+ // not yet reviewed/dismissed. Clicking an item jumps to that entry's client ledger, where
+ // the actual badge (and its "ignore" action) lives.
+ const clientAccountById = useMemo(() => new Map(clientAccounts.map((account) => [account.id, account])), [clientAccounts]);
+ const anomalyReviewMenu = useContextMenu();
 
  const overviewOrgBalances = useMemo(
   () => computeOverviewBalances({ transactions, clientAccounts, clients, currencies, language }),
@@ -213,15 +235,63 @@ export default function OverviewSection({ organizations, clients, clientAccounts
             <h2 className="text-2xl font-semibold">{t('overview_title')}</h2>
             <p className="mt-2 text-sm text-fg-muted">{t('overview_description')}</p>
            </div>
-           <button
-            type="button"
-            onClick={() => navigateToSection('transactions')}
-            className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
-           >
-            {renderIcon('transactions', 'h-4 w-4')}
-            {t('overview_go_to_transactions')}
-           </button>
+           <div className="flex shrink-0 items-center gap-2">
+            {workspaceAnomalies.length > 0 ? (
+             <button
+              type="button"
+              onClick={(e) =>
+               anomalyReviewMenu.open(
+                e,
+                workspaceAnomalies.map((anomaly) => {
+                 const tx = transactions.find((t) => t.id === anomaly.transactionId);
+                 const account = clientAccountById.get(anomaly.accountId);
+                 const kindLabel = anomaly.kind === 'rate' ? t('ledger_anomaly_badge') : t('ledger_anomaly_commission_badge');
+                 const amountLabel = tx ? `${tx.amount.toLocaleString(numLocale)} ${tx.currencyCode}` : '';
+                 return {
+                  key: anomalyKey(anomaly.kind, anomaly.transactionId, anomaly.accountId),
+                  label: `${account?.clientName ?? ''} · ${kindLabel}${amountLabel ? ` · ${amountLabel}` : ''}`,
+                  onSelect: () => {
+                   const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
+                   if (client) openClientLedger(client, 'clients', anomaly.accountId);
+                  },
+                 };
+                }),
+               )
+              }
+              title={t('anomaly_review_alert', { count: workspaceAnomalies.length })}
+              className="relative cursor-pointer rounded-lg border border-warn bg-warn-bg p-2.5 text-warn-text transition hover:opacity-80"
+             >
+              <svg
+               width="18"
+               height="18"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+               <line x1="12" y1="9" x2="12" y2="13" />
+               <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-bad px-1 text-[10px] font-bold text-white">
+               {workspaceAnomalies.length}
+              </span>
+             </button>
+            ) : null}
+            <button
+             type="button"
+             onClick={() => navigateToSection('transactions')}
+             className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"
+            >
+             {renderIcon('transactions', 'h-4 w-4')}
+             {t('overview_go_to_transactions')}
+            </button>
+           </div>
           </div>
+          <ContextMenu menu={anomalyReviewMenu.menu} onClose={anomalyReviewMenu.close} />
 
           <div className="mt-6 grid gap-4 md:grid-cols-4">
            {overviewCards.map((card) => (

@@ -1,4 +1,4 @@
-import type { ClientLedgerEntry, Transaction } from '@/shared/types';
+import type { ClientLedgerEntry, IgnoredAnomaly, Transaction } from '@/shared/types';
 
 // Below this many other same-pair samples, there's no meaningful reference — never flag,
 // to avoid false positives on rare/new currency pairs.
@@ -170,4 +170,55 @@ export function checkLedgerEntryCommission(
 ): CommissionAnomaly | null {
  if (entry.type !== 'exchange') return null;
  return checkCommission(entry.commission, accountId, entry.transactionId, samples);
+}
+
+// Identifies one (kind, transaction side) flag for the ignore-list — a transaction's "from"
+// and "to" sides belong to different accounts and are dismissed independently.
+export function anomalyKey(kind: 'rate' | 'commission', transactionId: number, accountId: number): string {
+ return `${kind}:${transactionId}:${accountId}`;
+}
+
+export function buildIgnoredAnomalySet(ignored: IgnoredAnomaly[]): Set<string> {
+ return new Set(ignored.map((entry) => anomalyKey(entry.kind, entry.transactionId, entry.accountId)));
+}
+
+export type FlaggedAnomaly = {
+ kind: 'rate' | 'commission';
+ transactionId: number;
+ accountId: number;
+ enteredValue: number;
+ referenceValue: number;
+ sampleSize: number;
+};
+
+// Workspace-wide flagged list (every account, every client) for the Transactions/Overview
+// "needs review" indicator — unlike ledgerRateAnomalies/ledgerCommissionAnomalies (page.tsx),
+// which only cover the currently open client's ledger, this scans every transaction directly
+// (checkRate/checkCommission work off raw transaction fields, no ClientLedgerEntry needed) and
+// excludes anything already dismissed via `ignored`.
+export function buildWorkspaceAnomalies(transactions: Transaction[], ignored: Set<string>): FlaggedAnomaly[] {
+ const rateSamples = buildRateSamples(transactions);
+ const commissionSamples = buildCommissionSamples(transactions);
+ const flagged: FlaggedAnomaly[] = [];
+ for (const tx of transactions) {
+  if (tx.isArchived) continue;
+  if (tx.accountFromId != null && !ignored.has(anomalyKey('rate', tx.id, tx.accountFromId))) {
+   const rate = checkRate(tx.exchangeRateFrom, tx.currencyCode, tx.accountFromCurrencyCode, tx.id, rateSamples);
+   if (rate) flagged.push({ kind: 'rate', transactionId: tx.id, accountId: tx.accountFromId, enteredValue: rate.enteredRate, referenceValue: rate.referenceRate, sampleSize: rate.sampleSize });
+  }
+  if (tx.accountToId != null && !ignored.has(anomalyKey('rate', tx.id, tx.accountToId))) {
+   const rate = checkRate(tx.exchangeRateTo, tx.currencyCode, tx.accountToCurrencyCode, tx.id, rateSamples);
+   if (rate) flagged.push({ kind: 'rate', transactionId: tx.id, accountId: tx.accountToId, enteredValue: rate.enteredRate, referenceValue: rate.referenceRate, sampleSize: rate.sampleSize });
+  }
+  if (tx.type !== 'exchange') continue;
+  if (tx.accountFromId != null && !ignored.has(anomalyKey('commission', tx.id, tx.accountFromId))) {
+   const commission = checkCommission(tx.commissionFrom, tx.accountFromId, tx.id, commissionSamples);
+   if (commission) flagged.push({ kind: 'commission', transactionId: tx.id, accountId: tx.accountFromId, enteredValue: commission.enteredCommission, referenceValue: commission.referenceCommission, sampleSize: commission.sampleSize });
+  }
+  if (tx.accountToId != null && !ignored.has(anomalyKey('commission', tx.id, tx.accountToId))) {
+   const commission = checkCommission(tx.commissionTo, tx.accountToId, tx.id, commissionSamples);
+   if (commission) flagged.push({ kind: 'commission', transactionId: tx.id, accountId: tx.accountToId, enteredValue: commission.enteredCommission, referenceValue: commission.referenceCommission, sampleSize: commission.sampleSize });
+  }
+ }
+ return flagged;
 }
