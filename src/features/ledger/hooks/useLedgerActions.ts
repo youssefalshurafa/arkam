@@ -257,10 +257,11 @@ async function onSubmitOneSidedTransaction() {
   commissionTo: isClientFrom ? 0 : commissionValue,
   exchangeRateFromReversed: isClientFrom && effectiveRateReversed,
   exchangeRateToReversed: !isClientFrom && effectiveRateReversed,
+  // A charge always uses the transaction's own currency — no separate currency/rate to ask for.
   charges: parseFloat(oneSidedTransactionModal.charges) || 0,
-  chargesCurrencyId: oneSidedTransactionModal.chargesCurrencyId,
+  chargesCurrencyId: oneSidedTransactionModal.currencyId,
   chargesPayer: oneSidedTransactionModal.chargesPayer,
-  chargesExchangeRate: parseFloat(oneSidedTransactionModal.chargesExchangeRate) || 1,
+  chargesExchangeRate: 1,
   chargesDescription: oneSidedTransactionModal.chargesDescription,
   description: oneSidedTransactionModal.description,
   descriptionFrom: '',
@@ -350,18 +351,6 @@ function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: nu
   }
 
   const merged = { ...existingDraft, ...nextValues };
-  // Same stale-rate guard as updateTransactionTableDraft: if the charge's currency/payer
-  // now matches the payer's own account currency, the stored chargesExchangeRate no
-  // longer means anything — reset it to 1 rather than let it keep silently applying.
-  if (merged.chargesCurrencyId != null && (merged.chargesPayer === 'from' || merged.chargesPayer === 'to')) {
-   const isThisAccountFrom = merged.direction === 'outgoing';
-   const payerAccountId =
-    merged.chargesPayer === 'from' ? (isThisAccountFrom ? merged.ledgerAccountId : merged.counterpartyAccountId) : isThisAccountFrom ? merged.counterpartyAccountId : merged.ledgerAccountId;
-   const payerAccount = payerAccountId != null ? clientAccountMap.get(payerAccountId) : undefined;
-   if (payerAccount && payerAccount.currencyId === merged.chargesCurrencyId) {
-    merged.chargesExchangeRate = '1.00';
-   }
-  }
 
   return {
    ...current,
@@ -457,10 +446,11 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
   // treat the untouched exchange "to" side as changed (old value vs. undefined), producing a
   // spurious "you may affect the reconciled balance" warning when editing only the commission.
   exchangeActualAmount: transaction.exchangeActualAmount,
+  // A charge always uses the transaction's own currency — no separate currency/rate to ask for.
   charges: parseFloat(draft.charges) || 0,
-  chargesCurrencyId: draft.chargesCurrencyId,
+  chargesCurrencyId: draft.currencyId,
   chargesPayer: draft.chargesPayer,
-  chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
+  chargesExchangeRate: 1,
   chargesDescription: draft.chargesDescription,
   description: draft.description,
   counterParty: draft.counterParty,

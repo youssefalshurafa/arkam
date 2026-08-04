@@ -974,16 +974,6 @@ function AuthenticatedHome() {
   }
  }, [transactionForm.currencyId, transactionForm.accountToId, currencies, clientAccounts]);
 
- useEffect(() => {
-  if (!transactionForm.chargesCurrencyId || !transactionForm.chargesPayer) return;
-  const chargesCur = currencies.find((c) => c.id === transactionForm.chargesCurrencyId);
-  const payerAccountId = transactionForm.chargesPayer === 'from' ? transactionForm.accountFromId : transactionForm.chargesPayer === 'to' ? transactionForm.accountToId : null;
-  const payerAccount = payerAccountId ? clientAccounts.find((a) => a.id === payerAccountId) : undefined;
-  if (chargesCur && payerAccount && chargesCur.code === payerAccount.currencyCode) {
-   setTransactionForm((current) => ({ ...current, chargesExchangeRate: '1.00' }));
-  }
- }, [transactionForm.chargesCurrencyId, transactionForm.chargesPayer, transactionForm.accountFromId, transactionForm.accountToId, currencies, clientAccounts]);
-
  function navigateToSection(nextSection: Section) {
   setSection(nextSection);
   if (nextSection === 'client-ledger' || nextSection === 'organization-clients') return;
@@ -1733,11 +1723,6 @@ function AuthenticatedHome() {
   });
  updateImportReviewEntryImpl = updateImportReviewEntryFromTx;
 
-
- const chargesCurrencyCode = transactionForm.chargesCurrencyId ? currencyMap.get(transactionForm.chargesCurrencyId)?.code : undefined;
- const chargesPayerAccountCurrencyCode =
-  transactionForm.chargesPayer === 'from' ? transactionAccountFromCurrencyCode : transactionForm.chargesPayer === 'to' ? transactionAccountToCurrencyCode : undefined;
- const showChargesExchangeRate = !!(chargesCurrencyCode && chargesPayerAccountCurrencyCode && chargesCurrencyCode !== chargesPayerAccountCurrencyCode);
 
 
 
@@ -2500,7 +2485,6 @@ function AuthenticatedHome() {
          visibleTransactionColumnCount={visibleTransactionColumnCount}
          selectedTransactionSums={selectedTransactionSums}
          archiveCurrencyTotals={archiveCurrencyTotals}
-         showChargesExchangeRate={showChargesExchangeRate}
          showExchangeRateFrom={showExchangeRateFrom}
          showExchangeRateTo={showExchangeRateTo}
          transactionAccountFromCurrencyCode={transactionAccountFromCurrencyCode}

@@ -3035,19 +3035,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             t={t}
                             charges={chargesDraft.charges}
                             onChargesChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: value })}
-                            chargesCurrencyId={chargesDraft.chargesCurrencyId}
-                            onChargesCurrencyIdChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesCurrencyId: value })}
                             chargesPayer={chargesDraft.chargesPayer}
                             onChargesPayerChange={(chargesPayer) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer })}
                             chargesDescription={chargesDraft.chargesDescription}
                             onChargesDescriptionChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: value })}
-                            chargesExchangeRate={chargesDraft.chargesExchangeRate}
-                            onChargesExchangeRateChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesExchangeRate: value })}
-                            enabledCurrencies={enabledCurrencies}
                             fromLabel={fromSideName}
                             toLabel={toSideName}
                             meLabel={t('charges_payer_me')}
-                            rateTargetCurrencyCode={ledger.currencyCode}
                            />
                           </div>
                          </td>

@@ -237,19 +237,13 @@ export default function OneSidedTransactionModal({
                t={t}
                charges={modal.charges}
                onChargesChange={(value) => setModal((prev) => (prev ? { ...prev, charges: value } : prev))}
-               chargesCurrencyId={modal.chargesCurrencyId}
-               onChargesCurrencyIdChange={(value) => setModal((prev) => (prev ? { ...prev, chargesCurrencyId: value } : prev))}
                chargesPayer={modal.chargesPayer}
                onChargesPayerChange={(value) => setModal((prev) => (prev ? { ...prev, chargesPayer: value } : prev))}
                chargesDescription={modal.chargesDescription}
                onChargesDescriptionChange={(value) => setModal((prev) => (prev ? { ...prev, chargesDescription: value } : prev))}
-               chargesExchangeRate={modal.chargesExchangeRate}
-               onChargesExchangeRateChange={(value) => setModal((prev) => (prev ? { ...prev, chargesExchangeRate: value } : prev))}
-               enabledCurrencies={enabledCurrencies}
                fromLabel={isClientFrom ? clientName || t('transaction_account_from') : modal.counterParty.trim() || t('charges_payer_me')}
                toLabel={isClientFrom ? modal.counterParty.trim() || t('charges_payer_me') : clientName || t('transaction_account_to')}
                meLabel={t('charges_payer_me')}
-               rateTargetCurrencyCode={accountCurrencyCode}
               />
              </div>
             ) : null}
