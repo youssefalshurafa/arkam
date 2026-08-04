@@ -312,20 +312,6 @@ function updateTransactionTableDraft(transactionId: number, nextValues: Partial<
    merged.exchangeRateFrom = resetSideRate(merged.accountFromId, merged.exchangeRateFrom);
    merged.exchangeRateTo = resetSideRate(merged.accountToId, merged.exchangeRateTo);
   }
-  // If the charge's currency or payer changed such that the charge now matches the
-  // payer's own account currency, the stored chargesExchangeRate is stale (it was
-  // converting into a currency this charge no longer needs converting into) — reset it
-  // to 1, mirroring the equivalent effect on the "new transaction" form. Otherwise this
-  // rate silently keeps multiplying the charge even though it no longer applies (see
-  // effectiveChargeRate in accountBalances.ts/ledgerBalances.ts for the calculation-side guard).
-  if (merged.chargesCurrencyId != null && (merged.chargesPayer === 'from' || merged.chargesPayer === 'to')) {
-   const payerAccountId = merged.chargesPayer === 'from' ? merged.accountFromId : merged.accountToId;
-   const payerAccount = payerAccountId != null ? clientAccountMap.get(payerAccountId) : undefined;
-   if (payerAccount && payerAccount.currencyId === merged.chargesCurrencyId) {
-    merged.chargesExchangeRate = '1.00';
-   }
-  }
-
   return {
    ...current,
    [transactionId]: merged,
@@ -471,10 +457,11 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   commissionTo: parseFloat(transactionForm.commissionTo) || 0,
   exchangeRateFromReversed: txFromRateReversed && (parseFloat(transactionForm.exchangeRateFrom) || 0) > 0 ? 1 : 0,
   exchangeRateToReversed: txToRateReversed && (parseFloat(transactionForm.exchangeRateTo) || 0) > 0 ? 1 : 0,
+  // A charge always uses the transaction's own currency — no separate currency/rate to ask for.
   charges: parseFloat(transactionForm.charges) || 0,
-  chargesCurrencyId: transactionForm.chargesCurrencyId || null,
+  chargesCurrencyId: transactionForm.currencyId,
   chargesPayer: transactionForm.chargesPayer,
-  chargesExchangeRate: parseFloat(transactionForm.chargesExchangeRate) || 1,
+  chargesExchangeRate: 1,
   chargesDescription: transactionForm.chargesDescription,
   description: transactionForm.description,
   descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
@@ -1880,10 +1867,11 @@ function buildTableTransactionUpdate(transactionId: number, draft: TransactionTa
   commissionTo: parseFloat(draft.commissionTo) || 0,
   exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
   exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
+  // A charge always uses the transaction's own currency — no separate currency/rate to ask for.
   charges: parseFloat(draft.charges) || 0,
-  chargesCurrencyId: draft.chargesCurrencyId || null,
+  chargesCurrencyId: draft.currencyId,
   chargesPayer: draft.chargesPayer,
-  chargesExchangeRate: parseFloat(draft.chargesExchangeRate) || 1,
+  chargesExchangeRate: 1,
   chargesDescription: draft.chargesDescription,
   description: draft.description,
   archiveNote: draft.archiveNote,

@@ -1199,6 +1199,51 @@ async function deleteReconciliation(app, id) {
     await query(`DELETE FROM ${schema}.reconciliations WHERE id = $1`, [id]);
 }
 
+async function listIgnoredAnomalies(app) {
+    const { schema } = await getSchemaInfo(app);
+    const isMember = app?.role === 'member';
+    const result = await query(
+        `
+            SELECT
+                ia.id,
+                ia.kind,
+                ia.transaction_id AS "transactionId",
+                ia.account_id AS "accountId",
+                ia.created_at AS "createdAt"
+            FROM ${schema}.ignored_anomalies ia
+            JOIN ${schema}.client_accounts ca ON ca.id = ia.account_id
+            JOIN ${schema}.clients c ON c.id = ca.client_id
+            ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
+            ORDER BY ia.created_at ASC
+        `,
+        isMember ? [app.userId] : [],
+    );
+    return result.rows;
+}
+
+async function createIgnoredAnomaly(app, { kind, transactionId, accountId }) {
+    const { schema } = await getSchemaInfo(app);
+    if (kind !== 'rate' && kind !== 'commission') throw new Error('Invalid anomaly kind.');
+    if (!transactionId) throw new Error('A transaction is required.');
+    if (!accountId) throw new Error('An account is required.');
+    await assertMemberCanWriteAccount(app, accountId);
+    const result = await query(
+        `INSERT INTO ${schema}.ignored_anomalies (kind, transaction_id, account_id)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (kind, transaction_id, account_id) DO NOTHING
+         RETURNING id`,
+        [kind, transactionId, accountId],
+    );
+    return result.rows[0] ?? { id: null };
+}
+
+async function deleteIgnoredAnomaly(app, id) {
+    const { schema } = await getSchemaInfo(app);
+    const existing = await query(`SELECT account_id AS "accountId" FROM ${schema}.ignored_anomalies WHERE id = $1`, [id]);
+    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
+    await query(`DELETE FROM ${schema}.ignored_anomalies WHERE id = $1`, [id]);
+}
+
 // Full history — the client resolves "nearest earlier explicit day" itself (same
 // fetch-everything-compute-client-side philosophy as transaction/balance replay).
 async function listHarvestRates(app) {
@@ -1636,6 +1681,9 @@ module.exports = {
     listReconciliations,
     createReconciliation,
     deleteReconciliation,
+    listIgnoredAnomalies,
+    createIgnoredAnomaly,
+    deleteIgnoredAnomaly,
     listHarvestRates,
     saveHarvestRate,
     exportWorkspaceData,

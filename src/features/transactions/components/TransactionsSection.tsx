@@ -12,7 +12,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredTableZoom, saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings, saveTxFilter } from '@/shared/lib/localStorage';
+import { saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings, saveTxFilter } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
@@ -30,6 +30,7 @@ import AccountSearchSelect from '@/features/transactions/components/AccountSearc
 import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
 import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
+import { anomalyKey, type FlaggedAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import type {
  Client,
  ClientAccount,
@@ -117,7 +118,7 @@ type TransactionsSectionProps = {
  visibleTransactionColumnCount: number;
  selectedTransactionSums: CurrencyTotal[];
  archiveCurrencyTotals: CurrencyTotal[];
- showChargesExchangeRate: boolean;
+ workspaceAnomalies: FlaggedAnomaly[];
  showExchangeRateFrom: boolean;
  showExchangeRateTo: boolean;
  transactionAccountFromCurrencyCode: string | undefined;
@@ -168,7 +169,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const {
   isLoading, section, clients, clientAccounts, enabledCurrencies, transactions, clientAccountMap, currencyMap,
   displayedTransactionRows, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
-  selectedTransactionSums, archiveCurrencyTotals, showChargesExchangeRate, showExchangeRateFrom, showExchangeRateTo,
+  selectedTransactionSums, archiveCurrencyTotals, workspaceAnomalies, showExchangeRateFrom, showExchangeRateTo,
   transactionAccountFromCurrencyCode, transactionAccountToCurrencyCode, transactionSelectedCurrencyCode,
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
   txSumMode, txSumSelection, txSumByCurrency,
@@ -201,8 +202,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   const today = localDateKey();
   return transactions.filter((txn) => !txn.isArchived && txn.type !== 'adjustment' && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim() && txn.createdAt.slice(0, 10) === today);
  }, [transactions, section]);
+ // Alert next to the same button: workspace-wide rate/commission anomaly badges (see
+ // ledgerAnomalies.ts) that haven't been reviewed and dismissed yet. Clicking an item jumps
+ // to that entry's client ledger, where the actual badge (and its "ignore" action) lives.
+ const anomalyReviewMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, txFilterShowHidden, setTxFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, txFilterShowHidden, setTxFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -408,8 +413,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const [txFromHighlight, setTxFromHighlight] = useState(0);
  const [txToHighlight, setTxToHighlight] = useState(0);
  const [descriptionSuggestHighlight, setDescriptionSuggestHighlight] = useState(0);
- // Spreadsheet-style zoom for the (often very wide) transactions table, so it fits on narrow screens.
- const [tableZoom, setTableZoom] = useState(() => getStoredTableZoom('transactions'));
  // Max allowed deviation (in the destination currency) between the entered الفعلي actual amount
  // and the computed amount × rate. Enforced authoritatively at submit; used here for the live hint.
  const [exchangeTolerance] = useState(() => getStoredExchangeSettings().tolerance);
@@ -495,10 +498,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
    close();
   }
  };
-
- const chargesCurrencyCode = transactionForm.chargesCurrencyId ? currencyMap.get(transactionForm.chargesCurrencyId)?.code : undefined;
- const chargesPayerAccountCurrencyCode =
-  transactionForm.chargesPayer === 'from' ? transactionAccountFromCurrencyCode : transactionForm.chargesPayer === 'to' ? transactionAccountToCurrencyCode : undefined;
 
  if (isLoading) {
   return (
@@ -1378,7 +1377,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </button>
               {isNewTransactionExpensesOpen && (
                <div className="mt-3 rounded border border-border bg-surface-2 p-4">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                  <input
                   type="text"
                   inputMode="decimal"
@@ -1388,21 +1387,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
                   placeholder="0"
                  />
-                 <select
-                  value={transactionForm.chargesCurrencyId ?? ''}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesCurrencyId: event.target.value ? Number(event.target.value) : null }))}
-                  className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 >
-                  <option value="">{t('currency')}</option>
-                  {enabledCurrencies.map((cur) => (
-                   <option
-                    key={cur.id}
-                    value={cur.id}
-                   >
-                    {cur.code}
-                   </option>
-                  ))}
-                 </select>
                  <ChargesPayerSelects
                   value={transactionForm.chargesPayer}
                   onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer }))}
@@ -1414,22 +1398,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
                  />
                 </div>
-                {showChargesExchangeRate && (
-                 <div className="mt-2">
-                  <label className="block text-xs font-medium text-fg-faint">
-                   {t('charges_exchange_rate')} <span dir="ltr">({chargesCurrencyCode} → {chargesPayerAccountCurrencyCode})</span>
-                  </label>
-                  <input
-                   type="text"
-                   inputMode="decimal"
-                   dir="ltr"
-                   value={transactionForm.chargesExchangeRate}
-                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesExchangeRate: normalizePlainDecimalInput(event.target.value) }))}
-                   className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
-                   placeholder="1"
-                  />
-                 </div>
-                )}
                 <div className="mt-2">
                  <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
                  <input
@@ -1683,6 +1651,61 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </svg>
               <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-bad px-1 text-[10px] font-bold text-white">
                {missingCounterpartyToday.length}
+              </span>
+             </button>
+            ) : null}
+            {workspaceAnomalies.length > 0 ? (
+             <button
+              type="button"
+              onClick={(e) =>
+               anomalyReviewMenu.open(
+                e,
+                workspaceAnomalies.map((anomaly) => {
+                 const tx = transactions.find((t) => t.id === anomaly.transactionId);
+                 const account = clientAccountMap.get(anomaly.accountId);
+                 const kindLabel = anomaly.kind === 'rate' ? t('ledger_anomaly_badge') : t('ledger_anomaly_commission_badge');
+                 const amountLabel = tx ? `${tx.amount.toLocaleString(numLocale)} ${tx.currencyCode}` : '';
+                 return {
+                  key: anomalyKey(anomaly.kind, anomaly.transactionId, anomaly.accountId),
+                  label: `${account?.clientName ?? ''} · ${kindLabel}${amountLabel ? ` · ${amountLabel}` : ''}`,
+                  onSelect: () => {
+                   const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
+                   if (client) openClientLedger(client, 'clients', anomaly.accountId);
+                  },
+                 };
+                }),
+               )
+              }
+              title={t('anomaly_review_alert', { count: workspaceAnomalies.length })}
+              className="relative cursor-pointer rounded border border-warn bg-warn-bg p-2 text-warn-text transition hover:opacity-80"
+             >
+              <svg
+               width="16"
+               height="16"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="1.8"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+               <line
+                x1="12"
+                y1="9"
+                x2="12"
+                y2="13"
+               />
+               <line
+                x1="12"
+                y1="17"
+                x2="12.01"
+                y2="17"
+               />
+              </svg>
+              <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-bad px-1 text-[10px] font-bold text-white">
+               {workspaceAnomalies.length}
               </span>
              </button>
             ) : null}
@@ -2935,26 +2958,18 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                         </button>
                        );
                       }
-                      const rateTargetCurrencyCode =
-                       draft.chargesPayer === 'from' ? txn.accountFromCurrencyCode : draft.chargesPayer === 'to' ? txn.accountToCurrencyCode : undefined;
                       return (
                        <ChargesEditFields
                         t={t}
                         charges={draft.charges}
                         onChargesChange={(value) => updateTransactionTableDraft(txn.id, { charges: value })}
-                        chargesCurrencyId={draft.chargesCurrencyId}
-                        onChargesCurrencyIdChange={(value) => updateTransactionTableDraft(txn.id, { chargesCurrencyId: value })}
                         chargesPayer={draft.chargesPayer}
                         onChargesPayerChange={(chargesPayer) => updateTransactionTableDraft(txn.id, { chargesPayer })}
                         chargesDescription={draft.chargesDescription}
                         onChargesDescriptionChange={(value) => updateTransactionTableDraft(txn.id, { chargesDescription: value })}
-                        chargesExchangeRate={draft.chargesExchangeRate}
-                        onChargesExchangeRateChange={(value) => updateTransactionTableDraft(txn.id, { chargesExchangeRate: value })}
-                        enabledCurrencies={enabledCurrencies}
                         fromLabel={txn.clientFromName}
                         toLabel={txn.clientToName}
                         meLabel={t('charges_payer_me')}
-                        rateTargetCurrencyCode={rateTargetCurrencyCode}
                        />
                       );
                      })()
@@ -3149,6 +3164,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
    <ContextMenu menu={rowContextMenu.menu} onClose={closeRowMenu} zoom={tableZoom} />
    <ContextMenu menu={gearMenu.menu} onClose={gearMenu.close} zoom={tableZoom} />
    <ContextMenu menu={missingCounterpartyMenu.menu} onClose={missingCounterpartyMenu.close} zoom={tableZoom} />
+   <ContextMenu menu={anomalyReviewMenu.menu} onClose={anomalyReviewMenu.close} zoom={tableZoom} />
    {editingRowIds.size > 0 && typeof document !== 'undefined' ? createPortal(
     <div className={`fixed bottom-6 z-30 flex flex-col gap-3 sm:hidden ${isRTL ? 'left-6' : 'right-6'}`}>
      <button

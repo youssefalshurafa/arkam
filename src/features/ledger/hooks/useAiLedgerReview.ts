@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import { alertDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -16,8 +17,11 @@ export function useAiLedgerReview() {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
+ const abortControllerRef = useRef<AbortController | null>(null);
 
  async function reviewLedgerWithAi(entries: ClientLedgerEntry[]): Promise<void> {
+  const controller = new AbortController();
+  abortControllerRef.current = controller;
   try {
    const response = await fetch('/api/ai/review-ledger', {
     method: 'POST',
@@ -36,6 +40,7 @@ export function useAiLedgerReview() {
       direction: entry.direction,
      })),
     }),
+    signal: controller.signal,
    });
    const data = (await response.json().catch(() => null)) as { flagged?: FlaggedEntry[] } | null;
    if (!response.ok || !data) {
@@ -54,10 +59,18 @@ export function useAiLedgerReview() {
     return `${label}\n${concern}`;
    });
    await alertDialog({ title: t('ai_review_title'), message: lines.join('\n\n'), tone: 'danger' });
-  } catch {
+  } catch (error) {
+   // A user-initiated stop() aborts the fetch — that's not a failure, so no error dialog.
+   if (error instanceof DOMException && error.name === 'AbortError') return;
    await alertDialog({ title: t('ai_review_title'), message: t('ai_review_error'), tone: 'danger' });
+  } finally {
+   abortControllerRef.current = null;
   }
  }
 
- return { reviewLedgerWithAi };
+ function stop() {
+  abortControllerRef.current?.abort();
+ }
+
+ return { reviewLedgerWithAi, stop };
 }

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
-import { defaultLedgerColumnOrder, defaultLedgerColumnVisibility, getStoredLedgerFilter } from '@/shared/lib/localStorage';
+import { defaultLedgerColumnOrder, defaultLedgerColumnVisibility, getStoredLedgerFilter, getStoredTableZoom } from '@/shared/lib/localStorage';
 import type { LedgerColumnKey, LedgerTransactionDraft, PdfColVisibility, PdfSettings } from '@/shared/types';
 
 export type PdfExportModalState = {
@@ -171,6 +171,13 @@ type LedgerStore = {
  setLedgerRateReversed: Dispatch<SetStateAction<Record<string, boolean>>>;
  ledgerDisplayRateReversed: Record<string, boolean>;
  setLedgerDisplayRateReversed: Dispatch<SetStateAction<Record<string, boolean>>>;
+ // Per-user-synced (see sharedTableSettings.ts) — kept in this store rather than a plain
+ // useState in LedgerSection so page.tsx's post-login settings fetch can re-hydrate it into
+ // the already-mounted component; a bare useState's lazy initializer only ever reads
+ // localStorage once, before that fetch resolves, so a fresh device would stay stuck at the
+ // default zoom until a full reload.
+ tableZoom: number;
+ setTableZoom: Dispatch<SetStateAction<number>>;
 };
 
 export const useLedgerStore = create<LedgerStore>((set) => {
@@ -272,5 +279,7 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setLedgerRateReversed: setter('ledgerRateReversed'),
   ledgerDisplayRateReversed: {},
   setLedgerDisplayRateReversed: setter('ledgerDisplayRateReversed'),
+  tableZoom: getStoredTableZoom('ledger'),
+  setTableZoom: setter('tableZoom'),
  };
 });
