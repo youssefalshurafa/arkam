@@ -18,31 +18,17 @@ export function reconciliationRefId(entry: Pick<ClientLedgerEntry, 'transactionI
  return entry.transactionId;
 }
 
-// Live createdAt per anchor row, keyed `transaction:${anchorRefId}`. A reconciliation's
-// `anchorCreatedAt` is a one-time snapshot taken when the mark was created; drag-to-reorder
-// (onLedgerRowDrop) later reflows the createdAt of every row sharing the anchor's date —
-// including rows that weren't even dragged — to keep them evenly spaced in the new order, so
-// that snapshot silently goes stale the moment anything on the anchor's day gets reordered.
-// Passing this lookup into `buildLockBoundaries` makes every boundary re-resolve its anchor's
-// CURRENT position instead of trusting the frozen snapshot, so the locked/unlocked split
-// self-heals after a reorder rather than drifting out of sync with it.
-export type LiveAnchorTimes = Map<string, string>;
-
-export function buildLiveAnchorTimes(transactions: Array<{ id: number; createdAt: string }>): LiveAnchorTimes {
- const map: LiveAnchorTimes = new Map();
- for (const tx of transactions) map.set(`transaction:${tx.id}`, tx.createdAt);
- return map;
-}
-
-// Newest reconciliation per account id. "Newest" uses the same ordering as the ledger:
-// later anchorCreatedAt wins, breaking ties by the higher anchorRefId. `liveAnchorTimes`
-// (see above) overrides each anchor's stored createdAt snapshot with its current one when
-// available, so the boundary always reflects the anchor row's true current position.
-export function buildLockBoundaries(reconciliations: Reconciliation[], liveAnchorTimes?: LiveAnchorTimes): Map<number, LockBoundary> {
+// Newest reconciliation per account id, using the frozen snapshot recorded at creation time —
+// never resolved against current transaction state. The boundary is a fixed historical
+// checkpoint ("the running balance was correct as of this point"), not "wherever the anchor
+// transaction currently sits" — a transaction that moves is evaluated against this fixed point
+// like any other edit (see reconciledBalanceDelta), not by chasing it. "Newest" uses the same
+// ordering as the ledger: later anchorCreatedAt wins, breaking ties by the higher anchorRefId.
+export function buildLockBoundaries(reconciliations: Reconciliation[]): Map<number, LockBoundary> {
  const byAccount = new Map<number, LockBoundary>();
  for (const rec of reconciliations) {
   const candidate: LockBoundary = {
-   anchorCreatedAt: liveAnchorTimes?.get(`${rec.anchorKind}:${rec.anchorRefId}`) ?? rec.anchorCreatedAt,
+   anchorCreatedAt: rec.anchorCreatedAt,
    anchorRefId: rec.anchorRefId,
    balance: rec.balance,
    note: rec.note,

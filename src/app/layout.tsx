@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Cairo } from 'next/font/google';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -11,6 +11,17 @@ import './globals.css';
 export const metadata: Metadata = {
  title: 'Arkam',
  description: 'Arkam — accounting & bookkeeping.',
+};
+
+// maximumScale: 1 stops iOS Safari's auto-zoom-on-input-focus (it zooms any input/select/
+// textarea rendered below ~16px up to legible size, which on this app's deliberately dense,
+// small-text tables and forms left the user having to pan both ways to see the rest of the
+// form afterward). Capping the allowed zoom at 1x removes the room Safari needs to do that,
+// without the accessibility cost of userScalable:false — manual pinch-zoom still works.
+export const viewport: Viewport = {
+ width: 'device-width',
+ initialScale: 1,
+ maximumScale: 1,
 };
 
 // Cairo covers both Latin and Arabic, so it's the single app-wide font.

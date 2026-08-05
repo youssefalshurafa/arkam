@@ -1,5 +1,5 @@
 import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
-import { buildLockBoundaries, buildLiveAnchorTimes, isAtOrBeforeBoundary, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
+import { buildLockBoundaries, isAtOrBeforeBoundary, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
 import type {
  ClientAccount,
  ClientAccountLedger,
@@ -88,7 +88,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
    return [];
   }
 
-  const lockBoundaries = buildLockBoundaries(reconciliations, buildLiveAnchorTimes(transactions));
+  const lockBoundaries = buildLockBoundaries(reconciliations);
   // Marks keyed per account by the exact row they sit on, for the ✓ badge.
   const marksByAccount = new Map<number, Map<string, Reconciliation>>();
   for (const rec of reconciliations) {

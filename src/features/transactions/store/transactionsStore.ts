@@ -144,8 +144,6 @@ type TransactionsStore = {
  setTxToOpen: Dispatch<SetStateAction<boolean>>;
  txToExpandedClient: number | null;
  setTxToExpandedClient: Dispatch<SetStateAction<number | null>>;
- descriptionSuggestOpen: boolean;
- setDescriptionSuggestOpen: Dispatch<SetStateAction<boolean>>;
  txFromRateReversed: boolean;
  setTxFromRateReversed: Dispatch<SetStateAction<boolean>>;
  txToRateReversed: boolean;
@@ -292,8 +290,6 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTxToOpen: setter('txToOpen'),
   txToExpandedClient: null,
   setTxToExpandedClient: setter('txToExpandedClient'),
-  descriptionSuggestOpen: false,
-  setDescriptionSuggestOpen: setter('descriptionSuggestOpen'),
   txFromRateReversed: false,
   setTxFromRateReversed: setter('txFromRateReversed'),
   txToRateReversed: false,

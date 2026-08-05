@@ -12,7 +12,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { saveTableZoom, getStoredDescriptionSuggestionExclusions, saveDescriptionSuggestionExclusions, getStoredExchangeSettings, saveTxFilter } from '@/shared/lib/localStorage';
+import { saveTableZoom, getStoredExchangeSettings, saveTxFilter } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
@@ -26,6 +26,9 @@ import { useTransactionsStore, type ArchiveExportModalState } from '@/features/t
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAiParseTransaction } from '@/features/transactions/hooks/useAiParseTransaction';
 import { useSpeechToText } from '@/shared/hooks/useSpeechToText';
+import { useLongPress } from '@/shared/hooks/useLongPress';
+import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
+import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
 import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
@@ -207,7 +210,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // to that entry's client ledger, where the actual badge (and its "ignore" action) lives.
  const anomalyReviewMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, txFilterShowHidden, setTxFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, descriptionSuggestOpen, setDescriptionSuggestOpen, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, txFilterShowHidden, setTxFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, isNewTransactionExpensesOpen, setIsNewTransactionExpensesOpen, transactionTableDrafts, transactionForm, setTransactionForm, isSubmittingTransaction, txSplitDescription, setTxSplitDescription, newTransactionDate, setNewTransactionDate, copiedTransaction, txFromQuery, setTxFromQuery, txFromOpen, setTxFromOpen, txFromExpandedClient, setTxFromExpandedClient, txToQuery, setTxToQuery, txToOpen, setTxToOpen, txToExpandedClient, setTxToExpandedClient, txFromRateReversed, setTxFromRateReversed, txToRateReversed, setTxToRateReversed, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -298,6 +301,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // border on whichever row the open menu belongs to, so it's clear which row the menu's
  // actions apply to; closeRowMenu clears it alongside the menu itself.
  const [contextMenuRowId, setContextMenuRowId] = useState<number | null>(null);
+ // iOS Safari has no equivalent of Android's long-press-fires-contextmenu behavior, so the
+ // row menu is otherwise unreachable by touch-and-hold on iPhone — see useLongPress.ts.
+ const rowLongPress = useLongPress();
 
  // Selection mode: the per-row select checkboxes stay hidden until the user opts in via
  // the toolbar "Select" toggle. Turning it off also clears any current selection so a
@@ -310,18 +316,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   });
  };
 
- // Descriptions dismissed from the autocomplete dropdown via its per-suggestion "x".
- // Persisted so a removed suggestion stays gone across reloads, even though the
- // suggestion list itself is derived live from past transactions each render.
- const [excludedDescriptionSuggestions, setExcludedDescriptionSuggestions] = useState<Set<string>>(() => getStoredDescriptionSuggestionExclusions());
- const excludeDescriptionSuggestion = (desc: string) => {
-  setExcludedDescriptionSuggestions((current) => {
-   const next = new Set(current);
-   next.add(desc.trim().toLowerCase());
-   saveDescriptionSuggestionExclusions(next);
-   return next;
-  });
- };
  const openRowMenu = (event: ReactMouseEvent, txn: TransactionTableRow) => {
   if (editingRowIds.has(txn.id)) return;
   // Archived rows are exempt (see db.js's createTransaction comment) — only a real,
@@ -412,7 +406,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // grouping the dropdowns render, so index N always points at the Nth rendered row.
  const [txFromHighlight, setTxFromHighlight] = useState(0);
  const [txToHighlight, setTxToHighlight] = useState(0);
- const [descriptionSuggestHighlight, setDescriptionSuggestHighlight] = useState(0);
  // Max allowed deviation (in the destination currency) between the entered الفعلي actual amount
  // and the computed amount × rate. Enforced authoritatively at submit; used here for the live hint.
  const [exchangeTolerance] = useState(() => getStoredExchangeSettings().tolerance);
@@ -426,33 +419,26 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const txFromOptions = useMemo(() => buildAccountOptions(realClientAccounts, txFromQuery, txFromExpandedClient), [realClientAccounts, txFromQuery, txFromExpandedClient]);
  const txToOptions = useMemo(() => buildAccountOptions(realClientAccounts, txToQuery, txToExpandedClient), [realClientAccounts, txToQuery, txToExpandedClient]);
 
- // Description autocomplete suggestions, kept as a memo (rather than computed inline in JSX)
- // so the keyboard handler and the dropdown render agree on the same indexed list.
- const descriptionSuggestions = useMemo(() => {
-  const q = transactionForm.description.trim().toLowerCase();
-  const accountIds = new Set<number>([transactionForm.accountFromId, transactionForm.accountToId].filter((id): id is number => id != null));
-  const seen = new Set<string>();
-  const suggestions: string[] = [];
-  // Prioritize descriptions used on the currently selected accounts, then fall back to all past descriptions.
-  const passes = accountIds.size > 0 ? (['scoped', 'all'] as const) : (['all'] as const);
-  for (const pass of passes) {
-   for (let i = transactions.length - 1; i >= 0; i--) {
-    const tx = transactions[i];
-    const desc = tx.description?.trim();
-    if (!desc) continue;
-    if (pass === 'scoped' && !(tx.accountFromId != null && accountIds.has(tx.accountFromId)) && !(tx.accountToId != null && accountIds.has(tx.accountToId))) continue;
-    if (q && desc.toLowerCase() === q) continue;
-    if (q && !desc.toLowerCase().includes(q)) continue;
-    const key = desc.toLowerCase();
-    if (seen.has(key) || excludedDescriptionSuggestions.has(key)) continue;
-    seen.add(key);
-    suggestions.push(desc);
-    if (suggestions.length >= 8) break;
-   }
-   if (suggestions.length >= 8) break;
-  }
-  return suggestions;
- }, [transactions, transactionForm.description, transactionForm.accountFromId, transactionForm.accountToId, excludedDescriptionSuggestions]);
+ const { suggestions: descriptionSuggestions, excludeSuggestion: excludeDescriptionSuggestion } = useDescriptionSuggestions({
+  transactions,
+  query: transactionForm.description,
+  accountIds: [transactionForm.accountFromId, transactionForm.accountToId],
+ });
+ const { suggestions: archiveDescriptionSuggestions, excludeSuggestion: excludeArchiveDescriptionSuggestion } = useDescriptionSuggestions({
+  transactions,
+  query: archiveEntryForm.description,
+  accountIds: [archiveEntryForm.accountFromId, archiveEntryForm.accountToId],
+ });
+ // Only one row's description suggestions are ever live at a time (whichever row is focused)
+ // — hooks can't be called per-row inside the table's .map(), so this single shared instance
+ // retargets to whichever row last gained focus; every other row gets an empty list.
+ const [activeDescriptionRowId, setActiveDescriptionRowId] = useState<number | null>(null);
+ const activeDescriptionDraft = activeDescriptionRowId != null ? (transactionTableDrafts[activeDescriptionRowId] ?? getTransactionTableDraft(activeDescriptionRowId)) : null;
+ const { suggestions: rowDescriptionSuggestions, excludeSuggestion: excludeRowDescriptionSuggestion } = useDescriptionSuggestions({
+  transactions,
+  query: activeDescriptionDraft?.description ?? '',
+  accountIds: [activeDescriptionDraft?.accountFromId ?? null, activeDescriptionDraft?.accountToId ?? null],
+ });
 
  const selectFromAccount = (id: number) => {
   setTransactionForm((current) => ({ ...current, accountFromId: id }));
@@ -687,12 +673,18 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              </div>
 
              <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
-             <textarea
-              value={archiveEntryForm.description}
-              onChange={(event) => setArchiveEntryForm((current) => ({ ...current, description: event.target.value }))}
-              className="mt-2 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              placeholder={t('transaction_description_placeholder')}
-             />
+             <div className="mt-2">
+              <DescriptionSuggestField
+               as="textarea"
+               value={archiveEntryForm.description}
+               onChange={(value) => setArchiveEntryForm((current) => ({ ...current, description: value }))}
+               suggestions={archiveDescriptionSuggestions}
+               onExcludeSuggestion={excludeArchiveDescriptionSuggestion}
+               removeSuggestionLabel={t('transaction_description_suggestion_remove')}
+               className="min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+               placeholder={t('transaction_description_placeholder')}
+              />
+             </div>
 
              <label className="mt-4 block text-sm font-medium">{t('archive_more_info')}</label>
              <input
@@ -1414,89 +1406,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             ) : null}
 
             <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
-            <div className="relative mt-2">
-             <textarea
+            <div className="mt-2">
+             <DescriptionSuggestField
+              as="textarea"
               value={transactionForm.description}
-              onChange={(event) => {
-               setTransactionForm((current) => ({ ...current, description: event.target.value }));
-               setDescriptionSuggestOpen(true);
-               setDescriptionSuggestHighlight(0);
-              }}
-              onFocus={() => {
-               setDescriptionSuggestOpen(true);
-               setDescriptionSuggestHighlight(0);
-              }}
-              onBlur={() => setTimeout(() => setDescriptionSuggestOpen(false), 150)}
-              onKeyDown={(event) => {
-               if (!descriptionSuggestOpen || descriptionSuggestions.length === 0) return;
-               if (event.key === 'ArrowDown') {
-                event.preventDefault();
-                setDescriptionSuggestHighlight((h) => (h + 1) % descriptionSuggestions.length);
-               } else if (event.key === 'ArrowUp') {
-                event.preventDefault();
-                setDescriptionSuggestHighlight((h) => (h - 1 + descriptionSuggestions.length) % descriptionSuggestions.length);
-               } else if (event.key === 'Enter') {
-                const desc = descriptionSuggestions[descriptionSuggestHighlight];
-                if (!desc) return;
-                event.preventDefault();
-                setTransactionForm((current) => ({ ...current, description: desc }));
-                setDescriptionSuggestOpen(false);
-               } else if (event.key === 'Escape') {
-                setDescriptionSuggestOpen(false);
-               }
-              }}
+              onChange={(value) => setTransactionForm((current) => ({ ...current, description: value }))}
+              suggestions={descriptionSuggestions}
+              onExcludeSuggestion={excludeDescriptionSuggestion}
+              removeSuggestionLabel={t('transaction_description_suggestion_remove')}
               className="min-h-20 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
               placeholder={t('transaction_description_placeholder')}
-              autoComplete="off"
              />
-             {descriptionSuggestOpen && descriptionSuggestions.length > 0 && (
-              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
-               {descriptionSuggestions.map((desc, index) => {
-                const highlighted = index === descriptionSuggestHighlight;
-                const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
-                return (
-                 <li
-                  key={desc}
-                  ref={highlightRef}
-                  onMouseDown={() => {
-                   setTransactionForm((current) => ({ ...current, description: desc }));
-                   setDescriptionSuggestOpen(false);
-                  }}
-                  onMouseEnter={() => setDescriptionSuggestHighlight(index)}
-                  className={`group flex cursor-pointer items-center gap-2 px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak text-fg' : 'text-fg-muted hover:bg-accent-weak'}`}
-                  title={desc}
-                 >
-                  <span className="flex-1 truncate">{desc}</span>
-                  <button
-                   type="button"
-                   onMouseDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    excludeDescriptionSuggestion(desc);
-                   }}
-                   title={t('transaction_description_suggestion_remove')}
-                   aria-label={t('transaction_description_suggestion_remove')}
-                   className="shrink-0 rounded p-0.5 text-fg-faint opacity-0 transition hover:bg-surface-hover hover:text-fg-muted group-hover:opacity-100"
-                  >
-                   <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                   >
-                    <path d="M6 18L18 6M6 6l12 12" />
-                   </svg>
-                  </button>
-                 </li>
-                );
-               })}
-              </ul>
-             )}
             </div>
 
             {transactionForm.type === 'adjustment' && (!transactionForm.accountFromId || !transactionForm.accountToId) ? (
@@ -2337,6 +2257,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                key={txn.id}
                data-drag-key={txn.id}
                onContextMenu={(e) => openRowMenu(e, txn)}
+               {...rowLongPress.bind((e) => openRowMenu(e, txn))}
                onKeyDown={(e) => {
                 focusAdjacentRowField(e, isRTL);
                 // Enter saves the row being edited (ignore Enter inside multi-line fields).
@@ -2363,11 +2284,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 const color = highlightedTxRows.get(txn.id);
                 const isEditingRow = editingRowIds.has(txn.id);
                 return {
+                 // Suppresses iOS's own text-selection magnifier/callout so it doesn't visually
+                 // collide with the long-press-triggered row menu (see useLongPress.ts).
+                 WebkitTouchCallout: 'none',
+                 WebkitUserSelect: 'none',
+                 userSelect: 'none',
                  ...(color ? { backgroundColor: resolveHighlightBg(color, isDark) } : {}),
                  ...(isEditingRow || txSumMode || !txRowClickActive ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                 };
                })()}
                onClick={(e) => {
+                if (rowLongPress.consumeLongPress()) return;
                 const isEditingRow = editingRowIds.has(txn.id);
                 if (isEditingRow) return;
                 // Swallow the click synthesized at the end of a drag so reordering a row
@@ -2664,10 +2591,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   {transactionTableSettings.columns.description ? (
                    <td className="px-4 py-3 text-fg-muted whitespace-nowrap">
                     {isEditingRow && draft ? (
-                     <input
-                      type="text"
+                     <DescriptionSuggestField
                       value={draft.description}
-                      onChange={(event) => updateTransactionTableDraft(txn.id, { description: event.target.value })}
+                      onChange={(value) => updateTransactionTableDraft(txn.id, { description: value })}
+                      onFocus={() => setActiveDescriptionRowId(txn.id)}
+                      suggestions={activeDescriptionRowId === txn.id ? rowDescriptionSuggestions : []}
+                      onExcludeSuggestion={excludeRowDescriptionSuggestion}
+                      removeSuggestionLabel={t('transaction_description_suggestion_remove')}
                       className={`${seamlessInputClassName} min-w-28 text-sm text-fg`}
                       placeholder={t('transaction_description_placeholder')}
                      />

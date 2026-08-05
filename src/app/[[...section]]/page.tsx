@@ -1511,7 +1511,7 @@ function AuthenticatedHome() {
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, transactions, clientAccountMap, lockPastEditsEnabled });
+ const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoint the ledger edit uses. When not reversed the rate
@@ -2405,6 +2405,7 @@ function AuthenticatedHome() {
          lockPastEditsEnabled={lockPastEditsEnabled}
          clients={clients}
          clientAccounts={clientAccounts}
+         transactions={transactions}
          currencyMap={currencyMap}
          enabledCurrencies={enabledCurrencies}
          organizations={organizations}
@@ -2605,6 +2606,7 @@ function AuthenticatedHome() {
     selectedClientForLedger={selectedClientForLedger}
     localizedCurrencies={localizedCurrencies}
     clientAccounts={clientAccounts}
+    transactions={transactions}
     currencyMap={currencyMap}
     enabledCurrencies={enabledCurrencies}
     onSubmitOneSidedTransaction={onSubmitOneSidedTransaction}
@@ -2620,7 +2622,13 @@ function AuthenticatedHome() {
     onUpdateTransactionFields={onUpdateTransactionFields}
    />
 
-   <TransactionDetailsModal transactions={transactions} clientAccounts={clientAccounts} onUpdateTransactionFields={onUpdateTransactionFields} />
+   <TransactionDetailsModal
+    transactions={transactions}
+    clientAccounts={clientAccounts}
+    enabledCurrencies={enabledCurrencies}
+    localizedCurrencies={localizedCurrencies}
+    onUpdateTransactionFields={onUpdateTransactionFields}
+   />
 
    {showLedgerSettingsModal ? (
     <LedgerSettingsModal

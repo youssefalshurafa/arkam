@@ -4,6 +4,9 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
+import { useLongPress } from '@/shared/hooks/useLongPress';
+import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
+import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -42,12 +45,14 @@ import type {
  LedgerTransactionDraft,
  Organization,
  Section,
+ Transaction,
 } from '@/shared/types';
 
 type LedgerSectionProps = {
  isLoading: boolean;
  clients: Client[];
  clientAccounts: ClientAccount[];
+ transactions: Transaction[];
  currencyMap: Map<number, Currency>;
  enabledCurrencies: Currency[];
  organizations: Organization[];
@@ -95,7 +100,7 @@ type LedgerSectionProps = {
 
 export default function LedgerSection(props: LedgerSectionProps) {
  const {
-  isLoading, clients, clientAccounts, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
+  isLoading, clients, clientAccounts, transactions, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, ledgerRateAnomalies, ledgerCommissionAnomalies,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, onWriteOffLedgerRow, onEditAllLedger,
@@ -144,6 +149,25 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // clears it alongside the menu itself.
  const rowContextMenu = useContextMenu();
  const [contextMenuRowKey, setContextMenuRowKey] = useState<string | null>(null);
+ // iOS Safari has no equivalent of Android's long-press-fires-contextmenu behavior, so the
+ // row menu is otherwise unreachable by touch-and-hold on iPhone — see useLongPress.ts.
+ const rowLongPress = useLongPress();
+ // Only one row's description suggestions are ever live at a time (whichever row is focused)
+ // — hooks can't be called per-row inside the ledger's row-rendering loop, so this single
+ // shared instance retargets to whichever row last gained focus; every other row gets an
+ // empty list. Keyed by the same "transactionId:accountId" string every ledger row uses,
+ // since the same transaction can appear in two different clients' ledgers.
+ const [activeDescriptionRowKey, setActiveDescriptionRowKey] = useState<string | null>(null);
+ const activeDescriptionDraft = (() => {
+  if (!activeDescriptionRowKey) return null;
+  const [txIdStr, accIdStr] = activeDescriptionRowKey.split(':');
+  return getClientLedgerDraft(Number(txIdStr), Number(accIdStr));
+ })();
+ const { suggestions: rowDescriptionSuggestions, excludeSuggestion: excludeRowDescriptionSuggestion } = useDescriptionSuggestions({
+  transactions,
+  query: activeDescriptionDraft?.description ?? '',
+  accountIds: [activeDescriptionDraft?.ledgerAccountId ?? null, activeDescriptionDraft?.counterpartyAccountId ?? null],
+ });
  const closeRowMenu = () => {
   rowContextMenu.close();
   setContextMenuRowKey(null);
@@ -1718,6 +1742,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      <tr
                       data-drag-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                       onClick={(e) => {
+                       if (rowLongPress.consumeLongPress()) return;
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                        if (editingLedgerRowKeys.has(rowKey)) return;
                        // Swallow the click synthesized at the end of a drag so reordering a row
@@ -1743,6 +1768,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                       }}
                       onContextMenu={openRowMenu}
+                      {...rowLongPress.bind(openRowMenu)}
                       onKeyDown={(e) => {
                        // Enter saves the row being edited (ignore Enter inside multi-line fields).
                        if (e.key !== 'Enter') return;
@@ -1757,6 +1783,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        const color = highlightedLedgerRows.get(rowKey);
                        const isEditing = editingLedgerRowKeys.has(rowKey);
                        return {
+                        // Suppresses iOS's own text-selection magnifier/callout so it doesn't
+                        // visually collide with the long-press-triggered row menu.
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        userSelect: 'none',
                         ...(color ? { backgroundColor: resolveHighlightBg(color, isDark) } : {}),
                         ...(isEditing || !ledgerRowClickActive ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                        };
@@ -2968,10 +2999,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               className="px-4 py-3 text-fg-faint whitespace-nowrap"
                              >
                               {draft ? (
-                               <input
-                                type="text"
+                               <DescriptionSuggestField
                                 value={draft.description}
-                                onChange={(event) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: event.target.value })}
+                                onChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: value })}
+                                onFocus={() => setActiveDescriptionRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                                suggestions={activeDescriptionRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? rowDescriptionSuggestions : []}
+                                onExcludeSuggestion={excludeRowDescriptionSuggestion}
+                                removeSuggestionLabel={t('transaction_description_suggestion_remove')}
                                 style={{ width: ledgerFieldWidth(draft.description, 6, 3) }}
                                 className={`${seamlessInputClassName} text-xs text-fg`}
                                />
