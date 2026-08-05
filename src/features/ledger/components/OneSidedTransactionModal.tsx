@@ -134,8 +134,6 @@ export default function OneSidedTransactionModal({
              onChange={(e) => setModal((prev) => (prev ? { ...prev, type: e.target.value } : prev))}
              className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             >
-             <option value="buy">{t('transaction_type_buy')}</option>
-             <option value="sell">{t('transaction_type_sell')}</option>
              <option value="exchange">{t('transaction_type_exchange')}</option>
              <option value="transfer">{t('transaction_type_transfer')}</option>
              <option value="adjustment">{t('transaction_type_adjustment')}</option>

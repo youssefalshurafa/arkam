@@ -328,6 +328,8 @@
  "no_client_accounts": "لا توجد حسابات حتى الآن. افتح أول حساب أدناه.",
  "transaction_account_from": "دائن",
  "transaction_account_to": "مدين",
+ "transaction_seller": "البائع",
+ "transaction_buyer": "المشتري",
  "transactions_show_new": "معاملة جديدة",
  "transactions_hide_new": "إخفاء المعاملة الجديدة",
  "transactions_edit_mode": "وضع التعديل",

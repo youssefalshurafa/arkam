@@ -796,8 +796,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
              className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             >
-             <option value="buy">{t('transaction_type_buy')}</option>
-             <option value="sell">{t('transaction_type_sell')}</option>
              <option value="exchange">{t('transaction_type_exchange')}</option>
              <option value="transfer">{t('transaction_type_transfer')}</option>
              {section === 'archive' ? null : <option value="adjustment">{t('transaction_type_adjustment')}</option>}
@@ -813,7 +811,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             />
 
-            <label className="block text-sm font-medium">{t('transaction_account_from')}</label>
+            <label className="block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}</label>
             <div className="relative mt-2">
              <input
               type="text"
@@ -970,7 +968,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </div>
 
             <>
-              <label className="mt-4 block text-sm font-medium">{t('transaction_account_to')}</label>
+              <label className="mt-4 block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}</label>
               <div className="relative mt-2">
                <input
                 type="text"
@@ -1164,7 +1162,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
             <div className="mt-4 rounded border border-border bg-surface-2 p-4">
              <h3 className="text-sm font-semibold text-fg-muted">
-              {t('transaction_account_from')}
+              {transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}
               {transactionForm.accountFromId && clientAccountMap.get(transactionForm.accountFromId)?.clientName ? (
                <span className="ml-1.5 font-normal text-fg-faint">
                 — {clientAccountMap.get(transactionForm.accountFromId)!.clientName}
@@ -1242,7 +1240,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
 
             <div className="mt-3 rounded border border-border bg-surface-2 p-4">
               <h3 className="text-sm font-semibold text-fg-muted">
-               {t('transaction_account_to')}
+               {transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}
                {transactionForm.accountToId && clientAccountMap.get(transactionForm.accountToId)?.clientName ? (
                 <span className="ml-1.5 font-normal text-fg-faint">
                  — {clientAccountMap.get(transactionForm.accountToId)!.clientName}
@@ -1391,8 +1389,20 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  <ChargesPayerSelects
                   value={transactionForm.chargesPayer}
                   onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer }))}
-                  fromLabel={transactionForm.accountFromId ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? t('transaction_account_from')) : t('transaction_account_from')}
-                  toLabel={transactionForm.accountToId ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? t('transaction_account_to')) : t('transaction_account_to')}
+                  fromLabel={
+                   transactionForm.accountFromId
+                    ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')))
+                    : transactionForm.type === 'exchange'
+                      ? t('transaction_seller')
+                      : t('transaction_account_from')
+                  }
+                  toLabel={
+                   transactionForm.accountToId
+                    ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')))
+                    : transactionForm.type === 'exchange'
+                      ? t('transaction_buyer')
+                      : t('transaction_account_to')
+                  }
                   meLabel={t('charges_payer_me')}
                   paidByPlaceholder={t('charges_payer_placeholder')}
                   paidToPlaceholder={t('charges_payer_to_placeholder')}
@@ -1456,7 +1466,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                <div>
                 <label className="block text-xs font-medium text-fg-faint">
-                 {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? t('transaction_account_from')}
+                 {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from'))}
                 </label>
                 <textarea
                  value={transactionForm.descriptionFrom}
@@ -1467,7 +1477,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                </div>
                <div>
                 <label className="block text-xs font-medium text-fg-faint">
-                 {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? t('transaction_account_to')}
+                 {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to'))}
                 </label>
                 <textarea
                  value={transactionForm.descriptionTo}
@@ -2624,8 +2634,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(draft.type)), 7, 2) }}
                       className={`${seamlessSelectClassName} text-xs text-fg`}
                      >
-                      <option value="buy">{t('transaction_type_buy')}</option>
-                      <option value="sell">{t('transaction_type_sell')}</option>
+                      {/* 'buy'/'sell' can no longer be newly selected, but a row already saved with
+                          one of them must keep showing it — otherwise the select's bound value
+                          matches no option and the browser silently displays a different one. */}
+                      {draft.type === 'buy' ? <option value="buy">{t('transaction_type_buy')}</option> : null}
+                      {draft.type === 'sell' ? <option value="sell">{t('transaction_type_sell')}</option> : null}
                       <option value="exchange">{t('transaction_type_exchange')}</option>
                       <option value="transfer">{t('transaction_type_transfer')}</option>
                       <option value="adjustment">{t('transaction_type_adjustment')}</option>

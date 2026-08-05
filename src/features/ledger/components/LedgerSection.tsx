@@ -2429,8 +2429,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(draft.type)), 7, 2) }}
                                 className={`${seamlessSelectClassName} text-xs text-fg`}
                                >
-                                <option value="buy">{t('transaction_type_buy')}</option>
-                                <option value="sell">{t('transaction_type_sell')}</option>
+                                {/* 'buy'/'sell' can no longer be newly selected, but a row already
+                                    saved with one of them must keep showing it — otherwise the
+                                    select's bound value matches no option and the browser
+                                    silently displays a different one. */}
+                                {draft.type === 'buy' ? <option value="buy">{t('transaction_type_buy')}</option> : null}
+                                {draft.type === 'sell' ? <option value="sell">{t('transaction_type_sell')}</option> : null}
                                 <option value="exchange">{t('transaction_type_exchange')}</option>
                                 <option value="transfer">{t('transaction_type_transfer')}</option>
                                 <option value="adjustment">{t('transaction_type_adjustment')}</option>

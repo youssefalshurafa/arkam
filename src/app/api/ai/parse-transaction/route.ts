@@ -34,7 +34,7 @@ const RequestSchema = z.object({
 });
 
 const ParsedTransaction = z.object({
- type: z.enum(['buy', 'sell', 'exchange', 'transfer', 'adjustment']).nullable(),
+ type: z.enum(['exchange', 'transfer', 'adjustment']).nullable(),
  accountFromId: z.number().nullable(),
  accountToId: z.number().nullable(),
  currencyId: z.number().nullable(),
@@ -61,7 +61,7 @@ const ParsedTransaction = z.object({
 const RESPONSE_SCHEMA = {
  type: 'object',
  properties: {
-  type: { type: 'string', enum: ['buy', 'sell', 'exchange', 'transfer', 'adjustment', 'null'] },
+  type: { type: 'string', enum: ['exchange', 'transfer', 'adjustment', 'null'] },
   accountFromId: { type: ['number', 'null'] },
   accountToId: { type: ['number', 'null'] },
   currencyId: { type: ['number', 'null'] },
@@ -130,8 +130,9 @@ function buildSystemInstruction(languageName: string): string {
   'otherwise null.\n' +
   '- date: only set this (as YYYY-MM-DD) if the sentence explicitly implies a date different ' +
   'from "today" (e.g. "yesterday", "last Monday", an explicit date). Otherwise null.\n' +
-  '- type: one of buy, sell, exchange, transfer, adjustment, based on what the sentence ' +
-  'describes; null if unclear.\n' +
+  '- type: one of exchange, transfer, adjustment, based on what the sentence describes. ' +
+  '"exchange" covers buying/selling currency too (e.g. "bought 100 EUR", "sold 50 USD") — there ' +
+  'is no separate buy/sell type. null if unclear.\n' +
   '- charges/chargesCurrencyId/chargesDescription/chargesPayer are the "Expenses" fields on ' +
   'THIS SAME transaction (e.g. "...also 50 MAD for gas") — a fee/cost tied to this transaction, ' +
   'NOT a separate transaction. If the text mentions an expense/fee/cost alongside the main ' +

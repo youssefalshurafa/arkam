@@ -325,6 +325,8 @@
  "no_client_accounts": "Aucun compte pour le moment. Ouvrez le premier compte ci-dessous.",
  "transaction_account_from": "Expéditeur",
  "transaction_account_to": "Destinataire",
+ "transaction_seller": "Vendeur",
+ "transaction_buyer": "Acheteur",
  "transactions_show_new": "Nouvelle transaction",
  "transactions_hide_new": "Masquer la nouvelle transaction",
  "transactions_edit_mode": "Mode modification",

@@ -326,6 +326,8 @@
  "no_client_accounts": "No accounts yet. Open the first account below.",
  "transaction_account_from": "Sender",
  "transaction_account_to": "Receiver",
+ "transaction_seller": "Seller",
+ "transaction_buyer": "Buyer",
  "transactions_show_new": "New Transaction",
  "transactions_hide_new": "Hide New Transaction",
  "transactions_edit_mode": "Edit Mode",
