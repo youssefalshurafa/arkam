@@ -2405,6 +2405,7 @@ function AuthenticatedHome() {
          lockPastEditsEnabled={lockPastEditsEnabled}
          clients={clients}
          clientAccounts={clientAccounts}
+         transactions={transactions}
          currencyMap={currencyMap}
          enabledCurrencies={enabledCurrencies}
          organizations={organizations}
@@ -2605,6 +2606,7 @@ function AuthenticatedHome() {
     selectedClientForLedger={selectedClientForLedger}
     localizedCurrencies={localizedCurrencies}
     clientAccounts={clientAccounts}
+    transactions={transactions}
     currencyMap={currencyMap}
     enabledCurrencies={enabledCurrencies}
     onSubmitOneSidedTransaction={onSubmitOneSidedTransaction}
@@ -2620,7 +2622,13 @@ function AuthenticatedHome() {
     onUpdateTransactionFields={onUpdateTransactionFields}
    />
 
-   <TransactionDetailsModal transactions={transactions} clientAccounts={clientAccounts} onUpdateTransactionFields={onUpdateTransactionFields} />
+   <TransactionDetailsModal
+    transactions={transactions}
+    clientAccounts={clientAccounts}
+    enabledCurrencies={enabledCurrencies}
+    localizedCurrencies={localizedCurrencies}
+    onUpdateTransactionFields={onUpdateTransactionFields}
+   />
 
    {showLedgerSettingsModal ? (
     <LedgerSettingsModal

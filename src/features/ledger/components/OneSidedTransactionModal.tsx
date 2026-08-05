@@ -8,13 +8,16 @@ import { ltrIsolate } from '@/shared/utils/format';
 import { localDateKey } from '@/shared/utils/date';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
-import type { Client, ClientAccount, ClientAccountLedger, Currency } from '@/shared/types';
+import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
+import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
+import type { Client, ClientAccount, ClientAccountLedger, Currency, Transaction } from '@/shared/types';
 
 type OneSidedTransactionModalProps = {
  selectedClientLedgers: ClientAccountLedger[];
  selectedClientForLedger: Client | null;
  localizedCurrencies: Currency[];
  clientAccounts: ClientAccount[];
+ transactions: Transaction[];
  currencyMap: Map<number, Currency>;
  enabledCurrencies: Currency[];
  onSubmitOneSidedTransaction: () => void;
@@ -32,6 +35,7 @@ export default function OneSidedTransactionModal({
  selectedClientForLedger,
  localizedCurrencies,
  clientAccounts,
+ transactions,
  currencyMap,
  enabledCurrencies,
  onSubmitOneSidedTransaction,
@@ -44,6 +48,11 @@ export default function OneSidedTransactionModal({
  const ledgerDecimals = useLedgerStore((s) => s.ledgerDecimals);
  const setModal = useLedgerStore((s) => s.setOneSidedTransactionModal);
  const [expensesOpen, setExpensesOpen] = useState(false);
+ const { suggestions: descriptionSuggestions, excludeSuggestion: excludeDescriptionSuggestion } = useDescriptionSuggestions({
+  transactions,
+  query: modal?.description ?? '',
+  accountIds: [modal?.accountId ?? null],
+ });
 
  return (
   <>
@@ -251,9 +260,13 @@ export default function OneSidedTransactionModal({
 
            <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('transaction_description')}</label>
-            <textarea
+            <DescriptionSuggestField
+             as="textarea"
              value={modal.description}
-             onChange={(e) => setModal((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+             onChange={(value) => setModal((prev) => (prev ? { ...prev, description: value } : prev))}
+             suggestions={descriptionSuggestions}
+             onExcludeSuggestion={excludeDescriptionSuggestion}
+             removeSuggestionLabel={t('transaction_description_suggestion_remove')}
              placeholder={t('transaction_description_placeholder')}
              className="min-h-16 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />

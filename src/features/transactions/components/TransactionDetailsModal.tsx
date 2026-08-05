@@ -13,11 +13,16 @@ import { getCommissionAmount, exchangeToBase, parseChargesPayer, type ChargesPay
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
-import type { ClientAccount, Transaction, TransactionUpdateInput } from '@/shared/types';
+import type { ClientAccount, Currency, Transaction, TransactionUpdateInput } from '@/shared/types';
 
 type TransactionDetailsModalProps = {
  transactions: Transaction[];
  clientAccounts: ClientAccount[];
+ // enabledCurrencies for the picker; localizedCurrencies as a fallback so a transaction whose
+ // currency was since disabled still shows correctly and stays selected (mirrors the same
+ // merge OneSidedTransactionModal's own currency picker uses).
+ enabledCurrencies: Currency[];
+ localizedCurrencies: Currency[];
  onUpdateTransactionFields: (transactionId: number, patch: Partial<TransactionUpdateInput>) => void | Promise<void>;
 };
 
@@ -171,21 +176,20 @@ function EditableAccountField({
  * counterparty's commission is visible even while viewing the other client's ledger.
  * Mounted once at page level, where the full transaction list is in scope.
  *
- * Every value except the transaction currency and the charges payer is editable in place via
- * `EditableField`/`EditableAccountField`/the type `<select>` — click a value, edit, blur/Enter
+ * Every value except who pays charges is editable in place via `EditableField`/
+ * `EditableAccountField`/the type and currency `<select>`s — click a value, edit, blur/Enter
  * to stage the change (Escape or leaving it unchanged discards). Edits are buffered locally
  * and only written when Save is pressed; Cancel/closing discards them. Which client/account
- * each side belongs to can be changed via `EditableAccountField`, which mirrors the same
- * cross-currency exchange-rate reset the inline table edit and the new-transaction form use
- * (see `resetSideRate`/the effect in page.tsx): a side that lands on the same currency as the
- * transaction is forced to 1.00; a side that turns cross-currency while still holding the
- * untouched default rate is cleared so the row stays pending until a real rate is entered —
- * otherwise it would silently save as a 1:1 conversion across a currency mismatch. The
- * transaction currency itself and who pays charges are deliberately left read-only here —
- * changing those needs the full edit form's currency picker and lock/validation checks, not a
- * seamless one-line edit.
+ * each side belongs to (via `EditableAccountField`) and the transaction's own currency (via the
+ * currency `<select>`) both mirror the same cross-currency exchange-rate reset the inline table
+ * edit and the new-transaction form use (see `resetSideRate`/the effect in page.tsx): a side
+ * that lands on the same currency as the transaction is forced to 1.00; a side that turns
+ * cross-currency while still holding the untouched default rate is cleared so the row stays
+ * pending until a real rate is entered — otherwise it would silently save as a 1:1 conversion
+ * across a currency mismatch. Who pays charges is deliberately left read-only here — changing
+ * that needs the full edit form's payer picker, not a seamless one-line edit.
  */
-export default function TransactionDetailsModal({ transactions, clientAccounts, onUpdateTransactionFields }: TransactionDetailsModalProps) {
+export default function TransactionDetailsModal({ transactions, clientAccounts, enabledCurrencies, localizedCurrencies, onUpdateTransactionFields }: TransactionDetailsModalProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  const numLocale = language === 'fr' ? 'en-US' : language;
@@ -211,6 +215,7 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
  // of `pending`, so they don't update on their own).
  const accountFromOverride = 'accountFromId' in pending ? (clientAccounts.find((a) => a.id === pending.accountFromId) ?? null) : undefined;
  const accountToOverride = 'accountToId' in pending ? (clientAccounts.find((a) => a.id === pending.accountToId) ?? null) : undefined;
+ const currencyOverride = 'currencyId' in pending ? (localizedCurrencies.find((c) => c.id === pending.currencyId) ?? null) : undefined;
  const tx = {
   ...found,
   ...pending,
@@ -220,7 +225,14 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
   ...(accountToOverride !== undefined
    ? { clientToName: accountToOverride?.clientName ?? '', accountToCurrencyCode: accountToOverride?.currencyCode ?? '', accountToCurrencySymbol: accountToOverride?.currencySymbol ?? '' }
    : null),
+  ...(currencyOverride !== undefined ? { currencyCode: currencyOverride?.code ?? '', currencySymbol: currencyOverride?.symbol ?? '' } : null),
  };
+ // The currency picker must always include the transaction's current currency even if it's
+ // since been disabled (mirrors OneSidedTransactionModal's own currency select).
+ const currencyOptions =
+  tx.currencyId && !enabledCurrencies.some((c) => c.id === tx.currencyId)
+   ? [...enabledCurrencies, ...localizedCurrencies.filter((c) => c.id === tx.currencyId)]
+   : enabledCurrencies;
  const isDirty = Object.keys(pending).length > 0;
 
  const close = () => setInfoTransactionId(null);
@@ -250,6 +262,16 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
   const account = accountId != null ? clientAccounts.find((a) => a.id === accountId) : undefined;
   if (!account) return currentRate;
   if (account.currencyId === tx.currencyId) return 1;
+  return currentRate === 1 && !reversed ? 0 : currentRate;
+ };
+
+ // Same reset, the other way round: when the TRANSACTION's own currency changes (rather than
+ // an account), both sides' rates need the same re-evaluation against the new currency, since
+ // exchangeRateFrom/To both convert FROM it.
+ const resetRateForCurrencyChange = (accountId: number | null, currentRate: number, reversed: boolean, newCurrencyId: number | null) => {
+  const account = accountId != null ? clientAccounts.find((a) => a.id === accountId) : undefined;
+  if (!account || newCurrencyId == null) return currentRate;
+  if (account.currencyId === newCurrencyId) return 1;
   return currentRate === 1 && !reversed ? 0 : currentRate;
  };
 
@@ -396,7 +418,24 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
          if (Number.isFinite(parsed) && parsed >= 0) update({ amount: parsed });
         }}
        />{' '}
-       <span className="text-fg-faint">{tx.currencySymbol || tx.currencyCode}</span>
+       <select
+        value={tx.currencyId}
+        onChange={(e) => {
+         const newCurrencyId = Number(e.target.value);
+         update({
+          currencyId: newCurrencyId,
+          exchangeRateFrom: resetRateForCurrencyChange(tx.accountFromId, tx.exchangeRateFrom, !!tx.exchangeRateFromReversed, newCurrencyId),
+          exchangeRateTo: resetRateForCurrencyChange(tx.accountToId, tx.exchangeRateTo, !!tx.exchangeRateToReversed, newCurrencyId),
+         });
+        }}
+        className={`${seamlessSelectClassName} inline w-auto text-sm text-fg-faint`}
+       >
+        {currencyOptions.map((currency) => (
+         <option key={currency.id} value={currency.id}>
+          {currency.code}
+         </option>
+        ))}
+       </select>
       </>,
      )}
      {row(
