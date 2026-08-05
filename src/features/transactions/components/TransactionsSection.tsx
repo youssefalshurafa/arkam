@@ -26,6 +26,7 @@ import { useTransactionsStore, type ArchiveExportModalState } from '@/features/t
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAiParseTransaction } from '@/features/transactions/hooks/useAiParseTransaction';
 import { useSpeechToText } from '@/shared/hooks/useSpeechToText';
+import { useLongPress } from '@/shared/hooks/useLongPress';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
 import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
@@ -298,6 +299,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // border on whichever row the open menu belongs to, so it's clear which row the menu's
  // actions apply to; closeRowMenu clears it alongside the menu itself.
  const [contextMenuRowId, setContextMenuRowId] = useState<number | null>(null);
+ // iOS Safari has no equivalent of Android's long-press-fires-contextmenu behavior, so the
+ // row menu is otherwise unreachable by touch-and-hold on iPhone — see useLongPress.ts.
+ const rowLongPress = useLongPress();
 
  // Selection mode: the per-row select checkboxes stay hidden until the user opts in via
  // the toolbar "Select" toggle. Turning it off also clears any current selection so a
@@ -2337,6 +2341,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                key={txn.id}
                data-drag-key={txn.id}
                onContextMenu={(e) => openRowMenu(e, txn)}
+               {...rowLongPress.bind((e) => openRowMenu(e, txn))}
                onKeyDown={(e) => {
                 focusAdjacentRowField(e, isRTL);
                 // Enter saves the row being edited (ignore Enter inside multi-line fields).
@@ -2363,11 +2368,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 const color = highlightedTxRows.get(txn.id);
                 const isEditingRow = editingRowIds.has(txn.id);
                 return {
+                 // Suppresses iOS's own text-selection magnifier/callout so it doesn't visually
+                 // collide with the long-press-triggered row menu (see useLongPress.ts).
+                 WebkitTouchCallout: 'none',
+                 WebkitUserSelect: 'none',
+                 userSelect: 'none',
                  ...(color ? { backgroundColor: resolveHighlightBg(color, isDark) } : {}),
                  ...(isEditingRow || txSumMode || !txRowClickActive ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                 };
                })()}
                onClick={(e) => {
+                if (rowLongPress.consumeLongPress()) return;
                 const isEditingRow = editingRowIds.has(txn.id);
                 if (isEditingRow) return;
                 // Swallow the click synthesized at the end of a drag so reordering a row

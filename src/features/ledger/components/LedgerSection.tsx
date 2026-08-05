@@ -4,6 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
+import { useLongPress } from '@/shared/hooks/useLongPress';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -144,6 +145,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // clears it alongside the menu itself.
  const rowContextMenu = useContextMenu();
  const [contextMenuRowKey, setContextMenuRowKey] = useState<string | null>(null);
+ // iOS Safari has no equivalent of Android's long-press-fires-contextmenu behavior, so the
+ // row menu is otherwise unreachable by touch-and-hold on iPhone — see useLongPress.ts.
+ const rowLongPress = useLongPress();
  const closeRowMenu = () => {
   rowContextMenu.close();
   setContextMenuRowKey(null);
@@ -1718,6 +1722,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      <tr
                       data-drag-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                       onClick={(e) => {
+                       if (rowLongPress.consumeLongPress()) return;
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                        if (editingLedgerRowKeys.has(rowKey)) return;
                        // Swallow the click synthesized at the end of a drag so reordering a row
@@ -1743,6 +1748,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                       }}
                       onContextMenu={openRowMenu}
+                      {...rowLongPress.bind(openRowMenu)}
                       onKeyDown={(e) => {
                        // Enter saves the row being edited (ignore Enter inside multi-line fields).
                        if (e.key !== 'Enter') return;
@@ -1757,6 +1763,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        const color = highlightedLedgerRows.get(rowKey);
                        const isEditing = editingLedgerRowKeys.has(rowKey);
                        return {
+                        // Suppresses iOS's own text-selection magnifier/callout so it doesn't
+                        // visually collide with the long-press-triggered row menu.
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        userSelect: 'none',
                         ...(color ? { backgroundColor: resolveHighlightBg(color, isDark) } : {}),
                         ...(isEditing || !ledgerRowClickActive ? {} : ledgerRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
                        };
