@@ -100,7 +100,6 @@ export function useLedgerActions({
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
-  transactions,
   clientAccountMap,
   lockPastEditsEnabled,
  });
@@ -992,17 +991,20 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  });
 
  // Reconciliation guard: the reflow below rewrites createdAt for every row in the date group —
- // not just the ones dragged — and each of those transactions touches TWO accounts (this
- // ledger's own account and its counterparty), either of which may independently be reconciled.
- // Re-time each affected transaction through the same balance-aware check a direct edit uses
- // (transactionEditImpact: old createdAt vs new, evaluated against every account it touches),
- // instead of a single-account order-index "crosses" check — that older check only ever looked
- // at lockBoundaries for THIS account, so retiming a transaction shared with a different
- // reconciled account (e.g. dragging in the counterparty's own ledger) went completely unguarded.
+ // not just the ones dragged — so it can only be a real reordering, never a real DATE change,
+ // for a bystander row. A bystander's membership "at or before" a (now-frozen) lock boundary
+ // never actually changes: its relative order among every OTHER bystander is preserved verbatim
+ // by the reflow, only the explicitly dragged rows can cross a boundary. So only dragged rows
+ // need checking — checking bystanders too would falsely warn whenever a same-day reorder
+ // elsewhere merely reshuffles a reconciled row's cosmetic timestamp without it actually moving
+ // relative to anything. Each dragged transaction touches TWO accounts (this ledger's own
+ // account and its counterparty), either of which may independently be reconciled —
+ // transactionEditImpact already checks both.
  let dragLockHit: { accountId: number; boundary: LockBoundary } | null = null;
- for (const [key, newCreatedAt] of newTimes) {
+ for (const key of dragSet) {
+  const newCreatedAt = newTimes.get(key);
   const entry = entryMap.get(key);
-  if (!entry) continue;
+  if (!entry || !newCreatedAt) continue;
   if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
   const tx = transactions.find((t) => t.id === entry.transactionId);
   if (!tx) continue;
