@@ -257,7 +257,7 @@
  "transaction_type": "Type",
  "transaction_type_buy": "Buy",
  "transaction_type_sell": "Sell",
- "transaction_type_exchange": "Exchange",
+ "transaction_type_exchange": "Buy/Sell (Exchange)",
  "transaction_type_transfer": "Transfer",
  "transaction_type_adjustment": "Add Expense",
  "transaction_currency_from": "From currency",

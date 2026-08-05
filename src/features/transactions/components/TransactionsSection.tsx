@@ -440,14 +440,23 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   accountIds: [activeDescriptionDraft?.accountFromId ?? null, activeDescriptionDraft?.accountToId ?? null],
  });
 
+ // Defaults the amount's currency to the first account picked (unless the user already chose
+ // one), so the "1 X = ? Y" rate hint and reverse icon show up right away instead of staying on
+ // the generic placeholder label until a separate, easy-to-miss currency pick.
+ const defaultCurrencyIdForAccount = (id: number) => {
+  const currencyId = clientAccountMap.get(id)?.currencyId;
+  return currencyId != null && enabledCurrencies.some((c) => c.id === currencyId) ? currencyId : null;
+ };
  const selectFromAccount = (id: number) => {
-  setTransactionForm((current) => ({ ...current, accountFromId: id }));
+  const defaultCurrencyId = defaultCurrencyIdForAccount(id);
+  setTransactionForm((current) => ({ ...current, accountFromId: id, currencyId: current.currencyId ?? defaultCurrencyId }));
   setTxFromQuery('');
   setTxFromOpen(false);
   setTxFromExpandedClient(null);
  };
  const selectToAccount = (id: number) => {
-  setTransactionForm((current) => ({ ...current, accountToId: id }));
+  const defaultCurrencyId = defaultCurrencyIdForAccount(id);
+  setTransactionForm((current) => ({ ...current, accountToId: id, currencyId: current.currencyId ?? defaultCurrencyId }));
   setTxToQuery('');
   setTxToOpen(false);
   setTxToExpandedClient(null);
