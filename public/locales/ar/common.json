@@ -258,7 +258,7 @@
  "transaction_type": "النوع",
  "transaction_type_buy": "شراء",
  "transaction_type_sell": "بيع",
- "transaction_type_exchange": "صرف",
+ "transaction_type_exchange": "بيع/شراء (صرف)",
  "transaction_type_transfer": "تحويل",
  "transaction_type_adjustment": "إضافة مصروف",
  "transaction_currency_from": "من عملة",

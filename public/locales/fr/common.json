@@ -256,7 +256,7 @@
  "transaction_type": "Type",
  "transaction_type_buy": "Achat",
  "transaction_type_sell": "Vente",
- "transaction_type_exchange": "Change",
+ "transaction_type_exchange": "Achat/Vente (Change)",
  "transaction_type_transfer": "Transfert",
  "transaction_type_adjustment": "Ajouter une depense",
  "transaction_currency_from": "Devise source",
