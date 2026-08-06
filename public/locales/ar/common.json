@@ -399,6 +399,7 @@
  "treasury_coming_soon": "إدارة الخزينة والصندوق قادمة قريبًا. ستتمكّن قريبًا من تتبّع النقد المتوفّر وحركات الخزينة من هنا.",
  "treasury_tab_treasury": "الخزينة",
  "treasury_tab_cashboxes": "الصناديق",
+ "treasury_balance_summary_title": "رصيد الخزينة",
  "treasury_my_cashbox": "صندوقي",
  "treasury_cashbox_of": "صندوق — {{name}}",
  "treasury_entry_direction_pays": "دفع",

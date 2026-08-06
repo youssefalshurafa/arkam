@@ -396,6 +396,7 @@
  "treasury_coming_soon": "La gestion de la trésorerie et de la caisse arrive bientôt. Vous pourrez bientôt suivre vos liquidités et les mouvements de trésorerie ici même.",
  "treasury_tab_treasury": "Trésorerie",
  "treasury_tab_cashboxes": "Caisses",
+ "treasury_balance_summary_title": "Solde de la trésorerie",
  "treasury_my_cashbox": "Ma caisse",
  "treasury_cashbox_of": "Caisse — {{name}}",
  "treasury_entry_direction_pays": "Sortie",

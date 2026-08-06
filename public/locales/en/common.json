@@ -397,6 +397,7 @@
  "treasury_coming_soon": "Treasury and cashbox management is on the way. You'll soon be able to track your cash on hand and treasury movements right here.",
  "treasury_tab_treasury": "Treasury",
  "treasury_tab_cashboxes": "Cashboxes",
+ "treasury_balance_summary_title": "Treasury balance",
  "treasury_my_cashbox": "My Cashbox",
  "treasury_cashbox_of": "Cashbox — {{name}}",
  "treasury_entry_direction_pays": "Pays out",

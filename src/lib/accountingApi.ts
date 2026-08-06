@@ -1,5 +1,5 @@
 import { localDateKey } from '@/shared/utils/date';
-import type { SystemClient } from '@/shared/types';
+import type { SystemClient, TreasuryBalanceEntry } from '@/shared/types';
 
 const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
 
@@ -188,6 +188,9 @@ export const accountingApi = {
  // Treasury & Cashbox: the hidden system `clients` rows themselves (id/name/kind/owner) —
  // fetched separately from listClients since they're deliberately excluded from it.
  listSystemClients: () => request<SystemClient[]>({ action: 'listSystemClients' }),
+ // Treasury's cash-on-hand per currency — balance only, readable by every role including a
+ // `member` (see getTreasuryBalance in route.ts).
+ getTreasuryBalance: () => request<TreasuryBalanceEntry[]>({ action: 'getTreasuryBalance' }),
  // Lazily bootstraps the workspace's Treasury + one Cashbox per non-viewer member. Safe to
  // call on every Treasury-section mount (idempotent server-side).
  ensureTreasuryAndCashboxes: () => request<{ ok: true; treasuryId: number | null }>({ action: 'ensureTreasuryAndCashboxes' }),

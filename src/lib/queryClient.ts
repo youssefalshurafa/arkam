@@ -65,4 +65,8 @@ export const queryKeys = {
  // since visibility is role-dependent (a member sees only their own cashbox + Treasury).
  systemClients: (userId: string | null | undefined, workspaceId: string | null | undefined) =>
   [...queryKeys.all, 'systemClients', userId ?? '__anon__', workspaceId ?? '__none__'] as const,
+ // Treasury's balance-only summary (see getTreasuryBalance) — fetched for every role
+ // including a `member`, unlike systemClients' full ledger data.
+ treasuryBalance: (userId: string | null | undefined, workspaceId: string | null | undefined) =>
+  [...queryKeys.all, 'treasuryBalance', userId ?? '__anon__', workspaceId ?? '__none__'] as const,
 } as const;
