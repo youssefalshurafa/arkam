@@ -260,7 +260,7 @@
  "transaction_type_sell": "بيع",
  "transaction_type_exchange": "بيع/شراء (صرف)",
  "transaction_type_transfer": "تحويل",
- "transaction_type_adjustment": "إضافة مصروف",
+ "transaction_type_adjustment": "معاملة أحادية الجانب",
  "transaction_currency_from": "من عملة",
  "transaction_currency_to": "إلى عملة",
  "transaction_currency_placeholder": "اختر عملة",

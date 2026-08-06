@@ -259,7 +259,7 @@
  "transaction_type_sell": "Sell",
  "transaction_type_exchange": "Buy/Sell (Exchange)",
  "transaction_type_transfer": "Transfer",
- "transaction_type_adjustment": "Add Expense",
+ "transaction_type_adjustment": "One-Sided Transaction",
  "transaction_currency_from": "From currency",
  "transaction_currency_to": "To currency",
  "transaction_currency_placeholder": "Select a currency",
