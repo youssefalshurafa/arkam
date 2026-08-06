@@ -329,9 +329,10 @@ export function generateLedgerHtml(
      const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
      if (e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
+     const sign = e.isChargesPayerThisAccount ? '−' : '+';
      const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
      const desc = e.chargesDescription ? `<span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
-     return `${base}<div class="charges-line"><span class="${cls}">−${val}</span>${desc}</div>`;
+     return `${base}<div class="charges-line"><span class="${cls}">${sign}${val}</span>${desc}</div>`;
     },
    },
    {
@@ -590,9 +591,14 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  .header-right { text-align: ${isRTL ? 'left' : 'right'}; font-size: calc(${pdfSettings.fontSize}px - 1px); color: #64748b; }
  /* flex-wrap, not CSS grid — Chromium's print/PDF engine paginates a multi-row grid very
     unreliably (rows can end up shifted sideways or clipped when a tall card forces a page
-    break), while a wrapped flex layout breaks between cards cleanly. */
- .grid { display: flex; flex-wrap: wrap; gap: 16px; }
- .card { flex: 0 0 calc(50% - 8px); max-width: calc(50% - 8px); border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; break-inside: avoid; }
+    break), while a wrapped flex layout breaks between cards cleanly. align-items: stretch
+    (explicit, though it's flex's default) makes every card in a row match the tallest one's
+    height — a short card (few clients) otherwise stops its border right after its own content,
+    looking mismatched next to a tall neighbor. This is purely cosmetic: a flex line is already
+    exactly as tall as its tallest item regardless of stretch, so it can't push anything onto a
+    new page that wasn't already going to land there. */
+ .grid { display: flex; flex-wrap: wrap; align-items: stretch; gap: 16px; }
+ .card { flex: 0 0 calc(50% - 8px); max-width: calc(50% - 8px); display: flex; flex-direction: column; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; break-inside: avoid; }
  .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; }
  .card-head .org { font-size: ${pdfSettings.headFontSize}px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
  .card-head .cur { font-size: ${pdfSettings.headFontSize}px; font-weight: 700; }
@@ -602,7 +608,9 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  .row .name { color: #334155; }
  .row .bal { font-variant-numeric: tabular-nums; font-weight: 500; }
  .row.muted { color: #94a3b8; font-style: italic; justify-content: center; }
- .card-total { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 8px 12px; }
+ /* margin-top: auto pins the total (and the .converted row right after it, if present) to the
+    bottom of the card once align-items: stretch above has made it taller than its own content. */
+ .card-total { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 8px 12px; margin-top: auto; }
  .card-total .ct-label { font-size: calc(${pdfSettings.fontSize}px - 2px); text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600; }
  .card-total .ct-value { font-weight: 700; font-variant-numeric: tabular-nums; }
  .converted { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #eff6ff; border-top: 1px solid #bfdbfe; padding: 8px 12px; }

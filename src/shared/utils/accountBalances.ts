@@ -1,16 +1,6 @@
 import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from './commission';
 import type { ClientAccount, Transaction } from '@/shared/types';
 
-// chargesExchangeRate converts the charge's own currency into the *payer's* account
-// currency — it's meaningless (and must not be applied) for a side whose account currency
-// already matches the charge's currency, where the conversion is definitionally 1:1.
-// Forcing rate=1 here guards against a stale/incorrect chargesExchangeRate left over from
-// when the charge's currency or payer was last changed. Mirrors ledgerBalances.ts's
-// effectiveChargeRate exactly — keep both in sync.
-function effectiveChargeRate(chargesCurrencyId: number | null, accountCurrencyId: number, chargesExchangeRate: number): number {
- return chargesCurrencyId != null && chargesCurrencyId === accountCurrencyId ? 1 : chargesExchangeRate;
-}
-
 // A cross-currency side with no exchange rate entered yet — excluded from the balance
 // (see computeAccountBalances below) until the user sets a rate. Exported so callers that
 // need to *count* pending rows (rather than sum balances) share the exact same definition.
@@ -44,8 +34,10 @@ export function computeAccountBalances({ clientAccounts, transactions }: {
    const account = clientAccountMap.get(transaction.accountFromId);
    if (account) {
     const pending = isPendingTransactionFrom(transaction, account.currencyId);
-    const chargeRate = effectiveChargeRate(transaction.chargesCurrencyId, account.currencyId, transaction.chargesExchangeRate);
-    const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (transaction.charges * chargeRate) : 0;
+    // The charge is always entered in the transaction's own currency, so it converts into this
+    // side's account currency via the same rate that converts `amount` (see ledgerBalances.ts's
+    // computeTransactionSideNetChange for the canonical version of this formula).
+    const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (transaction.charges * transaction.exchangeRateFrom) : 0;
     const netChange = pending
      ? 0
      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) + chargeEffect;
@@ -56,8 +48,7 @@ export function computeAccountBalances({ clientAccounts, transactions }: {
    const account = clientAccountMap.get(transaction.accountToId);
    if (account) {
     const pending = isPendingTransactionTo(transaction, account.currencyId);
-    const chargeRate = effectiveChargeRate(transaction.chargesCurrencyId, account.currencyId, transaction.chargesExchangeRate);
-    const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * chargeRate) : 0;
+    const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * transaction.exchangeRateTo) : 0;
     const toBase = exchangeToBase(transaction);
     const netChange = pending
      ? 0

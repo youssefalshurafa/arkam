@@ -126,6 +126,7 @@ import Sidebar from '@/shared/components/Sidebar';
 import AppHeader from '@/shared/components/AppHeader';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
 import OneSidedTransactionModal from '@/features/ledger/components/OneSidedTransactionModal';
+import NewTransactionModal from '@/features/ledger/components/NewTransactionModal';
 import PdfExportModal from '@/features/ledger/components/PdfExportModal';
 import AiChatPanel from '@/features/ai-chat/components/AiChatPanel';
 import CommissionReportModal from '@/features/ledger/components/CommissionReportModal';
@@ -1831,6 +1832,8 @@ function AuthenticatedHome() {
   const {
    openOneSidedTransactionModal,
    onSubmitOneSidedTransaction,
+   openNewTransactionModal,
+   closeNewTransactionModal,
    onLedgerColumnDrop,
    getClientLedgerDraft,
    updateLedgerTransactionDraft,
@@ -2439,6 +2442,7 @@ function AuthenticatedHome() {
          onCancelAllEditingLedgerRows={onCancelAllEditingLedgerRows}
          onToggleLedgerEntrySelection={onToggleLedgerEntrySelection}
          openOneSidedTransactionModal={openOneSidedTransactionModal}
+         openNewTransactionModal={openNewTransactionModal}
          openClientLedger={openClientLedger}
          openLedgerRowForEdit={openLedgerRowForEdit}
          openOrganizationClientsPage={openOrganizationClientsPage}
@@ -2518,11 +2522,6 @@ function AuthenticatedHome() {
          selectedTransactionSums={selectedTransactionSums}
          archiveCurrencyTotals={archiveCurrencyTotals}
          workspaceAnomalies={workspaceAnomalies}
-         showExchangeRateFrom={showExchangeRateFrom}
-         showExchangeRateTo={showExchangeRateTo}
-         transactionAccountFromCurrencyCode={transactionAccountFromCurrencyCode}
-         transactionAccountToCurrencyCode={transactionAccountToCurrencyCode}
-         transactionSelectedCurrencyCode={transactionSelectedCurrencyCode}
          getTransactionTableDraft={getTransactionTableDraft}
          updateTransactionTableDraft={updateTransactionTableDraft}
          txTableHistory={txTableHistory}
@@ -2611,6 +2610,19 @@ function AuthenticatedHome() {
     enabledCurrencies={enabledCurrencies}
     onSubmitOneSidedTransaction={onSubmitOneSidedTransaction}
     lockPastEditsEnabled={lockPastEditsEnabled}
+   />
+
+   <NewTransactionModal
+    selectedClientLedgers={selectedClientLedgers}
+    selectedClientForLedger={selectedClientForLedger}
+    clientAccounts={clientAccounts}
+    clientAccountMap={clientAccountMap}
+    enabledCurrencies={enabledCurrencies}
+    currencyMap={currencyMap}
+    transactions={transactions}
+    lockPastEditsEnabled={lockPastEditsEnabled}
+    onTransactionSubmit={onTransactionSubmit}
+    closeNewTransactionModal={closeNewTransactionModal}
    />
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />

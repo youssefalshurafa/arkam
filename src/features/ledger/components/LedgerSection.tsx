@@ -90,6 +90,7 @@ type LedgerSectionProps = {
  onCancelAllEditingLedgerRows: () => void;
  onToggleLedgerEntrySelection: (key: string) => void;
  openOneSidedTransactionModal: (accountId: number) => void;
+ openNewTransactionModal: (accountId: number) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openLedgerRowForEdit: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  openOrganizationClientsPage: (organization: Organization) => void;
@@ -105,7 +106,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
-  openOneSidedTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
+  openOneSidedTransactionModal, openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled,
  } = props;
  const router = useRouter();
@@ -126,6 +127,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // selected client or currency account changes) so the latest activity is visible
  // without the user having to scroll down manually.
  const ledgerTableScrollRef = useRef<HTMLDivElement | null>(null);
+ // Bounding-rect target for the drag-into-header-to-page-back gesture (see ledgerRowDrag below)
+ // — a direct geometric clientY-vs-rect comparison rather than elementFromPoint()+closest('thead'),
+ // since the sticky header sitting under an actively pointer-captured drag is exactly the kind of
+ // overlapping-layers case where relying on "what's the topmost element at this pixel" is more
+ // failure-prone than just asking "is the pointer above this specific element's bottom edge."
+ const ledgerTableHeadRef = useRef<HTMLTableSectionElement | null>(null);
  useLayoutEffect(() => {
   const el = ledgerTableScrollRef.current;
   if (el) el.scrollTop = el.scrollHeight;
@@ -347,17 +354,66 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // while a drag is in flight, lets that onClick swallow the stray post-drag click so
  // reordering a row never also highlights it.
  const justDraggedLedgerRowRef = useRef(false);
+ // "Drag a row up into the header → go to the previous page" — the previous page's rows are
+ // the ones chronologically just before the current page's first row, so this is how you reorder
+ // across a page boundary without having to change the page size first. currentLedgerPageRef is
+ // populated as a byproduct of the table body's own pagination math below (see `currentLedgerPage`
+ // in the tbody render) so this doesn't need to re-derive it from ledgerPageState's raw (possibly
+ // out-of-range) value. HEADER_DWELL_MS avoids flipping the instant the pointer merely brushes the
+ // header on its way elsewhere.
+ const currentLedgerPageRef = useRef<Record<number, number>>({});
+ const draggedRowAccountIdRef = useRef<number | null>(null);
+ const headerDwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const headerDwellActiveRef = useRef(false);
+ const HEADER_DWELL_MS = 600;
+ const clearHeaderDwell = () => {
+  headerDwellActiveRef.current = false;
+  if (headerDwellTimerRef.current) {
+   clearTimeout(headerDwellTimerRef.current);
+   headerDwellTimerRef.current = null;
+  }
+ };
  const ledgerRowDrag = usePointerDrag<string>({
   parseKey: (raw) => raw,
   onDragStart: (key) => {
    justDraggedLedgerRowRef.current = true;
    setDragLedgerRowKey(key);
+   draggedRowAccountIdRef.current = Number(key.slice(key.lastIndexOf(':') + 1));
   },
   onHoverChange: (overKey, half) => {
    setDragOverLedgerRowKey(overKey);
    if (half) setDragOverLedgerHalf(half);
   },
+  onPointerMove: (_clientX, clientY) => {
+   const theadRect = ledgerTableHeadRef.current?.getBoundingClientRect();
+   // At-or-above the header's own bottom edge — covers hovering the header itself, and also
+   // dragging past it entirely (further up, off the table) as an equally valid "go back" gesture.
+   const overHeader = !!theadRect && clientY <= theadRect.bottom;
+   if (!overHeader) {
+    clearHeaderDwell();
+    return;
+   }
+   if (headerDwellActiveRef.current) return; // already counting down to a page-back
+   headerDwellActiveRef.current = true;
+   headerDwellTimerRef.current = setTimeout(() => {
+    headerDwellTimerRef.current = null;
+    const accountId = draggedRowAccountIdRef.current;
+    const current = accountId != null ? currentLedgerPageRef.current[accountId] : null;
+    if (accountId != null && current != null && current > 1) {
+     setLedgerPageState((prev) => ({ ...prev, [accountId]: current - 1 }));
+     // Let the previous page's rows render before scrolling, so the newly-current page's
+     // bottom rows — the ones the user actually wants to drop onto — are in view.
+     requestAnimationFrame(() => {
+      ledgerTableScrollRef.current?.scrollTo({ top: ledgerTableScrollRef.current.scrollHeight });
+     });
+    }
+    // Still holding over the header afterward keeps paging back, one page per dwell period.
+    headerDwellActiveRef.current = false;
+   }, HEADER_DWELL_MS);
+  },
   onDrop: (draggedKey, overKey, half) => {
+   clearHeaderDwell();
+   draggedRowAccountIdRef.current = null;
    if (overKey !== null && draggedKey !== overKey && half) {
     const accountId = Number(draggedKey.slice(draggedKey.lastIndexOf(':') + 1));
     const keysToMove =
@@ -975,11 +1031,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 })()
               : null}
 
-             {/* "+" menu: Add Note / Add One-Sided Transaction, consolidated into one entry
-                 point next to the sticky note (see generateLedgerHtml for the note's opt-in
-                 PDF-statement toggle). Always visible regardless of whether a note exists.
-                 No separate "Add Expense" entry — a one-sided transaction already covers it
-                 (pick type "Expense" in the modal itself). */}
+             {/* "+" menu: Add Note / Add One-Sided Transaction / New Transaction, consolidated
+                 into one entry point next to the sticky note (see generateLedgerHtml for the
+                 note's opt-in PDF-statement toggle). Always visible regardless of whether a
+                 note exists. No separate "Add Expense" entry — a one-sided transaction already
+                 covers it (pick type "Expense" in the modal itself). "New Transaction" opens the
+                 same two-sided form the Transactions page uses (NewTransactionForm), pre-filled
+                 with this account. */}
              <div className="mt-4 flex items-start gap-2">
               <button
                type="button"
@@ -987,6 +1045,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 addMenu.open(e, [
                  { key: 'note', label: t('ledger_add_menu_note'), onSelect: () => beginEditNote(ledger) },
                  { key: 'one-sided', label: t('ledger_add_menu_one_sided'), onSelect: () => openOneSidedTransactionModal(ledger.accountId) },
+                 { key: 'new-transaction', label: t('ledger_add_menu_new_transaction'), onSelect: () => openNewTransactionModal(ledger.accountId) },
                 ])
                }
                title={t('ledger_add_menu')}
@@ -1252,22 +1311,31 @@ export default function LedgerSection(props: LedgerSectionProps) {
 
                {(() => {
                 const ordered = ledger.entries;
-                const visibleCount = ordered.filter((e) => {
+                const visible = ordered.filter((e) => {
                  if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                  if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                  if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
                  if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
                  return true;
-                }).length;
+                });
+                const visibleCount = visible.length;
                 const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
                 const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
                 const showPager = visibleCount > 0 && totalLedgerPages > 1;
+                const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
+                const broughtForward = currentLedgerPage > 1 ? visible[ledgerStart - 1] : null;
                 return (
                  <div className="mt-3 mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-fg-muted">
                    {showPager
                     ? `${(currentLedgerPage - 1) * ledgerPageSize + 1}–${Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} ${t('pagination_of')} ${visibleCount}`
                     : null}
+                   {broughtForward ? (
+                    <span className="ms-2 text-fg-faint">
+                     {t('ledger_balance_brought_forward')}: {broughtForward.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                     {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                    </span>
+                   ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                    {showPager && (
@@ -1388,7 +1456,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  className="w-full text-sm"
                  style={{ zoom: String(tableZoom) }}
                 >
-                 <thead className="sticky top-0 z-20 bg-surface-hover text-fg-muted">
+                 <thead ref={ledgerTableHeadRef} className="sticky top-0 z-20 bg-surface-hover text-fg-muted">
                   <tr>
                    <th className="w-10 px-2 py-3">
                     {editAllLedgerAccountIds.has(ledger.accountId) ? (
@@ -1677,6 +1745,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    // Pagination: entries sorted oldest→newest; page N = newest (last chunk).
                    const totalLedgerPages = Math.max(1, Math.ceil(visible.length / ledgerPageSize));
                    const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+                   // Byproduct capture for the drag-into-header-to-page-back gesture above — see
+                   // currentLedgerPageRef's own comment.
+                   currentLedgerPageRef.current[ledger.accountId] = currentLedgerPage;
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
                    const pagedEntries = visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
                    return pagedEntries.map((entry, entryIdx) => {
@@ -2429,8 +2500,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 style={{ width: ledgerSelectWidth(t(transactionTypeLabelKey(draft.type)), 7, 2) }}
                                 className={`${seamlessSelectClassName} text-xs text-fg`}
                                >
-                                <option value="buy">{t('transaction_type_buy')}</option>
-                                <option value="sell">{t('transaction_type_sell')}</option>
+                                {/* 'buy'/'sell' can no longer be newly selected, but a row already
+                                    saved with one of them must keep showing it — otherwise the
+                                    select's bound value matches no option and the browser
+                                    silently displays a different one. */}
+                                {draft.type === 'buy' ? <option value="buy">{t('transaction_type_buy')}</option> : null}
+                                {draft.type === 'sell' ? <option value="sell">{t('transaction_type_sell')}</option> : null}
                                 <option value="exchange">{t('transaction_type_exchange')}</option>
                                 <option value="transfer">{t('transaction_type_transfer')}</option>
                                 <option value="adjustment">{t('transaction_type_adjustment')}</option>
@@ -3105,7 +3180,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                          >
                           <div className={`flex items-center gap-1.5 text-xs font-semibold leading-none ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                            <span>
-                            −{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                            {entry.isChargesPayerThisAccount ? '−' : '+'}
+                            {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                             {renderLedgerCurrencySuffix('', entry.chargesCurrencyCode ?? '')}
                            </span>
                            {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}

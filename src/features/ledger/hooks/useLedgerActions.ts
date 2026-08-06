@@ -17,6 +17,8 @@ import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt
 import { ledgerColumnOrderStorageKeyPrefix } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
+import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
+import { emptyTransactionForm } from '@/features/transactions/forms';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
 import { useTransactionPatchers } from '@/features/transactions/hooks/useTransactionPatchers';
@@ -120,7 +122,19 @@ export function useLedgerActions({
  const setSelectedLedgerEntryKeys = useLedgerStore((s) => s.setSelectedLedgerEntryKeys);
  const oneSidedTransactionModal = useLedgerStore((s) => s.oneSidedTransactionModal);
  const setOneSidedTransactionModal = useLedgerStore((s) => s.setOneSidedTransactionModal);
+ const setNewTransactionModalAccountId = useLedgerStore((s) => s.setNewTransactionModalAccountId);
  const setPdfExportModal = useLedgerStore((s) => s.setPdfExportModal);
+
+ // NewTransactionForm's data lives in useTransactionsStore (shared with the Transactions page's
+ // own inline form) — opening the ledger's "New Transaction" modal just seeds that shared draft.
+ const setTransactionForm = useTransactionsStore((s) => s.setTransactionForm);
+ const setEditingTransaction = useTransactionsStore((s) => s.setEditingTransaction);
+ const setTxFromQuery = useTransactionsStore((s) => s.setTxFromQuery);
+ const setTxFromOpen = useTransactionsStore((s) => s.setTxFromOpen);
+ const setTxToQuery = useTransactionsStore((s) => s.setTxToQuery);
+ const setTxToOpen = useTransactionsStore((s) => s.setTxToOpen);
+ const setTxSplitDescription = useTransactionsStore((s) => s.setTxSplitDescription);
+ const setNewTransactionDate = useTransactionsStore((s) => s.setNewTransactionDate);
 
  // Undo/redo for already-SAVED edits — a separate bounded stack from `ledgerHistory`
  // (unsaved-draft undo). Each entry re-issues the same update API call the original save
@@ -202,6 +216,27 @@ function openOneSidedTransactionModal(accountId: number) {
   description: '',
   counterParty: '',
  });
+}
+
+// Opens the ledger's "New Transaction" modal (the full two-sided form, unlike the one-sided
+// modal above) by seeding useTransactionsStore's shared draft with this account pre-picked on
+// the From side — the same reset onTransactionSubmit itself does after a successful create, so
+// re-opening from a different account (or after leaving one open earlier) never leaks state.
+function openNewTransactionModal(accountId: number) {
+ const account = clientAccounts.find((a) => a.id === accountId);
+ setEditingTransaction(null);
+ setTransactionForm({ ...emptyTransactionForm(), accountFromId: accountId, currencyId: account?.currencyId ?? null });
+ setTxFromQuery('');
+ setTxFromOpen(false);
+ setTxToQuery('');
+ setTxToOpen(false);
+ setTxSplitDescription(false);
+ setNewTransactionDate(localDateKey());
+ setNewTransactionModalAccountId(accountId);
+}
+
+function closeNewTransactionModal() {
+ setNewTransactionModalAccountId(null);
 }
 
 async function onSubmitOneSidedTransaction() {
@@ -1208,6 +1243,8 @@ async function onExportLedgerExcel(
  return {
   openOneSidedTransactionModal,
   onSubmitOneSidedTransaction,
+  openNewTransactionModal,
+  closeNewTransactionModal,
   onLedgerColumnDrop,
   getClientLedgerDraft,
   updateLedgerTransactionDraft,

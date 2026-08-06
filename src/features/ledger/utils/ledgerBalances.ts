@@ -28,18 +28,6 @@ export type NetChangeSideInput = {
  chargesExchangeRate: number;
 };
 
-// chargesExchangeRate converts the charge's own currency into the *payer's* account
-// currency (see the form's "charges_exchange_rate (chargeCcy → payerAccountCcy)" label) —
-// it has no meaning for a side whose account currency already matches the charge's
-// currency, where the conversion is definitionally 1:1. Forcing rate=1 here (rather than
-// trusting whatever's stored) protects against stale/incorrect chargesExchangeRate values
-// left over from when the charge's currency or payer was last changed — e.g. a charge
-// entered in the same currency as this account still carrying an earlier cross-currency
-// rate, which silently over/under-subtracted this side's balance by that stale factor.
-function effectiveChargeRate(chargesCurrencyId: number | null, accountCurrencyId: number, chargesExchangeRate: number): number {
- return chargesCurrencyId != null && chargesCurrencyId === accountCurrencyId ? 1 : chargesExchangeRate;
-}
-
 // The net ledger effect of a transaction on ONE side's account balance — must mirror the
 // from/to netChange formulas inside computeClientLedgers below exactly. Used by the
 // reconciliation guard to tell whether an edit actually changes a given account's balance
@@ -53,8 +41,10 @@ export function computeTransactionSideNetChange(tx: NetChangeSideInput, accountC
  const hasExchangeActual = side === 'to' && tx.type === 'exchange' && tx.exchangeActualAmount != null;
  const pendingRate = !hasExchangeActual && tx.currencyId !== accountCurrencyId && rate === 0;
  if (pendingRate) return 0;
- const chargeRate = effectiveChargeRate(tx.chargesCurrencyId, accountCurrencyId, tx.chargesExchangeRate);
- const chargeEffect = tx.charges > 0 ? chargeLedgerEffect(tx.chargesPayer, side) * (tx.charges * chargeRate) : 0;
+ // The charge is always entered in the transaction's own currency (tx.currencyId), so it's
+ // converted into this side's account currency by the exact same rate that converts `amount`
+ // — i.e. the charge behaves as if it were added to `amount` before that multiplication.
+ const chargeEffect = tx.charges > 0 ? chargeLedgerEffect(tx.chargesPayer, side) * (tx.charges * rate) : 0;
  if (side === 'from') {
   return tx.amount * rate + getCommissionAmount(tx.amount * rate, commission) + chargeEffect;
  }
@@ -137,8 +127,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
           : transaction.amount * transaction.exchangeRateFrom +
             getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) +
             (transaction.charges > 0
-             ? chargeLedgerEffect(transaction.chargesPayer, 'from') *
-               (transaction.charges * effectiveChargeRate(transaction.chargesCurrencyId, account.currencyId, transaction.chargesExchangeRate))
+             ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (transaction.charges * transaction.exchangeRateFrom)
              : 0),
          runningBalance: 0,
          description: transaction.descriptionFrom?.trim() || transaction.description,
@@ -184,8 +173,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
           ? 0
           : -(exchangeToBase(transaction) - getCommissionAmount(exchangeToBase(transaction), transaction.commissionTo)) +
             (transaction.charges > 0
-             ? chargeLedgerEffect(transaction.chargesPayer, 'to') *
-               (transaction.charges * effectiveChargeRate(transaction.chargesCurrencyId, account.currencyId, transaction.chargesExchangeRate))
+             ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * transaction.exchangeRateTo)
              : 0),
          runningBalance: 0,
          description: transaction.descriptionTo?.trim() || transaction.description,
