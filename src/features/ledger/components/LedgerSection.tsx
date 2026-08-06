@@ -3180,7 +3180,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                          >
                           <div className={`flex items-center gap-1.5 text-xs font-semibold leading-none ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                            <span>
-                            −{entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                            {entry.isChargesPayerThisAccount ? '−' : '+'}
+                            {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                             {renderLedgerCurrencySuffix('', entry.chargesCurrencyCode ?? '')}
                            </span>
                            {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}

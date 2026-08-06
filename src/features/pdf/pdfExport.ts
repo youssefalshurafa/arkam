@@ -329,9 +329,10 @@ export function generateLedgerHtml(
      const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
      if (e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
+     const sign = e.isChargesPayerThisAccount ? '−' : '+';
      const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
      const desc = e.chargesDescription ? `<span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
-     return `${base}<div class="charges-line"><span class="${cls}">−${val}</span>${desc}</div>`;
+     return `${base}<div class="charges-line"><span class="${cls}">${sign}${val}</span>${desc}</div>`;
     },
    },
    {
