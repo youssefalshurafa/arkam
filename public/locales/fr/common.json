@@ -615,6 +615,7 @@
  "ledger_scroll_to_top": "Aller au debut du tableau",
  "ledger_add_menu_note": "Note",
  "ledger_add_menu_one_sided": "Transaction unilaterale",
+ "ledger_add_menu_new_transaction": "Nouvelle transaction",
  "ledger_note_placeholder": "Ajouter une note pour ce registre…",
  "ledger_note_show_in_pdf": "Afficher dans le PDF exporté",
  "settings_danger_title": "Zone dangereuse",

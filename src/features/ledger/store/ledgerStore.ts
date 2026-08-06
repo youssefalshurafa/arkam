@@ -151,6 +151,12 @@ type LedgerStore = {
  setPdfExportModal: Dispatch<SetStateAction<PdfExportModalState | null>>;
  oneSidedTransactionModal: OneSidedTransactionModalState | null;
  setOneSidedTransactionModal: Dispatch<SetStateAction<OneSidedTransactionModalState | null>>;
+ // Which account's ledger the "New Transaction" modal is open for, or null when closed. Unlike
+ // oneSidedTransactionModal above, the form data itself isn't duplicated here — it lives in
+ // useTransactionsStore's transactionForm and friends, the same store the Transactions page's
+ // own inline form reads/writes, so NewTransactionForm behaves identically wherever it's mounted.
+ newTransactionModalAccountId: number | null;
+ setNewTransactionModalAccountId: Dispatch<SetStateAction<number | null>>;
  commissionModal: CommissionModalState | null;
  setCommissionModal: Dispatch<SetStateAction<CommissionModalState | null>>;
  ledgerCounterpartyOpen: string | null;
@@ -261,6 +267,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setPdfExportModal: setter('pdfExportModal'),
   oneSidedTransactionModal: null,
   setOneSidedTransactionModal: setter('oneSidedTransactionModal'),
+  newTransactionModalAccountId: null,
+  setNewTransactionModalAccountId: setter('newTransactionModalAccountId'),
   commissionModal: null,
   setCommissionModal: setter('commissionModal'),
   ledgerCounterpartyOpen: null,

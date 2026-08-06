@@ -618,6 +618,7 @@
  "ledger_scroll_to_top": "الانتقال إلى أعلى الجدول",
  "ledger_add_menu_note": "ملاحظة",
  "ledger_add_menu_one_sided": "معاملة أحادية الطرف",
+ "ledger_add_menu_new_transaction": "معاملة جديدة",
  "ledger_note_placeholder": "أضف ملاحظة لهذا الكشف…",
  "ledger_note_show_in_pdf": "إظهار في ملف PDF المُصدَّر",
  "settings_danger_title": "منطقة خطرة",

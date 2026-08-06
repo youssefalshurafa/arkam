@@ -90,6 +90,7 @@ type LedgerSectionProps = {
  onCancelAllEditingLedgerRows: () => void;
  onToggleLedgerEntrySelection: (key: string) => void;
  openOneSidedTransactionModal: (accountId: number) => void;
+ openNewTransactionModal: (accountId: number) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openLedgerRowForEdit: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  openOrganizationClientsPage: (organization: Organization) => void;
@@ -105,7 +106,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, onWriteOffLedgerRow, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
-  openOneSidedTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
+  openOneSidedTransactionModal, openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled,
  } = props;
  const router = useRouter();
@@ -1030,11 +1031,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 })()
               : null}
 
-             {/* "+" menu: Add Note / Add One-Sided Transaction, consolidated into one entry
-                 point next to the sticky note (see generateLedgerHtml for the note's opt-in
-                 PDF-statement toggle). Always visible regardless of whether a note exists.
-                 No separate "Add Expense" entry — a one-sided transaction already covers it
-                 (pick type "Expense" in the modal itself). */}
+             {/* "+" menu: Add Note / Add One-Sided Transaction / New Transaction, consolidated
+                 into one entry point next to the sticky note (see generateLedgerHtml for the
+                 note's opt-in PDF-statement toggle). Always visible regardless of whether a
+                 note exists. No separate "Add Expense" entry — a one-sided transaction already
+                 covers it (pick type "Expense" in the modal itself). "New Transaction" opens the
+                 same two-sided form the Transactions page uses (NewTransactionForm), pre-filled
+                 with this account. */}
              <div className="mt-4 flex items-start gap-2">
               <button
                type="button"
@@ -1042,6 +1045,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 addMenu.open(e, [
                  { key: 'note', label: t('ledger_add_menu_note'), onSelect: () => beginEditNote(ledger) },
                  { key: 'one-sided', label: t('ledger_add_menu_one_sided'), onSelect: () => openOneSidedTransactionModal(ledger.accountId) },
+                 { key: 'new-transaction', label: t('ledger_add_menu_new_transaction'), onSelect: () => openNewTransactionModal(ledger.accountId) },
                 ])
                }
                title={t('ledger_add_menu')}
@@ -1307,22 +1311,31 @@ export default function LedgerSection(props: LedgerSectionProps) {
 
                {(() => {
                 const ordered = ledger.entries;
-                const visibleCount = ordered.filter((e) => {
+                const visible = ordered.filter((e) => {
                  if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
                  if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
                  if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
                  if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
                  return true;
-                }).length;
+                });
+                const visibleCount = visible.length;
                 const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
                 const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
                 const showPager = visibleCount > 0 && totalLedgerPages > 1;
+                const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
+                const broughtForward = currentLedgerPage > 1 ? visible[ledgerStart - 1] : null;
                 return (
                  <div className="mt-3 mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs text-fg-muted">
                    {showPager
                     ? `${(currentLedgerPage - 1) * ledgerPageSize + 1}–${Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} ${t('pagination_of')} ${visibleCount}`
                     : null}
+                   {broughtForward ? (
+                    <span className="ms-2 text-fg-faint">
+                     {t('ledger_balance_brought_forward')}: {broughtForward.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                     {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                    </span>
+                   ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                    {showPager && (
@@ -2990,12 +3003,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}
                              >
-                              {entryIdx === 0 && currentLedgerPage > 1 && visible[ledgerStart - 1] ? (
-                               <div className="mb-0.5 whitespace-nowrap text-[10px] font-normal text-fg-faint">
-                                {t('ledger_balance_brought_forward')}: {visible[ledgerStart - 1].runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                               </div>
-                              ) : null}
                               {ledgerSumMode && !draft ? (
                                (() => {
                                 const sumKey = `${rowKey}:runningBalance`;
