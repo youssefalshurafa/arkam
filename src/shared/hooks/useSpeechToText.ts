@@ -18,6 +18,10 @@ interface SpeechRecognitionResultListLike {
 }
 interface SpeechRecognitionEventLike {
  results: SpeechRecognitionResultListLike;
+ // Index into `results` where THIS event's new/changed entries start — everything before it
+ // was already reported (and, for final ones, already accumulated) by a previous event. See
+ // the onresult handler below for why this matters.
+ resultIndex: number;
 }
 interface SpeechRecognitionErrorEventLike {
  error: string;
@@ -93,14 +97,21 @@ export function useSpeechToText(lang: string, onResult: (text: string) => void) 
   };
   scheduleAutoStop(NO_SPEECH_TIMEOUT_MS);
   recognition.onresult = (event) => {
-   let combinedFinal = '';
+   // Re-scanning the whole `results` list from 0 on every event (as this used to) double-counts
+   // once a session runs long enough for Chrome's continuous-mode recognizer to re-fire earlier
+   // indices — the same finalized phrase gets appended again each time, producing "العايق العايق
+   // العايق..." instead of "العايق" once. `resultIndex` marks where THIS event's genuinely new
+   // entries start, so scanning only from there and appending newly-final ones to the persistent
+   // `finalTranscript` (rather than rebuilding it from scratch) means each index is ever
+   // accumulated once, no matter how many more onresult events fire afterward.
+   let newFinal = '';
    let combinedInterim = '';
-   for (let i = 0; i < event.results.length; i += 1) {
+   for (let i = event.resultIndex; i < event.results.length; i += 1) {
     const result = event.results[i];
-    if (result.isFinal) combinedFinal += `${combinedFinal ? ' ' : ''}${result[0].transcript}`;
+    if (result.isFinal) newFinal += `${newFinal ? ' ' : ''}${result[0].transcript}`;
     else combinedInterim += `${combinedInterim ? ' ' : ''}${result[0].transcript}`;
    }
-   finalTranscript = combinedFinal.trim();
+   if (newFinal) finalTranscript = finalTranscript ? `${finalTranscript} ${newFinal.trim()}` : newFinal.trim();
    interimTranscript = combinedInterim.trim();
    // Speech (even interim, not-yet-finalized) is still coming in — push the auto-stop back out.
    scheduleAutoStop(SILENCE_AUTOSTOP_MS);

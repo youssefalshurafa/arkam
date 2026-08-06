@@ -126,6 +126,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // selected client or currency account changes) so the latest activity is visible
  // without the user having to scroll down manually.
  const ledgerTableScrollRef = useRef<HTMLDivElement | null>(null);
+ // Bounding-rect target for the drag-into-header-to-page-back gesture (see ledgerRowDrag below)
+ // — a direct geometric clientY-vs-rect comparison rather than elementFromPoint()+closest('thead'),
+ // since the sticky header sitting under an actively pointer-captured drag is exactly the kind of
+ // overlapping-layers case where relying on "what's the topmost element at this pixel" is more
+ // failure-prone than just asking "is the pointer above this specific element's bottom edge."
+ const ledgerTableHeadRef = useRef<HTMLTableSectionElement | null>(null);
  useLayoutEffect(() => {
   const el = ledgerTableScrollRef.current;
   if (el) el.scrollTop = el.scrollHeight;
@@ -347,17 +353,66 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // while a drag is in flight, lets that onClick swallow the stray post-drag click so
  // reordering a row never also highlights it.
  const justDraggedLedgerRowRef = useRef(false);
+ // "Drag a row up into the header → go to the previous page" — the previous page's rows are
+ // the ones chronologically just before the current page's first row, so this is how you reorder
+ // across a page boundary without having to change the page size first. currentLedgerPageRef is
+ // populated as a byproduct of the table body's own pagination math below (see `currentLedgerPage`
+ // in the tbody render) so this doesn't need to re-derive it from ledgerPageState's raw (possibly
+ // out-of-range) value. HEADER_DWELL_MS avoids flipping the instant the pointer merely brushes the
+ // header on its way elsewhere.
+ const currentLedgerPageRef = useRef<Record<number, number>>({});
+ const draggedRowAccountIdRef = useRef<number | null>(null);
+ const headerDwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const headerDwellActiveRef = useRef(false);
+ const HEADER_DWELL_MS = 600;
+ const clearHeaderDwell = () => {
+  headerDwellActiveRef.current = false;
+  if (headerDwellTimerRef.current) {
+   clearTimeout(headerDwellTimerRef.current);
+   headerDwellTimerRef.current = null;
+  }
+ };
  const ledgerRowDrag = usePointerDrag<string>({
   parseKey: (raw) => raw,
   onDragStart: (key) => {
    justDraggedLedgerRowRef.current = true;
    setDragLedgerRowKey(key);
+   draggedRowAccountIdRef.current = Number(key.slice(key.lastIndexOf(':') + 1));
   },
   onHoverChange: (overKey, half) => {
    setDragOverLedgerRowKey(overKey);
    if (half) setDragOverLedgerHalf(half);
   },
+  onPointerMove: (_clientX, clientY) => {
+   const theadRect = ledgerTableHeadRef.current?.getBoundingClientRect();
+   // At-or-above the header's own bottom edge — covers hovering the header itself, and also
+   // dragging past it entirely (further up, off the table) as an equally valid "go back" gesture.
+   const overHeader = !!theadRect && clientY <= theadRect.bottom;
+   if (!overHeader) {
+    clearHeaderDwell();
+    return;
+   }
+   if (headerDwellActiveRef.current) return; // already counting down to a page-back
+   headerDwellActiveRef.current = true;
+   headerDwellTimerRef.current = setTimeout(() => {
+    headerDwellTimerRef.current = null;
+    const accountId = draggedRowAccountIdRef.current;
+    const current = accountId != null ? currentLedgerPageRef.current[accountId] : null;
+    if (accountId != null && current != null && current > 1) {
+     setLedgerPageState((prev) => ({ ...prev, [accountId]: current - 1 }));
+     // Let the previous page's rows render before scrolling, so the newly-current page's
+     // bottom rows — the ones the user actually wants to drop onto — are in view.
+     requestAnimationFrame(() => {
+      ledgerTableScrollRef.current?.scrollTo({ top: ledgerTableScrollRef.current.scrollHeight });
+     });
+    }
+    // Still holding over the header afterward keeps paging back, one page per dwell period.
+    headerDwellActiveRef.current = false;
+   }, HEADER_DWELL_MS);
+  },
   onDrop: (draggedKey, overKey, half) => {
+   clearHeaderDwell();
+   draggedRowAccountIdRef.current = null;
    if (overKey !== null && draggedKey !== overKey && half) {
     const accountId = Number(draggedKey.slice(draggedKey.lastIndexOf(':') + 1));
     const keysToMove =
@@ -1388,7 +1443,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  className="w-full text-sm"
                  style={{ zoom: String(tableZoom) }}
                 >
-                 <thead className="sticky top-0 z-20 bg-surface-hover text-fg-muted">
+                 <thead ref={ledgerTableHeadRef} className="sticky top-0 z-20 bg-surface-hover text-fg-muted">
                   <tr>
                    <th className="w-10 px-2 py-3">
                     {editAllLedgerAccountIds.has(ledger.accountId) ? (
@@ -1677,6 +1732,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    // Pagination: entries sorted oldest→newest; page N = newest (last chunk).
                    const totalLedgerPages = Math.max(1, Math.ceil(visible.length / ledgerPageSize));
                    const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
+                   // Byproduct capture for the drag-into-header-to-page-back gesture above — see
+                   // currentLedgerPageRef's own comment.
+                   currentLedgerPageRef.current[ledger.accountId] = currentLedgerPage;
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
                    const pagedEntries = visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
                    return pagedEntries.map((entry, entryIdx) => {
@@ -2932,6 +2990,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               key={column.key}
                               className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}
                              >
+                              {entryIdx === 0 && currentLedgerPage > 1 && visible[ledgerStart - 1] ? (
+                               <div className="mb-0.5 whitespace-nowrap text-[10px] font-normal text-fg-faint">
+                                {t('ledger_balance_brought_forward')}: {visible[ledgerStart - 1].runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                               </div>
+                              ) : null}
                               {ledgerSumMode && !draft ? (
                                (() => {
                                 const sumKey = `${rowKey}:runningBalance`;

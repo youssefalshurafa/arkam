@@ -462,6 +462,28 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   setTxToExpandedClient(null);
  };
 
+ // "Adjustment" transactions are one-sided: exactly one of accountFromId/accountToId holds the
+ // picked client account (the other stays null, meaning "the counterparty text field instead").
+ // Direction is derived from which side is populated rather than tracked as separate state,
+ // defaulting to accountFromId (creditor/دائن) until the user explicitly toggles it.
+ const oneSidedDirection: 'client_from' | 'client_to' = transactionForm.accountToId != null && transactionForm.accountFromId == null ? 'client_to' : 'client_from';
+ const oneSidedAccountId = oneSidedDirection === 'client_to' ? transactionForm.accountToId : transactionForm.accountFromId;
+ const setOneSidedDirection = (direction: 'client_from' | 'client_to') => {
+  setTransactionForm((current) => {
+   const activeId = current.accountFromId ?? current.accountToId;
+   return direction === 'client_from' ? { ...current, accountFromId: activeId, accountToId: null } : { ...current, accountFromId: null, accountToId: activeId };
+  });
+ };
+ const selectOneSidedAccount = (id: number | null) => {
+  const defaultCurrencyId = id != null ? defaultCurrencyIdForAccount(id) : null;
+  setTransactionForm((current) => ({
+   ...current,
+   accountFromId: oneSidedDirection === 'client_from' ? id : null,
+   accountToId: oneSidedDirection === 'client_to' ? id : null,
+   currencyId: current.currencyId ?? defaultCurrencyId,
+  }));
+ };
+
  // Shared arrow/Enter/Escape behaviour for both pickers. Enter on a group header expands or
  // collapses it (keeping the highlight put so the user can arrow into its accounts); Enter on
  // an account selects it.
@@ -531,7 +553,38 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               >
                {t('cancel_edit')}
               </button>
-             ) : null}
+             ) : (
+              // Same underlying reset onCancelEditTransaction/onCancelArchiveEntryEdit already do
+              // when leaving edit mode — reused here to blank out a fresh, not-yet-saved draft
+              // instead of retyping over it by hand.
+              <button
+               type="button"
+               onClick={() => (isArchiveEntryMode ? onCancelArchiveEntryEdit() : onCancelEditTransaction())}
+               title={t('clear_form')}
+               aria-label={t('clear_form')}
+               className="inline-flex shrink-0 items-center justify-center rounded border border-border-strong bg-surface-2 p-1.5 text-fg-muted transition hover:bg-surface-hover"
+              >
+               <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+               >
+                <path d="M20 4 14 10" />
+                <path d="M14 10 4.5 19.5" />
+                <path d="M14 10 17.5 17" />
+                <path d="M4.5 19.5 17.5 17" />
+                <path d="M14 10 8 18" />
+                <path d="M14 10 11 19" />
+                <path d="M14 10 14.3 18.5" />
+               </svg>
+              </button>
+             )}
              {copiedTransaction && !editingTransaction && !isArchiveEntryMode ? (
               <button
                type="button"
@@ -811,7 +864,90 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
             />
 
-            <label className="block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}</label>
+            <label className="mt-4 block text-sm font-medium">{t('transaction_amount')}</label>
+            <div className="mt-2 flex gap-2">
+             <input
+              type="text"
+              inputMode="decimal"
+              dir="ltr"
+              value={transactionForm.amount}
+              onChange={(event) => setTransactionForm((current) => ({ ...current, amount: formatAmountInput(event.target.value) }))}
+              className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+              placeholder="0.00"
+              required
+             />
+             <select
+              value={transactionForm.currencyId ?? ''}
+              onChange={(event) =>
+               setTransactionForm((current) => ({
+                ...current,
+                currencyId: event.target.value ? Number(event.target.value) : null,
+               }))
+              }
+              className="w-28 rounded border border-border-strong px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              required
+             >
+              <option value="">{t('transaction_currency_placeholder')}</option>
+              {enabledCurrencies.map((cur) => (
+               <option
+                key={cur.id}
+                value={cur.id}
+               >
+                {cur.code}
+               </option>
+              ))}
+             </select>
+            </div>
+
+            {transactionForm.type === 'adjustment' ? (
+             <>
+              <label className="mt-4 block text-sm font-medium">{t('one_sided_direction_label')}</label>
+              <div dir="ltr" className="mt-2 grid grid-cols-2 gap-2">
+               <button
+                type="button"
+                onClick={() => setOneSidedDirection('client_from')}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                 oneSidedDirection === 'client_from' ? 'border-accent bg-accent-weak text-accent' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+                }`}
+               >
+                {t('transaction_account_from')}
+               </button>
+               <button
+                type="button"
+                onClick={() => setOneSidedDirection('client_to')}
+                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+                 oneSidedDirection === 'client_to' ? 'border-accent bg-accent-weak text-accent' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+                }`}
+               >
+                {t('transaction_account_to')}
+               </button>
+              </div>
+              <p className="mt-1 text-xs text-fg-faint">{oneSidedDirection === 'client_from' ? t('one_sided_client_from_hint') : t('one_sided_client_to_hint')}</p>
+
+              <label className="mt-4 block text-sm font-medium">{oneSidedDirection === 'client_from' ? t('transaction_account_from') : t('transaction_account_to')}</label>
+              <div className="mt-2">
+               <AccountSearchSelect
+                accounts={realClientAccounts}
+                value={oneSidedAccountId}
+                onChange={selectOneSidedAccount}
+                placeholder={t('transaction_account_placeholder')}
+                clearLabel={t('clear_selection')}
+                isRTL={isRTL}
+               />
+              </div>
+
+              <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
+              <input
+               type="text"
+               value={transactionForm.counterParty}
+               onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
+               placeholder={t('adjustment_counter_party_placeholder')}
+               className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+              />
+             </>
+            ) : (
+             <>
+            <label className="mt-4 block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}</label>
             <div className="relative mt-2">
              <input
               type="text"
@@ -1124,42 +1260,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                )}
               </div>
              </>
+             </>
+            )}
 
-            <label className="mt-4 block text-sm font-medium">{t('transaction_amount')}</label>
-            <div className="mt-2 flex gap-2">
-             <input
-              type="text"
-              inputMode="decimal"
-              dir="ltr"
-              value={transactionForm.amount}
-              onChange={(event) => setTransactionForm((current) => ({ ...current, amount: formatAmountInput(event.target.value) }))}
-              className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-              placeholder="0.00"
-              required
-             />
-             <select
-              value={transactionForm.currencyId ?? ''}
-              onChange={(event) =>
-               setTransactionForm((current) => ({
-                ...current,
-                currencyId: event.target.value ? Number(event.target.value) : null,
-               }))
-              }
-              className="w-28 rounded border border-border-strong px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              required
-             >
-              <option value="">{t('transaction_currency_placeholder')}</option>
-              {enabledCurrencies.map((cur) => (
-               <option
-                key={cur.id}
-                value={cur.id}
-               >
-                {cur.code}
-               </option>
-              ))}
-             </select>
-            </div>
-
+            {transactionForm.type !== 'adjustment' || transactionForm.accountFromId ? (
             <div className="mt-4 rounded border border-border bg-surface-2 p-4">
              <h3 className="text-sm font-semibold text-fg-muted">
               {transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}
@@ -1237,7 +1341,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </div>
              </div>
             </div>
+            ) : null}
 
+            {transactionForm.type !== 'adjustment' || transactionForm.accountToId ? (
             <div className="mt-3 rounded border border-border bg-surface-2 p-4">
               <h3 className="text-sm font-semibold text-fg-muted">
                {transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}
@@ -1315,6 +1421,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                </div>
               </div>
              </div>
+            ) : null}
 
             {isExchangeTransaction
              ? (() => {
@@ -1437,19 +1544,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               placeholder={t('transaction_description_placeholder')}
              />
             </div>
-
-            {transactionForm.type === 'adjustment' && (!transactionForm.accountFromId || !transactionForm.accountToId) ? (
-             <>
-              <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
-              <input
-               type="text"
-               value={transactionForm.counterParty}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
-               placeholder={t('adjustment_counter_party_placeholder')}
-               className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-              />
-             </>
-            ) : null}
 
             <div className="mt-3">
              <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">

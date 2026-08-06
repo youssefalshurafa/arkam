@@ -106,7 +106,10 @@ export function DescriptionSuggestField({
   <div className="relative">
    {as === 'textarea' ? <textarea {...sharedProps} rows={rows} /> : <input type="text" {...sharedProps} />}
    {open && suggestions.length > 0 ? (
-    <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
+    // min-w so this stays readable even when the field itself is narrow (e.g. a dense table's
+    // inline row-edit input, sized to fit the column rather than a suggestion's full text) —
+    // w-full still lets it match/exceed that width whenever the field itself is wider.
+    <ul className="absolute z-20 mt-1 max-h-56 w-full min-w-64 overflow-y-auto rounded border border-border bg-surface shadow-lg">
      {suggestions.map((desc, index) => {
       const highlighted = index === highlight;
       const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
