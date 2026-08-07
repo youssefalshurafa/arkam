@@ -427,6 +427,95 @@ async function listSystemClients(app) {
     return result.rows;
 }
 
+// Treasury-only, role-UNfiltered source data — every transaction touching Treasury's
+// account(s), plus Treasury's own client_accounts rows. Deliberately bypasses the `isMember`
+// row filtering that listAllClientAccounts/listTransactions apply, because this feeds
+// getTreasuryBalance's summary-only response in route.ts: the raw rows returned here never
+// reach the client, only the derived per-currency balance number does, so it's safe for a
+// `member` (who can't otherwise see Treasury's activity) to trigger this read.
+async function getTreasuryLedgerData(app) {
+    const { schema } = await getSchemaInfo(app);
+    // Field list mirrors listAllClientAccounts (L333) exactly, so the result is a drop-in
+    // ClientAccount[] for computeClientLedgers with no shape mismatch.
+    const accountsResult = await query(`
+        SELECT
+            ca.id,
+            ca.client_id AS "clientId",
+            c.name AS "clientName",
+            ca.currency_id AS "currencyId",
+            cur.code AS "currencyCode",
+            cur.symbol AS "currencySymbol",
+            ca.starting_balance AS "startingBalance",
+            ca.note AS "note",
+            ca.note_show_in_pdf AS "noteShowInPdf",
+            c.is_system AS "isSystem",
+            c.system_kind AS "systemKind",
+            c.owner_user_id AS "ownerUserId",
+            ca.created_at AS "createdAt"
+        FROM ${schema}.client_accounts ca
+        JOIN ${schema}.clients c ON c.id = ca.client_id
+        JOIN ${schema}.currencies cur ON cur.id = ca.currency_id
+        WHERE c.system_kind = 'treasury'
+    `);
+    // Field list mirrors listTransactions (L752) exactly, minus the isMember filter, scoped to
+    // rows touching a Treasury account instead.
+    const transactionsResult = await query(`
+        SELECT
+            t.id,
+            t.account_from_id AS "accountFromId",
+            COALESCE(c_from.name, '') AS "clientFromName",
+            COALESCE(acur_from.code, '') AS "accountFromCurrencyCode",
+            COALESCE(acur_from.symbol, '') AS "accountFromCurrencySymbol",
+            t.account_to_id AS "accountToId",
+            COALESCE(c_to.name, '') AS "clientToName",
+            COALESCE(acur_to.code, '') AS "accountToCurrencyCode",
+            COALESCE(acur_to.symbol, '') AS "accountToCurrencySymbol",
+            t.currency_id AS "currencyId",
+            cur.code AS "currencyCode",
+            cur.symbol AS "currencySymbol",
+            t.amount,
+            t.type,
+            t.exchange_rate_from AS "exchangeRateFrom",
+            t.commission_from AS "commissionFrom",
+            t.exchange_rate_to AS "exchangeRateTo",
+            t.commission_to AS "commissionTo",
+            CASE WHEN t.exchange_rate_from_reversed THEN 1 ELSE 0 END AS "exchangeRateFromReversed",
+            CASE WHEN t.exchange_rate_to_reversed THEN 1 ELSE 0 END AS "exchangeRateToReversed",
+            t.charges,
+            t.charges_currency_id AS "chargesCurrencyId",
+            chcur.code AS "chargesCurrencyCode",
+            chcur.symbol AS "chargesCurrencySymbol",
+            t.charges_payer AS "chargesPayer",
+            t.charges_exchange_rate AS "chargesExchangeRate",
+            t.charges_description AS "chargesDescription",
+            t.description,
+            COALESCE(t.description_from, '') AS "descriptionFrom",
+            COALESCE(t.description_to, '') AS "descriptionTo",
+            t.exchange_actual_amount AS "exchangeActualAmount",
+            COALESCE(t.archive_note, '') AS "archiveNote",
+            COALESCE(t.counter_party, '') AS "counterParty",
+            CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
+            CASE WHEN t.archive_hidden THEN 1 ELSE 0 END AS "archiveHidden",
+            t.distribution_location_id AS "distributionLocationId",
+            dloc.name AS "distributionLocationName",
+            dloc.kind AS "distributionLocationKind",
+            t.created_at AS "createdAt"
+        FROM ${schema}.transactions t
+        LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
+        LEFT JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
+        LEFT JOIN ${schema}.currencies acur_from ON acur_from.id = ca_from.currency_id
+        LEFT JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
+        LEFT JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
+        LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
+        JOIN ${schema}.currencies cur ON cur.id = t.currency_id
+        LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
+        LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
+        WHERE c_from.system_kind = 'treasury' OR c_to.system_kind = 'treasury'
+        ORDER BY t.created_at ASC
+    `);
+    return { clientAccounts: accountsResult.rows, transactions: transactionsResult.rows };
+}
+
 // Lazily bootstraps the workspace-wide Treasury and one Cashbox per non-viewer member.
 // Safe to call repeatedly (every Treasury-section visit): both upserts are idempotent, so a
 // second call is a cheap no-op / name-refresh rather than a duplicate. `members` is the
@@ -1655,6 +1744,7 @@ module.exports = {
     listClientAccounts,
     createClientAccount,
     listSystemClients,
+    getTreasuryLedgerData,
     ensureTreasuryAndCashboxes,
     ensureSystemAccount,
     updateClientAccountStartingBalance,

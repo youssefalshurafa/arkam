@@ -7,9 +7,10 @@ import { renderIcon } from '@/shared/utils/icons';
 import { panelClassName } from '@/shared/styles';
 import { cashboxOwnerName } from '@/shared/utils/systemAccounts';
 import { accountingApi } from '@/lib/accountingApi';
-import { useSystemClients, useInvalidateSystemClients } from '@/features/treasury/hooks/useSystemClients';
+import { useSystemClients, useInvalidateSystemClients, useTreasuryBalance, useInvalidateTreasuryBalance } from '@/features/treasury/hooks/useSystemClients';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
 import SystemAccountLedgerTable from '@/features/treasury/components/SystemAccountLedgerTable';
+import TreasuryBalanceSummary from '@/features/treasury/components/TreasuryBalanceSummary';
 import SystemEntryForm from '@/features/treasury/components/SystemEntryForm';
 import type { ClientAccount, Currency, Transaction } from '@/shared/types';
 
@@ -59,6 +60,12 @@ export default function TreasurySection({
  const systemClientsQuery = useSystemClients(sessionUserId, workspaceId, treasuryEnabled);
  const invalidateSystemClients = useInvalidateSystemClients(sessionUserId, workspaceId);
  const systemClients = useMemo(() => systemClientsQuery.data ?? [], [systemClientsQuery.data]);
+
+ // Fetched for every role, including a `member` who can't see Treasury's own tab/ledger —
+ // this balance-only summary is what lets it still show at the top of their Cashbox view.
+ const treasuryBalanceQuery = useTreasuryBalance(sessionUserId, workspaceId, treasuryEnabled);
+ const invalidateTreasuryBalance = useInvalidateTreasuryBalance(sessionUserId, workspaceId);
+ const treasuryBalances = useMemo(() => treasuryBalanceQuery.data ?? [], [treasuryBalanceQuery.data]);
 
  // Lazily bootstraps Treasury + one Cashbox per non-viewer member on first visit to this
  // section — safe to repeat (idempotent server-side), but only needs to fire once per mount.
@@ -160,6 +167,7 @@ export default function TreasurySection({
    <div className="flex flex-col gap-6">
     {selected ? (
      <>
+      {selected.systemKind === 'cashbox' ? <TreasuryBalanceSummary balances={treasuryBalances} /> : null}
       <SystemAccountLedgerTable ledgers={ledgers} />
       {!isViewer ? (
        <SystemEntryForm
@@ -174,6 +182,7 @@ export default function TreasurySection({
         onSubmitted={() => {
          invalidateWorkspace();
          void invalidateSystemClients();
+         void invalidateTreasuryBalance();
         }}
        />
       ) : null}

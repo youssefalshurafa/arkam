@@ -99,6 +99,17 @@ export type SystemClient = {
  ownerName: string | null;
 };
 
+// Treasury's cash-on-hand, per currency it holds an account in — deliberately balance-only
+// (no entries/counterparty data), so it's safe to show to every role including a `member`,
+// who can't otherwise see Treasury's own ledger. See getTreasuryBalance in route.ts.
+export type TreasuryBalanceEntry = {
+ currencyId: number | null;
+ currencyCode: string;
+ currencyName: string;
+ currencySymbol: string;
+ balance: number;
+};
+
 export type Currency = {
  id: number;
  code: string;

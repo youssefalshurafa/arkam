@@ -6,7 +6,7 @@ import { authOptions } from '@/server/auth-options';
 import { AI_MODEL, AI_THINKING_CONFIG } from '@/server/ai-config';
 import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
 import { computeAccountBalances } from '@/shared/utils/accountBalances';
-import type { Client, ClientAccount, Transaction } from '@/shared/types';
+import type { Client, ClientAccount, Currency, Transaction } from '@/shared/types';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -34,6 +34,22 @@ const LANGUAGE_NAMES: Record<string, string> = {
  ar: 'Arabic',
  fr: 'French',
 };
+
+// A reply here can be read aloud by speech synthesis (see AiChatPanel's voice-question flow), so
+// a currency code like "MAD" — which the client's own getLocalizedCurrencyName equivalent avoids
+// in the ledger UI (src/app/[[...section]]/page.tsx) — must not reach the model as the only way
+// to name a currency. Same Intl.DisplayNames approach, run server-side per response language.
+function getLocalizedCurrencyName(code: string, fallbackName: string, locale: string): string {
+ try {
+  if (typeof Intl.DisplayNames === 'function') {
+   const localized = new Intl.DisplayNames([locale], { type: 'currency' }).of(code);
+   if (localized) return localized;
+  }
+ } catch {
+  // ignore and fall back to the stored name
+ }
+ return fallbackName || code;
+}
 
 function createAppLike(workspaceId: string, userId: string, role: string) {
  return {
@@ -87,13 +103,14 @@ const LIST_TRANSACTIONS_TOOL = {
  },
 };
 
-type BalanceRow = { clientName: string; currencyCode: string; balance: number };
-type OrganizationBalanceRow = { organizationName: string; currencyCode: string; balance: number };
+type BalanceRow = { clientName: string; currencyCode: string; currencyName: string; balance: number };
+type OrganizationBalanceRow = { organizationName: string; currencyCode: string; currencyName: string; balance: number };
 type TransactionRow = {
  date: string;
  description: string;
  amount: number;
  currencyCode: string;
+ currencyName: string;
  clientFromName: string;
  clientToName: string;
  type: string;
@@ -111,18 +128,23 @@ function transactionHasPendingRate(tx: Transaction): boolean {
  return fromPending || toPending;
 }
 
-function buildBalanceRows(clientAccounts: ClientAccount[], transactions: Transaction[]): BalanceRow[] {
+function buildBalanceRows(clientAccounts: ClientAccount[], transactions: Transaction[], currencyName: (code: string) => string): BalanceRow[] {
  const realAccounts = filterRealClientAccounts(clientAccounts);
  const balances = computeAccountBalances({ clientAccounts: realAccounts, transactions });
  return realAccounts
-  .map((account) => ({ clientName: account.clientName, currencyCode: account.currencyCode, balance: balances.get(account.id) ?? 0 }))
+  .map((account) => ({
+   clientName: account.clientName,
+   currencyCode: account.currencyCode,
+   currencyName: currencyName(account.currencyCode),
+   balance: balances.get(account.id) ?? 0,
+  }))
   .slice(0, MAX_BALANCE_ROWS);
 }
 
 // Real, exact aggregation done here in JS — never left for the model to sum itself. Mirrors
 // the same excludeFromBalance rule the Organizations page already applies (Client type comment,
 // src/shared/types.ts) so this answers consistently with what the UI shows.
-function buildOrganizationBalanceRows(clientAccounts: ClientAccount[], transactions: Transaction[], clients: Client[]): OrganizationBalanceRow[] {
+function buildOrganizationBalanceRows(clientAccounts: ClientAccount[], transactions: Transaction[], clients: Client[], currencyName: (code: string) => string): OrganizationBalanceRow[] {
  const realAccounts = filterRealClientAccounts(clientAccounts);
  const balances = computeAccountBalances({ clientAccounts: realAccounts, transactions });
  const clientById = new Map(clients.map((c) => [c.id, c]));
@@ -144,14 +166,18 @@ function buildOrganizationBalanceRows(clientAccounts: ClientAccount[], transacti
  const rows: OrganizationBalanceRow[] = [];
  for (const [organizationName, byCurrency] of totals) {
   for (const [currencyCode, balance] of byCurrency) {
-   rows.push({ organizationName, currencyCode, balance });
+   rows.push({ organizationName, currencyCode, currencyName: currencyName(currencyCode), balance });
   }
  }
  return rows.slice(0, MAX_BALANCE_ROWS);
 }
 
 
-function listRecentTransactions(transactions: Transaction[], args: { clientName?: string; currencyCode?: string; limit?: number; onlyPendingRate?: boolean }): TransactionRow[] {
+function listRecentTransactions(
+ transactions: Transaction[],
+ args: { clientName?: string; currencyCode?: string; limit?: number; onlyPendingRate?: boolean },
+ currencyName: (code: string) => string,
+): TransactionRow[] {
  const nameFilter = args.clientName?.trim().toLowerCase();
  const currencyFilter = args.currencyCode?.trim().toUpperCase();
  const limit = Math.max(1, Math.min(MAX_TRANSACTION_ROWS, Math.floor(args.limit ?? 20)));
@@ -172,6 +198,7 @@ function listRecentTransactions(transactions: Transaction[], args: { clientName?
    description: tx.description || '',
    amount: tx.amount,
    currencyCode: tx.currencyCode,
+   currencyName: currencyName(tx.currencyCode),
    clientFromName: tx.clientFromName || '',
    clientToName: tx.clientToName || '',
    type: tx.type,
@@ -194,8 +221,11 @@ function buildSystemInstruction(languageName: string): string {
   'any returned row, or could equally refer to more than one; in that case say so plainly rather ' +
   'than guessing which one was meant or answering about the wrong one. If you are unable to get a ' +
   'real answer (e.g. after retrying), say briefly that you could not ' +
-  'find that information, rather than describing an internal error. Report currency amounts with ' +
-  'their currency code (e.g. "1,000 EUR"). When stating a balance, NEVER describe it as ' +
+  'find that information, rather than describing an internal error. Every tool result gives each ' +
+  'amount both a currencyCode and a currencyName already localized into the response language ' +
+  '(e.g. code "MAD" has currencyName "درهم مغربي" in Arabic) — always speak the currencyName, ' +
+  'never the currencyCode, since your answer may be read aloud by speech synthesis and a bare ' +
+  'code is not a pronounceable word (e.g. say "1,000 درهم مغربي", not "1,000 MAD"). When stating a balance, NEVER describe it as ' +
   '"positive"/"negative" (or a translation of those words) — the balance tools return a signed ' +
   'number only so you can tell which direction it goes, not as bookkeeping language to repeat. ' +
   'Instead say whether it is a debit (balance > 0, the client/organization owes the workspace ' +
@@ -249,9 +279,17 @@ export async function POST(request: NextRequest) {
  const appLike = createAppLike(workspaceId, session.user.id, role);
 
  try {
-  const [clientAccounts, transactions, clients] = await Promise.all([db.listAllClientAccounts(appLike), db.listTransactions(appLike), db.listClients(appLike)]);
+  const [clientAccounts, transactions, clients, currencies] = await Promise.all([
+   db.listAllClientAccounts(appLike),
+   db.listTransactions(appLike),
+   db.listClients(appLike),
+   db.listCurrencies(appLike),
+  ]);
 
-  const languageName = LANGUAGE_NAMES[body.language ?? 'en'] ?? LANGUAGE_NAMES.en;
+  const locale = body.language ?? 'en';
+  const languageName = LANGUAGE_NAMES[locale] ?? LANGUAGE_NAMES.en;
+  const currencyNameByCode = new Map((currencies as Currency[]).map((c) => [c.code, c.name]));
+  const currencyName = (code: string) => getLocalizedCurrencyName(code, currencyNameByCode.get(code) ?? code, locale);
   const client = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   const tools = [{ functionDeclarations: [GET_BALANCES_TOOL, GET_ORGANIZATION_BALANCES_TOOL, LIST_TRANSACTIONS_TOOL] }];
 
@@ -295,12 +333,12 @@ export async function POST(request: NextRequest) {
    const responseParts = calls.map((call) => {
     let result: unknown;
     if (call.name === 'get_client_balances') {
-     result = buildBalanceRows(clientAccounts as ClientAccount[], transactions as Transaction[]);
+     result = buildBalanceRows(clientAccounts as ClientAccount[], transactions as Transaction[], currencyName);
     } else if (call.name === 'get_organization_balances') {
-     result = buildOrganizationBalanceRows(clientAccounts as ClientAccount[], transactions as Transaction[], clients as Client[]);
+     result = buildOrganizationBalanceRows(clientAccounts as ClientAccount[], transactions as Transaction[], clients as Client[], currencyName);
     } else if (call.name === 'list_recent_transactions') {
      const args = (call.args ?? {}) as { clientName?: string; currencyCode?: string; limit?: number; onlyPendingRate?: boolean };
-     result = listRecentTransactions(transactions as Transaction[], args);
+     result = listRecentTransactions(transactions as Transaction[], args, currencyName);
     } else {
      result = { error: `Unknown tool: ${call.name}` };
     }

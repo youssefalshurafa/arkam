@@ -4,6 +4,8 @@ import path from 'node:path';
 const db = require('@/server/db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
+import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
+import type { ClientAccount, Transaction } from '@/shared/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +22,10 @@ const readOnlyActions = new Set([
  'listIgnoredAnomalies',
  'listHarvestRates',
  'listSystemClients',
+ // Treasury's balance summary, per currency — readable by every role including a `member`
+ // (see getTreasuryBalance below), unlike listSystemClients/listAllClientAccounts/
+ // listTransactions, which strip Treasury's own activity out of a member's view.
+ 'getTreasuryBalance',
  'exportWorkspaceData',
  // Backup marker: reads + the post-download stamp. Allowed for anyone who can
  // export (viewers included), so it stays out of the viewer-blocked writeActions.
@@ -268,6 +274,43 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
    case 'listSystemClients':
     return NextResponse.json(await db.listSystemClients(appLike));
+   case 'getTreasuryBalance': {
+    // Deliberately summary-only: computes via the same computeClientLedgers math the
+    // Treasury UI itself uses (avoids re-deriving the charge/commission/exchange-rate
+    // formula, which has twice been a source of sign bugs in this feature), but returns
+    // only a per-currency balance number — never the underlying ledger entries — so a
+    // `member` (who can't otherwise see Treasury's activity) can safely call this.
+    const { clientAccounts, transactions } = (await db.getTreasuryLedgerData(appLike)) as {
+     clientAccounts: ClientAccount[];
+     transactions: Transaction[];
+    };
+    const treasuryClientId = clientAccounts[0]?.clientId ?? null;
+    const ledgers =
+     treasuryClientId == null
+      ? []
+      : computeClientLedgers({
+         selectedClientForLedger: { id: treasuryClientId },
+         section: 'treasury',
+         pdfExportModal: null,
+         enabled: true,
+         clientAccounts,
+         transactions,
+         reconciliations: [],
+         clientAccountMap: new Map(),
+         currencyMap: new Map(),
+        });
+    return NextResponse.json(
+     ledgers.map((ledger) => ({
+      currencyId: clientAccounts.find((a) => a.id === ledger.accountId)?.currencyId ?? null,
+      currencyCode: ledger.currencyCode,
+      currencyName: ledger.currencyName,
+      currencySymbol: ledger.currencySymbol,
+      // Same render-time negation as SystemAccountLedgerTable.tsx: computeClientLedgers'
+      // Sender-increases/Receiver-decreases math is backwards for a cash/asset account.
+      balance: -ledger.currentBalance,
+     })),
+    );
+   }
    case 'ensureTreasuryAndCashboxes': {
     const members = await authDb.listWorkspaceMembers({ workspaceId, userId });
     return NextResponse.json(await db.ensureTreasuryAndCashboxes(appLike, { members }));

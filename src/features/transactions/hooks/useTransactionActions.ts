@@ -131,6 +131,7 @@ export function useTransactionActions({
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
+  transactions,
   clientAccountMap,
   lockPastEditsEnabled,
  });
@@ -375,7 +376,7 @@ async function onDeleteAllTransactions() {
  }
 }
 
-async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
+async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?: () => void) {
  event.preventDefault();
  // Guard against a rapid double-submit creating a duplicate (button disabled may not have
  // re-rendered yet). Reset in the finally of whichever create branch runs below.
@@ -596,6 +597,9 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>) {
   setError('');
   showToast(t('toast_transaction_created'));
   void loadData();
+  // Only reached on a real create success — the "save & close" ledger-modal button passes
+  // its close callback here so it fires after the row is actually saved, not on click.
+  onCreated?.();
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_save'));
  } finally {

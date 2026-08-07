@@ -2,7 +2,7 @@
 
 import { useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { confirmDialog } from '@/components/ui/AppDialog';
+import { confirmDialog, promptDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
@@ -102,6 +102,7 @@ export function useLedgerActions({
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
+  transactions,
   clientAccountMap,
   lockPastEditsEnabled,
  });
@@ -917,11 +918,35 @@ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: nu
   return;
  }
  const balance = entry.runningBalance;
- const amount = Math.abs(balance);
- if (amount <= 0) return;
+ const maxAmount = Math.abs(balance);
+ if (maxAmount <= 0) return;
 
  const account = clientAccounts.find((a) => a.id === ledgerAccountId);
  if (!account) return;
+ const currencyLabel = account.currencySymbol || account.currencyCode;
+
+ // The user picks how much of the running balance at this row to write off — not necessarily
+ // all of it (e.g. a small reconciliation difference with another accountant). Capped at the
+ // balance itself so a write-off can only move the balance toward zero, never past it. Defaults
+ // to empty/0 rather than the full balance so it doesn't read as "zero this out" by default.
+ const input = await promptDialog({
+  title: t('write_off_row_confirm_title'),
+  message: t('write_off_row_prompt_message')
+   .replace('{balance}', balance.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
+   .replace('{currency}', currencyLabel),
+  defaultValue: '0',
+  placeholder: maxAmount.toString(),
+ });
+ if (input == null) return;
+ const amount = parseFloat(input);
+ if (!Number.isFinite(amount) || amount <= 0) {
+  setError(t('write_off_invalid_amount'));
+  return;
+ }
+ if (amount > maxAmount + 1e-9) {
+  setError(t('write_off_amount_exceeds').replace('{max}', maxAmount.toLocaleString(numLocale, { maximumFractionDigits: 2 })).replace('{currency}', currencyLabel));
+  return;
+ }
 
  // Time-place the write-off strictly after the target row (and before the next one when
  // there's room), so it sorts right after this row in the ledger. Must never land on the
@@ -937,17 +962,6 @@ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: nu
   if (nextMs > createdAtMs) createdAtMs = targetMs + Math.min(1000, Math.floor((nextMs - targetMs) / 2));
  }
  const createdAt = new Date(createdAtMs).toISOString();
-
- const confirmed = await confirmDialog({
-  title: t('write_off_confirm_title'),
-  message: t('write_off_row_confirm_message')
-   .replace('{amount}', amount.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
-   .replace('{currency}', account.currencySymbol || account.currencyCode)
-   .replace('{balance}', balance.toLocaleString(numLocale, { maximumFractionDigits: 2 })),
-  confirmText: t('write_off_confirm_button'),
-  tone: 'danger',
- });
- if (!confirmed) return;
 
  // Reconciliation guard: inserting a row at/before a lock line rewrites reconciled history.
  if (!(await confirmIfLocked([ledgerAccountId], createdAt, NEW_ROW_REF_ID))) return;
@@ -974,7 +988,7 @@ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: nu
    chargesPayer: '',
    chargesExchangeRate: 1,
    chargesDescription: '',
-   description: t('write_off_description'),
+   description: t('write_off_row_description'),
    descriptionFrom: '',
    descriptionTo: '',
    exchangeActualAmount: null,
@@ -1026,20 +1040,18 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  });
 
  // Reconciliation guard: the reflow below rewrites createdAt for every row in the date group —
- // not just the ones dragged — so it can only be a real reordering, never a real DATE change,
- // for a bystander row. A bystander's membership "at or before" a (now-frozen) lock boundary
- // never actually changes: its relative order among every OTHER bystander is preserved verbatim
- // by the reflow, only the explicitly dragged rows can cross a boundary. So only dragged rows
- // need checking — checking bystanders too would falsely warn whenever a same-day reorder
- // elsewhere merely reshuffles a reconciled row's cosmetic timestamp without it actually moving
- // relative to anything. Each dragged transaction touches TWO accounts (this ledger's own
- // account and its counterparty), either of which may independently be reconciled —
- // transactionEditImpact already checks both.
+ // not just the ones dragged — and each of those transactions touches TWO accounts (this
+ // ledger's own account and its counterparty), either of which may independently be reconciled.
+ // Re-time each affected transaction through the same balance-aware check a direct edit uses
+ // (transactionEditImpact: old createdAt vs new, evaluated against every account it touches).
+ // This must check every reflowed row, not just the explicitly dragged ones: when the dragged
+ // row is itself a reconciliation anchor (or lands next to one), a same-day "bystander" that
+ // wasn't dragged can still cross the live-resolved lock boundary as a byproduct of the reflow —
+ // checking only `dragSet` misses that case entirely.
  let dragLockHit: { accountId: number; boundary: LockBoundary } | null = null;
- for (const key of dragSet) {
-  const newCreatedAt = newTimes.get(key);
+ for (const [key, newCreatedAt] of newTimes) {
   const entry = entryMap.get(key);
-  if (!entry || !newCreatedAt) continue;
+  if (!entry) continue;
   if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
   const tx = transactions.find((t) => t.id === entry.transactionId);
   if (!tx) continue;

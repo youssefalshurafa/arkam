@@ -147,7 +147,7 @@ type TransactionsSectionProps = {
  onToggleSelectAllTransactions: () => void;
  onToggleTransactionSelection: (transactionId: number) => void;
  onTransactionRowDrop: (draggedIds: number[], targetId: number, dropHalf: 'top' | 'bottom') => void;
- onTransactionSubmit: (event: FormEvent<HTMLFormElement>) => void;
+ onTransactionSubmit: (event: FormEvent<HTMLFormElement>, onCreated?: () => void) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openTransactionExportModal: () => void;
  openTransactionTableSettingsModal: () => void;

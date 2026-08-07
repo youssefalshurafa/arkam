@@ -22,7 +22,6 @@ import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } 
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
-import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch } from '@/features/ledger/utils/ledgerEntries';
@@ -1799,7 +1798,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       entry.reconciledMark
                        ? { key: 'unreconcile', label: t('reconcile_remove_action'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
                        : { key: 'reconcile', label: t('reconcile_action'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
-                      ...(entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= SMALL_BALANCE_THRESHOLD
+                      ...(entry.runningBalance !== 0
                        ? [{ key: 'writeoff', label: t('write_off_row_action'), onSelect: () => onWriteOffLedgerRow(entry, ledger.accountId) }]
                        : []),
                       ...(selectedClientForLedger?.distributionCommissionEnabled && hasHighlightsForAccount
@@ -3168,6 +3167,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
 
                       if (!isEditingThisRow && entry.charges > 0 && entry.chargeAffectsThisAccount) {
                        const chargesHighlightColor = highlightedLedgerRows.get(chargesRowKey);
+                       // Color reflects whether the charge is in this account's favor
+                       // (isChargesPayerThisAccount: they bear it = red, they don't = green). The
+                       // +/- sign is a different question — whether the charge was added on top of
+                       // or subtracted from the stated amount to reach the net figure — which is
+                       // negated on the incoming ('to') side relative to the outgoing ('from') side
+                       // because of how chargeLedgerEffect folds into the two sides' net-change
+                       // formulas.
+                       const chargeAddsToAmount = entry.direction === 'outgoing' ? !entry.isChargesPayerThisAccount : entry.isChargesPayerThisAccount;
                        return (
                         <tr
                          key={`${ledger.accountId}-${entry.transactionId}-charges-view`}
@@ -3180,7 +3187,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                          >
                           <div className={`flex items-center gap-1.5 text-xs font-semibold leading-none ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
                            <span>
-                            {entry.isChargesPayerThisAccount ? '−' : '+'}
+                            {chargeAddsToAmount ? '+' : '−'}
                             {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                             {renderLedgerCurrencySuffix('', entry.chargesCurrencyCode ?? '')}
                            </span>
