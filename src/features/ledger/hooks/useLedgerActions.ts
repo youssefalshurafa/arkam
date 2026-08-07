@@ -927,13 +927,14 @@ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: nu
 
  // The user picks how much of the running balance at this row to write off — not necessarily
  // all of it (e.g. a small reconciliation difference with another accountant). Capped at the
- // balance itself so a write-off can only move the balance toward zero, never past it.
+ // balance itself so a write-off can only move the balance toward zero, never past it. Defaults
+ // to empty/0 rather than the full balance so it doesn't read as "zero this out" by default.
  const input = await promptDialog({
-  title: t('write_off_confirm_title'),
+  title: t('write_off_row_confirm_title'),
   message: t('write_off_row_prompt_message')
    .replace('{balance}', balance.toLocaleString(numLocale, { maximumFractionDigits: 2 }))
    .replace('{currency}', currencyLabel),
-  defaultValue: maxAmount.toLocaleString('en-US', { maximumFractionDigits: 2, useGrouping: false }),
+  defaultValue: '0',
   placeholder: maxAmount.toString(),
  });
  if (input == null) return;
@@ -987,7 +988,7 @@ async function onWriteOffLedgerRow(entry: ClientLedgerEntry, ledgerAccountId: nu
    chargesPayer: '',
    chargesExchangeRate: 1,
    chargesDescription: '',
-   description: t('write_off_description'),
+   description: t('write_off_row_description'),
    descriptionFrom: '',
    descriptionTo: '',
    exchangeActualAmount: null,
