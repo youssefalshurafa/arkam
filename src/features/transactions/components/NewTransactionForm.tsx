@@ -7,6 +7,7 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getStoredExchangeSettings } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
+import { parseChargesPayer, combineChargesPayer, type ChargesPayerParty } from '@/shared/utils/commission';
 import { ltrIsolate } from '@/shared/utils/format';
 import { localDateKey } from '@/shared/utils/date';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
@@ -32,10 +33,15 @@ type NewTransactionFormProps = {
  // section value behaves identically, so the ledger modal just passes 'client-ledger'.
  section: Section;
  lockPastEditsEnabled: boolean;
- onTransactionSubmit: (event: FormEvent<HTMLFormElement>) => void;
+ onTransactionSubmit: (event: FormEvent<HTMLFormElement>, onCreated?: () => void) => void;
  // Only needed by TransactionsSection's own header "save" icon button, which submits the form
  // via ref instead of scrolling down to the submit button. The ledger modal has no such shortcut.
  formRef?: RefObject<HTMLFormElement | null>;
+ // Ledger-modal only: when set, a new (non-edit) save offers two submit buttons — one keeps the
+ // form open for another entry (the existing default behavior), the other calls this to close
+ // the modal after a successful save. Omitted elsewhere (Transactions page), which keeps the
+ // single always-stays-open button unchanged.
+ onSaveAndClose?: () => void;
 };
 
 /**
@@ -45,7 +51,7 @@ type NewTransactionFormProps = {
  * modal — its data lives entirely in useTransactionsStore (transactionForm and friends), so any
  * mount of this component reads/writes the same in-progress draft.
  */
-export default function NewTransactionForm({ clientAccounts, clientAccountMap, enabledCurrencies, currencyMap, transactions, section, lockPastEditsEnabled, onTransactionSubmit, formRef }: NewTransactionFormProps) {
+export default function NewTransactionForm({ clientAccounts, clientAccountMap, enabledCurrencies, currencyMap, transactions, section, lockPastEditsEnabled, onTransactionSubmit, formRef, onSaveAndClose }: NewTransactionFormProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
 
@@ -184,6 +190,36 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
   setTxToExpandedClient(null);
  };
 
+ // Swaps the two parties: everything that's tracked per-side (the account, its rate,
+ // commission, description, rate-reversed flag, and whichever end of chargesPayer points at
+ // "from"/"to") moves together so the swap reads as "these two traded places", not just the
+ // account picks. Search/dropdown state is transient UI, not data, so it's cleared instead of
+ // swapped.
+ const swapFromToParties = () => {
+  const flipParty = (party: ChargesPayerParty): ChargesPayerParty => (party === 'from' ? 'to' : party === 'to' ? 'from' : party);
+  setTransactionForm((current) => {
+   const { payer, payee } = parseChargesPayer(current.chargesPayer);
+   return {
+    ...current,
+    accountFromId: current.accountToId,
+    accountToId: current.accountFromId,
+    exchangeRateFrom: current.exchangeRateTo,
+    exchangeRateTo: current.exchangeRateFrom,
+    commissionFrom: current.commissionTo,
+    commissionTo: current.commissionFrom,
+    descriptionFrom: current.descriptionTo,
+    descriptionTo: current.descriptionFrom,
+    chargesPayer: combineChargesPayer(flipParty(payer), flipParty(payee)),
+   };
+  });
+  setTxFromRateReversed(txToRateReversed);
+  setTxToRateReversed(txFromRateReversed);
+  setTxFromQuery('');
+  setTxToQuery('');
+  setTxFromOpen(false);
+  setTxToOpen(false);
+ };
+
  // "Adjustment" transactions are one-sided: exactly one of accountFromId/accountToId holds the
  // picked client account (the other stays null, meaning "the counterparty text field instead").
  // Direction is derived from which side is populated rather than tracked as separate state,
@@ -238,10 +274,21 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
   }
  };
 
+ // Which button triggered the submit — read from the native SubmitEvent's `submitter` so the
+ // two ledger-modal buttons (see below) can share one <form onSubmit> instead of needing
+ // separate handlers. Only the "close" button's value carries `onSaveAndClose` through; the
+ // "keep open" button (and the Transactions page's single button) passes nothing, so the
+ // handler falls back to its existing "stay open" behavior.
+ const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+  const closeAfter = onSaveAndClose && submitter?.value === 'close' ? onSaveAndClose : undefined;
+  onTransactionSubmit(event, closeAfter);
+ };
+
  return (
            <form
             ref={formRef}
-            onSubmit={onTransactionSubmit}
+            onSubmit={handleFormSubmit}
             className="mt-5 max-w-md"
            >
             {aiFeatureAccess ? (
@@ -576,8 +623,35 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
              )}
             </div>
 
+            <div className="mt-2 -mb-2 flex justify-center">
+             <button
+              type="button"
+              onClick={swapFromToParties}
+              title={t('swap_parties_action')}
+              aria-label={t('swap_parties_action')}
+              className="inline-flex items-center justify-center rounded p-0 text-fg-faint transition hover:bg-surface-hover hover:text-accent"
+             >
+              <svg
+               width="12"
+               height="12"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="2.5"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               aria-hidden
+              >
+               <path d="M8 3v18" />
+               <path d="M4 7l4-4 4 4" />
+               <path d="M16 21V3" />
+               <path d="M12 17l4 4 4-4" />
+              </svg>
+             </button>
+            </div>
+
             <>
-              <label className="mt-4 block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}</label>
+              <label className="block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}</label>
               <div className="relative mt-2">
                <input
                 type="text"
@@ -1057,13 +1131,34 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
              ) : null}
             </div>
 
-            <button
-             type="submit"
-             disabled={isSubmittingTransaction}
-             className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-             {editingTransaction ? t('update_transaction') : t('save_transaction')}
-            </button>
+            {onSaveAndClose && !editingTransaction ? (
+             <div className="mt-6 flex gap-2">
+              <button
+               type="submit"
+               value="new"
+               disabled={isSubmittingTransaction}
+               className="flex-1 rounded border border-border-strong bg-surface px-4 py-2 font-medium text-fg transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+               {t('save_and_add_another')}
+              </button>
+              <button
+               type="submit"
+               value="close"
+               disabled={isSubmittingTransaction}
+               className="flex-1 rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+               {t('save_and_close')}
+              </button>
+             </div>
+            ) : (
+             <button
+              type="submit"
+              disabled={isSubmittingTransaction}
+              className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+             >
+              {editingTransaction ? t('update_transaction') : t('save_transaction')}
+             </button>
+            )}
            </form>
 
  );

@@ -16,7 +16,7 @@ type NewTransactionModalProps = {
  currencyMap: Map<number, Currency>;
  transactions: Transaction[];
  lockPastEditsEnabled: boolean;
- onTransactionSubmit: (event: FormEvent<HTMLFormElement>) => void;
+ onTransactionSubmit: (event: FormEvent<HTMLFormElement>, onCreated?: () => void) => void;
  closeNewTransactionModal: () => void;
 };
 
@@ -25,9 +25,9 @@ type NewTransactionModalProps = {
 // exchange/transfer doesn't require leaving the ledger. Unlike OneSidedTransactionModal, this
 // doesn't keep its own copy of the form data: NewTransactionForm reads/writes
 // useTransactionsStore directly, and openNewTransactionModal (useLedgerActions.ts) seeds that
-// shared draft with this account pre-picked before opening. Stays open after a successful
-// submit — same "add several in a row" behavior as the Transactions page's inline form — closed
-// only via the × button.
+// shared draft with this account pre-picked before opening. Offers two submit buttons (via
+// `onSaveAndClose`): one keeps the modal open for another entry (same "add several in a row"
+// behavior as the Transactions page's inline form), the other closes it — plus the × button.
 export default function NewTransactionModal({
  selectedClientLedgers,
  selectedClientForLedger,
@@ -83,6 +83,7 @@ export default function NewTransactionModal({
      section="client-ledger"
      lockPastEditsEnabled={lockPastEditsEnabled}
      onTransactionSubmit={onTransactionSubmit}
+     onSaveAndClose={closeNewTransactionModal}
     />
    </div>
   </div>
