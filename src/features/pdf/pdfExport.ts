@@ -328,8 +328,14 @@ export function generateLedgerHtml(
     cell: (e) => {
      const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
      if (e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
+     // Color reflects whether the charge is in this account's favor (isChargesPayerThisAccount:
+     // they bear it = red, they don't = green). The +/- sign is a different question — whether
+     // the charge was added on top of or subtracted from the stated amount to reach the net
+     // figure — which is negated on the incoming ('to') side relative to the outgoing ('from')
+     // side because of how chargeLedgerEffect folds into the two sides' net-change formulas.
      const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
-     const sign = e.isChargesPayerThisAccount ? '−' : '+';
+     const chargeAddsToAmount = e.direction === 'outgoing' ? !e.isChargesPayerThisAccount : e.isChargesPayerThisAccount;
+     const sign = chargeAddsToAmount ? '+' : '−';
      const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
      const desc = e.chargesDescription ? `<span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
      return `${base}<div class="charges-line"><span class="${cls}">${sign}${val}</span>${desc}</div>`;
