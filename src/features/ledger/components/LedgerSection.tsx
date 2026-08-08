@@ -2996,32 +2996,38 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}
+                              className={`whitespace-nowrap px-4 py-3 font-semibold ${(entry.reconciledMark ? entry.reconciledMark.balance : entry.runningBalance) >= 0 ? 'text-good-text' : 'text-bad-text'}`}
                              >
-                              {ledgerSumMode && !draft ? (
-                               (() => {
-                                const sumKey = `${rowKey}:runningBalance`;
-                                const inSum = ledgerSumSelection.has(sumKey);
-                                return (
-                                 <button
-                                  type="button"
-                                  onClick={() => toggleLedgerSumEntry(sumKey)}
-                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
-                                 >
-                                  {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                  {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                                 </button>
-                                );
-                               })()
-                              ) : (
-                               <>
-                                {entry.runningBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                                {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
-                               </>
-                              )}
+                              {(() => {
+                               // A reconciled row shows its FROZEN balance, not the live running
+                               // total — the whole point of a reconciliation is a number that
+                               // never drifts, even if unrelated rows get inserted before it later.
+                               const displayBalance = entry.reconciledMark ? entry.reconciledMark.balance : entry.runningBalance;
+                               return ledgerSumMode && !draft ? (
+                                (() => {
+                                 const sumKey = `${rowKey}:runningBalance`;
+                                 const inSum = ledgerSumSelection.has(sumKey);
+                                 return (
+                                  <button
+                                   type="button"
+                                   onClick={() => toggleLedgerSumEntry(sumKey)}
+                                   className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
+                                  >
+                                   {displayBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                   {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                  </button>
+                                 );
+                                })()
+                               ) : (
+                                <>
+                                 {displayBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                                 {renderLedgerCurrencySuffix(ledger.currencySymbol, ledger.currencyCode)}
+                                </>
+                               );
+                              })()}
                               {entry.reconciledMark ? (
                                <span
-                                title={entry.reconciledMark.note || undefined}
+                                title={`${t('reconcile_badge_tooltip', { balance: `${entry.reconciledMark.balance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}${ledger.currencySymbol}` })}${entry.reconciledMark.note ? ` — ${entry.reconciledMark.note}` : ''}`}
                                 className="ms-2 inline-flex items-center gap-1 rounded-full bg-good-bg px-2 py-0.5 text-[10px] font-semibold text-good-text align-middle"
                                >
                                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

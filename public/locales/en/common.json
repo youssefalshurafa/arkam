@@ -664,6 +664,7 @@
  "client_reconciled_mark": "Last transaction reconciled",
  "reconcile_remove_action": "Remove reconciliation",
  "reconcile_badge": "Reconciled",
+ "reconcile_badge_tooltip": "Reconciled at {{balance}}",
  "ledger_balance_brought_forward": "Brought forward",
  "reconcile_remove_confirm": "Remove this reconciliation mark? The lock protecting earlier rows will be lifted.",
  "reconcile_remove": "Remove",

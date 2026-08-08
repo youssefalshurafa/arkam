@@ -666,6 +666,7 @@
  "client_reconciled_mark": "آخر معاملة مُسوَّاة",
  "reconcile_remove_action": "إزالة التسوية",
  "reconcile_badge": "مُسوَّى",
+ "reconcile_badge_tooltip": "تمت التسوية عند {{balance}}",
  "ledger_balance_brought_forward": "الرصيد المرحّل من الصفحة السابقة",
  "reconcile_remove_confirm": "إزالة علامة التسوية؟ سيتم رفع القفل الذي يحمي الصفوف السابقة.",
  "reconcile_remove": "إزالة",
