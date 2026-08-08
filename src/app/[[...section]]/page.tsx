@@ -1852,7 +1852,6 @@ function AuthenticatedHome() {
    onToggleLedgerEntrySelection,
    onDeleteSelectedLedgerEntries,
    onEditSelectedLedgerEntries,
-   onWriteOffLedgerRow,
    onLedgerRowDrop,
    onExportLedgerPdf,
    onExportLedgerExcel,
@@ -2429,7 +2428,6 @@ function AuthenticatedHome() {
          onReconcileLedgerEntry={onReconcileLedgerEntry}
          onRemoveReconciliation={onRemoveReconciliation}
          onIgnoreAnomaly={onIgnoreAnomaly}
-         onWriteOffLedgerRow={onWriteOffLedgerRow}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditSelectedLedgerEntries={onEditSelectedLedgerEntries}
          onEditAllLedger={onEditAllLedger}

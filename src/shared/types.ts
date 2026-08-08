@@ -346,6 +346,11 @@ export type Reconciliation = {
  anchorKind: 'transaction';
  anchorRefId: number;
  anchorCreatedAt: string;
+ // Fixed, immutable set of transaction ids that were at-or-before the anchor, captured once
+ // at creation time — makes the lock independent of any row's live position (see
+ // reconciliation.ts). Null on reconciliations created before this field existed; those fall
+ // back to the older live-position resolution until lazily backfilled.
+ lockedRefIds: number[] | null;
  balance: number;
  note: string;
  createdAt: string;

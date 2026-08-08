@@ -225,6 +225,8 @@ export const accountingApi = {
  listReconciliations: () => request<unknown[]>({ action: 'listReconciliations' }),
  createReconciliation: (payload: unknown) => request<{ id: number }>({ action: 'createReconciliation', payload }),
  deleteReconciliation: (id: number) => request<{ ok: true }>({ action: 'deleteReconciliation', payload: id }),
+ setReconciliationLockedRefIds: (payload: { id: number; lockedRefIds: number[] }) =>
+  request<{ ok: true }>({ action: 'setReconciliationLockedRefIds', payload }),
  listIgnoredAnomalies: () => request<unknown[]>({ action: 'listIgnoredAnomalies' }),
  createIgnoredAnomaly: (payload: unknown) => request<{ id: number | null }>({ action: 'createIgnoredAnomaly', payload }),
  deleteIgnoredAnomaly: (id: number) => request<{ ok: true }>({ action: 'deleteIgnoredAnomaly', payload: id }),
