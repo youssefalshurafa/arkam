@@ -103,7 +103,18 @@ export function useReconciliationLocks({ reconciliations, transactions, clientAc
   * must evaluate many rows before showing at most one dialog) and wrapped by
   * `confirmIfTransactionEditLocked` for single-row saves.
   */
- function transactionEditImpact(oldTx: Transaction, newPayload: TransactionUpdateInput): LockHit {
+ // `newBoundaries` lets callers evaluate the "after" side against a different boundary
+ // snapshot than the "before" side — needed when the change itself can move an anchor row
+ // (see reconciledImpact / reconciledBalanceDelta). Defaults to the normal single-snapshot case.
+ // `excludeAccountIds` skips accounts the caller is checking separately with its own logic
+ // (e.g. a ledger drag reflow that reasons about its own account by set-membership rather
+ // than live anchor position — see onLedgerRowDrop) so they aren't double-evaluated here.
+ function transactionEditImpact(
+  oldTx: Transaction,
+  newPayload: TransactionUpdateInput,
+  newBoundaries: Map<number, LockBoundary> = lockBoundaries,
+  excludeAccountIds?: Set<number>,
+ ): LockHit {
   const netOn = (tx: Transaction | TransactionUpdateInput, accountId: number): number => {
    const account = clientAccountMap.get(accountId);
    if (!account) return 0;
@@ -114,14 +125,14 @@ export function useReconciliationLocks({ reconciliations, transactions, clientAc
   };
   const accountIds = new Set<number>();
   for (const id of [oldTx.accountFromId, oldTx.accountToId, newPayload.accountFromId, newPayload.accountToId]) {
-   if (id != null) accountIds.add(id);
+   if (id != null && !excludeAccountIds?.has(id)) accountIds.add(id);
   }
   const contributions = [...accountIds].map((accountId) => {
    const old: RowContribution = { createdAt: oldTx.createdAt, refId: oldTx.id, net: netOn(oldTx, accountId), present: oldTx.accountFromId === accountId || oldTx.accountToId === accountId };
    const next: RowContribution = { createdAt: newPayload.createdAt, refId: oldTx.id, net: netOn(newPayload, accountId), present: newPayload.accountFromId === accountId || newPayload.accountToId === accountId };
    return { accountId, old, next };
   });
-  return reconciledImpact(contributions, lockBoundaries);
+  return reconciledImpact(contributions, lockBoundaries, newBoundaries);
  }
 
  /**
@@ -153,6 +164,7 @@ export function useReconciliationLocks({ reconciliations, transactions, clientAc
 
  return {
   lockBoundaries,
+  liveAnchorTimes,
   formatLockBalance,
   confirmIfLocked,
   confirmDeleteWithLock,

@@ -1253,6 +1253,7 @@ async function listReconciliations(app) {
                 r.anchor_kind AS "anchorKind",
                 r.anchor_ref_id AS "anchorRefId",
                 r.anchor_created_at AS "anchorCreatedAt",
+                r.locked_ref_ids AS "lockedRefIds",
                 r.balance,
                 r.note,
                 r.created_at AS "createdAt"
@@ -1267,16 +1268,16 @@ async function listReconciliations(app) {
     return result.rows;
 }
 
-async function createReconciliation(app, { accountId, anchorRefId, anchorCreatedAt, balance, note }) {
+async function createReconciliation(app, { accountId, anchorRefId, anchorCreatedAt, balance, note, lockedRefIds }) {
     const { schema } = await getSchemaInfo(app);
     if (!accountId) throw new Error('Account is required.');
     if (!anchorRefId) throw new Error('A ledger row to reconcile is required.');
     if (!anchorCreatedAt) throw new Error('The reconciled row date is required.');
     await assertMemberCanWriteAccount(app, accountId);
     const result = await query(
-        `INSERT INTO ${schema}.reconciliations (account_id, anchor_kind, anchor_ref_id, anchor_created_at, balance, note)
-         VALUES ($1, 'transaction', $2, $3, $4, $5) RETURNING id`,
-        [accountId, anchorRefId, anchorCreatedAt, balance ?? 0, note?.trim() || ''],
+        `INSERT INTO ${schema}.reconciliations (account_id, anchor_kind, anchor_ref_id, anchor_created_at, balance, note, locked_ref_ids)
+         VALUES ($1, 'transaction', $2, $3, $4, $5, $6) RETURNING id`,
+        [accountId, anchorRefId, anchorCreatedAt, balance ?? 0, note?.trim() || '', Array.isArray(lockedRefIds) ? lockedRefIds : null],
     );
     return result.rows[0];
 }
@@ -1286,6 +1287,20 @@ async function deleteReconciliation(app, id) {
     const existing = await query(`SELECT account_id AS "accountId" FROM ${schema}.reconciliations WHERE id = $1`, [id]);
     await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
     await query(`DELETE FROM ${schema}.reconciliations WHERE id = $1`, [id]);
+}
+
+// One-time lazy backfill: fills in `locked_ref_ids` for a reconciliation created before that
+// column existed. The caller (client) computes the membership set from its own already-loaded
+// ledger view — the same ordering logic used for display — the first time it notices a
+// reconciliation missing this field, so no bulk server-side migration is needed. A no-op once
+// the column is already set (checked by the caller before calling, and reconfirmed with the
+// WHERE clause here so a race between two clients can't stomp a set with a different one).
+async function setReconciliationLockedRefIds(app, { id, lockedRefIds }) {
+    const { schema } = await getSchemaInfo(app);
+    if (!Array.isArray(lockedRefIds)) throw new Error('lockedRefIds is required.');
+    const existing = await query(`SELECT account_id AS "accountId" FROM ${schema}.reconciliations WHERE id = $1`, [id]);
+    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
+    await query(`UPDATE ${schema}.reconciliations SET locked_ref_ids = $2 WHERE id = $1 AND locked_ref_ids IS NULL`, [id, lockedRefIds]);
 }
 
 async function listIgnoredAnomalies(app) {
@@ -1771,6 +1786,7 @@ module.exports = {
     listReconciliations,
     createReconciliation,
     deleteReconciliation,
+    setReconciliationLockedRefIds,
     listIgnoredAnomalies,
     createIgnoredAnomaly,
     deleteIgnoredAnomaly,

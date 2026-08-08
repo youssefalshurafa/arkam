@@ -533,6 +533,16 @@ async function ensureWorkspaceSchema(workspaceId) {
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
 
+                -- Fixed, immutable membership snapshot: every transaction id that was at-or-
+                -- before the anchor, captured once at creation time. Makes the lock independent
+                -- of any single row's live position — reordering rows within this set (even the
+                -- anchor's own row) never needs to move or recreate the reconciliation, since
+                -- membership no longer depends on comparing live timestamps at all. NULL on
+                -- reconciliations created before this column existed; those fall back to the
+                -- older live-position resolution (see reconciliation.ts) until they're lazily
+                -- backfilled the next time their account's ledger is loaded.
+                ALTER TABLE ${schema}.reconciliations ADD COLUMN IF NOT EXISTS locked_ref_ids INTEGER[];
+
                 -- Rate/commission anomaly badges (ledgerAnomalies.ts) a user has explicitly
                 -- reviewed and chosen to dismiss. Scoped to (kind, transaction_id, account_id)
                 -- since a single transaction can independently flag on its "from" side and its

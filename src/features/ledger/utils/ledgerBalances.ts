@@ -79,16 +79,6 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
   }
 
   const lockBoundaries = buildLockBoundaries(reconciliations, buildLiveAnchorTimes(transactions));
-  // Marks keyed per account by the exact row they sit on, for the ✓ badge.
-  const marksByAccount = new Map<number, Map<string, Reconciliation>>();
-  for (const rec of reconciliations) {
-   let byRow = marksByAccount.get(rec.accountId);
-   if (!byRow) {
-    byRow = new Map();
-    marksByAccount.set(rec.accountId, byRow);
-   }
-   byRow.set(`${rec.anchorKind}:${rec.anchorRefId}`, rec);
-  }
 
   return clientAccounts
    .filter((account) => account.clientId === selectedClientForLedger.id)
@@ -202,17 +192,33 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
     // Entries are ordered purely by createdAt (drag-to-reorder persists the order by
     // rewriting timestamps), so a running balance accumulated in this order is durable.
     const boundary = lockBoundaries.get(account.id) ?? null;
-    const rowMarks = marksByAccount.get(account.id);
+    // Which row shows the ✓ badge — only ever the account's ACTIVE (newest) reconciliation,
+    // not every historical one, so reordering never leaves stale marks behind to confuse. A
+    // new-style boundary's fixed set can move internally, so the badge belongs on whichever
+    // member currently sits LAST (highest index) rather than the literal original anchor row;
+    // an old-style boundary (no set) still just matches its literal anchor id.
+    let markTransactionId: number | null = null;
+    if (boundary) {
+     if (boundary.lockedRefIds) {
+      for (let i = entries.length - 1; i >= 0; i--) {
+       if (boundary.lockedRefIds.has(entries[i].transactionId)) {
+        markTransactionId = entries[i].transactionId;
+        break;
+       }
+      }
+     } else {
+      markTransactionId = boundary.anchorRefId;
+     }
+    }
     let runningBalance = account.startingBalance ?? 0;
     const entriesWithBalance = entries.map((entry) => {
      runningBalance += entry.netChange;
      const refId = reconciliationRefId(entry);
-     const mark = rowMarks?.get(`transaction:${refId}`);
      return {
       ...entry,
       runningBalance,
       isLocked: isAtOrBeforeBoundary(entry.createdAt, refId, boundary),
-      ...(mark ? { reconciledMark: { id: mark.id, balance: mark.balance, note: mark.note } } : {}),
+      ...(boundary && entry.transactionId === markTransactionId ? { reconciledMark: { id: boundary.id, balance: boundary.balance, note: boundary.note } } : {}),
      };
     });
 
