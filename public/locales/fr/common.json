@@ -663,6 +663,7 @@
  "client_reconciled_mark": "Dernière transaction rapprochée",
  "reconcile_remove_action": "Retirer le rapprochement",
  "reconcile_badge": "Rapproche",
+ "reconcile_badge_tooltip": "Rapproche a {{balance}}",
  "ledger_balance_brought_forward": "Reporté",
  "reconcile_remove_confirm": "Retirer ce marqueur de rapprochement ? Le verrou protegeant les lignes anterieures sera leve.",
  "reconcile_remove": "Retirer",
