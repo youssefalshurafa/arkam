@@ -373,6 +373,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
  };
  const ledgerRowDrag = usePointerDrag<string>({
   parseKey: (raw) => raw,
+  // Distinct from the column drag's attribute below — both drags run on the same table, and a
+  // row drag's header-dwell page-back gesture deliberately hovers the header, where the column
+  // drag's `<th data-drag-key>` cells used to get hit-tested as if they were valid row targets
+  // (elementFromPoint doesn't know which hook's drag is active). That produced a bogus "hovered
+  // row" whose key was actually a column key, so releasing over the header — the natural way to
+  // end this gesture — silently failed to drop (the bogus key never matches a real row).
+  attr: 'data-drag-row-key',
   onDragStart: (key) => {
    justDraggedLedgerRowRef.current = true;
    setDragLedgerRowKey(key);
@@ -1806,7 +1813,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     return (
                     <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                      <tr
-                      data-drag-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
+                      data-drag-row-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                       onClick={(e) => {
                        if (rowLongPress.consumeLongPress()) return;
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);

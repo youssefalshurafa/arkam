@@ -19,6 +19,7 @@ import OrganizationsSection from '@/features/organizations/components/Organizati
 import CurrenciesSection from '@/features/currencies/components/CurrenciesSection';
 import ExchangeSettingsTab from '@/features/settings/components/ExchangeSettings';
 import TreasurySettings from '@/features/treasury/components/TreasurySettings';
+import WriteOffSettings from '@/features/settings/components/WriteOffSettings';
 import type {
  Client,
  ClientAccount,
@@ -27,6 +28,7 @@ import type {
  OrganizationForm,
  SettingsTab,
  Transaction,
+ WriteOffMargin,
 } from '@/shared/types';
 
 type SettingsSectionProps = {
@@ -83,6 +85,7 @@ type SettingsSectionProps = {
  onDeleteOrganization: (id: number) => void;
  openOrganizationClientsPage: (organization: Organization) => void;
  localizedCurrencies: Currency[];
+ writeOffMargins: WriteOffMargin[];
 };
 
 export default function SettingsSection({
@@ -139,6 +142,7 @@ export default function SettingsSection({
  onDeleteOrganization,
  openOrganizationClientsPage,
  localizedCurrencies,
+ writeOffMargins,
 }: SettingsSectionProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -343,6 +347,16 @@ export default function SettingsSection({
      />
      <ExchangeSettingsTab />
     </div>
+   ) : null}
+   {settingsTab === 'writeoff' ? (
+    <WriteOffSettings
+     sessionUserId={sessionUserId}
+     workspaceId={activeWorkspaceId}
+     isWorkspaceOwnerOrAdmin={isWorkspaceOwnerOrAdmin}
+     clientAccounts={clientAccounts}
+     enabledCurrencies={enabledCurrencies}
+     writeOffMargins={writeOffMargins}
+    />
    ) : null}
   </div>
  </section>

@@ -63,5 +63,16 @@ export function computeAccountBalances({ clientAccounts, transactions }: {
 
 // Balances at/under this magnitude (in the account's own currency) are treated as
 // negligible/settled: hidden from the overview's per-client breakdown and eligible
-// for the one-click small-balance write-off.
+// for the one-click small-balance write-off — the default for any currency with no
+// explicit margin configured in Settings > Write-off.
 export const SMALL_BALANCE_THRESHOLD = 100;
+
+// A currency's write-off margin, falling back to SMALL_BALANCE_THRESHOLD when the
+// workspace hasn't configured one for that currency.
+export function resolveWriteOffThreshold(currencyId: number, marginByCurrency: Map<number, number>): number {
+ return marginByCurrency.get(currencyId) ?? SMALL_BALANCE_THRESHOLD;
+}
+
+export function writeOffMarginMap(margins: Array<{ currencyId: number; threshold: number }>): Map<number, number> {
+ return new Map(margins.map((margin) => [margin.currencyId, margin.threshold]));
+}

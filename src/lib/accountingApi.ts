@@ -1,5 +1,5 @@
 import { localDateKey } from '@/shared/utils/date';
-import type { SystemClient, TreasuryBalanceEntry } from '@/shared/types';
+import type { SystemClient, TreasuryBalanceEntry, WriteOffMargin } from '@/shared/types';
 
 const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
 
@@ -232,6 +232,9 @@ export const accountingApi = {
  deleteIgnoredAnomaly: (id: number) => request<{ ok: true }>({ action: 'deleteIgnoredAnomaly', payload: id }),
  listHarvestRates: () => request<unknown[]>({ action: 'listHarvestRates' }),
  saveHarvestRate: (payload: unknown) => request<{ ok: true; deleted?: boolean; row?: unknown }>({ action: 'saveHarvestRate', payload }),
+ listWriteOffMargins: () => request<WriteOffMargin[]>({ action: 'listWriteOffMargins' }),
+ saveWriteOffMargin: (payload: { currencyId: number; threshold: number }) =>
+  request<{ ok: true; deleted?: boolean; row?: WriteOffMargin }>({ action: 'saveWriteOffMargin', payload }),
  listWorkspaces: () =>
   fetch('/api/workspaces', { method: 'GET', credentials: 'include' }).then(async (response) => {
    const data = await response.json();

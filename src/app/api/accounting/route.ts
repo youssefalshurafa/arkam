@@ -21,6 +21,9 @@ const readOnlyActions = new Set([
  'listReconciliations',
  'listIgnoredAnomalies',
  'listHarvestRates',
+ // Per-currency write-off margins: readable by every role, same as listHarvestRates —
+ // it drives whether the Clients page's write-off button shows, not a permission itself.
+ 'listWriteOffMargins',
  'listSystemClients',
  // Treasury's balance summary, per currency — readable by every role including a `member`
  // (see getTreasuryBalance below), unlike listSystemClients/listAllClientAccounts/
@@ -77,6 +80,8 @@ const writeActions = new Set([
  'createIgnoredAnomaly',
  'deleteIgnoredAnomaly',
  'saveHarvestRate',
+ // Write-off margin: owner OR admin (gated further below), same tier as Treasury's toggle.
+ 'saveWriteOffMargin',
  'importWorkspaceData',
  'bulkImportTransactions',
  // Shared workspace UI settings: owner-only (gated further below).
@@ -230,6 +235,11 @@ export async function POST(request: NextRequest) {
   // db.js's updateClientAccountStartingBalance itself (it needs to look up whether the target
   // account is a Treasury/Cashbox account, which this route can't cheaply check up front).
   if (action === 'saveTreasuryEnabled' && role !== 'owner' && role !== 'admin') {
+   return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
+  }
+
+  // Write-off margins are workspace-wide financial config, same tier as the Treasury toggle.
+  if (action === 'saveWriteOffMargin' && role !== 'owner' && role !== 'admin') {
    return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
   }
 
@@ -398,6 +408,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.listHarvestRates(appLike));
    case 'saveHarvestRate':
     return NextResponse.json(await db.saveHarvestRate(appLike, payload));
+   case 'listWriteOffMargins':
+    return NextResponse.json(await db.listWriteOffMargins(appLike));
+   case 'saveWriteOffMargin':
+    return NextResponse.json(await db.saveWriteOffMargin(appLike, payload));
    case 'exportWorkspaceData':
     return NextResponse.json(await db.exportWorkspaceData(appLike));
    case 'importWorkspaceData':

@@ -1395,6 +1395,41 @@ async function saveHarvestRate(app, { day, organizationId, currencyId, rate }) {
     return { ok: true, row: result.rows[0] };
 }
 
+// Every currency with an explicit write-off margin. A currency with no row here falls back
+// to SMALL_BALANCE_THRESHOLD client-side (see accountBalances.ts's resolveWriteOffThreshold).
+async function listWriteOffMargins(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`
+        SELECT id, currency_id AS "currencyId", threshold
+        FROM ${schema}.write_off_margins
+        ORDER BY currency_id ASC
+    `);
+    return result.rows;
+}
+
+// Upserts a positive threshold, or DELETEs the row when blank/invalid/<=0 — reverting
+// that currency to the shared default instead of saving a meaningless explicit value.
+async function saveWriteOffMargin(app, { currencyId, threshold }) {
+    if (!currencyId) throw new Error('Currency is required.');
+    const { schema } = await getSchemaInfo(app);
+    const numericThreshold = Number(threshold);
+
+    if (threshold == null || threshold === '' || !Number.isFinite(numericThreshold) || numericThreshold <= 0) {
+        await query(`DELETE FROM ${schema}.write_off_margins WHERE currency_id = $1`, [currencyId]);
+        return { ok: true, deleted: true };
+    }
+
+    const result = await query(
+        `INSERT INTO ${schema}.write_off_margins (currency_id, threshold)
+         VALUES ($1, $2)
+         ON CONFLICT (currency_id)
+         DO UPDATE SET threshold = EXCLUDED.threshold, updated_at = NOW()
+         RETURNING id, currency_id AS "currencyId", threshold`,
+        [currencyId, numericThreshold],
+    );
+    return { ok: true, row: result.rows[0] };
+}
+
 // Deletes many transactions in a single round-trip so the UI doesn't have to fire one
 // request per selected row.
 async function deleteTransactionsBulk(app, payload) {
@@ -1792,6 +1827,8 @@ module.exports = {
     deleteIgnoredAnomaly,
     listHarvestRates,
     saveHarvestRate,
+    listWriteOffMargins,
+    saveWriteOffMargin,
     exportWorkspaceData,
     importWorkspaceData,
     bulkImportTransactions,
