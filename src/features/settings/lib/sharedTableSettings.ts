@@ -17,7 +17,6 @@ import {
  descriptionSuggestionExclusionsStorageKey,
  ledgerFilterStorageKey,
  txFilterStorageKey,
- tableZoomStorageKeyPrefix,
  ledgerLastAccountStorageKeyPrefix,
  pdfColsStorageKeyPrefix,
  pdfDateRangeStorageKeyPrefix,
@@ -46,6 +45,13 @@ function isSharedKey(key: string): boolean {
 // settings sync (so they follow the user to another device) but are deliberately kept
 // OUT of isSharedKey/SHARED_* — the owner's workspace-wide shared snapshot must never
 // carry one user's personal settings to everyone else.
+//
+// Table zoom (tableZoomStorageKeyPrefix) is deliberately absent from BOTH lists below:
+// it's a pure per-device viewing preference (a laptop and a phone want different zoom
+// levels for the same wide table), so it must never round-trip through the server at
+// all — see getStoredTableZoom/saveTableZoom in localStorage.ts, which read/write
+// window.localStorage directly and are never wrapped by snapshotUserSettings/
+// applyUserSettings below.
 const USER_ONLY_EXACT_KEYS = [
  txHighlightsStorageKey,
  themeStorageKey,
@@ -61,7 +67,7 @@ const USER_ONLY_EXACT_KEYS = [
  ledgerFilterStorageKey,
  txFilterStorageKey,
 ];
-const USER_ONLY_KEY_PREFIXES = [tableZoomStorageKeyPrefix, ledgerLastAccountStorageKeyPrefix, pdfColsStorageKeyPrefix, pdfDateRangeStorageKeyPrefix, ledgerHighlightsStorageKeyPrefix];
+const USER_ONLY_KEY_PREFIXES = [ledgerLastAccountStorageKeyPrefix, pdfColsStorageKeyPrefix, pdfDateRangeStorageKeyPrefix, ledgerHighlightsStorageKeyPrefix];
 
 function isUserOnlyKey(key: string): boolean {
  return USER_ONLY_EXACT_KEYS.includes(key) || USER_ONLY_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
