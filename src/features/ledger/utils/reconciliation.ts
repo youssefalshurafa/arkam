@@ -3,18 +3,18 @@ import type { ClientLedgerEntry, Reconciliation } from '@/shared/types';
 /**
  * The effective lock line for one client account: the newest reconciliation on it.
  *
- * `lockedRefIds`, when present, is the FIXED set of transaction ids captured once at
- * reconciliation time — membership in it is permanent and independent of any row's current
- * position, so reordering rows within it (even the anchor's own row) never changes what's
- * locked. `anchorCreatedAt` + `anchorRefId` still matter as a cutoff for rows that aren't in
- * the set at all (a brand-new transaction, or an existing one created after this
- * reconciliation) — inserting or re-dating one of those to sit at-or-before that cutoff still
- * warns, since that would insert into recorded history that wasn't part of the frozen set. For
- * a new-style boundary this cutoff is NOT frozen at creation time — it's re-resolved to
- * whichever locked member currently sits latest (see `buildLockBoundaries`), because a drag
- * reflow spreads a whole day's rows across evenly-spaced timestamps that bear no relation to
- * the original few-seconds-after-midnight snapshot, which would otherwise permanently strand
- * the cutoff in the past the moment any drag ever touched that day.
+ * A row is locked based on its LIVE (createdAt, refId) position against `anchorCreatedAt` +
+ * `anchorRefId` — a row re-dated to unambiguously after the anchor is no longer locked, since
+ * it no longer contributes to the reconciled balance. `lockedRefIds`, when present, is the
+ * FIXED set of transaction ids captured once at reconciliation time; it's consulted only to
+ * break an EXACT timestamp tie (see `isAtOrBeforeBoundary`) — e.g. same-day rows that land on
+ * the boundary's resolved cutoff after a drag reflow, where date/refId order alone can't
+ * reliably tell a true member from a bystander. For a new-style boundary this cutoff is NOT
+ * frozen at creation time — it's re-resolved to whichever locked member currently sits latest
+ * (see `buildLockBoundaries`), because a drag reflow spreads a whole day's rows across
+ * evenly-spaced timestamps that bear no relation to the original few-seconds-after-midnight
+ * snapshot, which would otherwise permanently strand the cutoff in the past the moment any
+ * drag ever touched that day.
  *
  * `lockedRefIds` is null for reconciliations created before this field existed; those fall back
  * entirely to the older (createdAt, refId) position comparison against the anchor, exactly as
@@ -91,30 +91,27 @@ export function buildLockBoundaries(reconciliations: Reconciliation[], liveAncho
  return byAccount;
 }
 
-// True when (createdAt, refId) sorts strictly after the boundary row.
-function isAfterBoundary(createdAt: string, refId: number, boundary: LockBoundary): boolean {
- const a = new Date(createdAt).getTime();
- const b = new Date(boundary.anchorCreatedAt).getTime();
- if (a !== b) return a > b;
- return refId > boundary.anchorRefId;
-}
-
 /**
  * True when a row at (createdAt, refId) lands at or before the lock line — i.e. the
  * operation would touch reconciled history and should warn.
  *
- * A row that's a permanent member of `boundary.lockedRefIds` is always locked, regardless of
- * its current date/position — that's the whole point of the fixed-set model. Everything else
- * (a brand-new row, an existing row created after this reconciliation, or any row at all when
- * the boundary is old-style with no set) falls back to the date/refId cutoff comparison. Pass
- * `refId` as a very large number for a brand-new row in that fallback (it gets the highest id,
+ * Live date is always the primary signal, so a row that has since been re-dated to
+ * unambiguously after the boundary is correctly treated as no longer part of reconciled
+ * history — editing or deleting it can't move the reconciled balance, so it must not warn.
+ * `boundary.lockedRefIds` (the fixed set captured at reconciliation time) is consulted only to
+ * break an EXACT timestamp tie, e.g. rows sharing the boundary's resolved cutoff after a
+ * drag reflow — where date/refId order alone can't reliably tell a true member from a
+ * bystander. Pass `refId` as a very large number for a brand-new row (it gets the highest id,
  * so at an equal timestamp it sorts after the boundary and is not locked; only a strictly
  * older date warns).
  */
 export function isAtOrBeforeBoundary(createdAt: string, refId: number, boundary: LockBoundary | null | undefined): boolean {
  if (!boundary) return false;
- if (boundary.lockedRefIds?.has(refId)) return true;
- return !isAfterBoundary(createdAt, refId, boundary);
+ const a = new Date(createdAt).getTime();
+ const b = new Date(boundary.anchorCreatedAt).getTime();
+ if (a !== b) return a < b;
+ if (boundary.lockedRefIds) return boundary.lockedRefIds.has(refId);
+ return refId <= boundary.anchorRefId;
 }
 
 // The largest refId sentinel for a not-yet-created row (see isAtOrBeforeBoundary).

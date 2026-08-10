@@ -2996,13 +2996,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className={`whitespace-nowrap px-4 py-3 font-semibold ${(entry.reconciledMark ? entry.reconciledMark.balance : entry.runningBalance) >= 0 ? 'text-good-text' : 'text-bad-text'}`}
+                              className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}
                              >
                               {(() => {
-                               // A reconciled row shows its FROZEN balance, not the live running
-                               // total — the whole point of a reconciliation is a number that
-                               // never drifts, even if unrelated rows get inserted before it later.
-                               const displayBalance = entry.reconciledMark ? entry.reconciledMark.balance : entry.runningBalance;
+                               // The badge's tooltip shows the frozen balance the client agreed to
+                               // at reconciliation time; the cell itself always tracks the live
+                               // running total, same as every other row, so editing this row's own
+                               // amount is reflected immediately.
+                               const displayBalance = entry.runningBalance;
                                return ledgerSumMode && !draft ? (
                                 (() => {
                                  const sumKey = `${rowKey}:runningBalance`;
