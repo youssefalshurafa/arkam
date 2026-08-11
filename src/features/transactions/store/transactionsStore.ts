@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
-import { getStoredArchiveTableSettings, getStoredTableZoom, getStoredTransactionTableSettings, getStoredTxFilter } from '@/shared/lib/localStorage';
+import { getStoredArchiveFilter, getStoredArchiveTableSettings, getStoredTableZoom, getStoredTransactionTableSettings, getStoredTxFilter } from '@/shared/lib/localStorage';
 import { localDateKey } from '@/shared/utils/date';
 import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
 import type {
@@ -100,10 +100,28 @@ type TransactionsStore = {
  setTxFilterDateTo: Dispatch<SetStateAction<string>>;
  txFilterHideExpenses: boolean;
  setTxFilterHideExpenses: Dispatch<SetStateAction<boolean>>;
- // Archive-only: rows marked archiveHidden are excluded from the Archive list unless this is
- // on, so a user can reveal (and un-hide) them again later.
- txFilterShowHidden: boolean;
- setTxFilterShowHidden: Dispatch<SetStateAction<boolean>>;
+ // Archive keeps its own full copy of the filter bar, entirely separate from the Transactions
+ // table's above (see archiveFilterStorageKey) — switching between the two pages must never
+ // carry one page's search term/date range/etc into the other.
+ archiveFilterOpen: boolean;
+ setArchiveFilterOpen: Dispatch<SetStateAction<boolean>>;
+ archiveFilterSearch: string;
+ setArchiveFilterSearch: Dispatch<SetStateAction<string>>;
+ archiveFilterWholeWord: boolean;
+ setArchiveFilterWholeWord: Dispatch<SetStateAction<boolean>>;
+ archiveFilterClient: string;
+ setArchiveFilterClient: Dispatch<SetStateAction<string>>;
+ archiveFilterDateFrom: string;
+ setArchiveFilterDateFrom: Dispatch<SetStateAction<string>>;
+ archiveFilterDateTo: string;
+ setArchiveFilterDateTo: Dispatch<SetStateAction<string>>;
+ archiveFilterHideExpenses: boolean;
+ setArchiveFilterHideExpenses: Dispatch<SetStateAction<boolean>>;
+ // Rows marked archiveHidden are excluded from the Archive list unless this is on, so a user
+ // can reveal (and un-hide) them again later. Archive-only — there's no Transactions-page
+ // equivalent since only archive-eligible rows ever carry archiveHidden.
+ archiveFilterShowHidden: boolean;
+ setArchiveFilterShowHidden: Dispatch<SetStateAction<boolean>>;
  commissionExpandedTxns: Set<number>;
  setCommissionExpandedTxns: Dispatch<SetStateAction<Set<number>>>;
  expensesExpandedTxns: Set<number>;
@@ -192,6 +210,7 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
    set((s) => ({ [key]: typeof updater === 'function' ? (updater as (v: TransactionsStore[K]) => TransactionsStore[K])(s[key]) : updater } as Pick<TransactionsStore, K>));
 
  const initialTxFilter = getStoredTxFilter();
+ const initialArchiveFilter = getStoredArchiveFilter();
 
  return {
   isTransactionsEditMode: false,
@@ -252,8 +271,22 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTxFilterDateTo: setter('txFilterDateTo'),
   txFilterHideExpenses: false,
   setTxFilterHideExpenses: setter('txFilterHideExpenses'),
-  txFilterShowHidden: false,
-  setTxFilterShowHidden: setter('txFilterShowHidden'),
+  archiveFilterOpen: false,
+  setArchiveFilterOpen: setter('archiveFilterOpen'),
+  archiveFilterSearch: initialArchiveFilter.search,
+  setArchiveFilterSearch: setter('archiveFilterSearch'),
+  archiveFilterWholeWord: initialArchiveFilter.wholeWord,
+  setArchiveFilterWholeWord: setter('archiveFilterWholeWord'),
+  archiveFilterClient: '',
+  setArchiveFilterClient: setter('archiveFilterClient'),
+  archiveFilterDateFrom: initialArchiveFilter.dateFrom,
+  setArchiveFilterDateFrom: setter('archiveFilterDateFrom'),
+  archiveFilterDateTo: initialArchiveFilter.dateTo,
+  setArchiveFilterDateTo: setter('archiveFilterDateTo'),
+  archiveFilterHideExpenses: false,
+  setArchiveFilterHideExpenses: setter('archiveFilterHideExpenses'),
+  archiveFilterShowHidden: false,
+  setArchiveFilterShowHidden: setter('archiveFilterShowHidden'),
   commissionExpandedTxns: new Set(),
   setCommissionExpandedTxns: setter('commissionExpandedTxns'),
   expensesExpandedTxns: new Set(),

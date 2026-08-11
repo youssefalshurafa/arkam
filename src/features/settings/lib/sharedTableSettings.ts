@@ -17,6 +17,7 @@ import {
  descriptionSuggestionExclusionsStorageKey,
  ledgerFilterStorageKey,
  txFilterStorageKey,
+ archiveFilterStorageKey,
  ledgerLastAccountStorageKeyPrefix,
  pdfColsStorageKeyPrefix,
  pdfDateRangeStorageKeyPrefix,
@@ -66,6 +67,7 @@ const USER_ONLY_EXACT_KEYS = [
  descriptionSuggestionExclusionsStorageKey,
  ledgerFilterStorageKey,
  txFilterStorageKey,
+ archiveFilterStorageKey,
 ];
 const USER_ONLY_KEY_PREFIXES = [ledgerLastAccountStorageKeyPrefix, pdfColsStorageKeyPrefix, pdfDateRangeStorageKeyPrefix, ledgerHighlightsStorageKeyPrefix];
 

@@ -56,6 +56,7 @@ import {
  getStoredAiSettings,
  getStoredLedgerFilter,
  getStoredTxFilter,
+ getStoredArchiveFilter,
  getStoredTableZoom,
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
@@ -339,8 +340,15 @@ function AuthenticatedHome() {
  const txFilterDateTo = useTransactionsStore((s) => s.txFilterDateTo);
  const setTxFilterDateTo = useTransactionsStore((s) => s.setTxFilterDateTo);
  const txFilterHideExpenses = useTransactionsStore((s) => s.txFilterHideExpenses);
- const txFilterShowHidden = useTransactionsStore((s) => s.txFilterShowHidden);
- const setTxFilterShowHidden = useTransactionsStore((s) => s.setTxFilterShowHidden);
+ // Archive keeps its own full copy of the filter bar (see transactionsStore.ts) so switching
+ // between Transactions and Archive never carries one page's search/filter state into the other.
+ const archiveFilterSearch = useTransactionsStore((s) => s.archiveFilterSearch);
+ const archiveFilterWholeWord = useTransactionsStore((s) => s.archiveFilterWholeWord);
+ const archiveFilterClient = useTransactionsStore((s) => s.archiveFilterClient);
+ const archiveFilterDateFrom = useTransactionsStore((s) => s.archiveFilterDateFrom);
+ const archiveFilterDateTo = useTransactionsStore((s) => s.archiveFilterDateTo);
+ const archiveFilterHideExpenses = useTransactionsStore((s) => s.archiveFilterHideExpenses);
+ const archiveFilterShowHidden = useTransactionsStore((s) => s.archiveFilterShowHidden);
  const setCommissionExpandedTxns = useTransactionsStore((s) => s.setCommissionExpandedTxns);
  const setExpensesExpandedTxns = useTransactionsStore((s) => s.setExpensesExpandedTxns);
  const setLedgerExpensesExpandedKeys = useLedgerStore((s) => s.setLedgerExpensesExpandedKeys);
@@ -840,11 +848,16 @@ function AuthenticatedHome() {
    useLiveRatesSettingsStore.setState({ intervalSec: getStoredLiveRatesInterval() });
    useSettingsStore.setState({ pdfSettings: getStoredPdfSettings(), aiSettings: getStoredAiSettings() });
    const storedTxFilter = getStoredTxFilter();
+   const storedArchiveFilter = getStoredArchiveFilter();
    useTransactionsStore.setState({
     txFilterSearch: storedTxFilter.search,
     txFilterWholeWord: storedTxFilter.wholeWord,
     txFilterDateFrom: storedTxFilter.dateFrom,
     txFilterDateTo: storedTxFilter.dateTo,
+    archiveFilterSearch: storedArchiveFilter.search,
+    archiveFilterWholeWord: storedArchiveFilter.wholeWord,
+    archiveFilterDateFrom: storedArchiveFilter.dateFrom,
+    archiveFilterDateTo: storedArchiveFilter.dateTo,
     tableZoom: getStoredTableZoom('transactions'),
    });
    const storedLedgerPageSize = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
@@ -916,12 +929,34 @@ function AuthenticatedHome() {
   });
  }, [transactionTableRows]);
 
+ // Archive keeps its own filter bar entirely separate from the Transactions table's (see
+ // archiveFilter* above) — pick whichever set is active for the section being displayed.
+ const isArchiveSection = section === 'archive';
+ const activeFilterSearch = isArchiveSection ? archiveFilterSearch : txFilterSearch;
+ const activeFilterWholeWord = isArchiveSection ? archiveFilterWholeWord : txFilterWholeWord;
+ const activeFilterClient = isArchiveSection ? archiveFilterClient : txFilterClient;
+ const activeFilterDateFrom = isArchiveSection ? archiveFilterDateFrom : txFilterDateFrom;
+ const activeFilterDateTo = isArchiveSection ? archiveFilterDateTo : txFilterDateTo;
+ const activeFilterHideExpenses = isArchiveSection ? archiveFilterHideExpenses : txFilterHideExpenses;
+
  // Rows in user-defined order (if any), otherwise natural sort order.
  // The Archive section shows only transactions missing a party; the main
  // Transactions section shows everything (including those archived rows).
  const displayedTransactionRows = useMemo<TransactionTableRow[]>(
-  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden }),
-  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden],
+  () =>
+   filterDisplayedTransactionRows({
+    transactionTableRows,
+    manualRowOrder,
+    section,
+    txFilterSearch: activeFilterSearch,
+    txFilterWholeWord: activeFilterWholeWord,
+    txFilterClient: activeFilterClient,
+    txFilterDateFrom: activeFilterDateFrom,
+    txFilterDateTo: activeFilterDateTo,
+    txFilterHideExpenses: activeFilterHideExpenses,
+    txFilterShowHidden: archiveFilterShowHidden,
+   }),
+  [transactionTableRows, manualRowOrder, section, activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses, archiveFilterShowHidden],
  );
 
  const txFilterClientOptions = useMemo(() => {
@@ -962,7 +997,7 @@ function AuthenticatedHome() {
 
  useEffect(() => {
   setTransactionsPage(99999);
- }, [txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses]);
+ }, [activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses]);
 
  useEffect(() => {
   setLedgerPageState({});

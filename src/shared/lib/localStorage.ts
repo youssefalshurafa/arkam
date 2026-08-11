@@ -595,6 +595,35 @@ export function saveTxFilter(filter: TxFilterState) {
  }
 }
 
+// Archive keeps its own search/date filter bar, entirely separate from the Transactions
+// table's (see archiveFilter* in transactionsStore.ts) — switching between the two pages
+// must not carry one page's search term/date range into the other.
+export const archiveFilterStorageKey = 'arkam:archive-filter';
+export const defaultArchiveFilter: TxFilterState = {
+ search: '',
+ wholeWord: false,
+ dateFrom: '',
+ dateTo: '',
+};
+export function getStoredArchiveFilter(): TxFilterState {
+ if (typeof window === 'undefined') return { ...defaultArchiveFilter };
+ try {
+  const raw = window.localStorage.getItem(archiveFilterStorageKey);
+  if (!raw) return { ...defaultArchiveFilter };
+  return { ...defaultArchiveFilter, ...JSON.parse(raw) };
+ } catch {
+  return { ...defaultArchiveFilter };
+ }
+}
+export function saveArchiveFilter(filter: TxFilterState) {
+ try {
+  window.localStorage.setItem(archiveFilterStorageKey, JSON.stringify(filter));
+  notifySettingsChanged();
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+
 export function getStoredLedgerColumnOrder(clientId: number | null | undefined): LedgerColumnKey[] {
  if (typeof window === 'undefined') return defaultLedgerColumnOrder;
  try {
