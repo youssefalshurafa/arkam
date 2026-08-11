@@ -1811,12 +1811,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       const first = highlighted.length >= 2 ? highlighted[highlighted.length - 2] : last;
                       setCommissionModal({ accountId: ledger.accountId, fromDate: '', toDate: '', fromEntryKey: first.rowKey, toEntryKey: last.rowKey, receivingSelections: {}, settlementSelections: {} });
                      };
-                     // Same eligibility rule as the Clients page's balance-chip write-off: the
-                     // account's CURRENT overall balance (not this row's own net change) must be
-                     // nonzero and within the configured per-currency margin.
+                     // Eligibility is based on THIS row's own running/cumulative balance (the
+                     // "الرصيد التراكمي" column) — the account's balance as of this specific point
+                     // in the ledger's history — not the account's current overall balance. A row
+                     // can sit at a near-zero running balance even when later transactions moved
+                     // the account well away from zero since (see the reported case: a mid-ledger
+                     // row settling at -11 dhs while the account currently sits at -65,711 dhs
+                     // after a later, unrelated transaction). Writing it off inserts a today-dated
+                     // adjustment for exactly that row's running-balance magnitude — same
+                     // arithmetic effect on the current total regardless of where it's inserted,
+                     // it just neutralizes that specific historical gap rather than pretending to
+                     // zero the account outright.
                      const ledgerAccount = clientAccounts.find((a) => a.id === ledger.accountId);
                      const writeOffEligible =
-                      !!ledgerAccount && ledger.currentBalance !== 0 && Math.abs(ledger.currentBalance) <= resolveWriteOffThreshold(ledgerAccount.currencyId, writeOffMarginByCurrency);
+                      !!ledgerAccount && entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= resolveWriteOffThreshold(ledgerAccount.currencyId, writeOffMarginByCurrency);
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) },
@@ -1836,7 +1844,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       ...(selectedClientForLedger?.distributionCommissionEnabled && hasHighlightsForAccount
                        ? [{ key: 'commission-range', label: t('distribution_panel_use_highlights'), onSelect: openCommissionModalFromHighlights }]
                        : []),
-                      ...(writeOffEligible ? [{ key: 'write-off', label: t('write_off_button'), onSelect: () => onWriteOffBalance(ledger.accountId, ledger.currentBalance) }] : []),
+                      ...(writeOffEligible ? [{ key: 'write-off', label: t('write_off_button'), onSelect: () => onWriteOffBalance(ledger.accountId, entry.runningBalance) }] : []),
                       { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
                      ]);
                     };
