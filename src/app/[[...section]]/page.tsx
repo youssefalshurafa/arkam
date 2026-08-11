@@ -23,6 +23,7 @@ import type {
  Reconciliation,
  IgnoredAnomaly,
  HarvestRate,
+ WriteOffMargin,
  ImportClientReview,
  LedgerColumnKey,
  StoredLedgerSettings,
@@ -144,6 +145,7 @@ const EMPTY_TRANSACTIONS: Transaction[] = [];
 const EMPTY_RECONCILIATIONS: Reconciliation[] = [];
 const EMPTY_IGNORED_ANOMALIES: IgnoredAnomaly[] = [];
 const EMPTY_HARVEST_RATES: HarvestRate[] = [];
+const EMPTY_WRITE_OFF_MARGINS: WriteOffMargin[] = [];
 const EMPTY_CLIENT_ACCOUNTS: ClientAccount[] = [];
 
 // Activity-telemetry dedupe guards, kept at module scope (not component refs) on purpose: this
@@ -228,6 +230,7 @@ function AuthenticatedHome() {
  const reconciliations = workspaceData?.reconciliations ?? EMPTY_RECONCILIATIONS;
  const ignoredAnomalies = workspaceData?.ignoredAnomalies ?? EMPTY_IGNORED_ANOMALIES;
  const harvestRates = workspaceData?.harvestRates ?? EMPTY_HARVEST_RATES;
+ const writeOffMargins = workspaceData?.writeOffMargins ?? EMPTY_WRITE_OFF_MARGINS;
  const clientAccounts = workspaceData?.clientAccounts ?? EMPTY_CLIENT_ACCOUNTS;
  const [selectedClientForAccounts, setSelectedClientForAccounts] = useState<Client | null>(null);
  const [selectedClientForLedger, setSelectedClientForLedger] = useState<Client | null>(null);
@@ -1396,6 +1399,8 @@ function AuthenticatedHome() {
   // Treasury settings (nav toggle + opening balances) are owner/admin business — a member
   // never manages other members' cashboxes or Treasury's own configuration.
   ...(isWorkspaceOwnerOrAdmin ? [{ key: 'treasury' as const, label: t('settings_treasury_title'), icon: 'treasury' as IconName }] : []),
+  // Write-off margins are workspace-wide financial config, same tier as Treasury settings.
+  ...(isWorkspaceOwnerOrAdmin ? [{ key: 'writeoff' as const, label: t('settings_writeoff_title'), icon: 'settings' as IconName }] : []),
   ...(isEditorRole ? [] : [{ key: 'danger' as const, label: t('settings_danger_title'), icon: 'settings' as IconName }]),
  ];
 
@@ -2147,6 +2152,7 @@ function AuthenticatedHome() {
    onDeleteOrganization={onDeleteOrganization}
    openOrganizationClientsPage={openOrganizationClientsPage}
    localizedCurrencies={localizedCurrencies}
+   writeOffMargins={writeOffMargins}
   />
  );
 
@@ -2390,6 +2396,7 @@ function AuthenticatedHome() {
          sortedClients={sortedClients}
          clientsByOrganization={clientsByOrganization}
          clientPageBalances={clientPageBalances}
+         writeOffMargins={writeOffMargins}
          clientSortHeader={clientSortHeader}
          openClientLedger={openClientLedger}
          onClientsOrgDrop={onClientsOrgDrop}
@@ -2621,6 +2628,8 @@ function AuthenticatedHome() {
     lockPastEditsEnabled={lockPastEditsEnabled}
     onTransactionSubmit={onTransactionSubmit}
     closeNewTransactionModal={closeNewTransactionModal}
+    copiedTransaction={copiedTransaction}
+    onPasteCopiedTransaction={onPasteCopiedTransaction}
    />
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />

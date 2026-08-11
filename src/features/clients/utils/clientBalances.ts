@@ -2,7 +2,7 @@ import { computeAccountBalances, isPendingTransactionFrom, isPendingTransactionT
 import { buildLockBoundaries, isAtOrBeforeBoundary } from '@/features/ledger/utils/reconciliation';
 import type { ClientAccount, Reconciliation, Transaction } from '@/shared/types';
 
-export type ClientBalanceEntry = { accountId: number; currencyCode: string; currencySymbol: string; balance: number };
+export type ClientBalanceEntry = { accountId: number; currencyId: number; currencyCode: string; currencySymbol: string; balance: number };
 
 // Per-client, per-currency net balances for the clients list. Ported verbatim
 // from the page's clientPageBalances memo; pure over its inputs.
@@ -15,7 +15,7 @@ export function computeClientPageBalances({ clientAccounts, transactions }: {
  for (const account of clientAccounts) {
   const balance = balanceByAccount.get(account.id) ?? 0;
   const arr = result.get(account.clientId) ?? [];
-  arr.push({ accountId: account.id, currencyCode: account.currencyCode, currencySymbol: account.currencySymbol, balance });
+  arr.push({ accountId: account.id, currencyId: account.currencyId, currencyCode: account.currencyCode, currencySymbol: account.currencySymbol, balance });
   result.set(account.clientId, arr);
  }
  return result;

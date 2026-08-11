@@ -381,6 +381,16 @@ export type HarvestRate = {
  rate: number;
 };
 
+// A currency's configured write-off margin (Settings > Write-off): a balance in that
+// currency at or under this magnitude offers a one-click write-off on the Clients page.
+// A currency with no row is not represented here — callers fall back to
+// SMALL_BALANCE_THRESHOLD (see accountBalances.ts's resolveWriteOffThreshold).
+export type WriteOffMargin = {
+ id: number;
+ currencyId: number;
+ threshold: number;
+};
+
 export type ClientAccountLedger = {
  accountId: number;
  currencyName: string;
@@ -475,6 +485,7 @@ export type DataCache = {
  reconciliations: Reconciliation[];
  ignoredAnomalies: IgnoredAnomaly[];
  harvestRates: HarvestRate[];
+ writeOffMargins: WriteOffMargin[];
 };
 export type PdfColVisibility = Record<LedgerColumnKey, boolean>;
 export type StoredLedgerSettings = {
@@ -536,7 +547,7 @@ export type TxFilterState = {
  dateTo: string;
 };
 
-export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf' | 'live-rates' | 'treasury' | 'ai';
+export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf' | 'live-rates' | 'treasury' | 'ai' | 'writeoff';
 
 export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury' | 'harvest';
 export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest';

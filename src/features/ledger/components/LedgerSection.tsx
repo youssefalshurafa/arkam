@@ -118,6 +118,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const setError = useAppStatusStore((s) => s.setError);
  // Opens the shared read-only transaction "More info" popup (mounted at page level).
  const setInfoTransactionId = useTransactionsStore((s) => s.setInfoTransactionId);
+ // Copy/paste a transaction: writes into the same useTransactionsStore slot the Transactions
+ // page's copy/paste uses (see onCopyTransactionRow/onPasteCopiedTransaction in
+ // useTransactionActions.ts) — the paste side lives on NewTransactionModal (page-level), since
+ // that's the shared two-sided form this feature fills.
+ const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
@@ -373,6 +378,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
  };
  const ledgerRowDrag = usePointerDrag<string>({
   parseKey: (raw) => raw,
+  // Distinct from the column drag's attribute below — both drags run on the same table, and a
+  // row drag's header-dwell page-back gesture deliberately hovers the header, where the column
+  // drag's `<th data-drag-key>` cells used to get hit-tested as if they were valid row targets
+  // (elementFromPoint doesn't know which hook's drag is active). That produced a bogus "hovered
+  // row" whose key was actually a column key, so releasing over the header — the natural way to
+  // end this gesture — silently failed to drop (the bogus key never matches a real row).
+  attr: 'data-drag-row-key',
   onDragStart: (key) => {
    justDraggedLedgerRowRef.current = true;
    setDragLedgerRowKey(key);
@@ -1794,6 +1806,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) },
+                      {
+                       key: 'copy',
+                       label: t('copy_transaction'),
+                       onSelect: () => {
+                        const transaction = transactions.find((tx) => tx.id === entry.transactionId);
+                        if (!transaction) return;
+                        setCopiedTransaction(transaction);
+                        showToast(t('toast_copied'));
+                       },
+                      },
                       entry.reconciledMark
                        ? { key: 'unreconcile', label: t('reconcile_remove_action'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
                        : { key: 'reconcile', label: t('reconcile_action'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
@@ -1806,7 +1828,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     return (
                     <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                      <tr
-                      data-drag-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
+                      data-drag-row-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                       onClick={(e) => {
                        if (rowLongPress.consumeLongPress()) return;
                        const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
@@ -2996,13 +3018,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                             return (
                              <td
                               key={column.key}
-                              className={`whitespace-nowrap px-4 py-3 font-semibold ${(entry.reconciledMark ? entry.reconciledMark.balance : entry.runningBalance) >= 0 ? 'text-good-text' : 'text-bad-text'}`}
+                              className={`whitespace-nowrap px-4 py-3 font-semibold ${entry.runningBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}
                              >
                               {(() => {
-                               // A reconciled row shows its FROZEN balance, not the live running
-                               // total — the whole point of a reconciliation is a number that
-                               // never drifts, even if unrelated rows get inserted before it later.
-                               const displayBalance = entry.reconciledMark ? entry.reconciledMark.balance : entry.runningBalance;
+                               // The badge's tooltip shows the frozen balance the client agreed to
+                               // at reconciliation time; the cell itself always tracks the live
+                               // running total, same as every other row, so editing this row's own
+                               // amount is reflected immediately.
+                               const displayBalance = entry.runningBalance;
                                return ledgerSumMode && !draft ? (
                                 (() => {
                                  const sumKey = `${rowKey}:runningBalance`;

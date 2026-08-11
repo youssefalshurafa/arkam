@@ -996,7 +996,7 @@ async function createTransaction(app, txn) {
     }
 
     if (hasCustomCreatedAt) {
-        await query(
+        const result = await query(
             `
                 INSERT INTO ${schema}.transactions (
                     account_from_id,
@@ -1026,6 +1026,7 @@ async function createTransaction(app, txn) {
                     created_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+                RETURNING id
             `,
             [
                 txn.accountFromId || null,
@@ -1055,10 +1056,10 @@ async function createTransaction(app, txn) {
                 txn.createdAt.trim(),
             ],
         );
-        return;
+        return { id: result.rows[0].id };
     }
 
-    await query(
+    const result = await query(
         `
             INSERT INTO ${schema}.transactions (
                 account_from_id,
@@ -1087,6 +1088,7 @@ async function createTransaction(app, txn) {
                 distribution_location_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+            RETURNING id
         `,
         [
             txn.accountFromId || null,
@@ -1115,6 +1117,7 @@ async function createTransaction(app, txn) {
             txn.distributionLocationId || null,
         ],
     );
+    return { id: result.rows[0].id };
 }
 
 async function updateTransaction(app, txn) {
@@ -1391,6 +1394,41 @@ async function saveHarvestRate(app, { day, organizationId, currencyId, rate }) {
          DO UPDATE SET rate = EXCLUDED.rate, updated_at = NOW()
          RETURNING id, day, organization_id AS "organizationId", currency_id AS "currencyId", rate`,
         [day, orgId, currencyId, numericRate],
+    );
+    return { ok: true, row: result.rows[0] };
+}
+
+// Every currency with an explicit write-off margin. A currency with no row here falls back
+// to SMALL_BALANCE_THRESHOLD client-side (see accountBalances.ts's resolveWriteOffThreshold).
+async function listWriteOffMargins(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`
+        SELECT id, currency_id AS "currencyId", threshold
+        FROM ${schema}.write_off_margins
+        ORDER BY currency_id ASC
+    `);
+    return result.rows;
+}
+
+// Upserts a positive threshold, or DELETEs the row when blank/invalid/<=0 — reverting
+// that currency to the shared default instead of saving a meaningless explicit value.
+async function saveWriteOffMargin(app, { currencyId, threshold }) {
+    if (!currencyId) throw new Error('Currency is required.');
+    const { schema } = await getSchemaInfo(app);
+    const numericThreshold = Number(threshold);
+
+    if (threshold == null || threshold === '' || !Number.isFinite(numericThreshold) || numericThreshold <= 0) {
+        await query(`DELETE FROM ${schema}.write_off_margins WHERE currency_id = $1`, [currencyId]);
+        return { ok: true, deleted: true };
+    }
+
+    const result = await query(
+        `INSERT INTO ${schema}.write_off_margins (currency_id, threshold)
+         VALUES ($1, $2)
+         ON CONFLICT (currency_id)
+         DO UPDATE SET threshold = EXCLUDED.threshold, updated_at = NOW()
+         RETURNING id, currency_id AS "currencyId", threshold`,
+        [currencyId, numericThreshold],
     );
     return { ok: true, row: result.rows[0] };
 }
@@ -1792,6 +1830,8 @@ module.exports = {
     deleteIgnoredAnomaly,
     listHarvestRates,
     saveHarvestRate,
+    listWriteOffMargins,
+    saveWriteOffMargin,
     exportWorkspaceData,
     importWorkspaceData,
     bulkImportTransactions,

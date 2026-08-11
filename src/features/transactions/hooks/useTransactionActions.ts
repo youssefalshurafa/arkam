@@ -530,10 +530,12 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
  transactionSubmitLock.current = true;
  setIsSubmittingTransaction(true);
  try {
-  await accountingApi.createTransaction(txPayload);
+  const created = await accountingApi.createTransaction(txPayload);
 
-  // Optimistically add the new row so the table updates instantly; a background reload
-  // reconciles it with the server (real id + any server-side normalization).
+  // Optimistically add the new row (with its real, server-assigned id — NOT a placeholder;
+  // a placeholder id here would be sent back to the server if the user immediately edits
+  // and saves this exact row before the background reload below replaces it) so the table
+  // updates instantly. The reload still runs to pick up any server-side normalization.
   const fromAcc = txPayload.accountFromId != null ? clientAccountMap.get(txPayload.accountFromId) : undefined;
   const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
   const cur = txPayload.currencyId != null ? currencyMap.get(txPayload.currencyId) : undefined;
@@ -541,7 +543,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
   setTransactions((prev) => [
    ...prev,
    {
-    id: -Date.now(),
+    id: created.id,
     accountFromId: txPayload.accountFromId,
     clientFromName: fromAcc?.clientName ?? '',
     accountFromCurrencyCode: fromAcc?.currencyCode ?? '',
@@ -1558,16 +1560,17 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
    distributionLocationId: null,
    createdAt,
   };
-  await accountingApi.createTransaction(txPayload);
+  const created = await accountingApi.createTransaction(txPayload);
 
-  // Optimistically add the new row so the table updates instantly; a background reload
-  // reconciles it with the server (real id + any server-side normalization).
+  // Optimistically add the new row (with its real, server-assigned id — see the same-shaped
+  // comment in onTransactionSubmit above for why a placeholder id here is unsafe) so the
+  // table updates instantly. The reload still runs to pick up any server-side normalization.
   const fromAcc = txPayload.accountFromId != null ? clientAccountMap.get(txPayload.accountFromId) : undefined;
   const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
   setTransactions((prev) => [
    ...prev,
    {
-    id: -Date.now(),
+    id: created.id,
     accountFromId: txPayload.accountFromId,
     clientFromName: fromAcc?.clientName ?? '',
     accountFromCurrencyCode: fromAcc?.currencyCode ?? '',

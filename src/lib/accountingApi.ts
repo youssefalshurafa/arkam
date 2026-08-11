@@ -1,5 +1,5 @@
 import { localDateKey } from '@/shared/utils/date';
-import type { SystemClient, TreasuryBalanceEntry } from '@/shared/types';
+import type { SystemClient, TreasuryBalanceEntry, WriteOffMargin } from '@/shared/types';
 
 const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
 
@@ -216,7 +216,7 @@ export const accountingApi = {
  disableCurrency: (currencyId: number) => request<{ ok: true }>({ action: 'disableCurrency', payload: currencyId }),
  setMainCurrency: (currencyId: number) => request<{ ok: true }>({ action: 'setMainCurrency', payload: currencyId }),
  listTransactions: () => request<unknown[]>({ action: 'listTransactions' }),
- createTransaction: (transaction: unknown) => request<{ ok: true }>({ action: 'createTransaction', payload: transaction }),
+ createTransaction: (transaction: unknown) => request<{ ok: true; id: number }>({ action: 'createTransaction', payload: transaction }),
  updateTransaction: (transaction: unknown) => request<{ ok: true }>({ action: 'updateTransaction', payload: transaction }),
  setTransactionArchiveHidden: (payload: { id: number; hidden: boolean }) => request<{ ok: true }>({ action: 'setTransactionArchiveHidden', payload }),
  deleteTransaction: (transactionId: number) => request<{ ok: true }>({ action: 'deleteTransaction', payload: transactionId }),
@@ -232,6 +232,9 @@ export const accountingApi = {
  deleteIgnoredAnomaly: (id: number) => request<{ ok: true }>({ action: 'deleteIgnoredAnomaly', payload: id }),
  listHarvestRates: () => request<unknown[]>({ action: 'listHarvestRates' }),
  saveHarvestRate: (payload: unknown) => request<{ ok: true; deleted?: boolean; row?: unknown }>({ action: 'saveHarvestRate', payload }),
+ listWriteOffMargins: () => request<WriteOffMargin[]>({ action: 'listWriteOffMargins' }),
+ saveWriteOffMargin: (payload: { currencyId: number; threshold: number }) =>
+  request<{ ok: true; deleted?: boolean; row?: WriteOffMargin }>({ action: 'saveWriteOffMargin', payload }),
  listWorkspaces: () =>
   fetch('/api/workspaces', { method: 'GET', credentials: 'include' }).then(async (response) => {
    const data = await response.json();

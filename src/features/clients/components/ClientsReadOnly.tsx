@@ -1,12 +1,13 @@
 'use client';
 
+import { useMemo } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
-import { SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
-import type { Client, ClientAccount, Section, SettingsTab } from '@/shared/types';
+import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
+import type { Client, ClientAccount, Section, SettingsTab, WriteOffMargin } from '@/shared/types';
 import type { ClientOrgGroup } from '@/features/clients/utils/clientsView';
 import type { ClientBalanceEntry } from '@/features/clients/utils/clientBalances';
 
@@ -16,6 +17,7 @@ type ClientsReadOnlyProps = {
  sortedClients: Client[];
  clientsByOrganization: ClientOrgGroup[];
  clientPageBalances: Map<number, ClientBalanceEntry[]>;
+ writeOffMargins: WriteOffMargin[];
  clientSortHeader: (key: 'name' | 'organization', label: string) => ReactNode;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  onClientsOrgDrop: (targetKey: string) => void;
@@ -27,12 +29,13 @@ type ClientsReadOnlyProps = {
 };
 
 export default function ClientsReadOnly({
- clients, clientAccounts, sortedClients, clientsByOrganization, clientPageBalances,
+ clients, clientAccounts, sortedClients, clientsByOrganization, clientPageBalances, writeOffMargins,
  clientSortHeader, openClientLedger, onClientsOrgDrop, navigateToSection, setSettingsTab,
  selectedClientForAccounts, setSelectedClientForAccounts, onWriteOffBalance,
 }: ClientsReadOnlyProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
+ const writeOffMarginByCurrency = useMemo(() => writeOffMarginMap(writeOffMargins), [writeOffMargins]);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
  const numLocale = language === 'fr' ? 'en-US' : language;
@@ -42,7 +45,7 @@ export default function ClientsReadOnly({
  // by the list-view table cell and its mobile card. Plain render function (not a component).
  const renderBalanceChips = (clientId: number) => (
   <div className="flex flex-wrap gap-1">
-   {(clientPageBalances.get(clientId) ?? []).map(({ accountId, currencyCode, currencySymbol, balance }) => (
+   {(clientPageBalances.get(clientId) ?? []).map(({ accountId, currencyId, currencyCode, currencySymbol, balance }) => (
     <span
      key={accountId}
      className="inline-flex items-center gap-1"
@@ -50,7 +53,7 @@ export default function ClientsReadOnly({
      <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}>
       {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
      </span>
-     {balance !== 0 && Math.abs(balance) <= SMALL_BALANCE_THRESHOLD ? (
+     {balance !== 0 && Math.abs(balance) <= resolveWriteOffThreshold(currencyId, writeOffMarginByCurrency) ? (
       <button
        type="button"
        title={t('write_off_button')}
@@ -229,7 +232,7 @@ export default function ClientsReadOnly({
              {client.name}
             </a>
             <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-             {(clientPageBalances.get(client.id) ?? []).map(({ accountId, currencyCode, currencySymbol, balance }) => (
+             {(clientPageBalances.get(client.id) ?? []).map(({ accountId, currencyId, currencyCode, currencySymbol, balance }) => (
               <span
                key={accountId}
                className="inline-flex items-center gap-1"
@@ -237,7 +240,7 @@ export default function ClientsReadOnly({
                <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}>
                 {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
                </span>
-               {balance !== 0 && Math.abs(balance) <= SMALL_BALANCE_THRESHOLD ? (
+               {balance !== 0 && Math.abs(balance) <= resolveWriteOffThreshold(currencyId, writeOffMarginByCurrency) ? (
                 <button
                  type="button"
                  title={t('write_off_button')}

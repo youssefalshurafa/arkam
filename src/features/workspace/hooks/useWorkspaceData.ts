@@ -15,6 +15,7 @@ import type {
  Organization,
  Reconciliation,
  Transaction,
+ WriteOffMargin,
 } from '@/shared/types';
 
 /**
@@ -31,6 +32,7 @@ export type WorkspaceData = {
  reconciliations: Reconciliation[];
  ignoredAnomalies: IgnoredAnomaly[];
  harvestRates: HarvestRate[];
+ writeOffMargins: WriteOffMargin[];
  backup: BackupInfo | null;
 };
 
@@ -72,7 +74,7 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
  return useQuery<WorkspaceData>({
   queryKey,
   queryFn: async () => {
-   const [organizations, clients, currencyRows, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, backup] = (await Promise.all([
+   const [organizations, clients, currencyRows, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup] = (await Promise.all([
     accountingApi.listOrganizations(),
     accountingApi.listClients(),
     accountingApi.listCurrencies(),
@@ -81,8 +83,9 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
     accountingApi.listReconciliations(),
     accountingApi.listIgnoredAnomalies(),
     accountingApi.listHarvestRates(),
+    accountingApi.listWriteOffMargins(),
     accountingApi.getBackupInfo(),
-   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], Reconciliation[], IgnoredAnomaly[], HarvestRate[], BackupInfo];
+   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], Reconciliation[], IgnoredAnomaly[], HarvestRate[], WriteOffMargin[], BackupInfo];
 
    let currencies = currencyRows;
    // Seed (or repair) the currency catalog when it's empty or clearly under-seeded. A
@@ -96,14 +99,23 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
     currencies = (await accountingApi.listCurrencies()) as Currency[];
    }
 
-   saveDataCache({ organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates }, userId, workspaceId);
-   return { organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, backup };
+   saveDataCache({ organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins }, userId, workspaceId);
+   return { organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup };
   },
   initialData: () => {
    const cache = readDataCache(userId, workspaceId);
-   // Older cached snapshots predate `reconciliations`/`ignoredAnomalies`/`harvestRates`; default
-   // them so consumers never see undefined.
-   return cache ? { ...cache, reconciliations: cache.reconciliations ?? [], ignoredAnomalies: cache.ignoredAnomalies ?? [], harvestRates: cache.harvestRates ?? [], backup: null } : undefined;
+   // Older cached snapshots predate `reconciliations`/`ignoredAnomalies`/`harvestRates`/
+   // `writeOffMargins`; default them so consumers never see undefined.
+   return cache
+    ? {
+       ...cache,
+       reconciliations: cache.reconciliations ?? [],
+       ignoredAnomalies: cache.ignoredAnomalies ?? [],
+       harvestRates: cache.harvestRates ?? [],
+       writeOffMargins: cache.writeOffMargins ?? [],
+       backup: null,
+      }
+    : undefined;
   },
   // The sessionStorage snapshot is per-tab and can be arbitrarily stale (another
   // tab may have written new transactions to the server since it was saved).
@@ -167,6 +179,7 @@ export function useWorkspaceCache(userId: string | null | undefined, workspaceId
    setReconciliations: bind('reconciliations'),
    setIgnoredAnomalies: bind('ignoredAnomalies'),
    setHarvestRates: bind('harvestRates'),
+   setWriteOffMargins: bind('writeOffMargins'),
   };
  }, [update]);
 
