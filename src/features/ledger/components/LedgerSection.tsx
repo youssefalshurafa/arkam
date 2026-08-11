@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
 import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
@@ -22,6 +22,7 @@ import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } 
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, HIGHLIGHT_PEN_CURSOR } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
+import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch } from '@/features/ledger/utils/ledgerEntries';
@@ -45,6 +46,7 @@ import type {
  Organization,
  Section,
  Transaction,
+ WriteOffMargin,
 } from '@/shared/types';
 
 type LedgerSectionProps = {
@@ -95,6 +97,8 @@ type LedgerSectionProps = {
  navigateToSection: (section: Section) => void;
  loadData: () => Promise<void> | void;
  lockPastEditsEnabled: boolean;
+ writeOffMargins: WriteOffMargin[];
+ onWriteOffBalance: (accountId: number, balance: number) => void;
 };
 
 export default function LedgerSection(props: LedgerSectionProps) {
@@ -105,7 +109,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openOneSidedTransactionModal, openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
-  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled,
+  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
  } = props;
  const router = useRouter();
  const { language, isRTL } = useLanguage();
@@ -123,6 +127,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // useTransactionActions.ts) — the paste side lives on NewTransactionModal (page-level), since
  // that's the shared two-sided form this feature fills.
  const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
+ // Per-currency write-off eligibility margin (Settings > Write-off) — same map the Clients
+ // page's balance-chip write-off uses, applied here to gate the ledger row's "Write off" menu
+ // item against the account's current overall balance (see resolveWriteOffThreshold).
+ const writeOffMarginByCurrency = useMemo(() => writeOffMarginMap(writeOffMargins), [writeOffMargins]);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
@@ -1803,6 +1811,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       const first = highlighted.length >= 2 ? highlighted[highlighted.length - 2] : last;
                       setCommissionModal({ accountId: ledger.accountId, fromDate: '', toDate: '', fromEntryKey: first.rowKey, toEntryKey: last.rowKey, receivingSelections: {}, settlementSelections: {} });
                      };
+                     // Same eligibility rule as the Clients page's balance-chip write-off: the
+                     // account's CURRENT overall balance (not this row's own net change) must be
+                     // nonzero and within the configured per-currency margin.
+                     const ledgerAccount = clientAccounts.find((a) => a.id === ledger.accountId);
+                     const writeOffEligible =
+                      !!ledgerAccount && ledger.currentBalance !== 0 && Math.abs(ledger.currentBalance) <= resolveWriteOffThreshold(ledgerAccount.currencyId, writeOffMarginByCurrency);
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) },
@@ -1822,6 +1836,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       ...(selectedClientForLedger?.distributionCommissionEnabled && hasHighlightsForAccount
                        ? [{ key: 'commission-range', label: t('distribution_panel_use_highlights'), onSelect: openCommissionModalFromHighlights }]
                        : []),
+                      ...(writeOffEligible ? [{ key: 'write-off', label: t('write_off_button'), onSelect: () => onWriteOffBalance(ledger.accountId, ledger.currentBalance) }] : []),
                       { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
                      ]);
                     };

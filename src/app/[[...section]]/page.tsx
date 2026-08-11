@@ -2455,6 +2455,8 @@ function AuthenticatedHome() {
          loadData={loadData}
          setSection={setSection}
          setClientAccounts={setClientAccounts}
+         writeOffMargins={writeOffMargins}
+         onWriteOffBalance={onWriteOffBalance}
          setLedgerRowClickMode={setLedgerRowClickMode}
          toggleLedgerRowHighlight={toggleLedgerRowHighlight}
         />
