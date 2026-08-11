@@ -235,7 +235,10 @@ async function onDeleteAllClients() {
  }
 }
 
-async function onWriteOffBalance(accountId: number, balance: number) {
+// dateKey lets a caller pin the write-off to a specific day instead of today — the client
+// ledger's per-row write-off passes that row's own date so the adjustment lands right after it
+// (same day) instead of jumping to the bottom of the ledger under today's date.
+async function onWriteOffBalance(accountId: number, balance: number, dateKey: string = localDateKey()) {
  if (!accountingApi) {
   setError(t('error_bridge'));
   return;
@@ -288,7 +291,7 @@ async function onWriteOffBalance(accountId: number, balance: number) {
    archiveNote: '',
    counterParty: '',
    distributionLocationId: null,
-   createdAt: nextCreatedAtForDate(localDateKey(), transactions),
+   createdAt: nextCreatedAtForDate(dateKey, transactions),
   });
   setError('');
   await loadData();
