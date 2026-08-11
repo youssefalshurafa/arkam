@@ -2628,6 +2628,8 @@ function AuthenticatedHome() {
     lockPastEditsEnabled={lockPastEditsEnabled}
     onTransactionSubmit={onTransactionSubmit}
     closeNewTransactionModal={closeNewTransactionModal}
+    copiedTransaction={copiedTransaction}
+    onPasteCopiedTransaction={onPasteCopiedTransaction}
    />
 
    <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />

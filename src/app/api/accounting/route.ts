@@ -370,9 +370,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
    case 'listTransactions':
     return NextResponse.json(await db.listTransactions(appLike));
-   case 'createTransaction':
-    await db.createTransaction(appLike, payload);
-    return NextResponse.json({ ok: true });
+   case 'createTransaction': {
+    // The real DB id, returned immediately so the client's optimistic row can carry it
+    // instead of a placeholder — see useTransactionActions.ts's onTransactionSubmit.
+    const created = await db.createTransaction(appLike, payload);
+    return NextResponse.json({ ok: true, id: created.id });
+   }
    case 'updateTransaction':
     await db.updateTransaction(appLike, payload);
     return NextResponse.json({ ok: true });

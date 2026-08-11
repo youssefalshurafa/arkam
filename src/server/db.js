@@ -996,7 +996,7 @@ async function createTransaction(app, txn) {
     }
 
     if (hasCustomCreatedAt) {
-        await query(
+        const result = await query(
             `
                 INSERT INTO ${schema}.transactions (
                     account_from_id,
@@ -1026,6 +1026,7 @@ async function createTransaction(app, txn) {
                     created_at
                 )
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+                RETURNING id
             `,
             [
                 txn.accountFromId || null,
@@ -1055,10 +1056,10 @@ async function createTransaction(app, txn) {
                 txn.createdAt.trim(),
             ],
         );
-        return;
+        return { id: result.rows[0].id };
     }
 
-    await query(
+    const result = await query(
         `
             INSERT INTO ${schema}.transactions (
                 account_from_id,
@@ -1087,6 +1088,7 @@ async function createTransaction(app, txn) {
                 distribution_location_id
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+            RETURNING id
         `,
         [
             txn.accountFromId || null,
@@ -1115,6 +1117,7 @@ async function createTransaction(app, txn) {
             txn.distributionLocationId || null,
         ],
     );
+    return { id: result.rows[0].id };
 }
 
 async function updateTransaction(app, txn) {

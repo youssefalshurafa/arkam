@@ -118,6 +118,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const setError = useAppStatusStore((s) => s.setError);
  // Opens the shared read-only transaction "More info" popup (mounted at page level).
  const setInfoTransactionId = useTransactionsStore((s) => s.setInfoTransactionId);
+ // Copy/paste a transaction: writes into the same useTransactionsStore slot the Transactions
+ // page's copy/paste uses (see onCopyTransactionRow/onPasteCopiedTransaction in
+ // useTransactionActions.ts) — the paste side lives on NewTransactionModal (page-level), since
+ // that's the shared two-sided form this feature fills.
+ const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
@@ -1801,6 +1806,16 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) },
+                      {
+                       key: 'copy',
+                       label: t('copy_transaction'),
+                       onSelect: () => {
+                        const transaction = transactions.find((tx) => tx.id === entry.transactionId);
+                        if (!transaction) return;
+                        setCopiedTransaction(transaction);
+                        showToast(t('toast_copied'));
+                       },
+                      },
                       entry.reconciledMark
                        ? { key: 'unreconcile', label: t('reconcile_remove_action'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
                        : { key: 'reconcile', label: t('reconcile_action'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
