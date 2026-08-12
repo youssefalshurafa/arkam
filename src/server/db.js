@@ -994,6 +994,19 @@ async function createTransaction(app, txn) {
     if (!isArchived && hasCustomCreatedAt) {
         await assertPastEditAllowed(app, app.todayKey, txn.createdAt.trim());
     }
+    await assertReconciliationNotViolated(
+        app,
+        [
+            {
+                accountFromId: txn.accountFromId,
+                accountToId: txn.accountToId,
+                createdAt: hasCustomCreatedAt ? txn.createdAt.trim() : new Date().toISOString(),
+                refId: RECONCILIATION_NEW_ROW_REF_ID,
+                isArchived,
+            },
+        ],
+        Boolean(txn.acknowledgeReconciliationOverride),
+    );
 
     if (hasCustomCreatedAt) {
         const result = await query(
@@ -1134,10 +1147,23 @@ async function updateTransaction(app, txn) {
 
     const { schema } = await getSchemaInfo(app);
 
-    const existing = await query(`SELECT created_at AS "createdAt", is_archived AS "isArchived" FROM ${schema}.transactions WHERE id = $1`, [txn.id]);
+    const existing = await query(
+        `SELECT created_at AS "createdAt", is_archived AS "isArchived", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1`,
+        [txn.id],
+    );
     const existingRow = existing.rows[0];
     if (existingRow && !existingRow.isArchived) {
         await assertPastEditAllowed(app, app.todayKey, existingRow.createdAt, txn.createdAt);
+    }
+    if (existingRow) {
+        await assertReconciliationNotViolated(
+            app,
+            [
+                { accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId, createdAt: existingRow.createdAt, refId: txn.id, isArchived: existingRow.isArchived },
+                { accountFromId: txn.accountFromId, accountToId: txn.accountToId, createdAt: txn.createdAt, refId: txn.id, isArchived: existingRow.isArchived },
+            ],
+            Boolean(txn.acknowledgeReconciliationOverride),
+        );
     }
 
     await query(
@@ -1224,7 +1250,10 @@ async function setTransactionArchiveHidden(app, { id, hidden }) {
     await query(`UPDATE ${schema}.transactions SET archive_hidden = $1 WHERE id = $2`, [Boolean(hidden), id]);
 }
 
-async function deleteTransaction(app, transactionId) {
+async function deleteTransaction(app, payload) {
+    // Accepts either the raw transaction id (legacy shape) or { id, acknowledgeReconciliationOverride }.
+    const transactionId = typeof payload === 'object' && payload !== null ? payload.id : payload;
+    const acknowledgeReconciliationOverride = typeof payload === 'object' && payload !== null ? payload.acknowledgeReconciliationOverride : false;
     const { schema } = await getSchemaInfo(app);
     const existing = await query(
         `SELECT created_at AS "createdAt", is_archived AS "isArchived", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1`,
@@ -1236,6 +1265,13 @@ async function deleteTransaction(app, transactionId) {
     }
     if (existingRow && !existingRow.isArchived) {
         await assertPastEditAllowed(app, app.todayKey, existingRow.createdAt);
+    }
+    if (existingRow) {
+        await assertReconciliationNotViolated(
+            app,
+            [{ accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId, createdAt: existingRow.createdAt, refId: transactionId, isArchived: existingRow.isArchived }],
+            Boolean(acknowledgeReconciliationOverride),
+        );
     }
     await query(`DELETE FROM ${schema}.transactions WHERE id = $1`, [transactionId]);
 }
@@ -1253,10 +1289,9 @@ async function listReconciliations(app) {
             SELECT
                 r.id,
                 r.account_id AS "accountId",
-                r.anchor_kind AS "anchorKind",
-                r.anchor_ref_id AS "anchorRefId",
-                r.anchor_created_at AS "anchorCreatedAt",
-                r.locked_ref_ids AS "lockedRefIds",
+                r.anchor_transaction_id AS "anchorTransactionId",
+                r.anchor_date AS "anchorDate",
+                r.locked_transaction_ids AS "lockedTransactionIds",
                 r.balance,
                 r.note,
                 r.created_at AS "createdAt"
@@ -1264,23 +1299,24 @@ async function listReconciliations(app) {
             JOIN ${schema}.client_accounts ca ON ca.id = r.account_id
             JOIN ${schema}.clients c ON c.id = ca.client_id
             ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
-            ORDER BY r.anchor_created_at ASC, r.anchor_ref_id ASC
+            ORDER BY r.anchor_date ASC, r.anchor_transaction_id ASC
         `,
         isMember ? [app.userId] : [],
     );
     return result.rows;
 }
 
-async function createReconciliation(app, { accountId, anchorRefId, anchorCreatedAt, balance, note, lockedRefIds }) {
+async function createReconciliation(app, { accountId, anchorTransactionId, anchorDate, balance, note, lockedTransactionIds }) {
     const { schema } = await getSchemaInfo(app);
     if (!accountId) throw new Error('Account is required.');
-    if (!anchorRefId) throw new Error('A ledger row to reconcile is required.');
-    if (!anchorCreatedAt) throw new Error('The reconciled row date is required.');
+    if (!anchorTransactionId) throw new Error('A ledger row to reconcile is required.');
+    if (!anchorDate) throw new Error('The reconciled row date is required.');
+    if (!Array.isArray(lockedTransactionIds) || lockedTransactionIds.length === 0) throw new Error('The reconciled row set is required.');
     await assertMemberCanWriteAccount(app, accountId);
     const result = await query(
-        `INSERT INTO ${schema}.reconciliations (account_id, anchor_kind, anchor_ref_id, anchor_created_at, balance, note, locked_ref_ids)
-         VALUES ($1, 'transaction', $2, $3, $4, $5, $6) RETURNING id`,
-        [accountId, anchorRefId, anchorCreatedAt, balance ?? 0, note?.trim() || '', Array.isArray(lockedRefIds) ? lockedRefIds : null],
+        `INSERT INTO ${schema}.reconciliations (account_id, anchor_transaction_id, anchor_date, balance, note, locked_transaction_ids)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [accountId, anchorTransactionId, anchorDate, balance ?? 0, note?.trim() || '', lockedTransactionIds],
     );
     return result.rows[0];
 }
@@ -1290,20 +1326,6 @@ async function deleteReconciliation(app, id) {
     const existing = await query(`SELECT account_id AS "accountId" FROM ${schema}.reconciliations WHERE id = $1`, [id]);
     await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
     await query(`DELETE FROM ${schema}.reconciliations WHERE id = $1`, [id]);
-}
-
-// One-time lazy backfill: fills in `locked_ref_ids` for a reconciliation created before that
-// column existed. The caller (client) computes the membership set from its own already-loaded
-// ledger view — the same ordering logic used for display — the first time it notices a
-// reconciliation missing this field, so no bulk server-side migration is needed. A no-op once
-// the column is already set (checked by the caller before calling, and reconfirmed with the
-// WHERE clause here so a race between two clients can't stomp a set with a different one).
-async function setReconciliationLockedRefIds(app, { id, lockedRefIds }) {
-    const { schema } = await getSchemaInfo(app);
-    if (!Array.isArray(lockedRefIds)) throw new Error('lockedRefIds is required.');
-    const existing = await query(`SELECT account_id AS "accountId" FROM ${schema}.reconciliations WHERE id = $1`, [id]);
-    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
-    await query(`UPDATE ${schema}.reconciliations SET locked_ref_ids = $2 WHERE id = $1 AND locked_ref_ids IS NULL`, [id, lockedRefIds]);
 }
 
 async function listIgnoredAnomalies(app) {
@@ -1444,13 +1466,18 @@ async function deleteTransactionsBulk(app, payload) {
     }
 
     const existing = await query(
-        `SELECT created_at AS "createdAt", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE`,
+        `SELECT id, created_at AS "createdAt", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE`,
         [transactionIds],
     );
     await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
     for (const row of existing.rows) {
         await assertMemberCanWriteTransaction(app, { accountFromId: row.accountFromId, accountToId: row.accountToId });
     }
+    await assertReconciliationNotViolated(
+        app,
+        existing.rows.map((row) => ({ accountFromId: row.accountFromId, accountToId: row.accountToId, createdAt: row.createdAt, refId: row.id, isArchived: false })),
+        Boolean(payload?.acknowledgeReconciliationOverride),
+    );
 
     await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds]);
 
@@ -1723,6 +1750,69 @@ async function assertPastEditAllowed(app, todayKey, ...createdAtValues) {
     }
 }
 
+// The largest refId sentinel for a not-yet-created row — mirrors NEW_ROW_REF_ID in
+// reconciliation.ts. Never a member of any frozen locked-transaction-ids set, so on the
+// boundary's own day it correctly resolves to "not a member" (a brand-new row is always
+// appended after every existing same-day row).
+const RECONCILIATION_NEW_ROW_REF_ID = Number.MAX_SAFE_INTEGER;
+
+// Server-side port of isReconciledMember (reconciliation.ts) — day-granularity comparison
+// against a frozen anchor date, falling back to the frozen locked-transaction-ids set only
+// to break a same-day tie. Kept intentionally tiny so it's easy to keep the two in sync; if
+// that classification logic ever changes, mirror the change here too.
+function isReconciledMemberServer(createdAt, refId, boundary) {
+    if (!boundary) return false;
+    const rowDay = createdAtDateKey(createdAt);
+    if (rowDay !== boundary.anchorDate) return rowDay < boundary.anchorDate;
+    return boundary.lockedTransactionIds.has(refId);
+}
+
+async function getActiveReconciliationBoundaries(schema) {
+    const { rows } = await query(
+        `SELECT id, account_id AS "accountId", anchor_date AS "anchorDate", locked_transaction_ids AS "lockedTransactionIds", balance
+         FROM ${schema}.reconciliations ORDER BY id ASC`,
+    );
+    const byAccount = new Map();
+    for (const rec of rows) {
+        // Newest (highest id) reconciliation per account wins, same rule as buildLockBoundaries.
+        byAccount.set(rec.accountId, {
+            id: rec.id,
+            anchorDate: createdAtDateKey(rec.anchorDate),
+            lockedTransactionIds: new Set(rec.lockedTransactionIds || []),
+            balance: rec.balance,
+        });
+    }
+    return byAccount;
+}
+
+// Server-side backstop for the reconciliation lock. This is deliberately a coarser,
+// POSITION-only check — not the full balance-delta math the client's confirm dialog uses —
+// so it stays small and low-risk as a pure backstop: it requires the caller to already have
+// shown/confirmed that dialog (acknowledgeReconciliationOverride: true) for ANY write that
+// touches a transaction sitting at or before an active reconciliation boundary, regardless
+// of whether that specific write actually moves the reconciled number. The client's guard
+// remains the precise, non-annoying check for normal use (see useReconciliationLocks.ts);
+// this only exists to catch a write path that skipped it — a bug, not the expected path —
+// which is exactly the gap that let onSaveAllTransactions/onWriteOffBalance silently write
+// through reconciled history with no check at all before this rebuild.
+async function assertReconciliationNotViolated(app, rows, override) {
+    if (override) return;
+    const relevantRows = rows.filter((row) => !row.isArchived);
+    if (relevantRows.length === 0) return;
+    const { schema } = await getSchemaInfo(app);
+    const boundaries = await getActiveReconciliationBoundaries(schema);
+    if (boundaries.size === 0) return;
+    for (const row of relevantRows) {
+        for (const accountId of [row.accountFromId, row.accountToId]) {
+            if (accountId == null) continue;
+            const boundary = boundaries.get(accountId);
+            if (boundary && isReconciledMemberServer(row.createdAt, row.refId, boundary)) {
+                throw new Error('This change affects a transaction at or before a reconciled balance and was not confirmed. Please refresh the page and try again.');
+            }
+        }
+    }
+}
+
 // Upserts the shared settings. When `settings` is provided the version bumps so
 // clients know to re-apply. `sharedEnabled` toggles sharing on/off (no bump).
 async function saveWorkspaceSettings(app, payload) {
@@ -1824,7 +1914,6 @@ module.exports = {
     listReconciliations,
     createReconciliation,
     deleteReconciliation,
-    setReconciliationLockedRefIds,
     listIgnoredAnomalies,
     createIgnoredAnomaly,
     deleteIgnoredAnomaly,

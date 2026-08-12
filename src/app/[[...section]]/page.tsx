@@ -1497,6 +1497,7 @@ function AuthenticatedHome() {
   clients,
   clientAccounts,
   transactions,
+  reconciliations,
   numLocale,
   selectedClientForAccounts,
   setSelectedClientForAccounts,
@@ -1507,6 +1508,7 @@ function AuthenticatedHome() {
   currencyMap,
   clientAccountMap,
   clientsByOrganization,
+  lockPastEditsEnabled,
  });
 
  // Per-client balances for the clients list/group view. Keyed by clientId, each value is
@@ -1552,7 +1554,7 @@ function AuthenticatedHome() {
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, transactions, clientAccountMap, lockPastEditsEnabled });
+ const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoint the ledger edit uses. When not reversed the rate
@@ -1602,7 +1604,7 @@ function AuthenticatedHome() {
     if (!(await confirmIfTransactionEditLocked(tx, payload))) {
      return false;
     }
-    await accountingApi.updateTransaction(payload);
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
     setError('');
     await loadData();
     return true;
@@ -1653,7 +1655,7 @@ function AuthenticatedHome() {
     return;
    }
    try {
-    await accountingApi.updateTransaction(payload);
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
     setError('');
     await loadData();
    } catch (e) {

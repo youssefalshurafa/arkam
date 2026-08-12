@@ -239,6 +239,10 @@ export type TransactionUpdateInput = {
  counterParty?: string;
  distributionLocationId?: number | null;
  createdAt: string;
+ // Set once the user has confirmed the reconciliation-lock warning dialog client-side, so
+ // the server's backstop check (assertReconciliationNotViolated in db.js) doesn't reject a
+ // write the user already explicitly approved. See useReconciliationLocks.ts.
+ acknowledgeReconciliationOverride?: boolean;
 };
 
 export type TransactionTableDraft = {
@@ -336,21 +340,18 @@ export type ClientLedgerEntry = {
  distributionLocationKind: 'receiving' | 'settlement' | null;
 };
 
-// A reconciliation mark: the client agreed their balance was correct as of one
-// ledger row in one client account. `anchorCreatedAt` + `anchorRefId` reproduce the
-// ledger sort order (createdAt, then id) and form the lock boundary — entries at or
-// before it are protected against reorder/re-date/edit/delete without a warning.
+// A reconciliation mark: the client agreed their balance was correct as of one ledger row
+// in one client account. Both `anchorDate` and `lockedTransactionIds` are frozen forever at
+// creation time and never re-derived from live data — see reconciliation.ts's
+// `isReconciledMember` for exactly how they combine to classify a row as reconciled or not.
 export type Reconciliation = {
  id: number;
  accountId: number;
- anchorKind: 'transaction';
- anchorRefId: number;
- anchorCreatedAt: string;
- // Fixed, immutable set of transaction ids that were at-or-before the anchor, captured once
- // at creation time — makes the lock independent of any row's live position (see
- // reconciliation.ts). Null on reconciliations created before this field existed; those fall
- // back to the older live-position resolution until lazily backfilled.
- lockedRefIds: number[] | null;
+ anchorTransactionId: number;
+ // Calendar day (yyyy-mm-dd) the anchor row was on when reconciled.
+ anchorDate: string;
+ // Fixed set of every transaction id that sat at or before the anchor at creation time.
+ lockedTransactionIds: number[];
  balance: number;
  note: string;
  createdAt: string;
@@ -404,9 +405,6 @@ export type ClientAccountLedger = {
  note: string;
  noteShowInPdf: boolean;
  entries: ClientLedgerEntry[];
- // The newest reconciliation on this account (the effective lock line), or null. Its
- // (createdAt, refId) is the boundary; entries at or before it are locked.
- lockBoundary: { anchorCreatedAt: string; anchorRefId: number; balance: number } | null;
 };
 
 // One overview balance card: all clients of an organization that hold accounts in

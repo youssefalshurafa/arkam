@@ -219,14 +219,14 @@ export const accountingApi = {
  createTransaction: (transaction: unknown) => request<{ ok: true; id: number }>({ action: 'createTransaction', payload: transaction }),
  updateTransaction: (transaction: unknown) => request<{ ok: true }>({ action: 'updateTransaction', payload: transaction }),
  setTransactionArchiveHidden: (payload: { id: number; hidden: boolean }) => request<{ ok: true }>({ action: 'setTransactionArchiveHidden', payload }),
- deleteTransaction: (transactionId: number) => request<{ ok: true }>({ action: 'deleteTransaction', payload: transactionId }),
- deleteTransactionsBulk: (payload: { transactionIds: number[] }) => request<{ ok: true; deleted: number }>({ action: 'deleteTransactionsBulk', payload }),
+ deleteTransaction: (transactionId: number, opts?: { acknowledgeReconciliationOverride?: boolean }) =>
+  request<{ ok: true }>({ action: 'deleteTransaction', payload: { id: transactionId, acknowledgeReconciliationOverride: opts?.acknowledgeReconciliationOverride } }),
+ deleteTransactionsBulk: (payload: { transactionIds: number[]; acknowledgeReconciliationOverride?: boolean }) =>
+  request<{ ok: true; deleted: number }>({ action: 'deleteTransactionsBulk', payload }),
  deleteAllTransactions: () => request<{ ok: true }>({ action: 'deleteAllTransactions' }),
  listReconciliations: () => request<unknown[]>({ action: 'listReconciliations' }),
  createReconciliation: (payload: unknown) => request<{ id: number }>({ action: 'createReconciliation', payload }),
  deleteReconciliation: (id: number) => request<{ ok: true }>({ action: 'deleteReconciliation', payload: id }),
- setReconciliationLockedRefIds: (payload: { id: number; lockedRefIds: number[] }) =>
-  request<{ ok: true }>({ action: 'setReconciliationLockedRefIds', payload }),
  listIgnoredAnomalies: () => request<unknown[]>({ action: 'listIgnoredAnomalies' }),
  createIgnoredAnomaly: (payload: unknown) => request<{ id: number | null }>({ action: 'createIgnoredAnomaly', payload }),
  deleteIgnoredAnomaly: (id: number) => request<{ ok: true }>({ action: 'deleteIgnoredAnomaly', payload: id }),
