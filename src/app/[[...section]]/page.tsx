@@ -58,6 +58,7 @@ import {
  getStoredTxFilter,
  getStoredArchiveFilter,
  getStoredTableZoom,
+ saveLedgerHighlightPresets,
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { getSectionFromPath } from '@/shared/utils/section';
@@ -264,6 +265,8 @@ function AuthenticatedHome() {
  const setLedgerNetChangeHighlightColor = useLedgerStore((s) => s.setLedgerNetChangeHighlightColor);
  const ledgerRowHighlightColor = useLedgerStore((s) => s.ledgerRowHighlightColor);
  const setLedgerRowHighlightColor = useLedgerStore((s) => s.setLedgerRowHighlightColor);
+ const ledgerRowHighlightPresets = useLedgerStore((s) => s.ledgerRowHighlightPresets);
+ const setLedgerRowHighlightPresets = useLedgerStore((s) => s.setLedgerRowHighlightPresets);
  const ledgerRowClickHighlight = useLedgerStore((s) => s.ledgerRowClickHighlight);
  const setLedgerRowClickHighlight = useLedgerStore((s) => s.setLedgerRowClickHighlight);
  const setLedgerRowClickActive = useLedgerStore((s) => s.setLedgerRowClickActive);
@@ -1124,6 +1127,23 @@ function AuthenticatedHome() {
  function updateLedgerRowHighlightColor(next: string) {
   setLedgerRowHighlightColor(next);
   persistLedgerSettings({ rowHighlightColor: next });
+ }
+
+ // Instantly switches the active highlighter to one of the 3 saved presets (a global
+ // palette, not per-client — see ledgerRowHighlightPresets on the store).
+ function selectLedgerRowHighlightPreset(index: number) {
+  updateLedgerRowHighlightColor(ledgerRowHighlightPresets[index]);
+ }
+
+ // Overwrites preset `index` with the currently-active highlighter color, so the user can
+ // dial in a custom color via the main picker and then pin it to one of the 3 quick-switch slots.
+ function saveLedgerRowHighlightPreset(index: number) {
+  const next = [...ledgerRowHighlightPresets] as [string, string, string];
+  next[index] = ledgerRowHighlightColor;
+  setLedgerRowHighlightPresets(next);
+  saveLedgerHighlightPresets(next);
+  pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  }
 
  function updateLedgerNetChangeHighlightColor(next: string) {
@@ -2696,6 +2716,8 @@ function AuthenticatedHome() {
      updateLedgerDateFormat={updateLedgerDateFormat}
      updateLedgerRowHighlightColor={updateLedgerRowHighlightColor}
      updateLedgerNetChangeHighlightColor={updateLedgerNetChangeHighlightColor}
+     selectLedgerRowHighlightPreset={selectLedgerRowHighlightPreset}
+     saveLedgerRowHighlightPreset={saveLedgerRowHighlightPreset}
      toggleLedgerCurrencySymbol={toggleLedgerCurrencySymbol}
      toggleLedgerHighlightNetChange={toggleLedgerHighlightNetChange}
      toggleLedgerColumn={toggleLedgerColumn}

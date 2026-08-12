@@ -2,6 +2,7 @@ import {
  ledgerColumnVisibilityStorageKeyPrefix,
  ledgerColumnOrderStorageKeyPrefix,
  ledgerSettingsStorageKeyPrefix,
+ ledgerHighlightPresetsStorageKey,
  legacyLedgerColumnOrderStorageKey,
  transactionTableSettingsStorageKey,
  archiveTableSettingsStorageKey,
@@ -35,7 +36,14 @@ const ledgerPageSizeStorageKey = 'arkam:ledger-page-size';
 // transaction/archive table settings and row settings. Row highlights and personal marks
 // are intentionally excluded — those are per-user data, not layout settings.
 const SHARED_KEY_PREFIXES = [ledgerColumnVisibilityStorageKeyPrefix, ledgerColumnOrderStorageKeyPrefix, ledgerSettingsStorageKeyPrefix];
-const SHARED_EXACT_KEYS = [legacyLedgerColumnOrderStorageKey, transactionTableSettingsStorageKey, archiveTableSettingsStorageKey, txRowSettingsStorageKey, exchangeSettingsStorageKey];
+const SHARED_EXACT_KEYS = [
+ legacyLedgerColumnOrderStorageKey,
+ transactionTableSettingsStorageKey,
+ archiveTableSettingsStorageKey,
+ txRowSettingsStorageKey,
+ exchangeSettingsStorageKey,
+ ledgerHighlightPresetsStorageKey,
+];
 
 function isSharedKey(key: string): boolean {
  return SHARED_EXACT_KEYS.includes(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));

@@ -271,6 +271,32 @@ export function getStoredLedgerSettings(clientId: number | null | undefined): St
   return { ...defaultLedgerSettings };
  }
 }
+// The row-highlight "pen" colors a user can save and instantly switch between (see the ledger
+// settings modal) — unlike rowHighlightColor above (which client's ledger is currently using,
+// per client), this is a single global palette of 3 colors shared across every client's ledger,
+// since it's a personal toolkit rather than a per-client display preference.
+export const ledgerHighlightPresetsStorageKey = 'arkam:ledger-highlight-presets';
+export const defaultLedgerHighlightPresets: [string, string, string] = ['#fde68a', '#bbf7d0', '#fecaca'];
+export function getStoredLedgerHighlightPresets(): [string, string, string] {
+ if (typeof window === 'undefined') return [...defaultLedgerHighlightPresets];
+ try {
+  const raw = window.localStorage.getItem(ledgerHighlightPresetsStorageKey);
+  if (!raw) return [...defaultLedgerHighlightPresets];
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed) || parsed.length !== 3 || !parsed.every((v) => typeof v === 'string')) return [...defaultLedgerHighlightPresets];
+  return parsed as [string, string, string];
+ } catch {
+  return [...defaultLedgerHighlightPresets];
+ }
+}
+export function saveLedgerHighlightPresets(presets: [string, string, string]) {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(ledgerHighlightPresetsStorageKey, JSON.stringify(presets));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
 // Row keys the user has click-highlighted, stored per client so highlights persist.
 // Each key maps to the color it was highlighted with, so changing the setting later
 // does not retroactively recolor already-highlighted rows.
