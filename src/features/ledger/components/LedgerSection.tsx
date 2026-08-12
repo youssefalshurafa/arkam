@@ -248,6 +248,28 @@ export default function LedgerSection(props: LedgerSectionProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [aiEditPendingSaveAccountId]);
 
+ // The ledger table scrolls independently (max-h-[70vh] overflow-y-auto/x-auto, see
+ // tableWrapClassName below) and edit mode makes a row noticeably taller/wider (exchange-rate
+ // input, self-account reassign button, the "+ Add expenses" line right after it). A row near
+ // the BOTTOM of that inner scroll area — most commonly the ledger's last (newest) row — has no
+ // slack to grow into, so its new controls land past the visible edge with nothing to hint that
+ // there's more to scroll to. Unlike TransactionsSection's single edit form (which already
+ // scrolls itself into view), no per-row equivalent existed here, which is exactly what made the
+ // exchange-rate field, the Save button, and "Add expenses" all *reachable but not visible* —
+ // never actually broken, just scrolled out of an easy-to-miss nested scroll box. Track the
+ // previous key set in a ref (not state) so this stays a pure side effect, not a re-render;
+ // fires only when exactly ONE row transitions into edit mode (a single row's own "Edit"),
+ // deliberately skipping "Edit all" (adds every row's key in one batch — no single row to aim at).
+ const prevEditingLedgerRowKeysRef = useRef<Set<string>>(new Set());
+ useEffect(() => {
+  const prev = prevEditingLedgerRowKeysRef.current;
+  const newlyOpenedKey = editingLedgerRowKeys.size - prev.size === 1 ? [...editingLedgerRowKeys].find((key) => !prev.has(key)) : undefined;
+  prevEditingLedgerRowKeysRef.current = new Set(editingLedgerRowKeys);
+  if (!newlyOpenedKey || typeof document === 'undefined') return;
+  const rowEl = document.querySelector(`tr[data-drag-row-key="${CSS.escape(newlyOpenedKey)}"]`);
+  rowEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+ }, [editingLedgerRowKeys]);
+
  // Same "last two highlighted rows define an inclusive date range" convention as
  // openCommissionModalFromHighlights below (the ledger's one existing "use highlighted rows"
  // feature) — resolved deterministically here rather than left for the AI to infer from raw
@@ -631,20 +653,31 @@ export default function LedgerSection(props: LedgerSectionProps) {
             <p className="mt-2 text-sm text-fg-muted">{selectedClientForLedger ? t('client_page_description') : t('client_page_no_client')}</p>
            </div>
 
-           <button
-            type="button"
-            onClick={() => {
-             if (clientLedgerBackSection === 'organization-clients' && selectedOrganizationForClients) {
-              setSection('organization-clients');
-              router.replace(`/organizations/${selectedOrganizationForClients.id}`);
-             } else {
-              navigateToSection('clients');
-             }
-            }}
-            className="cursor-pointer rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
-           >
-            {clientLedgerBackSection === 'organization-clients' ? t('organization_page_back') : t('client_page_back')}
-           </button>
+           {(() => {
+            // The label and the actual destination must agree: `clientLedgerBackSection` can be
+            // 'organization-clients' while `selectedOrganizationForClients` is unset (e.g. this
+            // client's ledger was reached via a counterparty link that carried the previous
+            // client's back-section along without an organization actually selected) — falling
+            // through to the Clients page in that case while still labeled "Back to
+            // Organizations" was the reported bug. Both branches now key off this one check.
+            const backToOrganization = clientLedgerBackSection === 'organization-clients' && !!selectedOrganizationForClients;
+            return (
+             <button
+              type="button"
+              onClick={() => {
+               if (backToOrganization) {
+                setSection('organization-clients');
+                router.replace(`/organizations/${selectedOrganizationForClients!.id}`);
+               } else {
+                navigateToSection('clients');
+               }
+              }}
+              className="cursor-pointer rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
+             >
+              {backToOrganization ? t('organization_page_back') : t('client_page_back')}
+             </button>
+            );
+           })()}
           </div>
 
           {selectedClientForLedger && selectedClientLedgers.length > 1 ? (
