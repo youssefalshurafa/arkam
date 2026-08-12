@@ -248,6 +248,28 @@ export default function LedgerSection(props: LedgerSectionProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [aiEditPendingSaveAccountId]);
 
+ // The ledger table scrolls independently (max-h-[70vh] overflow-y-auto/x-auto, see
+ // tableWrapClassName below) and edit mode makes a row noticeably taller/wider (exchange-rate
+ // input, self-account reassign button, the "+ Add expenses" line right after it). A row near
+ // the BOTTOM of that inner scroll area — most commonly the ledger's last (newest) row — has no
+ // slack to grow into, so its new controls land past the visible edge with nothing to hint that
+ // there's more to scroll to. Unlike TransactionsSection's single edit form (which already
+ // scrolls itself into view), no per-row equivalent existed here, which is exactly what made the
+ // exchange-rate field, the Save button, and "Add expenses" all *reachable but not visible* —
+ // never actually broken, just scrolled out of an easy-to-miss nested scroll box. Track the
+ // previous key set in a ref (not state) so this stays a pure side effect, not a re-render;
+ // fires only when exactly ONE row transitions into edit mode (a single row's own "Edit"),
+ // deliberately skipping "Edit all" (adds every row's key in one batch — no single row to aim at).
+ const prevEditingLedgerRowKeysRef = useRef<Set<string>>(new Set());
+ useEffect(() => {
+  const prev = prevEditingLedgerRowKeysRef.current;
+  const newlyOpenedKey = editingLedgerRowKeys.size - prev.size === 1 ? [...editingLedgerRowKeys].find((key) => !prev.has(key)) : undefined;
+  prevEditingLedgerRowKeysRef.current = new Set(editingLedgerRowKeys);
+  if (!newlyOpenedKey || typeof document === 'undefined') return;
+  const rowEl = document.querySelector(`tr[data-drag-row-key="${CSS.escape(newlyOpenedKey)}"]`);
+  rowEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+ }, [editingLedgerRowKeys]);
+
  // Same "last two highlighted rows define an inclusive date range" convention as
  // openCommissionModalFromHighlights below (the ledger's one existing "use highlighted rows"
  // feature) — resolved deterministically here rather than left for the AI to infer from raw
