@@ -653,20 +653,31 @@ export default function LedgerSection(props: LedgerSectionProps) {
             <p className="mt-2 text-sm text-fg-muted">{selectedClientForLedger ? t('client_page_description') : t('client_page_no_client')}</p>
            </div>
 
-           <button
-            type="button"
-            onClick={() => {
-             if (clientLedgerBackSection === 'organization-clients' && selectedOrganizationForClients) {
-              setSection('organization-clients');
-              router.replace(`/organizations/${selectedOrganizationForClients.id}`);
-             } else {
-              navigateToSection('clients');
-             }
-            }}
-            className="cursor-pointer rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
-           >
-            {clientLedgerBackSection === 'organization-clients' ? t('organization_page_back') : t('client_page_back')}
-           </button>
+           {(() => {
+            // The label and the actual destination must agree: `clientLedgerBackSection` can be
+            // 'organization-clients' while `selectedOrganizationForClients` is unset (e.g. this
+            // client's ledger was reached via a counterparty link that carried the previous
+            // client's back-section along without an organization actually selected) — falling
+            // through to the Clients page in that case while still labeled "Back to
+            // Organizations" was the reported bug. Both branches now key off this one check.
+            const backToOrganization = clientLedgerBackSection === 'organization-clients' && !!selectedOrganizationForClients;
+            return (
+             <button
+              type="button"
+              onClick={() => {
+               if (backToOrganization) {
+                setSection('organization-clients');
+                router.replace(`/organizations/${selectedOrganizationForClients!.id}`);
+               } else {
+                navigateToSection('clients');
+               }
+              }}
+              className="cursor-pointer rounded border border-border-strong px-4 py-2 text-sm font-semibold text-fg-muted hover:bg-surface-hover"
+             >
+              {backToOrganization ? t('organization_page_back') : t('client_page_back')}
+             </button>
+            );
+           })()}
           </div>
 
           {selectedClientForLedger && selectedClientLedgers.length > 1 ? (
