@@ -181,32 +181,40 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
     // Entries are ordered purely by createdAt (drag-to-reorder persists the order by
     // rewriting timestamps), so a running balance accumulated in this order is durable.
     // `boundary` is the ACTIVE (newest) reconciliation — the one actually enforced by the
-    // edit/delete/reorder guards, and the only one that renders a ✓ badge (see below). Older,
-    // superseded reconciliations remain in the DB as an audit trail but are intentionally not
-    // shown, since a superseded mark's badge would sit on a row that isn't actually locked
-    // anymore — a confusing, contradictory state.
+    // edit/delete/reorder guards (isLocked below). Every reconciliation on the account still
+    // gets its own ✓ badge, though — an audit trail of every balance the client has ever agreed
+    // to, not just the latest (a client may reconcile with the same account repeatedly over
+    // time, and each of those points is worth keeping visible, not just the most recent one).
     const boundary = lockBoundaries.get(account.id) ?? null;
-    // The row the active boundary's ✓ badge renders on: whichever member of its frozen set
-    // currently sits LAST (highest index) in ledger order — same-day siblings can be dragged
-    // around the anchor without moving the reconciliation record itself.
-    let markTransactionId: number | null = null;
-    if (boundary) {
+    // Which row each of the account's reconciliations shows its ✓ badge on: whichever member of
+    // ITS OWN frozen set currently sits LAST (highest index) in ledger order — same-day
+    // siblings can be dragged around an anchor without moving that reconciliation record. Two
+    // reconciliations landing on the same display row (rare — would need identical membership)
+    // show only the newer one there.
+    const markByTransactionId = new Map<number, Reconciliation>();
+    for (const rec of reconciliations) {
+     if (rec.accountId !== account.id) continue;
+     let displayTransactionId: number | null = null;
      for (let i = entries.length - 1; i >= 0; i--) {
-      if (boundary.lockedTransactionIds.has(entries[i].transactionId)) {
-       markTransactionId = entries[i].transactionId;
+      if (rec.lockedTransactionIds.includes(entries[i].transactionId)) {
+       displayTransactionId = entries[i].transactionId;
        break;
       }
      }
+     if (displayTransactionId == null) continue;
+     const existing = markByTransactionId.get(displayTransactionId);
+     if (!existing || rec.id > existing.id) markByTransactionId.set(displayTransactionId, rec);
     }
     let runningBalance = account.startingBalance ?? 0;
     const entriesWithBalance = entries.map((entry) => {
      runningBalance += entry.netChange;
      const refId = reconciliationRefId(entry);
+     const mark = markByTransactionId.get(entry.transactionId);
      return {
       ...entry,
       runningBalance,
       isLocked: isReconciledMember(entry.createdAt, refId, boundary),
-      ...(boundary && entry.transactionId === markTransactionId ? { reconciledMark: { id: boundary.id, balance: boundary.balance, note: boundary.note } } : {}),
+      ...(mark ? { reconciledMark: { id: mark.id, balance: mark.balance, note: mark.note } } : {}),
      };
     });
 
