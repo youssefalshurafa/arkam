@@ -1,5 +1,5 @@
 import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
-import { buildLockBoundaries, buildLiveAnchorTimes, isAtOrBeforeBoundary, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
+import { buildLockBoundaries, isReconciledMember, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
 import type {
  ClientAccount,
  ClientAccountLedger,
@@ -28,11 +28,11 @@ export type NetChangeSideInput = {
  chargesExchangeRate: number;
 };
 
-// The net ledger effect of a transaction on ONE side's account balance — must mirror the
-// from/to netChange formulas inside computeClientLedgers below exactly. Used by the
-// reconciliation guard to tell whether an edit actually changes a given account's balance
-// (e.g. changing only the "from" side's exchange rate never affects the "to" account, so
-// that account's lock should not be checked).
+// The net ledger effect of a transaction on ONE side's account balance — the single source
+// of truth for this math, used both by computeClientLedgers below (to build each entry's
+// netChange) and by the reconciliation guard (to tell whether an edit actually changes a
+// given account's balance — e.g. changing only the "from" side's exchange rate never
+// affects the "to" account, so that account's lock should not be checked).
 export function computeTransactionSideNetChange(tx: NetChangeSideInput, accountCurrencyId: number, side: 'from' | 'to'): number {
  const rate = side === 'from' ? tx.exchangeRateFrom : tx.exchangeRateTo;
  const commission = side === 'from' ? tx.commissionFrom : tx.commissionTo;
@@ -78,7 +78,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
    return [];
   }
 
-  const lockBoundaries = buildLockBoundaries(reconciliations, buildLiveAnchorTimes(transactions));
+  const lockBoundaries = buildLockBoundaries(reconciliations);
 
   return clientAccounts
    .filter((account) => account.clientId === selectedClientForLedger.id)
@@ -112,13 +112,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          commission: transaction.commissionFrom,
          // The charge's effect on this (the "from"-side) account depends on the payer: a
          // client-to-client fee is double-entry, an org-settled fee only hits the named client.
-         netChange: pendingRate
-          ? 0
-          : transaction.amount * transaction.exchangeRateFrom +
-            getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) +
-            (transaction.charges > 0
-             ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (transaction.charges * transaction.exchangeRateFrom)
-             : 0),
+         netChange: pendingRate ? 0 : computeTransactionSideNetChange(transaction, account.currencyId, 'from'),
          runningBalance: 0,
          description: transaction.descriptionFrom?.trim() || transaction.description,
          charges: transaction.charges,
@@ -159,12 +153,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          exchangeRateReversed: !!transaction.exchangeRateToReversed,
          pendingRate,
          commission: transaction.commissionTo,
-         netChange: pendingRate
-          ? 0
-          : -(exchangeToBase(transaction) - getCommissionAmount(exchangeToBase(transaction), transaction.commissionTo)) +
-            (transaction.charges > 0
-             ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * transaction.exchangeRateTo)
-             : 0),
+         netChange: pendingRate ? 0 : computeTransactionSideNetChange(transaction, account.currencyId, 'to'),
          runningBalance: 0,
          description: transaction.descriptionTo?.trim() || transaction.description,
          charges: transaction.charges,
@@ -192,45 +181,32 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
     // Entries are ordered purely by createdAt (drag-to-reorder persists the order by
     // rewriting timestamps), so a running balance accumulated in this order is durable.
     // `boundary` is the ACTIVE (newest) reconciliation — the one actually enforced by the
-    // edit/delete/reorder guards, since a later reconciliation's locked set is always a
-    // superset of any earlier one's in the normal flow, so protecting it also protects the
-    // rest. Every reconciliation on the account still gets its own ✓ badge below, though — an
-    // audit trail of every balance the client has ever agreed to, not just the latest.
+    // edit/delete/reorder guards, and the only one that renders a ✓ badge (see below). Older,
+    // superseded reconciliations remain in the DB as an audit trail but are intentionally not
+    // shown, since a superseded mark's badge would sit on a row that isn't actually locked
+    // anymore — a confusing, contradictory state.
     const boundary = lockBoundaries.get(account.id) ?? null;
-    // Which row each of the account's reconciliations shows its ✓ badge on. A new-style mark's
-    // fixed set can move internally (a drag can reorder it), so its badge belongs on whichever
-    // member currently sits LAST (highest index) rather than the literal original anchor row;
-    // an old-style mark (no set) still just matches its literal anchor id. Two marks landing on
-    // the same row (rare — would need identical membership) show only the newer one there.
-    const markByTransactionId = new Map<number, Reconciliation>();
-    for (const rec of reconciliations) {
-     if (rec.accountId !== account.id) continue;
-     let displayTransactionId: number | null = null;
-     if (rec.lockedRefIds) {
-      const lockedSet = new Set(rec.lockedRefIds);
-      for (let i = entries.length - 1; i >= 0; i--) {
-       if (lockedSet.has(entries[i].transactionId)) {
-        displayTransactionId = entries[i].transactionId;
-        break;
-       }
+    // The row the active boundary's ✓ badge renders on: whichever member of its frozen set
+    // currently sits LAST (highest index) in ledger order — same-day siblings can be dragged
+    // around the anchor without moving the reconciliation record itself.
+    let markTransactionId: number | null = null;
+    if (boundary) {
+     for (let i = entries.length - 1; i >= 0; i--) {
+      if (boundary.lockedTransactionIds.has(entries[i].transactionId)) {
+       markTransactionId = entries[i].transactionId;
+       break;
       }
-     } else {
-      displayTransactionId = rec.anchorRefId;
      }
-     if (displayTransactionId == null) continue;
-     const existing = markByTransactionId.get(displayTransactionId);
-     if (!existing || rec.id > existing.id) markByTransactionId.set(displayTransactionId, rec);
     }
     let runningBalance = account.startingBalance ?? 0;
     const entriesWithBalance = entries.map((entry) => {
      runningBalance += entry.netChange;
      const refId = reconciliationRefId(entry);
-     const mark = markByTransactionId.get(entry.transactionId);
      return {
       ...entry,
       runningBalance,
-      isLocked: isAtOrBeforeBoundary(entry.createdAt, refId, boundary),
-      ...(mark ? { reconciledMark: { id: mark.id, balance: mark.balance, note: mark.note } } : {}),
+      isLocked: isReconciledMember(entry.createdAt, refId, boundary),
+      ...(boundary && entry.transactionId === markTransactionId ? { reconciledMark: { id: boundary.id, balance: boundary.balance, note: boundary.note } } : {}),
      };
     });
 
@@ -245,7 +221,6 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
      note: account.note ?? '',
      noteShowInPdf: Boolean(account.noteShowInPdf),
      entries: entriesWithBalance,
-     lockBoundary: boundary ? { anchorCreatedAt: boundary.anchorCreatedAt, anchorRefId: boundary.anchorRefId, balance: boundary.balance } : null,
     };
    })
    .sort((left, right) => left.currencyCode.localeCompare(right.currencyCode));

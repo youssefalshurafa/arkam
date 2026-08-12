@@ -98,7 +98,7 @@ type LedgerSectionProps = {
  loadData: () => Promise<void> | void;
  lockPastEditsEnabled: boolean;
  writeOffMargins: WriteOffMargin[];
- onWriteOffBalance: (accountId: number, balance: number) => void;
+ onWriteOffBalance: (accountId: number, balance: number, dateKey?: string) => void;
 };
 
 export default function LedgerSection(props: LedgerSectionProps) {
@@ -1817,11 +1817,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      // can sit at a near-zero running balance even when later transactions moved
                      // the account well away from zero since (see the reported case: a mid-ledger
                      // row settling at -11 dhs while the account currently sits at -65,711 dhs
-                     // after a later, unrelated transaction). Writing it off inserts a today-dated
-                     // adjustment for exactly that row's running-balance magnitude — same
-                     // arithmetic effect on the current total regardless of where it's inserted,
-                     // it just neutralizes that specific historical gap rather than pretending to
-                     // zero the account outright.
+                     // after a later, unrelated transaction). Writing it off inserts an adjustment
+                     // for exactly that row's running-balance magnitude, dated the SAME DAY as the
+                     // row itself (so it lands right after it in the ledger, not at today's bottom)
+                     // — same arithmetic effect on the current total regardless of where it's
+                     // inserted, it just neutralizes that specific historical gap rather than
+                     // pretending to zero the account outright.
                      const ledgerAccount = clientAccounts.find((a) => a.id === ledger.accountId);
                      const writeOffEligible =
                       !!ledgerAccount && entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= resolveWriteOffThreshold(ledgerAccount.currencyId, writeOffMarginByCurrency);
@@ -1844,7 +1845,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       ...(selectedClientForLedger?.distributionCommissionEnabled && hasHighlightsForAccount
                        ? [{ key: 'commission-range', label: t('distribution_panel_use_highlights'), onSelect: openCommissionModalFromHighlights }]
                        : []),
-                      ...(writeOffEligible ? [{ key: 'write-off', label: t('write_off_button'), onSelect: () => onWriteOffBalance(ledger.accountId, entry.runningBalance) }] : []),
+                      ...(writeOffEligible
+                       ? [
+                          {
+                           key: 'write-off',
+                           label: t('write_off_button'),
+                           // Dated the same day as this entry (not today) so the adjustment lands
+                           // right after it in the ledger instead of jumping to the bottom.
+                           onSelect: () => onWriteOffBalance(ledger.accountId, entry.runningBalance, entry.createdAt.slice(0, 10)),
+                          },
+                         ]
+                       : []),
                       { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
                      ]);
                     };

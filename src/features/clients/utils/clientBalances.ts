@@ -1,5 +1,5 @@
 import { computeAccountBalances, isPendingTransactionFrom, isPendingTransactionTo } from '@/shared/utils/accountBalances';
-import { buildLockBoundaries, isAtOrBeforeBoundary } from '@/features/ledger/utils/reconciliation';
+import { buildLockBoundaries, isReconciledMember } from '@/features/ledger/utils/reconciliation';
 import type { ClientAccount, Reconciliation, Transaction } from '@/shared/types';
 
 export type ClientBalanceEntry = { accountId: number; currencyId: number; currencyCode: string; currencySymbol: string; balance: number };
@@ -88,7 +88,7 @@ export function computeClientReconciledStatus({ clientAccounts, transactions, re
 
  const reconciledClients = new Set<number>();
  for (const [clientId, { accountId, entry }] of latestByClient) {
-  if (isAtOrBeforeBoundary(entry.createdAt, entry.refId, boundaries.get(accountId) ?? null)) reconciledClients.add(clientId);
+  if (isReconciledMember(entry.createdAt, entry.refId, boundaries.get(accountId) ?? null)) reconciledClients.add(clientId);
  }
  return reconciledClients;
 }

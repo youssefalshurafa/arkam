@@ -76,7 +76,6 @@ const writeActions = new Set([
  'deleteAllTransactions',
  'createReconciliation',
  'deleteReconciliation',
- 'setReconciliationLockedRefIds',
  'createIgnoredAnomaly',
  'deleteIgnoredAnomaly',
  'saveHarvestRate',
@@ -396,9 +395,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.createReconciliation(appLike, payload));
    case 'deleteReconciliation':
     await db.deleteReconciliation(appLike, payload);
-    return NextResponse.json({ ok: true });
-   case 'setReconciliationLockedRefIds':
-    await db.setReconciliationLockedRefIds(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'listIgnoredAnomalies':
     return NextResponse.json(await db.listIgnoredAnomalies(appLike));

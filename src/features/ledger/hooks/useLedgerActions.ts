@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { NEW_ROW_REF_ID, buildLockBoundaries, isAtOrBeforeBoundary, type LockBoundary } from '@/features/ledger/utils/reconciliation';
+import { NEW_ROW_REF_ID, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
@@ -95,49 +95,19 @@ export function useLedgerActions({
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
  const {
-  lockBoundaries,
   formatLockBalance,
   confirmIfLocked,
   confirmIfTransactionEditLocked,
+  confirmIfBatchEditLocked,
+  confirmBatchDeleteWithLock,
   transactionEditImpact,
-  liveAnchorTimes,
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
-  transactions,
   clientAccountMap,
   lockPastEditsEnabled,
  });
  const { applyTransactionPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
-
- // Lazy backfill: an account's active reconciliation created before `lockedRefIds` existed
- // has none yet, so it's still running on the older live-position resolution (see
- // reconciliation.ts). The first time that account's ledger is loaded after this change ships,
- // compute its membership set from the CURRENT order — the same computation onReconcileLedgerEntry
- // does for a brand-new mark — and persist it, upgrading the account to the new model without
- // needing a bulk server-side migration. `backfillingRef` avoids re-firing for the same
- // reconciliation while its request is in flight, across the re-renders this effect reacts to.
- const backfillingRef = useRef<Set<number>>(new Set());
- useEffect(() => {
-  if (!accountingApi) return;
-  for (const ledger of selectedClientLedgers) {
-   const boundary = lockBoundaries.get(ledger.accountId);
-   if (!boundary || boundary.lockedRefIds || backfillingRef.current.has(boundary.id)) continue;
-   const anchorIdx = ledger.entries.findIndex((e) => e.transactionId === boundary.anchorRefId);
-   if (anchorIdx < 0) continue;
-   const lockedRefIds = ledger.entries.slice(0, anchorIdx + 1).map((e) => e.transactionId);
-   backfillingRef.current.add(boundary.id);
-   void (async () => {
-    try {
-     await accountingApi!.setReconciliationLockedRefIds({ id: boundary.id, lockedRefIds });
-     setReconciliations((prev) => prev.map((r) => (r.id === boundary.id ? { ...r, lockedRefIds } : r)));
-    } catch {
-     backfillingRef.current.delete(boundary.id);
-    }
-   })();
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [selectedClientLedgers]);
 
  const draggedLedgerColumn = useLedgerStore((s) => s.draggedLedgerColumn);
  const setDraggedLedgerColumn = useLedgerStore((s) => s.setDraggedLedgerColumn);
@@ -340,7 +310,7 @@ async function onSubmitOneSidedTransaction() {
  };
 
  try {
-  await accountingApi.createTransaction(txPayload);
+  await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: true });
   setOneSidedTransactionModal(null);
   setError('');
   await loadData();
@@ -585,19 +555,19 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  }
 
  try {
-  await accountingApi.updateTransaction(payload);
+  await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
   setError('');
   // Optimistically reflect the edit so the ledger updates instantly (no page-wide reload,
   // no account jump). The batch saver passes skipReload and reconciles once at the end.
   applyTransactionPatch(payload);
   pushLedgerEditAction({
    undo: async () => {
-    await accountingApi.updateTransaction(previousPayload);
+    await accountingApi.updateTransaction({ ...previousPayload, acknowledgeReconciliationOverride: true });
     applyTransactionPatch(previousPayload);
     await loadData();
    },
    redo: async () => {
-    await accountingApi.updateTransaction(payload);
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
     applyTransactionPatch(payload);
     await loadData();
    },
@@ -672,7 +642,7 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
  // they don't each prompt). Builds the same updated record each row's real save would
  // write and warns once, only if some row's edit actually moves a reconciled balance
  // (not merely because the row sits at/before a lock line — see `useReconciliationLocks`).
- let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
+ const edits: Array<{ oldTx: Transaction; newPayload: TransactionUpdateInput }> = [];
  for (const key of keys) {
   const [txIdStr, accIdStr] = key.split(':');
   const transactionId = parseInt(txIdStr, 10);
@@ -683,10 +653,9 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
   if (!tx) continue;
   const built = buildLedgerTransactionUpdate(transactionId, accId, draft, tx);
   if ('error' in built) continue;
-  batchLockHit = transactionEditImpact(tx, built.payload);
-  if (batchLockHit) break;
+  edits.push({ oldTx: tx, newPayload: built.payload });
  }
- if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
+ if (!(await confirmIfBatchEditLocked(edits))) {
   return;
  }
 
@@ -854,25 +823,26 @@ async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: nu
 
 async function onReconcileLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
  if (entry.reconciledMark) return; // already reconciled on this exact row
- const anchorRefId = entry.transactionId;
+ const anchorTransactionId = entry.transactionId;
  const ledger = selectedClientLedgers.find((l) => l.accountId === ledgerAccountId);
- const anchorIdx = ledger?.entries.findIndex((e) => e.transactionId === anchorRefId) ?? -1;
+ const anchorIdx = ledger?.entries.findIndex((e) => e.transactionId === anchorTransactionId) ?? -1;
  // Fixed, immutable membership snapshot: every transaction id at-or-before this row right now,
  // captured once so the lock is independent of any row's later live position — reordering rows
  // within this set (even this anchor row itself) never needs to touch this record again.
- const lockedRefIds = anchorIdx >= 0 ? ledger!.entries.slice(0, anchorIdx + 1).map((e) => e.transactionId) : [anchorRefId];
+ const lockedTransactionIds = anchorIdx >= 0 ? ledger!.entries.slice(0, anchorIdx + 1).map((e) => e.transactionId) : [anchorTransactionId];
+ const anchorDate = entry.createdAt.slice(0, 10);
  try {
   const created = await accountingApi.createReconciliation({
    accountId: ledgerAccountId,
-   anchorRefId,
-   anchorCreatedAt: entry.createdAt,
+   anchorTransactionId,
+   anchorDate,
    balance: entry.runningBalance,
    note: '',
-   lockedRefIds,
+   lockedTransactionIds,
   });
   setReconciliations((prev) => [
    ...prev,
-   { id: created.id, accountId: ledgerAccountId, anchorKind: 'transaction', anchorRefId, anchorCreatedAt: entry.createdAt, lockedRefIds, balance: entry.runningBalance, note: '', createdAt: new Date().toISOString() },
+   { id: created.id, accountId: ledgerAccountId, anchorTransactionId, anchorDate, lockedTransactionIds, balance: entry.runningBalance, note: '', createdAt: new Date().toISOString() },
   ]);
   setError('');
   await loadData();
@@ -922,7 +892,13 @@ function onToggleLedgerEntrySelection(key: string) {
 }
 
 async function onDeleteSelectedLedgerEntries() {
+ if (!accountingApi) {
+  setError(t('error_bridge'));
+  return;
+ }
  const keys = [...selectedLedgerEntryKeys];
+ const transactionIds: number[] = [];
+ const rowsToDelete: Array<{ accountFromId: number | null; accountToId: number | null; createdAt: string; id: number }> = [];
  for (const key of keys) {
   const [txIdStr, accIdStr] = key.split(':');
   const txId = Number(txIdStr);
@@ -930,11 +906,27 @@ async function onDeleteSelectedLedgerEntries() {
   const ledger = selectedClientLedgers.find((l) => l.accountId === accId);
   const entry = ledger?.entries.find((e) => e.transactionId === txId);
   if (!entry) continue;
-  await onDeleteTransaction(entry.transactionId, { offerUndo: false });
+  const tx = transactions.find((t) => t.id === txId);
+  if (!tx) continue;
+  transactionIds.push(txId);
+  rowsToDelete.push({ accountFromId: tx.accountFromId, accountToId: tx.accountToId, createdAt: tx.createdAt, id: tx.id });
  }
- setSelectedLedgerEntryKeys(new Set());
- setError('');
- await loadData();
+ if (!transactionIds.length) return;
+
+ // One batch dialog for the whole selection, same pattern as the transactions table's own
+ // bulk delete — not one dialog per locked row.
+ if (!(await confirmBatchDeleteWithLock(rowsToDelete, 'transactions_delete_selected_confirm', { count: transactionIds.length }))) {
+  return;
+ }
+
+ try {
+  await accountingApi.deleteTransactionsBulk({ transactionIds, acknowledgeReconciliationOverride: true });
+  setSelectedLedgerEntryKeys(new Set());
+  setError('');
+  await loadData();
+ } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_delete'));
+ }
 }
 
 // Bulk "Edit" from the selection context menu: drop every selected entry into edit mode
@@ -985,40 +977,15 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   newTimes.set(k, new Date(ts).toISOString());
  });
 
- // Reconciliation guard: the reflow below rewrites createdAt for every row in the date group —
- // not just the ones dragged — and each of those transactions touches TWO accounts (this
- // ledger's own account and its counterparty), either of which may independently be reconciled.
- // Re-time each affected transaction through the same balance-aware check a direct edit uses
- // (transactionEditImpact: old createdAt vs new, evaluated against every account it touches).
- // This must check every reflowed row, not just the explicitly dragged ones: when the dragged
- // row is itself a reconciliation anchor (or lands next to one), a same-day "bystander" that
- // wasn't dragged can still cross the live-resolved lock boundary as a byproduct of the reflow —
- // checking only `dragSet` misses that case entirely.
- //
- // A reconciliation's anchor transaction can itself be a same-date bystander that gets
- // reflowed, so its own live-resolved position shifts too. Judging every row's "after" state
- // against the pre-drag boundary snapshot then makes the anchor look like it crossed its own
- // lock line — a false positive with nothing to do with what was actually dragged. Building a
- // post-reflow boundary map (anchors re-resolved through the same newTimes) and comparing
- // "before" against the old snapshot but "after" against this one keeps a row's comparison to
- // itself a no-op, so only a genuine reorder across the anchor trips the warning.
- const liveAnchorTimesAfter = new Map(liveAnchorTimes);
- for (const [key, newCreatedAt] of newTimes) {
-  const entry = entryMap.get(key);
-  if (entry) liveAnchorTimesAfter.set(`transaction:${entry.transactionId}`, newCreatedAt);
- }
- const lockBoundariesAfter = buildLockBoundaries(reconciliations, liveAnchorTimesAfter);
-
- // A NEW-STYLE reconciliation (has `lockedRefIds`) locks a fixed SET of rows, independent of
- // position — the general per-row check below already handles that correctly on its own
- // (membership doesn't change when a member's own createdAt is reflowed, so it naturally
- // produces no hit for a pure internal reorder). An OLD-STYLE one (no `lockedRefIds`, not yet
- // backfilled) still locks by live anchor POSITION, which breaks down when the anchor's own
- // row is what's being reflowed — that needs the extra set-membership workaround below, so
- // it's excluded from the general check here to avoid a false "crossed itself" positive.
- const accountBoundary = lockBoundaries.get(accountId);
- const isOldStyleAccountBoundary = !!accountBoundary && !accountBoundary.lockedRefIds;
-
+ // Reconciliation guard: the reflow rewrites createdAt for every row in the date group — not
+ // just the ones dragged — and each of those transactions touches up to two accounts (this
+ // ledger's own account and its counterparty), either of which may independently be
+ // reconciled. Re-time each affected transaction through the same balance-aware check a
+ // direct edit uses. Under the frozen anchorDate/lockedTransactionIds model this can only
+ // ever produce a hit if a row's CALENDAR DAY changes, which a same-day reflow never does —
+ // so in practice a pure same-day reorder is always silent, including for the anchor's own
+ // row — but every reflowed row (not just the explicitly dragged ones) is still checked as a
+ // structural safety net, one dialog for the whole batch.
  let dragLockHit: { accountId: number; boundary: LockBoundary } | null = null;
  for (const [key, newCreatedAt] of newTimes) {
   const entry = entryMap.get(key);
@@ -1026,37 +993,8 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
   const tx = transactions.find((t) => t.id === entry.transactionId);
   if (!tx) continue;
-  dragLockHit = transactionEditImpact(tx, { ...tx, createdAt: newCreatedAt }, lockBoundariesAfter, isOldStyleAccountBoundary ? new Set([accountId]) : undefined);
+  dragLockHit = transactionEditImpact(tx, { ...tx, createdAt: newCreatedAt });
   if (dragLockHit) break;
- }
-
- // OLD-STYLE fallback only: reconstruct set-membership from live position, since there's no
- // persisted set to consult. Reordering purely within that reconstructed set (even moving the
- // anchor row itself among its own locked neighbors) can never change the sum, so it must
- // never warn — only a row actually crossing from the locked side to the unlocked side (or
- // vice versa) is a real change. Detect that by partitioning the date group into locked/
- // unlocked using the ORIGINAL (pre-drag) boundary, then checking whether every locked row
- // still precedes every unlocked row in the new order.
- let accountPartitionViolated = false;
- let newAnchorKey: string | null = null;
- if (isOldStyleAccountBoundary && accountBoundary) {
-  const lockedKeys = dateGroup.filter((k) => {
-   const e = entryMap.get(k);
-   return e ? isAtOrBeforeBoundary(e.createdAt, e.transactionId, accountBoundary) : false;
-  });
-  if (lockedKeys.length > 0) {
-   const lockedSet = new Set(lockedKeys);
-   const nextIndex = new Map(next.map((k, i) => [k, i]));
-   const lockedIdxs = lockedKeys.map((k) => nextIndex.get(k)!);
-   const unlockedIdxs = dateGroup.filter((k) => !lockedSet.has(k)).map((k) => nextIndex.get(k)!);
-   const maxLockedIdx = Math.max(...lockedIdxs);
-   const minUnlockedIdx = unlockedIdxs.length ? Math.min(...unlockedIdxs) : Infinity;
-   accountPartitionViolated = maxLockedIdx > minUnlockedIdx;
-   if (!accountPartitionViolated) newAnchorKey = next[maxLockedIdx];
-  }
- }
- if (!dragLockHit && accountPartitionViolated && accountBoundary) {
-  dragLockHit = { accountId, boundary: accountBoundary };
  }
 
  if (
@@ -1079,7 +1017,6 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   }),
  );
 
- let reconcileCleanupWarning = false;
  try {
   for (const [key, newCreatedAt] of newTimes) {
    const entry = entryMap.get(key);
@@ -1110,72 +1047,11 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
     counterParty: tx.counterParty,
     distributionLocationId: tx.distributionLocationId,
     createdAt: newCreatedAt,
+    acknowledgeReconciliationOverride: true,
    });
   }
 
-  // OLD-STYLE fallback only (see above): if this account's reconstructed locked set stayed
-  // intact but the anchor row's neighbors within it changed, re-point the reconciliation to
-  // whichever row now sits last in that (unchanged) set — same frozen balance, just following
-  // the reorder — so the checkmark and that row's displayed cumulative balance line back up
-  // with it instead of the anchor's old position. The replacement is also upgraded to a
-  // new-style reconciliation (a real `lockedRefIds` snapshot computed from the post-drag
-  // order) so this account never needs this workaround again after today.
-  if (isOldStyleAccountBoundary && accountBoundary && !accountPartitionViolated && newAnchorKey) {
-   const newAnchorEntry = entryMap.get(newAnchorKey);
-   const newAnchorCreatedAt = newTimes.get(newAnchorKey);
-   if (newAnchorEntry && newAnchorCreatedAt && newAnchorEntry.transactionId !== accountBoundary.anchorRefId) {
-    // Reconstruct the full post-drag ledger order (the reflow only reorders this date's
-    // contiguous slice) so the new snapshot covers every prior day too, not just today's rows.
-    const dateGroupIndices = ledger.entries.map((e, i) => (e.createdAt.slice(0, 10) === targetDate ? i : -1)).filter((i) => i >= 0);
-    const fullNewOrder = [...ledger.entries];
-    fullNewOrder.splice(Math.min(...dateGroupIndices), dateGroupIndices.length, ...next.map((k) => entryMap.get(k)!));
-    const newAnchorFullIdx = fullNewOrder.findIndex((e) => e.transactionId === newAnchorEntry.transactionId);
-    const lockedRefIds = fullNewOrder.slice(0, newAnchorFullIdx + 1).map((e) => e.transactionId);
-    // Create the new anchor BEFORE touching the old one: buildLockBoundaries always resolves
-    // an account's boundary to whichever of its reconciliations has the highest id, so as soon
-    // as this exists the account is never left unlocked even if the old record's cleanup below
-    // fails. Deleting first (the reverse order) risks a window where the account has no
-    // reconciliation at all if the create step then fails.
-    const created = await accountingApi.createReconciliation({
-     accountId,
-     anchorRefId: newAnchorEntry.transactionId,
-     anchorCreatedAt: newAnchorCreatedAt,
-     balance: accountBoundary.balance,
-     note: accountBoundary.note,
-     lockedRefIds,
-    });
-    setReconciliations((prev) => [
-     ...prev,
-     {
-      id: created.id,
-      accountId,
-      anchorKind: 'transaction',
-      anchorRefId: newAnchorEntry.transactionId,
-      anchorCreatedAt: newAnchorCreatedAt,
-      lockedRefIds,
-      balance: accountBoundary.balance,
-      note: accountBoundary.note,
-      createdAt: new Date().toISOString(),
-     },
-    ]);
-    if (accountBoundary.id) {
-     try {
-      await accountingApi.deleteReconciliation(accountBoundary.id);
-      setReconciliations((prev) => prev.filter((r) => r.id !== accountBoundary.id));
-     } catch {
-      // The new anchor above already took over as this account's live-resolved boundary, so
-      // nothing is left unlocked — but the superseded record now shows as a second, stale
-      // checkmark until removed. Surface it instead of swallowing it, since silently leaving
-      // a duplicate mark behind is confusing and was previously going unnoticed. Skip the
-      // unconditional clear below so this message isn't wiped out immediately after.
-      reconcileCleanupWarning = true;
-      setError(t('reconcile_reflow_cleanup_failed'));
-     }
-    }
-   }
-  }
-
-  if (!reconcileCleanupWarning) setError('');
+  setError('');
   await loadData();
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_update'));

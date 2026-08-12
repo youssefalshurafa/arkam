@@ -12,6 +12,8 @@ type LedgerSettingsModalProps = {
  updateLedgerDateFormat: (next: PdfSettings['dateFormat']) => void;
  updateLedgerRowHighlightColor: (next: string) => void;
  updateLedgerNetChangeHighlightColor: (next: string) => void;
+ selectLedgerRowHighlightPreset: (index: number) => void;
+ saveLedgerRowHighlightPreset: (index: number) => void;
  toggleLedgerCurrencySymbol: () => void;
  toggleLedgerHighlightNetChange: () => void;
  toggleLedgerColumn: (column: LedgerColumnKey) => void;
@@ -20,12 +22,17 @@ type LedgerSettingsModalProps = {
 
 export default function LedgerSettingsModal({
  orderedLedgerColumnOptions, persistLedgerSettings, updateLedgerDecimals, updateLedgerDateFormat,
- updateLedgerRowHighlightColor, updateLedgerNetChangeHighlightColor, toggleLedgerCurrencySymbol, toggleLedgerHighlightNetChange, toggleLedgerColumn,
+ updateLedgerRowHighlightColor, updateLedgerNetChangeHighlightColor, selectLedgerRowHighlightPreset, saveLedgerRowHighlightPreset,
+ toggleLedgerCurrencySymbol, toggleLedgerHighlightNetChange, toggleLedgerColumn,
  clearLedgerRowHighlights,
 }: LedgerSettingsModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
- const { showLedgerSettingsModal, setShowLedgerSettingsModal, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowHighlightColor, ledgerRowClickHighlight, setLedgerRowClickHighlight, showLedgerCurrencySymbol, setShowLedgerCurrencySymbol, ledgerColumnVisibility, setLedgerColumnVisibility, setLedgerColumnOrder, highlightedLedgerRows } = useLedgerStore();
+ const {
+  showLedgerSettingsModal, setShowLedgerSettingsModal, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor,
+  ledgerRowHighlightColor, ledgerRowHighlightPresets, ledgerRowClickHighlight, setLedgerRowClickHighlight, showLedgerCurrencySymbol, setShowLedgerCurrencySymbol,
+  ledgerColumnVisibility, setLedgerColumnVisibility, setLedgerColumnOrder, highlightedLedgerRows,
+ } = useLedgerStore();
 
  return (
     <div
@@ -142,6 +149,40 @@ export default function LedgerSettingsModal({
           {ledgerRowHighlightColor}
          </span>
         </div>
+
+        {/* 3 saved "pens" for quickly switching the active highlighter color above without
+            reopening the picker each time. Click a swatch to make it active; click its pin
+            badge to overwrite that slot with whatever color is active right now. */}
+        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">{t('ledger_highlight_presets_label')}</p>
+        <div className="mt-1.5 flex items-center gap-3">
+         {ledgerRowHighlightPresets.map((presetColor, index) => (
+          <div key={index} className="relative">
+           <button
+            type="button"
+            title={t('ledger_highlight_preset_select', { n: index + 1 })}
+            onClick={() => selectLedgerRowHighlightPreset(index)}
+            aria-pressed={ledgerRowHighlightColor === presetColor}
+            className={`h-8 w-8 cursor-pointer rounded border-2 transition ${
+             ledgerRowHighlightColor === presetColor ? 'border-blue-600' : 'border-border-strong hover:border-fg-faint'
+            }`}
+            style={{ backgroundColor: presetColor }}
+           />
+           <button
+            type="button"
+            title={t('ledger_highlight_preset_save', { n: index + 1 })}
+            onClick={() => saveLedgerRowHighlightPreset(index)}
+            className="absolute -bottom-1.5 -right-1.5 flex h-4.5 w-4.5 cursor-pointer items-center justify-center rounded-full border border-border-strong bg-surface text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+           >
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+             <path d="M17 21v-8H7v8" />
+             <path d="M7 3v5h8" />
+            </svg>
+           </button>
+          </div>
+         ))}
+        </div>
+
         <button
          type="button"
          onClick={() => clearLedgerRowHighlights()}

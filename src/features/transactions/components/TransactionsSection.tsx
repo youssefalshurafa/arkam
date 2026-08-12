@@ -11,7 +11,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { saveTableZoom, saveTxFilter } from '@/shared/lib/localStorage';
+import { saveArchiveFilter, saveTableZoom, saveTxFilter } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
@@ -199,7 +199,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // to that entry's client ledger, where the actual badge (and its "ignore" action) lives.
  const anomalyReviewMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, txFilterShowHidden, setTxFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, isSubmittingTransaction, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveFilterShowHidden, setArchiveFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, isSubmittingTransaction, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -208,11 +208,32 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // is rare) so it doesn't inherit the Transactions form's open state when switching sections.
  const newSectionOpen = section === 'archive' ? isNewArchiveSectionOpen : isNewTransactionSectionOpen;
  const setNewSectionOpen = section === 'archive' ? setIsNewArchiveSectionOpen : setIsNewTransactionSectionOpen;
- // Persist the search/date filter bar so it survives a refresh and follows the user
- // to another device (see saveTxFilter in shared/lib/localStorage.ts).
+ // Archive keeps its own search/date/client filter bar too (see archiveFilter* in
+ // transactionsStore.ts) — resolve whichever is active so the two pages never show or share
+ // each other's search term/date range.
+ const isArchiveSection = section === 'archive';
+ const filterOpen = isArchiveSection ? archiveFilterOpen : txFilterOpen;
+ const setFilterOpen = isArchiveSection ? setArchiveFilterOpen : setTxFilterOpen;
+ const filterSearch = isArchiveSection ? archiveFilterSearch : txFilterSearch;
+ const setFilterSearch = isArchiveSection ? setArchiveFilterSearch : setTxFilterSearch;
+ const filterWholeWord = isArchiveSection ? archiveFilterWholeWord : txFilterWholeWord;
+ const setFilterWholeWord = isArchiveSection ? setArchiveFilterWholeWord : setTxFilterWholeWord;
+ const filterClient = isArchiveSection ? archiveFilterClient : txFilterClient;
+ const setFilterClient = isArchiveSection ? setArchiveFilterClient : setTxFilterClient;
+ const filterDateFrom = isArchiveSection ? archiveFilterDateFrom : txFilterDateFrom;
+ const setFilterDateFrom = isArchiveSection ? setArchiveFilterDateFrom : setTxFilterDateFrom;
+ const filterDateTo = isArchiveSection ? archiveFilterDateTo : txFilterDateTo;
+ const setFilterDateTo = isArchiveSection ? setArchiveFilterDateTo : setTxFilterDateTo;
+ const filterHideExpenses = isArchiveSection ? archiveFilterHideExpenses : txFilterHideExpenses;
+ const setFilterHideExpenses = isArchiveSection ? setArchiveFilterHideExpenses : setTxFilterHideExpenses;
+ // Persist the search/date filter bar so it survives a refresh and follows the user to
+ // another device (see saveTxFilter/saveArchiveFilter in shared/lib/localStorage.ts) — each
+ // section under its own storage key so they never overwrite each other.
  useEffect(() => {
-  saveTxFilter({ search: txFilterSearch, wholeWord: txFilterWholeWord, dateFrom: txFilterDateFrom, dateTo: txFilterDateTo });
- }, [txFilterSearch, txFilterWholeWord, txFilterDateFrom, txFilterDateTo]);
+  const filter = { search: filterSearch, wholeWord: filterWholeWord, dateFrom: filterDateFrom, dateTo: filterDateTo };
+  if (isArchiveSection) saveArchiveFilter(filter);
+  else saveTxFilter(filter);
+ }, [isArchiveSection, filterSearch, filterWholeWord, filterDateFrom, filterDateTo]);
  // When a row is loaded into the form for editing, bring the form into view.
  const editFormRef = useRef<HTMLDivElement | null>(null);
  const transactionFormRef = useRef<HTMLFormElement | null>(null);
@@ -1041,8 +1062,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
           <div className="mt-3 rounded border border-border bg-surface-2">
            <button
             type="button"
-            onClick={() => setTxFilterOpen((o) => !o)}
-            aria-expanded={txFilterOpen}
+            onClick={() => setFilterOpen((o) => !o)}
+            aria-expanded={filterOpen}
             className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-fg-muted transition hover:bg-surface-hover"
            >
             <svg
@@ -1059,9 +1080,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
             {t('tx_filter_toggle')}
-            {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo || txFilterHideExpenses || txFilterShowHidden) && (
+            {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveFilterShowHidden) && (
              <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">
-              {[txFilterSearch, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden].filter(Boolean).length}
+              {[filterSearch, filterClient, filterDateFrom, filterDateTo, filterHideExpenses, archiveFilterShowHidden].filter(Boolean).length}
              </span>
             )}
             <svg
@@ -1074,40 +1095,40 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              strokeLinecap="round"
              strokeLinejoin="round"
              aria-hidden
-             className={`ml-auto transition-transform ${txFilterOpen ? 'rotate-180' : ''}`}
+             className={`ml-auto transition-transform ${filterOpen ? 'rotate-180' : ''}`}
             >
              <path d="M6 9l6 6 6-6" />
             </svg>
            </button>
-           {txFilterOpen && (
+           {filterOpen && (
             <div className="flex flex-wrap items-end gap-2 border-t border-border px-3 py-3">
              <div className="flex min-w-36 flex-1 flex-col gap-1">
               <label className="text-xs font-medium text-fg-faint">{t('tx_filter_search')}</label>
               <div className="relative">
                <input
                 type="text"
-                value={txFilterSearch}
-                onChange={(e) => setTxFilterSearch(e.target.value)}
+                value={filterSearch}
+                onChange={(e) => setFilterSearch(e.target.value)}
                 placeholder={t('tx_filter_search_placeholder')}
                 className={`w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
                />
                <div className={`absolute inset-y-0 flex items-center gap-0.5 ${isRTL ? 'left-1' : 'right-1'}`}>
                 <button
                  type="button"
-                 onClick={() => setTxFilterWholeWord((w) => !w)}
+                 onClick={() => setFilterWholeWord((w) => !w)}
                  title={t('tx_filter_whole_word')}
                  aria-label={t('tx_filter_whole_word')}
-                 aria-pressed={txFilterWholeWord}
+                 aria-pressed={filterWholeWord}
                  className={`flex h-5 w-6 items-center justify-center rounded text-[11px] font-semibold transition ${
-                  txFilterWholeWord ? 'bg-accent-weak text-accent ring-1 ring-inset ring-blue-400' : 'text-fg-faint hover:bg-surface-hover hover:text-fg-muted'
+                  filterWholeWord ? 'bg-accent-weak text-accent ring-1 ring-inset ring-blue-400' : 'text-fg-faint hover:bg-surface-hover hover:text-fg-muted'
                  }`}
                 >
                  <span className="border-b border-current leading-none">ab</span>
                 </button>
-                {txFilterSearch ? (
+                {filterSearch ? (
                  <button
                   type="button"
-                  onClick={() => setTxFilterSearch('')}
+                  onClick={() => setFilterSearch('')}
                   title={t('clear_selection')}
                   aria-label={t('clear_selection')}
                   className="flex h-5 w-5 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
@@ -1144,8 +1165,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <div className="flex min-w-36 flex-1 flex-col gap-1">
               <label className="text-xs font-medium text-fg-faint">{t('tx_filter_client')}</label>
               <select
-               value={txFilterClient}
-               onChange={(e) => setTxFilterClient(e.target.value)}
+               value={filterClient}
+               onChange={(e) => setFilterClient(e.target.value)}
                className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
               >
                <option value="">{t('tx_filter_client_all')}</option>
@@ -1163,8 +1184,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <label className="text-xs font-medium text-fg-faint">{t('tx_filter_date_from')}</label>
               <input
                type="date"
-               value={txFilterDateFrom}
-               onChange={(e) => setTxFilterDateFrom(e.target.value)}
+               value={filterDateFrom}
+               onChange={(e) => setFilterDateFrom(e.target.value)}
                className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
               />
              </div>
@@ -1172,16 +1193,16 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <label className="text-xs font-medium text-fg-faint">{t('tx_filter_date_to')}</label>
               <input
                type="date"
-               value={txFilterDateTo}
-               onChange={(e) => setTxFilterDateTo(e.target.value)}
+               value={filterDateTo}
+               onChange={(e) => setFilterDateTo(e.target.value)}
                className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
               />
              </div>
              <label className="flex cursor-pointer select-none items-center gap-2 self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover">
               <input
                type="checkbox"
-               checked={txFilterHideExpenses}
-               onChange={(e) => setTxFilterHideExpenses(e.target.checked)}
+               checked={filterHideExpenses}
+               onChange={(e) => setFilterHideExpenses(e.target.checked)}
                className="h-4 w-4 cursor-pointer rounded border-border-strong text-accent focus:ring-blue-300"
               />
               {t('tx_filter_hide_expenses')}
@@ -1190,24 +1211,24 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <label className="flex cursor-pointer select-none items-center gap-2 self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover">
                <input
                 type="checkbox"
-                checked={txFilterShowHidden}
-                onChange={(e) => setTxFilterShowHidden(e.target.checked)}
+                checked={archiveFilterShowHidden}
+                onChange={(e) => setArchiveFilterShowHidden(e.target.checked)}
                 className="h-4 w-4 cursor-pointer rounded border-border-strong text-accent focus:ring-blue-300"
                />
                {t('tx_filter_show_hidden')}
               </label>
              ) : null}
-             {(txFilterSearch || txFilterClient || txFilterDateFrom || txFilterDateTo || txFilterHideExpenses || txFilterShowHidden) && (
+             {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveFilterShowHidden) && (
               <button
                type="button"
                onClick={() => {
-                setTxFilterSearch('');
-                setTxFilterWholeWord(false);
-                setTxFilterClient('');
-                setTxFilterDateFrom('');
-                setTxFilterDateTo('');
-                setTxFilterHideExpenses(false);
-                setTxFilterShowHidden(false);
+                setFilterSearch('');
+                setFilterWholeWord(false);
+                setFilterClient('');
+                setFilterDateFrom('');
+                setFilterDateTo('');
+                setFilterHideExpenses(false);
+                setArchiveFilterShowHidden(false);
                }}
                className="self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover"
               >

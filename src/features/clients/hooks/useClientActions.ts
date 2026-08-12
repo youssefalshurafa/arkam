@@ -14,7 +14,9 @@ import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { clientsOrgOrderStorageKey, notifySettingsChanged } from '@/shared/lib/localStorage';
 import { nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { localDateKey } from '@/shared/utils/date';
-import type { Client, ClientAccount, Currency, Section, Transaction } from '@/shared/types';
+import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
+import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
+import type { Client, ClientAccount, Currency, Reconciliation, Section, Transaction } from '@/shared/types';
 
 type ClientsByOrganizationGroup = { id: number | null; clients: Client[] };
 
@@ -22,6 +24,7 @@ type UseClientActionsParams = {
  clients: Client[];
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
+ reconciliations: Reconciliation[];
  numLocale: string;
  selectedClientForAccounts: Client | null;
  setSelectedClientForAccounts: Dispatch<SetStateAction<Client | null>>;
@@ -32,6 +35,7 @@ type UseClientActionsParams = {
  currencyMap: Map<number, Currency>;
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
  clientsByOrganization: ClientsByOrganizationGroup[];
+ lockPastEditsEnabled: boolean;
 };
 
 /**
@@ -43,6 +47,7 @@ export function useClientActions({
  clients,
  clientAccounts,
  transactions,
+ reconciliations,
  numLocale,
  selectedClientForAccounts,
  setSelectedClientForAccounts,
@@ -53,6 +58,7 @@ export function useClientActions({
  currencyMap,
  clientAccountMap,
  clientsByOrganization,
+ lockPastEditsEnabled,
 }: UseClientActionsParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
@@ -60,6 +66,7 @@ export function useClientActions({
  const setClientAccounts = setters.setClientAccounts as Dispatch<SetStateAction<ClientAccount[]>>;
  const showToast = useAppStatusStore((s) => s.showToast);
  const clientSubmitLock = useRef(false);
+ const { confirmIfLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  const clientForm = useClientsStore((s) => s.clientForm);
  const setClientForm = useClientsStore((s) => s.setClientForm);
@@ -235,7 +242,10 @@ async function onDeleteAllClients() {
  }
 }
 
-async function onWriteOffBalance(accountId: number, balance: number) {
+// dateKey lets a caller pin the write-off to a specific day instead of today — the client
+// ledger's per-row write-off passes that row's own date so the adjustment lands right after it
+// (same day) instead of jumping to the bottom of the ledger under today's date.
+async function onWriteOffBalance(accountId: number, balance: number, dateKey: string = localDateKey()) {
  if (!accountingApi) {
   setError(t('error_bridge'));
   return;
@@ -262,10 +272,21 @@ async function onWriteOffBalance(accountId: number, balance: number) {
  // balance > 0 means this account is owed money — a write-off must move the balance DOWN
  // toward zero, i.e. net negatively, which is the "to" side's sign (see
  // computeTransactionSideNetChange); balance < 0 is the mirror "from" side case.
+ const accountFromId = balance > 0 ? null : accountId;
+ const accountToId = balance > 0 ? accountId : null;
+ const createdAt = nextCreatedAtForDate(dateKey, transactions);
+
+ if (blockedByPastEditLock([createdAt])) return;
+ // Reconciliation guard: a write-off creates a new row, same as any other create path — one
+ // dated at or before a lock line rewrites reconciled history. This was previously the one
+ // create path in the app with no lock-aware warning at all.
+ if (!(await confirmIfLocked([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID))) return;
+
  try {
   await accountingApi.createTransaction({
-   accountFromId: balance > 0 ? null : accountId,
-   accountToId: balance > 0 ? accountId : null,
+   accountFromId,
+   accountToId,
+   acknowledgeReconciliationOverride: true,
    currencyId: account.currencyId,
    amount,
    type: 'adjustment',
@@ -288,7 +309,7 @@ async function onWriteOffBalance(accountId: number, balance: number) {
    archiveNote: '',
    counterParty: '',
    distributionLocationId: null,
-   createdAt: nextCreatedAtForDate(localDateKey(), transactions),
+   createdAt,
   });
   setError('');
   await loadData();

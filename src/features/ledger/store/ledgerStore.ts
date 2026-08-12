@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
-import { defaultLedgerColumnOrder, defaultLedgerColumnVisibility, getStoredLedgerFilter, getStoredTableZoom } from '@/shared/lib/localStorage';
+import { defaultLedgerColumnOrder, defaultLedgerColumnVisibility, getStoredLedgerFilter, getStoredLedgerHighlightPresets, getStoredTableZoom } from '@/shared/lib/localStorage';
 import type { LedgerColumnKey, LedgerTransactionDraft, PdfColVisibility, PdfSettings } from '@/shared/types';
 
 export type PdfExportModalState = {
@@ -113,6 +113,10 @@ type LedgerStore = {
  setLedgerNetChangeHighlightColor: Dispatch<SetStateAction<string>>;
  ledgerRowHighlightColor: string;
  setLedgerRowHighlightColor: Dispatch<SetStateAction<string>>;
+ // The 3 saved "pen" colors offered in ledger settings for quickly switching
+ // ledgerRowHighlightColor — global across every client's ledger, not per-client.
+ ledgerRowHighlightPresets: [string, string, string];
+ setLedgerRowHighlightPresets: Dispatch<SetStateAction<[string, string, string]>>;
  ledgerRowClickHighlight: boolean;
  setLedgerRowClickHighlight: Dispatch<SetStateAction<boolean>>;
  // Whether the highlight/copy click mode is engaged at all. When false the pointer is neutral
@@ -231,6 +235,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setLedgerNetChangeHighlightColor: setter('ledgerNetChangeHighlightColor'),
   ledgerRowHighlightColor: '#fde68a',
   setLedgerRowHighlightColor: setter('ledgerRowHighlightColor'),
+  ledgerRowHighlightPresets: getStoredLedgerHighlightPresets(),
+  setLedgerRowHighlightPresets: setter('ledgerRowHighlightPresets'),
   ledgerRowClickHighlight: true,
   setLedgerRowClickHighlight: setter('ledgerRowClickHighlight'),
   ledgerRowClickActive: false,

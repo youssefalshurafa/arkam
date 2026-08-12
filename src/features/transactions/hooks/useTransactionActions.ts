@@ -6,8 +6,7 @@ import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
-import { NEW_ROW_REF_ID, violatedLock, reconciledBalanceDelta, RECONCILED_DELTA_EPS } from '@/features/ledger/utils/reconciliation';
-import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
+import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, localWallClock } from '@/shared/utils/date';
@@ -122,16 +121,16 @@ export function useTransactionActions({
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
  const {
-  lockBoundaries,
   formatLockBalance,
   confirmIfLocked,
   confirmDeleteWithLock,
   confirmIfTransactionEditLocked,
+  confirmIfBatchEditLocked,
+  confirmBatchDeleteWithLock,
   transactionEditImpact,
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
-  transactions,
   clientAccountMap,
   lockPastEditsEnabled,
  });
@@ -268,16 +267,6 @@ function beginTransactionsEditMode() {
  setTableRateFromReversed(fromReversed);
  setTableRateToReversed(toReversed);
  setIsTransactionsEditMode(true);
-}
-
-function cancelTransactionsEditMode() {
- setTransactionTableDrafts({});
- setSelectedTransactionIds(new Set());
- setCommissionExpandedTxns(new Set());
- setExpensesExpandedTxns(new Set());
- setTableRateFromReversed({});
- setTableRateToReversed({});
- setIsTransactionsEditMode(false);
 }
 
 function updateTransactionTableDraft(transactionId: number, nextValues: Partial<TransactionTableDraft>) {
@@ -508,7 +497,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
   transactionSubmitLock.current = true;
   setIsSubmittingTransaction(true);
   try {
-   await accountingApi.updateTransaction(updatePayload);
+   await accountingApi.updateTransaction({ ...updatePayload, acknowledgeReconciliationOverride: true });
    applyTransactionPatch(updatePayload);
    onCancelEditTransaction();
    showToast(t('toast_transaction_updated'));
@@ -530,7 +519,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
  transactionSubmitLock.current = true;
  setIsSubmittingTransaction(true);
  try {
-  const created = await accountingApi.createTransaction(txPayload);
+  const created = await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: true });
 
   // Optimistically add the new row (with its real, server-assigned id — NOT a placeholder;
   // a placeholder id here would be sent back to the server if the user immediately edits
@@ -1208,55 +1197,6 @@ function onCancelImportTransactions() {
  });
 }
 
-async function onSaveAllTransactionDrafts() {
- if (!accountingApi) {
-  setError(t('error_bridge'));
-  return;
- }
-
- // Build every row's planned update up front — the same payload the row's real save would
- // write — so the batch lock check and the actual save agree exactly on what's changing.
- type Plan = { original: Transaction; payload: TransactionUpdateInput };
- const plans: Plan[] = [];
- for (const transactionId of Object.keys(transactionTableDrafts).map(Number)) {
-  const draft = transactionTableDrafts[transactionId];
-  const transaction = transactionTableRowMap.get(transactionId);
-  if (!draft || !transaction) continue;
-  if (!draft.accountFromId && !draft.accountToId) {
-   setError(t('transaction_party_required'));
-   return;
-  }
-  const built = buildTableTransactionUpdate(transactionId, draft, transaction);
-  if ('error' in built) {
-   setError(t(built.error));
-   return;
-  }
-  plans.push({ original: transaction, payload: built.transactionPayload });
- }
-
- // One up-front lock check for the whole batch: warn once if any edited row's save would
- // actually move a reconciled balance (not merely because it sits at/before a lock line).
- let batchLockHit: { accountId: number; boundary: { balance: number } } | null = null;
- for (const plan of plans) {
-  batchLockHit = transactionEditImpact(plan.original, plan.payload);
-  if (batchLockHit) break;
- }
- if (batchLockHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(batchLockHit.accountId, batchLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
-  return;
- }
-
- try {
-  for (const plan of plans) {
-   await accountingApi.updateTransaction(plan.payload);
-  }
-  setError('');
-  cancelTransactionsEditMode();
-  await loadData();
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_update'));
- }
-}
-
 async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {}) {
  const { offerUndo = true } = opts;
  if (!accountingApi) {
@@ -1273,7 +1213,7 @@ async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {
  }
 
  try {
-  await accountingApi.deleteTransaction(id);
+  await accountingApi.deleteTransaction(id, { acknowledgeReconciliationOverride: true });
   setSelectedTransactionIds((current) => {
    const next = new Set(current);
    next.delete(id);
@@ -1295,7 +1235,10 @@ async function onUndoDeleteTransaction(tx: Transaction) {
   return;
  }
  try {
-  await accountingApi.createTransaction(buildTransactionCreatePayload(tx, tx.createdAt));
+  // Undoing a delete re-inserts the exact row that was just removed — the delete itself
+  // already passed (or wasn't subject to) the reconciliation guard, so this recreate doesn't
+  // need to reconfirm it.
+  await accountingApi.createTransaction({ ...buildTransactionCreatePayload(tx, tx.createdAt), acknowledgeReconciliationOverride: true });
   setError('');
   await loadData();
  } catch (e) {
@@ -1673,21 +1616,16 @@ async function onDeleteSelectedTransactions() {
 
  // Reconciliation guard: if any selected row sits at or before a lock line, show the
  // lock warning instead of the plain count confirm (one dialog either way).
- let bulkLockHit: { accountId: number; boundary: { balance: number } } | null = null;
- for (const id of idsToDelete) {
-  const tx = transactions.find((t) => t.id === id);
-  if (tx) bulkLockHit = violatedLock([tx.accountFromId, tx.accountToId], tx.createdAt, tx.id, lockBoundaries);
-  if (bulkLockHit) break;
- }
- const confirmed = bulkLockHit
-  ? await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(bulkLockHit.accountId, bulkLockHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' })
-  : await confirmDialog({ message: t('transactions_delete_selected_confirm', { count: idsToDelete.length }), confirmText: t('delete'), tone: 'danger' });
- if (!confirmed) {
+ const rowsToDelete = idsToDelete
+  .map((id) => transactions.find((t) => t.id === id))
+  .filter((tx): tx is Transaction => !!tx)
+  .map((tx) => ({ accountFromId: tx.accountFromId, accountToId: tx.accountToId, createdAt: tx.createdAt, id: tx.id }));
+ if (!(await confirmBatchDeleteWithLock(rowsToDelete, 'transactions_delete_selected_confirm', { count: idsToDelete.length }))) {
   return;
  }
 
  try {
-  await accountingApi.deleteTransactionsBulk({ transactionIds: idsToDelete });
+  await accountingApi.deleteTransactionsBulk({ transactionIds: idsToDelete, acknowledgeReconciliationOverride: true });
   setSelectedTransactionIds(new Set());
   setError('');
   await loadData();
@@ -1753,8 +1691,10 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
  // Reconciliation guard: warn only when the move actually changes a reconciled balance — i.e.
  // it shifts a row with a non-zero net change across a lock anchor. Moving a zero-net row (or
  // a move that stays on the same side of the anchor) leaves the reconciled balance untouched
- // and must not warn. Also detect a re-date so we can confirm that separately.
- let dropImpactHit: { accountId: number; boundary: { balance: number } } | null = null;
+ // and must not warn. Also detect a re-date so we can confirm that separately. Shares the
+ // exact same per-row impact check every other edit/reorder guard uses, so a drag can never
+ // drift from the others' idea of "does this actually move the reconciled balance."
+ let dropImpactHit: ReturnType<typeof transactionEditImpact> = null;
  let dateChange: { from: string; to: string } | null = null;
  for (const draggedId of draggedIds) {
   const draggedRow = rowMap.get(draggedId);
@@ -1764,20 +1704,7 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
   if (newCreatedAt.slice(0, 10) !== draggedRow.createdAt.slice(0, 10) && !dateChange) {
    dateChange = { from: draggedRow.createdAt.slice(0, 10), to: newCreatedAt.slice(0, 10) };
   }
-  const refId = draggedRow.id;
-  const accIds = [draggedRow.accountFromId, draggedRow.accountToId];
-  for (const accId of accIds) {
-   if (accId == null) continue;
-   const boundary = lockBoundaries.get(accId);
-   const account = clientAccountMap.get(accId);
-   if (!boundary || !account) continue;
-   const net = computeTransactionSideNetChange(draggedRow, account.currencyId, draggedRow.accountFromId === accId ? 'from' : 'to');
-   const delta = reconciledBalanceDelta(boundary, { createdAt: draggedRow.createdAt, refId, net, present: true }, { createdAt: newCreatedAt, refId, net, present: true });
-   if (Math.abs(delta) > RECONCILED_DELTA_EPS) {
-    dropImpactHit = { accountId: accId, boundary };
-    break;
-   }
-  }
+  dropImpactHit = transactionEditImpact(draggedRow, { ...draggedRow, createdAt: newCreatedAt });
   if (dropImpactHit && dateChange) break;
  }
  if (dropImpactHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(dropImpactHit.accountId, dropImpactHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
@@ -1823,6 +1750,7 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
     counterParty: draggedRow.counterParty,
     distributionLocationId: draggedRow.distributionLocationId,
     createdAt: newCreatedAt,
+    acknowledgeReconciliationOverride: true,
    });
   }
   setError('');
@@ -1930,7 +1858,7 @@ async function onSaveTransactionTableRow(transactionId: number, { skipReload = f
  }
 
  try {
-  await accountingApi.updateTransaction(transactionPayload);
+  await accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: true });
   setError('');
   applyTransactionPatch(transactionPayload);
   if (!skipReload) {
@@ -1969,6 +1897,25 @@ function onCancelAllTransactions() {
 
 async function onSaveAllTransactions() {
  const ids = paginatedTransactions.map((tx) => tx.id).filter((id) => editingRowIds.has(id));
+
+ // One up-front lock check for the whole batch (the per-row saves below skipReload, so they
+ // don't each prompt) — mirrors onSaveAllLedger's pattern. Builds the same updated record each
+ // row's real save would write and warns once, only if some row's edit actually moves a
+ // reconciled balance. This was previously MISSING entirely (the per-row guard is skipped for
+ // skipReload saves, so nothing ever checked a batch save against a reconciliation lock).
+ const edits: Array<{ oldTx: Transaction; newPayload: TransactionUpdateInput }> = [];
+ for (const id of ids) {
+  const draft = transactionTableDrafts[id];
+  const transaction = transactionTableRowMap.get(id);
+  if (!draft || !transaction) continue;
+  const built = buildTableTransactionUpdate(id, draft, transaction);
+  if ('error' in built) continue;
+  edits.push({ oldTx: transaction, newPayload: built.transactionPayload });
+ }
+ if (!(await confirmIfBatchEditLocked(edits))) {
+  return;
+ }
+
  // Each row save applies its optimistic patch; exit edit mode immediately and reconcile in the background.
  await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true })));
  setEditingRowIds((prev) => {

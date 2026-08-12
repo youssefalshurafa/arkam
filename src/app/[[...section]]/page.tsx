@@ -56,7 +56,9 @@ import {
  getStoredAiSettings,
  getStoredLedgerFilter,
  getStoredTxFilter,
+ getStoredArchiveFilter,
  getStoredTableZoom,
+ saveLedgerHighlightPresets,
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { getSectionFromPath } from '@/shared/utils/section';
@@ -263,6 +265,8 @@ function AuthenticatedHome() {
  const setLedgerNetChangeHighlightColor = useLedgerStore((s) => s.setLedgerNetChangeHighlightColor);
  const ledgerRowHighlightColor = useLedgerStore((s) => s.ledgerRowHighlightColor);
  const setLedgerRowHighlightColor = useLedgerStore((s) => s.setLedgerRowHighlightColor);
+ const ledgerRowHighlightPresets = useLedgerStore((s) => s.ledgerRowHighlightPresets);
+ const setLedgerRowHighlightPresets = useLedgerStore((s) => s.setLedgerRowHighlightPresets);
  const ledgerRowClickHighlight = useLedgerStore((s) => s.ledgerRowClickHighlight);
  const setLedgerRowClickHighlight = useLedgerStore((s) => s.setLedgerRowClickHighlight);
  const setLedgerRowClickActive = useLedgerStore((s) => s.setLedgerRowClickActive);
@@ -339,8 +343,15 @@ function AuthenticatedHome() {
  const txFilterDateTo = useTransactionsStore((s) => s.txFilterDateTo);
  const setTxFilterDateTo = useTransactionsStore((s) => s.setTxFilterDateTo);
  const txFilterHideExpenses = useTransactionsStore((s) => s.txFilterHideExpenses);
- const txFilterShowHidden = useTransactionsStore((s) => s.txFilterShowHidden);
- const setTxFilterShowHidden = useTransactionsStore((s) => s.setTxFilterShowHidden);
+ // Archive keeps its own full copy of the filter bar (see transactionsStore.ts) so switching
+ // between Transactions and Archive never carries one page's search/filter state into the other.
+ const archiveFilterSearch = useTransactionsStore((s) => s.archiveFilterSearch);
+ const archiveFilterWholeWord = useTransactionsStore((s) => s.archiveFilterWholeWord);
+ const archiveFilterClient = useTransactionsStore((s) => s.archiveFilterClient);
+ const archiveFilterDateFrom = useTransactionsStore((s) => s.archiveFilterDateFrom);
+ const archiveFilterDateTo = useTransactionsStore((s) => s.archiveFilterDateTo);
+ const archiveFilterHideExpenses = useTransactionsStore((s) => s.archiveFilterHideExpenses);
+ const archiveFilterShowHidden = useTransactionsStore((s) => s.archiveFilterShowHidden);
  const setCommissionExpandedTxns = useTransactionsStore((s) => s.setCommissionExpandedTxns);
  const setExpensesExpandedTxns = useTransactionsStore((s) => s.setExpensesExpandedTxns);
  const setLedgerExpensesExpandedKeys = useLedgerStore((s) => s.setLedgerExpensesExpandedKeys);
@@ -840,11 +851,16 @@ function AuthenticatedHome() {
    useLiveRatesSettingsStore.setState({ intervalSec: getStoredLiveRatesInterval() });
    useSettingsStore.setState({ pdfSettings: getStoredPdfSettings(), aiSettings: getStoredAiSettings() });
    const storedTxFilter = getStoredTxFilter();
+   const storedArchiveFilter = getStoredArchiveFilter();
    useTransactionsStore.setState({
     txFilterSearch: storedTxFilter.search,
     txFilterWholeWord: storedTxFilter.wholeWord,
     txFilterDateFrom: storedTxFilter.dateFrom,
     txFilterDateTo: storedTxFilter.dateTo,
+    archiveFilterSearch: storedArchiveFilter.search,
+    archiveFilterWholeWord: storedArchiveFilter.wholeWord,
+    archiveFilterDateFrom: storedArchiveFilter.dateFrom,
+    archiveFilterDateTo: storedArchiveFilter.dateTo,
     tableZoom: getStoredTableZoom('transactions'),
    });
    const storedLedgerPageSize = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
@@ -916,12 +932,34 @@ function AuthenticatedHome() {
   });
  }, [transactionTableRows]);
 
+ // Archive keeps its own filter bar entirely separate from the Transactions table's (see
+ // archiveFilter* above) — pick whichever set is active for the section being displayed.
+ const isArchiveSection = section === 'archive';
+ const activeFilterSearch = isArchiveSection ? archiveFilterSearch : txFilterSearch;
+ const activeFilterWholeWord = isArchiveSection ? archiveFilterWholeWord : txFilterWholeWord;
+ const activeFilterClient = isArchiveSection ? archiveFilterClient : txFilterClient;
+ const activeFilterDateFrom = isArchiveSection ? archiveFilterDateFrom : txFilterDateFrom;
+ const activeFilterDateTo = isArchiveSection ? archiveFilterDateTo : txFilterDateTo;
+ const activeFilterHideExpenses = isArchiveSection ? archiveFilterHideExpenses : txFilterHideExpenses;
+
  // Rows in user-defined order (if any), otherwise natural sort order.
  // The Archive section shows only transactions missing a party; the main
  // Transactions section shows everything (including those archived rows).
  const displayedTransactionRows = useMemo<TransactionTableRow[]>(
-  () => filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden }),
-  [transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden],
+  () =>
+   filterDisplayedTransactionRows({
+    transactionTableRows,
+    manualRowOrder,
+    section,
+    txFilterSearch: activeFilterSearch,
+    txFilterWholeWord: activeFilterWholeWord,
+    txFilterClient: activeFilterClient,
+    txFilterDateFrom: activeFilterDateFrom,
+    txFilterDateTo: activeFilterDateTo,
+    txFilterHideExpenses: activeFilterHideExpenses,
+    txFilterShowHidden: archiveFilterShowHidden,
+   }),
+  [transactionTableRows, manualRowOrder, section, activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses, archiveFilterShowHidden],
  );
 
  const txFilterClientOptions = useMemo(() => {
@@ -962,7 +1000,7 @@ function AuthenticatedHome() {
 
  useEffect(() => {
   setTransactionsPage(99999);
- }, [txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses]);
+ }, [activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses]);
 
  useEffect(() => {
   setLedgerPageState({});
@@ -1089,6 +1127,23 @@ function AuthenticatedHome() {
  function updateLedgerRowHighlightColor(next: string) {
   setLedgerRowHighlightColor(next);
   persistLedgerSettings({ rowHighlightColor: next });
+ }
+
+ // Instantly switches the active highlighter to one of the 3 saved presets (a global
+ // palette, not per-client — see ledgerRowHighlightPresets on the store).
+ function selectLedgerRowHighlightPreset(index: number) {
+  updateLedgerRowHighlightColor(ledgerRowHighlightPresets[index]);
+ }
+
+ // Overwrites preset `index` with the currently-active highlighter color, so the user can
+ // dial in a custom color via the main picker and then pin it to one of the 3 quick-switch slots.
+ function saveLedgerRowHighlightPreset(index: number) {
+  const next = [...ledgerRowHighlightPresets] as [string, string, string];
+  next[index] = ledgerRowHighlightColor;
+  setLedgerRowHighlightPresets(next);
+  saveLedgerHighlightPresets(next);
+  pushSharedSettingsIfOwner();
+  pushUserTableSettings();
  }
 
  function updateLedgerNetChangeHighlightColor(next: string) {
@@ -1462,6 +1517,7 @@ function AuthenticatedHome() {
   clients,
   clientAccounts,
   transactions,
+  reconciliations,
   numLocale,
   selectedClientForAccounts,
   setSelectedClientForAccounts,
@@ -1472,6 +1528,7 @@ function AuthenticatedHome() {
   currencyMap,
   clientAccountMap,
   clientsByOrganization,
+  lockPastEditsEnabled,
  });
 
  // Per-client balances for the clients list/group view. Keyed by clientId, each value is
@@ -1517,7 +1574,7 @@ function AuthenticatedHome() {
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, transactions, clientAccountMap, lockPastEditsEnabled });
+ const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoint the ledger edit uses. When not reversed the rate
@@ -1567,7 +1624,7 @@ function AuthenticatedHome() {
     if (!(await confirmIfTransactionEditLocked(tx, payload))) {
      return false;
     }
-    await accountingApi.updateTransaction(payload);
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
     setError('');
     await loadData();
     return true;
@@ -1618,7 +1675,7 @@ function AuthenticatedHome() {
     return;
    }
    try {
-    await accountingApi.updateTransaction(payload);
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
     setError('');
     await loadData();
    } catch (e) {
@@ -2659,6 +2716,8 @@ function AuthenticatedHome() {
      updateLedgerDateFormat={updateLedgerDateFormat}
      updateLedgerRowHighlightColor={updateLedgerRowHighlightColor}
      updateLedgerNetChangeHighlightColor={updateLedgerNetChangeHighlightColor}
+     selectLedgerRowHighlightPreset={selectLedgerRowHighlightPreset}
+     saveLedgerRowHighlightPreset={saveLedgerRowHighlightPreset}
      toggleLedgerCurrencySymbol={toggleLedgerCurrencySymbol}
      toggleLedgerHighlightNetChange={toggleLedgerHighlightNetChange}
      toggleLedgerColumn={toggleLedgerColumn}
