@@ -73,6 +73,7 @@ type LedgerSectionProps = {
  setClientAccounts: Dispatch<SetStateAction<ClientAccount[]>>;
  setLedgerRowClickMode: (mode: 'highlight' | 'copy' | 'none') => void;
  toggleLedgerRowHighlight: (rowKey: string) => void;
+ selectLedgerRowHighlightPreset: (index: number) => void;
  onCancelAllLedger: (ledger: ClientAccountLedger) => void;
  onDeleteLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onDeleteSelectedLedgerEntries: () => void;
@@ -109,7 +110,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openOneSidedTransactionModal, openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
-  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
+  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
  } = props;
  const router = useRouter();
  const { language, isRTL } = useLanguage();
@@ -131,7 +132,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // page's balance-chip write-off uses, applied here to gate the ledger row's "Write off" menu
  // item against the account's current overall balance (see resolveWriteOffThreshold).
  const writeOffMarginByCurrency = useMemo(() => writeOffMarginMap(writeOffMargins), [writeOffMargins]);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerRowHighlightPresets, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
  // sit at the bottom of the scrollable table. Jump there on open (and whenever the
@@ -193,6 +194,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // "+" menu next to the ledger note area: Add Note / Add Expense / Add One-Sided Transaction,
  // consolidated into one entry point instead of three separate buttons.
  const addMenu = useContextMenu();
+ // Popup for the row-highlighter toolbar button: lets the user pick one of the 3 saved
+ // preset colors (Ledger Settings) as the active pen before turning highlight mode on. Keyed
+ // by ledger.accountId (one highlighter button per currency account shown on this page).
+ // A plain swatch row, not the shared ContextMenu — that renders one full-width labeled row
+ // per item, and this needs 3 unlabeled circles side by side instead.
+ const [highlightColorPickerAccountId, setHighlightColorPickerAccountId] = useState<number | null>(null);
 
  // Selection mode: the per-row select checkboxes stay hidden until the user opts in via
  // the toolbar "Select" toggle. Turning it off also clears any current selection so a
@@ -3337,30 +3344,64 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   {/* Row-click mode (highlight / copy / sum) + live sum totals, at the foot opposite the pager. */}
                   <div className="flex flex-wrap items-center gap-1.5">
-                   <button
-                    type="button"
-                    title={t('ledger_click_highlight_mode')}
-                    onClick={() => setLedgerRowClickMode(ledgerRowClickActive && ledgerRowClickHighlight ? 'none' : 'highlight')}
-                    aria-pressed={ledgerRowClickActive && ledgerRowClickHighlight}
-                    className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
-                     ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-warn-bg text-warn-text hover:bg-warn-bg' : 'border-border-strong text-fg-faint hover:bg-surface-hover'
-                    }`}
-                   >
-                    <svg
-                     width="16"
-                     height="16"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth="1.8"
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     aria-hidden
+                   <div className="relative">
+                    <button
+                     type="button"
+                     title={t('ledger_click_highlight_mode')}
+                     onClick={() => {
+                      // Already highlighting: one click turns it off, same as before. Otherwise,
+                      // pop up the 3 saved preset colors so the user picks a pen before it
+                      // activates, instead of silently reusing whatever color was last active.
+                      if (ledgerRowClickActive && ledgerRowClickHighlight) {
+                       setLedgerRowClickMode('none');
+                       return;
+                      }
+                      setHighlightColorPickerAccountId((current) => (current === ledger.accountId ? null : ledger.accountId));
+                     }}
+                     onBlur={() => {
+                      const capturedAccountId = ledger.accountId;
+                      setTimeout(() => setHighlightColorPickerAccountId((current) => (current === capturedAccountId ? null : current)), 150);
+                     }}
+                     aria-pressed={ledgerRowClickActive && ledgerRowClickHighlight}
+                     className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                      ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-warn-bg text-warn-text hover:bg-warn-bg' : 'border-border-strong text-fg-faint hover:bg-surface-hover'
+                     }`}
                     >
-                     <path d="m9 11-6 6v3h9l3-3" />
-                     <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
-                    </svg>
-                   </button>
+                     <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                     >
+                      <path d="m9 11-6 6v3h9l3-3" />
+                      <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+                     </svg>
+                    </button>
+                    {highlightColorPickerAccountId === ledger.accountId ? (
+                     <div className="absolute inset-s-0 bottom-full z-30 mb-1 flex items-center gap-1.5 rounded border border-border bg-surface p-1.5 shadow-lg">
+                      {ledgerRowHighlightPresets.map((presetColor, index) => (
+                       <button
+                        key={index}
+                        type="button"
+                        title={t('ledger_highlight_preset_select', { n: index + 1 })}
+                        onMouseDown={(e) => {
+                         e.preventDefault();
+                         selectLedgerRowHighlightPreset(index);
+                         setLedgerRowClickMode('highlight');
+                         setHighlightColorPickerAccountId(null);
+                        }}
+                        className="h-5 w-5 shrink-0 cursor-pointer rounded-full border border-border-strong transition hover:scale-110"
+                        style={{ backgroundColor: presetColor }}
+                       />
+                      ))}
+                     </div>
+                    ) : null}
+                   </div>
                    <button
                     type="button"
                     title={t('ledger_click_copy_mode')}
