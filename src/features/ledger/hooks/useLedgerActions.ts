@@ -381,7 +381,18 @@ function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: nu
  ledgerHistory.record();
  setLedgerTransactionDrafts((current) => {
   const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
-  const existingDraft = current[draftKey];
+  // Self-heal like the Transactions page's equivalent (updateTransactionTableDraft): a row can
+  // render open (editingLedgerRowKeys still has its key) with its draft entry missing — e.g.
+  // openClientLedger()/the client-ledger route effect wipe the whole draft map on navigation
+  // without also closing edit mode — in which case falling through to "not editing, drop the
+  // keystroke" silently ate every keystroke and looked like a frozen input until a full reload.
+  // Rebuilding from the live transaction here means the field recovers instead.
+  const existingDraft =
+   current[draftKey] ??
+   (() => {
+    const transaction = transactions.find((t) => t.id === transactionId);
+    return transaction ? buildLedgerTransactionDraft(transaction, ledgerAccountId) : null;
+   })();
   if (!existingDraft) {
    return current;
   }

@@ -637,6 +637,10 @@ function AuthenticatedHome() {
     if (client) {
      if (lastInitializedSubIdRef.current !== subId) {
       setLedgerTransactionDrafts({});
+      // See openClientLedger for why this has to travel with the draft wipe: a stale
+      // editingLedgerRowKeys entry from the previous client would otherwise keep rendering a
+      // row open with no draft behind it, freezing that field's input until a reload.
+      setEditingLedgerRowKeys(new Set());
       lastInitializedSubIdRef.current = subId;
      }
      setSelectedClientForLedger(client);
@@ -1056,6 +1060,12 @@ function AuthenticatedHome() {
  function openClientLedger(client: Client, origin: 'clients' | 'organization-clients' = 'clients', accountId?: number | null) {
   setClientLedgerBackSection(origin);
   setLedgerTransactionDrafts({});
+  // Close out any row(s) left open for editing on whatever ledger was visible before — without
+  // this, a row's editingLedgerRowKeys entry outlived the draft wipe above, so it kept
+  // rendering open (edit inputs visible) with no draft behind it. Typing then hit
+  // updateLedgerTransactionDraft's "no draft, nothing to update" branch on every keystroke: the
+  // field looked frozen and needed a full page reload to recover.
+  setEditingLedgerRowKeys(new Set());
   // Start each client's ledger with a clean sum-mode calculator (a running total from the
   // previous client would be meaningless here).
   setLedgerSumMode(false);

@@ -1,9 +1,38 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import type { LedgerColumnKey, PdfSettings, StoredLedgerSettings } from '@/shared/types';
+
+// Lets the hex code next to a color swatch be typed directly instead of only settable through
+// the native <input type="color"> picker (which forces opening the OS/browser hue dialog for
+// every change). Keeps its own draft text so a partial/invalid in-progress hex (e.g. "#fd")
+// doesn't get stomped by the controlled `value` on every keystroke; only commits upstream via
+// `onChange` once the text is a full valid 6-digit hex, and snaps back to the last valid value
+// on blur if left incomplete.
+function HexColorTextInput({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+ const [draft, setDraft] = useState(value);
+ useEffect(() => setDraft(value), [value]);
+
+ return (
+  <input
+   type="text"
+   value={draft}
+   onChange={(event) => {
+    const next = event.target.value;
+    setDraft(next);
+    const normalized = next.startsWith('#') ? next : `#${next}`;
+    if (/^#[0-9a-f]{6}$/i.test(normalized)) onChange(normalized.toLowerCase());
+   }}
+   onBlur={() => setDraft(value)}
+   maxLength={7}
+   spellCheck={false}
+   className="w-24 rounded border border-border-strong bg-surface px-2 py-1 text-xs font-semibold text-fg outline-none ring-blue-300 focus:ring"
+  />
+ );
+}
 
 type LedgerSettingsModalProps = {
  orderedLedgerColumnOptions: Array<{ key: LedgerColumnKey; label: string }>;
@@ -142,12 +171,7 @@ export default function LedgerSettingsModal({
           onChange={(event) => updateLedgerRowHighlightColor(event.target.value)}
           className="h-8 w-14 cursor-pointer rounded border border-border-strong bg-surface p-0.5"
          />
-         <span
-          className="rounded px-3 py-1 text-xs font-semibold text-fg-muted"
-          style={{ backgroundColor: ledgerRowHighlightColor }}
-         >
-          {ledgerRowHighlightColor}
-         </span>
+         <HexColorTextInput value={ledgerRowHighlightColor} onChange={updateLedgerRowHighlightColor} />
         </div>
 
         {/* 3 saved "pens" for quickly switching the active highlighter color above without
