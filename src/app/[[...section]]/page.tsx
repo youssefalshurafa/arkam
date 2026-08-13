@@ -2516,6 +2516,7 @@ function AuthenticatedHome() {
          onWriteOffBalance={onWriteOffBalance}
          setLedgerRowClickMode={setLedgerRowClickMode}
          toggleLedgerRowHighlight={toggleLedgerRowHighlight}
+         selectLedgerRowHighlightPreset={selectLedgerRowHighlightPreset}
         />
        ) : null}
 
