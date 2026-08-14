@@ -171,6 +171,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // iOS Safari has no equivalent of Android's long-press-fires-contextmenu behavior, so the
  // row menu is otherwise unreachable by touch-and-hold on iPhone — see useLongPress.ts.
  const rowLongPress = useLongPress();
+ // Same long-press-to-contextmenu shim, for the highlighter icon's color-preset popup below
+ // (right-click on desktop, long-press on touch — see useLongPress.ts).
+ const highlightPickerLongPress = useLongPress();
  // Only one row's description suggestions are ever live at a time (whichever row is focused)
  // — hooks can't be called per-row inside the ledger's row-rendering loop, so this single
  // shared instance retargets to whichever row last gained focus; every other row gets an
@@ -716,12 +719,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
                if (!targetLedger) return;
                const today = localDateKey();
                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
+               const lastEntry = targetLedger.entries[targetLedger.entries.length - 1]?.createdAt.slice(0, 10) ?? today;
                // Reuse the last date range chosen for this account, if any.
                const storedRange = getStoredPdfDateRange(targetLedger.accountId);
                setPdfExportModal({
                 accountId: targetLedger.accountId,
                 fromDate: storedRange?.fromDate ?? firstEntry,
-                toDate: storedRange?.toDate ?? today,
+                toDate: storedRange?.toDate ?? lastEntry,
                 fromEntryKey: null,
                 toEntryKey: null,
                 cols: getStoredPdfCols(targetLedger.accountId),
@@ -3347,17 +3351,28 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    <div className="relative">
                     <button
                      type="button"
-                     title={t('ledger_click_highlight_mode')}
+                     title={t('ledger_click_highlight_mode_hint')}
                      onClick={() => {
-                      // Already highlighting: one click turns it off, same as before. Otherwise,
-                      // pop up the 3 saved preset colors so the user picks a pen before it
-                      // activates, instead of silently reusing whatever color was last active.
+                      // Swallow the click synthesized right after a long-press-triggered popup.
+                      if (highlightPickerLongPress.consumeLongPress()) return;
+                      // Plain click just toggles highlighting on/off with whatever color was
+                      // last active. Right-click or long-press (below) opens the color popup.
                       if (ledgerRowClickActive && ledgerRowClickHighlight) {
                        setLedgerRowClickMode('none');
                        return;
                       }
+                      setLedgerRowClickMode('highlight');
+                     }}
+                     onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.focus();
                       setHighlightColorPickerAccountId((current) => (current === ledger.accountId ? null : ledger.accountId));
                      }}
+                     {...highlightPickerLongPress.bind((e) => {
+                      e.preventDefault();
+                      (e.currentTarget as HTMLElement | null)?.focus?.();
+                      setHighlightColorPickerAccountId((current) => (current === ledger.accountId ? null : ledger.accountId));
+                     })}
                      onBlur={() => {
                       const capturedAccountId = ledger.accountId;
                       setTimeout(() => setHighlightColorPickerAccountId((current) => (current === capturedAccountId ? null : current)), 150);
