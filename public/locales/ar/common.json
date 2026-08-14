@@ -556,6 +556,7 @@
  "ledger_clear_row_highlights": "إلغاء تمييز كل الصفوف",
  "ledger_row_click_toggle": "انقر على صف لتمييزه",
  "ledger_click_highlight_mode": "انقر على الصفوف للتمييز",
+ "ledger_click_highlight_mode_hint": "انقر لتمييز الصفوف • انقر بزر الفأرة الأيمن أو اضغط مطولًا لاختيار لون",
  "ledger_click_copy_mode": "انقر على الخلايا للنسخ",
  "ledger_row_highlight_hint": "انقر على أي صف في السجل لتمييزه بهذا اللون.",
  "ledger_settings_save": "حفظ",
