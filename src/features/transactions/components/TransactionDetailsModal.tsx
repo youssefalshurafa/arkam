@@ -10,6 +10,7 @@ import { formatRateValue } from '@/shared/utils/format';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { seamlessInputClassName, seamlessSelectClassName } from '@/shared/styles';
 import { getCommissionAmount, exchangeToBase, parseChargesPayer, type ChargesPayerParty } from '@/shared/utils/commission';
+import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
@@ -252,6 +253,13 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
  const fromCommissionAmount = getCommissionAmount(tx.amount * tx.exchangeRateFrom, tx.commissionFrom);
  const toCommissionAmount = getCommissionAmount(exchangeToBase(tx), tx.commissionTo);
 
+ // Same formula the ledger itself uses per row — the actual balance impact on each side's
+ // account, in that account's own currency (amount × rate, net of commission and charges).
+ const accountFrom = tx.accountFromId != null ? clientAccounts.find((a) => a.id === tx.accountFromId) : undefined;
+ const accountTo = tx.accountToId != null ? clientAccounts.find((a) => a.id === tx.accountToId) : undefined;
+ const fromNetChange = accountFrom ? computeTransactionSideNetChange(tx, accountFrom.currencyId, 'from') : null;
+ const toNetChange = accountTo ? computeTransactionSideNetChange(tx, accountTo.currencyId, 'to') : null;
+
  const rateDisplay = (rate: number, reversed: boolean) => (rate === 0 ? '—' : formatRateValue(reversed ? 1 / rate : rate));
 
  // Mirrors resetSideRate in useTransactionActions.ts / the new-transaction form's effect in
@@ -483,7 +491,11 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       },
       description: tx.descriptionFrom,
       onCommitDescription: (raw) => update({ descriptionFrom: raw }),
-      extraRows: [],
+      extraRows: [
+       fromNetChange != null
+        ? row(t('net_change'), <span className={fromNetChange >= 0 ? 'text-good-text' : 'text-bad-text'}>{fmt(fromNetChange)}</span>, 'net-change')
+        : null,
+      ],
      })}
      {sideCard({
       title: t('transaction_account_to'),
@@ -515,7 +527,10 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       },
       description: tx.descriptionTo,
       onCommitDescription: (raw) => update({ descriptionTo: raw }),
-      extraRows: [isExchange && tx.exchangeActualAmount != null ? row(t('exchange_actual_label'), fmt(tx.exchangeActualAmount)) : null],
+      extraRows: [
+       isExchange && tx.exchangeActualAmount != null ? row(t('exchange_actual_label'), fmt(tx.exchangeActualAmount)) : null,
+       toNetChange != null ? row(t('net_change'), <span className={toNetChange >= 0 ? 'text-good-text' : 'text-bad-text'}>{fmt(toNetChange)}</span>, 'net-change') : null,
+      ],
      })}
     </div>
 
