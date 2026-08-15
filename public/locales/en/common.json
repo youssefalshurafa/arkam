@@ -291,6 +291,7 @@
  "pending_pricing_rate_hint": "1 {{from}} = ? {{to}}",
  "pending_pricing_rate_placeholder": "Rate",
  "pending_pricing_set_rate": "Set rate",
+ "pending_pricing_set_all": "Set all ({{count}})",
  "pending_pricing_invalid_rate": "Enter a valid exchange rate.",
  "client_accounts_for": "Accounts for",
  "client_page_open": "Open Page",

@@ -493,7 +493,11 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       onCommitDescription: (raw) => update({ descriptionFrom: raw }),
       extraRows: [
        fromNetChange != null
-        ? row(t('net_change'), <span className={fromNetChange >= 0 ? 'text-good-text' : 'text-bad-text'}>{fmt(fromNetChange)}</span>, 'net-change')
+        ? row(
+           t('net_change'),
+           <span className={fromNetChange >= 0 ? 'text-good-text' : 'text-bad-text'}>{fromNetChange.toLocaleString(numLocale, { maximumFractionDigits: 0 })}</span>,
+           'net-change',
+          )
         : null,
       ],
      })}
@@ -529,7 +533,13 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       onCommitDescription: (raw) => update({ descriptionTo: raw }),
       extraRows: [
        isExchange && tx.exchangeActualAmount != null ? row(t('exchange_actual_label'), fmt(tx.exchangeActualAmount)) : null,
-       toNetChange != null ? row(t('net_change'), <span className={toNetChange >= 0 ? 'text-good-text' : 'text-bad-text'}>{fmt(toNetChange)}</span>, 'net-change') : null,
+       toNetChange != null
+        ? row(
+           t('net_change'),
+           <span className={toNetChange >= 0 ? 'text-good-text' : 'text-bad-text'}>{toNetChange.toLocaleString(numLocale, { maximumFractionDigits: 0 })}</span>,
+           'net-change',
+          )
+        : null,
       ],
      })}
     </div>
