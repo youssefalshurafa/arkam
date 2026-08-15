@@ -290,6 +290,7 @@
  "pending_pricing_rate_hint": "1 {{from}} = ? {{to}}",
  "pending_pricing_rate_placeholder": "Taux",
  "pending_pricing_set_rate": "Définir le taux",
+ "pending_pricing_set_all": "Tout définir ({{count}})",
  "pending_pricing_invalid_rate": "Saisissez un taux de change valide.",
  "client_accounts_for": "Comptes de",
  "client_page_open": "Ouvrir la fiche",

@@ -293,6 +293,7 @@
  "pending_pricing_rate_hint": "1 {{from}} = ؟ {{to}}",
  "pending_pricing_rate_placeholder": "السعر",
  "pending_pricing_set_rate": "تعيين السعر",
+ "pending_pricing_set_all": "تعيين الكل ({{count}})",
  "pending_pricing_invalid_rate": "أدخل سعر صرف صحيح.",
  "client_accounts_for": "حسابات",
  "client_page_open": "فتح الصفحة",

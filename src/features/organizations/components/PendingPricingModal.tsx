@@ -49,6 +49,7 @@ export default function PendingPricingModal({
  const [rateInputs, setRateInputs] = useState<Record<string, string>>({});
  const [reversedInputs, setReversedInputs] = useState<Record<string, boolean>>({});
  const [savingKey, setSavingKey] = useState<string | null>(null);
+ const [savingAll, setSavingAll] = useState(false);
 
  const saveEntry = async (entry: PendingPricingEntry) => {
   const value = (rateInputs[entry.key] ?? '').trim();
@@ -70,6 +71,21 @@ export default function PendingPricingModal({
    }
   } finally {
    setSavingKey(null);
+  }
+ };
+
+ // Saves every row that currently has a rate typed in, one at a time (each save reloads the
+ // full dataset, so running them concurrently would race). Rows left blank are skipped and
+ // stay in the list for later.
+ const readyToSaveCount = entries.filter((entry) => (rateInputs[entry.key] ?? '').trim()).length;
+ const saveAll = async () => {
+  setSavingAll(true);
+  try {
+   for (const entry of entries) {
+    if ((rateInputs[entry.key] ?? '').trim()) await saveEntry(entry);
+   }
+  } finally {
+   setSavingAll(false);
   }
  };
 
@@ -102,16 +118,28 @@ export default function PendingPricingModal({
        {subtitle ? <p className="mt-0.5 text-sm text-fg-faint">{subtitle}</p> : null}
       </div>
      </div>
-     <button
-      type="button"
-      onClick={onClose}
-      className="shrink-0 rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-fg-muted"
-      aria-label={t('close')}
-     >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-       <path d="M18 6 6 18M6 6l12 12" />
-      </svg>
-     </button>
+     <div className="flex shrink-0 items-center gap-2">
+      {entries.length > 1 ? (
+       <button
+        type="button"
+        onClick={() => void saveAll()}
+        disabled={savingAll || readyToSaveCount === 0}
+        className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
+       >
+        {savingAll ? t('saving') : t('pending_pricing_set_all', { count: readyToSaveCount })}
+       </button>
+      ) : null}
+      <button
+       type="button"
+       onClick={onClose}
+       className="shrink-0 rounded p-1 text-fg-faint transition hover:bg-surface-hover hover:text-fg-muted"
+       aria-label={t('close')}
+      >
+       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M18 6 6 18M6 6l12 12" />
+       </svg>
+      </button>
+     </div>
     </div>
     <div className="overflow-y-auto px-3 py-3 sm:px-5 sm:py-4">
      {entries.length === 0 ? (
@@ -144,7 +172,8 @@ export default function PendingPricingModal({
             onClick={() =>
              setReversedInputs((current) => ({ ...current, [entry.key]: !current[entry.key] }))
             }
-            className="inline-flex shrink-0 items-center gap-1 rounded p-1 text-[10px] leading-none text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+            disabled={isSaving || savingAll}
+            className="inline-flex shrink-0 items-center gap-1 rounded p-1 text-[10px] leading-none text-fg-faint transition hover:bg-surface-hover hover:text-fg disabled:opacity-50"
            >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
              <path d="M7 4 3 8l4 4M3 8h13.5" />
@@ -165,19 +194,19 @@ export default function PendingPricingModal({
              value={rateValue}
              onChange={(e) => setRateInputs((current) => ({ ...current, [entry.key]: e.target.value }))}
              onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === 'Enter' && !savingAll) {
                e.preventDefault();
                void saveEntry(entry);
               }
              }}
              placeholder={t('pending_pricing_rate_placeholder')}
-             disabled={isSaving}
+             disabled={isSaving || savingAll}
              className="w-20 rounded-lg border border-border-strong px-2 py-1 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 disabled:opacity-50 sm:w-24"
             />
             <button
              type="button"
              onClick={() => void saveEntry(entry)}
-             disabled={isSaving || !rateValue.trim()}
+             disabled={isSaving || savingAll || !rateValue.trim()}
              className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-indigo-700 disabled:opacity-50"
             >
              {isSaving ? t('saving') : t('pending_pricing_set_rate')}
