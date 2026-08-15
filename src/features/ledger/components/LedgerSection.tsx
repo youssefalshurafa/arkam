@@ -171,9 +171,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // iOS Safari has no equivalent of Android's long-press-fires-contextmenu behavior, so the
  // row menu is otherwise unreachable by touch-and-hold on iPhone — see useLongPress.ts.
  const rowLongPress = useLongPress();
- // Same long-press-to-contextmenu shim, for the highlighter icon's color-preset popup below
- // (right-click on desktop, long-press on touch — see useLongPress.ts).
- const highlightPickerLongPress = useLongPress();
  // Only one row's description suggestions are ever live at a time (whichever row is focused)
  // — hooks can't be called per-row inside the ledger's row-rendering loop, so this single
  // shared instance retargets to whichever row last gained focus; every other row gets an
@@ -720,12 +717,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
                const today = localDateKey();
                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
                const lastEntry = targetLedger.entries[targetLedger.entries.length - 1]?.createdAt.slice(0, 10) ?? today;
-               // Reuse the last date range chosen for this account, if any.
+               // Reuse the last "from" date chosen for this account, if any, but always
+               // default "to" to the newest transaction so freshly added rows aren't cut off.
                const storedRange = getStoredPdfDateRange(targetLedger.accountId);
                setPdfExportModal({
                 accountId: targetLedger.accountId,
                 fromDate: storedRange?.fromDate ?? firstEntry,
-                toDate: storedRange?.toDate ?? lastEntry,
+                toDate: lastEntry,
                 fromEntryKey: null,
                 toEntryKey: null,
                 cols: getStoredPdfCols(targetLedger.accountId),
@@ -3348,15 +3346,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   {/* Row-click mode (highlight / copy / sum) + live sum totals, at the foot opposite the pager. */}
                   <div className="flex flex-wrap items-center gap-1.5">
-                   <div className="relative">
+                   <div className="relative flex">
                     <button
                      type="button"
                      title={t('ledger_click_highlight_mode_hint')}
                      onClick={() => {
-                      // Swallow the click synthesized right after a long-press-triggered popup.
-                      if (highlightPickerLongPress.consumeLongPress()) return;
                       // Plain click just toggles highlighting on/off with whatever color was
-                      // last active. Right-click or long-press (below) opens the color popup.
+                      // last active. Right-click (desktop) or the caret button (below, also used
+                      // on touch — long-press-to-contextmenu is too unreliable across mobile
+                      // browsers, see useLongPress.ts) opens the color popup.
                       if (ledgerRowClickActive && ledgerRowClickHighlight) {
                        setLedgerRowClickMode('none');
                        return;
@@ -3368,17 +3366,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       e.currentTarget.focus();
                       setHighlightColorPickerAccountId((current) => (current === ledger.accountId ? null : ledger.accountId));
                      }}
-                     {...highlightPickerLongPress.bind((e) => {
-                      e.preventDefault();
-                      (e.currentTarget as HTMLElement | null)?.focus?.();
-                      setHighlightColorPickerAccountId((current) => (current === ledger.accountId ? null : ledger.accountId));
-                     })}
                      onBlur={() => {
                       const capturedAccountId = ledger.accountId;
                       setTimeout(() => setHighlightColorPickerAccountId((current) => (current === capturedAccountId ? null : current)), 150);
                      }}
                      aria-pressed={ledgerRowClickActive && ledgerRowClickHighlight}
-                     className={`cursor-pointer rounded border px-2 py-1.5 text-sm font-semibold transition ${
+                     className={`cursor-pointer rounded-s border border-e-0 px-2 py-1.5 text-sm font-semibold transition ${
                       ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-warn-bg text-warn-text hover:bg-warn-bg' : 'border-border-strong text-fg-faint hover:bg-surface-hover'
                      }`}
                     >
@@ -3395,6 +3388,40 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      >
                       <path d="m9 11-6 6v3h9l3-3" />
                       <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+                     </svg>
+                    </button>
+                    <button
+                     type="button"
+                     title={t('ledger_highlight_color_picker_open')}
+                     aria-label={t('ledger_highlight_color_picker_open')}
+                     // Plain tap, not long-press: mobile browsers synthesize a mousedown/click
+                     // right after touchend even for a held-then-released touch, which raced with
+                     // and instantly closed a long-press-opened popup. A dedicated button sidesteps
+                     // that entirely (same reasoning as the row menu's "⋮" button on touch).
+                     onClick={(e) => {
+                      e.currentTarget.focus();
+                      setHighlightColorPickerAccountId((current) => (current === ledger.accountId ? null : ledger.accountId));
+                     }}
+                     onBlur={() => {
+                      const capturedAccountId = ledger.accountId;
+                      setTimeout(() => setHighlightColorPickerAccountId((current) => (current === capturedAccountId ? null : current)), 150);
+                     }}
+                     className={`cursor-pointer rounded-e border px-1 py-1.5 text-sm font-semibold transition ${
+                      ledgerRowClickActive && ledgerRowClickHighlight ? 'border-amber-400 bg-warn-bg text-warn-text hover:bg-warn-bg' : 'border-border-strong text-fg-faint hover:bg-surface-hover'
+                     }`}
+                    >
+                     <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                     >
+                      <polyline points="6 9 12 15 18 9" />
                      </svg>
                     </button>
                     {highlightColorPickerAccountId === ledger.accountId ? (
