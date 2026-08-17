@@ -13,7 +13,7 @@ import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { saveArchiveFilter, saveTableZoom, saveTxFilter } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
-import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
+import { formatRateValue, highlightPenCursor, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
@@ -123,6 +123,7 @@ type TransactionsSectionProps = {
  highlightedTxRows: Map<number, string>;
  txRowClickHighlight: boolean;
  txRowClickActive: boolean;
+ txRowHighlightColor: string;
  txSumMode: boolean;
  txSumSelection: Set<number>;
  txSumByCurrency: SumCurrencyTotal[];
@@ -163,7 +164,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   isLoading, section, clients, clientAccounts, enabledCurrencies, transactions, clientAccountMap, currencyMap,
   displayedTransactionRows, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
   selectedTransactionSums, archiveCurrencyTotals, workspaceAnomalies,
-  getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
+  getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive, txRowHighlightColor,
   txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopyTransactionRow, onDeleteSelectedTransactions,
   onDeleteTransactionTableRow, onToggleTransactionArchiveHidden, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction, onEditTransactionInForm, onCancelEditTransaction,
@@ -1450,7 +1451,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  WebkitUserSelect: 'none',
                  userSelect: 'none',
                  ...(color ? { backgroundColor: resolveHighlightBg(color, isDark) } : {}),
-                 ...(isEditingRow || txSumMode || !txRowClickActive ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
+                 ...(isEditingRow || txSumMode || !txRowClickActive ? {} : txRowClickHighlight ? { cursor: highlightPenCursor(txRowHighlightColor) } : { cursor: 'copy' }),
                 };
                })()}
                onClick={(e) => {

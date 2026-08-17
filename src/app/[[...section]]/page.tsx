@@ -2697,6 +2697,7 @@ function AuthenticatedHome() {
          highlightedTxRows={isArchiveSection ? highlightedArchiveRows : highlightedTxRows}
          txRowClickHighlight={isArchiveSection ? archiveRowClickHighlight : txRowClickHighlight}
          txRowClickActive={isArchiveSection ? archiveRowClickActive : txRowClickActive}
+         txRowHighlightColor={isArchiveSection ? archiveRowHighlightColor : txRowHighlightColor}
          txSumMode={isArchiveSection ? archiveSumMode : txSumMode}
          txSumSelection={isArchiveSection ? archiveSumSelection : txSumSelection}
          txSumByCurrency={isArchiveSection ? archiveSumByCurrency : txSumByCurrency}
