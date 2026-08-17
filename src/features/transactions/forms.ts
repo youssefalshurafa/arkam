@@ -21,6 +21,7 @@ export const emptyTransactionForm = (): TransactionForm => ({
  exchangeActualAmount: '',
  distributionLocationId: null,
  counterParty: '',
+ archiveNote: '',
 });
 
 export const emptyArchiveEntryForm = (): ArchiveEntryForm => ({

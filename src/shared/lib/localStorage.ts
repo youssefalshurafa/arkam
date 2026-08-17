@@ -117,6 +117,33 @@ export function saveTableZoom(key: 'ledger' | 'transactions', value: number) {
  }
 }
 
+// Draggable position (viewport px, from top-left) of the floating AI chat launcher — a pure
+// per-device screen-layout preference like table zoom above, so it is never synced through
+// snapshotUserSettings/applyUserSettings. null means "use the default bottom-corner CSS
+// position" (the user hasn't dragged it on this device yet).
+export const aiChatButtonPositionStorageKey = 'arkam:ai-chat-button-position';
+
+export function getStoredAiChatButtonPosition(): { x: number; y: number } | null {
+ if (typeof window === 'undefined') return null;
+ try {
+  const raw = window.localStorage.getItem(aiChatButtonPositionStorageKey);
+  if (!raw) return null;
+  const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown };
+  if (typeof parsed.x !== 'number' || typeof parsed.y !== 'number' || !Number.isFinite(parsed.x) || !Number.isFinite(parsed.y)) return null;
+  return { x: parsed.x, y: parsed.y };
+ } catch {
+  return null;
+ }
+}
+
+export function saveAiChatButtonPosition(position: { x: number; y: number }) {
+ try {
+  window.localStorage.setItem(aiChatButtonPositionStorageKey, JSON.stringify(position));
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+
 // How often (in seconds) the Live Rates screen re-polls the feed while it is open.
 export const liveRatesIntervalStorageKey = 'arkam:live-rates-interval';
 export const defaultLiveRatesInterval = 5;
@@ -318,6 +345,37 @@ export function getStoredTxRowSettings(): { rowClickHighlight: boolean; rowHighl
  if (typeof window === 'undefined') return { rowClickHighlight: true, rowHighlightColor: '#fde68a' };
  try {
   const raw = window.localStorage.getItem(txRowSettingsStorageKey);
+  const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  return {
+   rowClickHighlight: typeof parsed?.rowClickHighlight === 'boolean' ? parsed.rowClickHighlight : true,
+   rowHighlightColor: typeof parsed?.rowHighlightColor === 'string' ? parsed.rowHighlightColor : '#fde68a',
+  };
+ } catch {
+  return { rowClickHighlight: true, rowHighlightColor: '#fde68a' };
+ }
+}
+// Archive keeps its own row-highlight marks and click-mode preference, entirely separate
+// from the Transactions table's (see txHighlightsStorageKey/txRowSettingsStorageKey above).
+// A transaction missing a party shows in BOTH the Archive and Transactions tables at once
+// (same id), so sharing one highlight map would mark it highlighted on both pages from a
+// single click — these mirror keys keep the two pages' marks independent.
+export const archiveHighlightsStorageKey = 'arkam:archive-highlights';
+export const archiveRowSettingsStorageKey = 'arkam:archive-row-settings';
+export function getStoredArchiveHighlights(): Map<number, string> {
+ if (typeof window === 'undefined') return new Map();
+ try {
+  const raw = window.localStorage.getItem(archiveHighlightsStorageKey);
+  const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  if (!parsed || typeof parsed !== 'object') return new Map();
+  return new Map(Object.entries(parsed).map(([k, v]) => [Number(k), String(v)]));
+ } catch {
+  return new Map();
+ }
+}
+export function getStoredArchiveRowSettings(): { rowClickHighlight: boolean; rowHighlightColor: string } {
+ if (typeof window === 'undefined') return { rowClickHighlight: true, rowHighlightColor: '#fde68a' };
+ try {
+  const raw = window.localStorage.getItem(archiveRowSettingsStorageKey);
   const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
   return {
    rowClickHighlight: typeof parsed?.rowClickHighlight === 'boolean' ? parsed.rowClickHighlight : true,

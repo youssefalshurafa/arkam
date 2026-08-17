@@ -8,6 +8,8 @@ import {
  archiveTableSettingsStorageKey,
  txRowSettingsStorageKey,
  txHighlightsStorageKey,
+ archiveRowSettingsStorageKey,
+ archiveHighlightsStorageKey,
  exchangeSettingsStorageKey,
  themeStorageKey,
  clientsOrgOrderStorageKey,
@@ -41,6 +43,7 @@ const SHARED_EXACT_KEYS = [
  transactionTableSettingsStorageKey,
  archiveTableSettingsStorageKey,
  txRowSettingsStorageKey,
+ archiveRowSettingsStorageKey,
  exchangeSettingsStorageKey,
  ledgerHighlightPresetsStorageKey,
 ];
@@ -63,6 +66,7 @@ function isSharedKey(key: string): boolean {
 // applyUserSettings below.
 const USER_ONLY_EXACT_KEYS = [
  txHighlightsStorageKey,
+ archiveHighlightsStorageKey,
  themeStorageKey,
  languageStorageKey,
  sidebarCollapsedStorageKey,

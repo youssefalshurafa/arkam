@@ -1092,6 +1092,19 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
              />
             </div>
 
+            {section === 'archive' ? (
+             <>
+              <label className="mt-4 block text-sm font-medium">{t('archive_more_info')}</label>
+              <input
+               type="text"
+               value={transactionForm.archiveNote}
+               onChange={(event) => setTransactionForm((current) => ({ ...current, archiveNote: event.target.value }))}
+               placeholder={t('archive_more_info_placeholder')}
+               className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+              />
+             </>
+            ) : null}
+
             <div className="mt-3">
              <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
               <input
