@@ -486,7 +486,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
    descriptionFrom: txPayload.descriptionFrom,
    descriptionTo: txPayload.descriptionTo,
    exchangeActualAmount: txPayload.exchangeActualAmount,
-   archiveNote: original?.archiveNote,
+   archiveNote: section === 'archive' ? transactionForm.archiveNote.trim() : original?.archiveNote,
    distributionLocationId: txPayload.distributionLocationId,
    counterParty: txPayload.counterParty,
    createdAt: txPayload.createdAt,
@@ -1350,6 +1350,7 @@ function onPasteCopiedTransaction() {
   exchangeActualAmount: row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
   distributionLocationId: row.distributionLocationId,
   counterParty: row.counterParty || '',
+  archiveNote: '',
  });
  setTxSplitDescription(Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);
@@ -1387,6 +1388,7 @@ function onEditTransactionInForm(row: TransactionTableRow) {
   exchangeActualAmount: row.type === 'exchange' && row.exchangeActualAmount != null ? formatAmountInput(String(row.exchangeActualAmount)) : '',
   distributionLocationId: row.distributionLocationId,
   counterParty: row.counterParty || '',
+  archiveNote: row.archiveNote || '',
  });
  setTxSplitDescription(Boolean(row.descriptionFrom?.trim() || row.descriptionTo?.trim()));
  setTxFromRateReversed(fromReversed);

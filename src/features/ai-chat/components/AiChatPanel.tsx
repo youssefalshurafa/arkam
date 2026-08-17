@@ -1,12 +1,20 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAiChat } from '@/features/ai-chat/hooks/useAiChat';
 import { useSpeechToText } from '@/shared/hooks/useSpeechToText';
+import { getStoredAiChatButtonPosition, saveAiChatButtonPosition } from '@/shared/lib/localStorage';
+
+// Margin (px) kept between the launcher and the viewport edge while dragging/clamping, so it
+// never gets dragged fully off-screen or hidden behind a scrollbar.
+const AI_BUTTON_EDGE_MARGIN = 8;
+// Pointer travel (px) before a press counts as a drag rather than a tap — below this the
+// button still opens the chat panel like a normal click.
+const AI_BUTTON_DRAG_THRESHOLD = 6;
 
 // Global "ask your ledger a question" launcher + slide-over panel. Self-contained (owns its own
 // open/closed state) so it can be dropped into the page tree once and needs no prop-drilling
@@ -27,6 +35,92 @@ export default function AiChatPanel() {
  useEffect(() => {
   listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
  }, [messages, isSending]);
+
+ // Draggable launcher position — null means "not dragged yet on this device", which keeps the
+ // original bottom-corner CSS placement. Once dragged, its pixel position is remembered per
+ // device (see getStoredAiChatButtonPosition) so it stays out of the way of whatever it was
+ // covering (e.g. a form's Save/Cancel row on a small screen) instead of resetting every visit.
+ const [buttonPos, setButtonPos] = useState<{ x: number; y: number } | null>(null);
+ const dragInfoRef = useRef<{ pointerId: number; offsetX: number; offsetY: number; startX: number; startY: number; dragging: boolean } | null>(null);
+ // Set right before the drag's pointerup so the click event that follows it (pointerup and
+ // click always fire as a pair) can be told apart from a genuine tap and skip opening the panel.
+ const justDraggedRef = useRef(false);
+
+ useEffect(() => {
+  setButtonPos(getStoredAiChatButtonPosition());
+ }, []);
+
+ // If the viewport shrinks after a drag (window resize, phone rotation), pull the button back
+ // on-screen instead of leaving it stranded past the new edge.
+ useEffect(() => {
+  function clampToViewport() {
+   setButtonPos((pos) => {
+    if (!pos) return pos;
+    const maxX = Math.max(AI_BUTTON_EDGE_MARGIN, window.innerWidth - 48 - AI_BUTTON_EDGE_MARGIN);
+    const maxY = Math.max(AI_BUTTON_EDGE_MARGIN, window.innerHeight - 48 - AI_BUTTON_EDGE_MARGIN);
+    const next = { x: Math.min(Math.max(pos.x, AI_BUTTON_EDGE_MARGIN), maxX), y: Math.min(Math.max(pos.y, AI_BUTTON_EDGE_MARGIN), maxY) };
+    if (next.x === pos.x && next.y === pos.y) return pos;
+    saveAiChatButtonPosition(next);
+    return next;
+   });
+  }
+  window.addEventListener('resize', clampToViewport);
+  return () => window.removeEventListener('resize', clampToViewport);
+ }, []);
+
+ function handleButtonPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  const rect = event.currentTarget.getBoundingClientRect();
+  dragInfoRef.current = {
+   pointerId: event.pointerId,
+   offsetX: event.clientX - rect.left,
+   offsetY: event.clientY - rect.top,
+   startX: event.clientX,
+   startY: event.clientY,
+   dragging: false,
+  };
+  event.currentTarget.setPointerCapture(event.pointerId);
+ }
+
+ function handleButtonPointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+  const info = dragInfoRef.current;
+  if (!info || info.pointerId !== event.pointerId) return;
+  if (!info.dragging && Math.hypot(event.clientX - info.startX, event.clientY - info.startY) < AI_BUTTON_DRAG_THRESHOLD) return;
+  info.dragging = true;
+  const size = event.currentTarget.getBoundingClientRect().width;
+  const maxX = Math.max(AI_BUTTON_EDGE_MARGIN, window.innerWidth - size - AI_BUTTON_EDGE_MARGIN);
+  const maxY = Math.max(AI_BUTTON_EDGE_MARGIN, window.innerHeight - size - AI_BUTTON_EDGE_MARGIN);
+  setButtonPos({
+   x: Math.min(Math.max(event.clientX - info.offsetX, AI_BUTTON_EDGE_MARGIN), maxX),
+   y: Math.min(Math.max(event.clientY - info.offsetY, AI_BUTTON_EDGE_MARGIN), maxY),
+  });
+ }
+
+ function handleButtonPointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
+  const info = dragInfoRef.current;
+  if (!info || info.pointerId !== event.pointerId) return;
+  dragInfoRef.current = null;
+  try {
+   event.currentTarget.releasePointerCapture(event.pointerId);
+  } catch {
+   /* already released */
+  }
+  if (info.dragging) {
+   justDraggedRef.current = true;
+   setButtonPos((pos) => {
+    if (pos) saveAiChatButtonPosition(pos);
+    return pos;
+   });
+  }
+ }
+
+ function handleButtonClick() {
+  if (justDraggedRef.current) {
+   justDraggedRef.current = false;
+   return;
+  }
+  setIsOpen(true);
+ }
 
  // Speech recognition (question by voice) and speech synthesis (answer read aloud, but only
  // for a question that was itself asked by voice — a typed question just gets a text reply).
@@ -66,10 +160,17 @@ export default function AiChatPanel() {
   <>
    <button
     type="button"
-    onClick={() => setIsOpen(true)}
+    onClick={handleButtonClick}
+    onPointerDown={handleButtonPointerDown}
+    onPointerMove={handleButtonPointerMove}
+    onPointerUp={handleButtonPointerUp}
+    onPointerCancel={handleButtonPointerUp}
     title={t('ai_chat_open')}
     aria-label={t('ai_chat_open')}
-    className={`fixed bottom-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-blue-700 text-xl text-white shadow-lg transition hover:bg-blue-800 ${isRTL ? 'left-5' : 'right-5'}`}
+    className={`fixed z-40 flex h-12 w-12 cursor-grab items-center justify-center rounded-full bg-blue-700 text-xl text-white shadow-lg transition hover:bg-blue-800 active:cursor-grabbing ${
+     buttonPos ? '' : `bottom-5 ${isRTL ? 'left-5' : 'right-5'}`
+    }`}
+    style={{ touchAction: 'none', ...(buttonPos ? { left: buttonPos.x, top: buttonPos.y } : {}) }}
    >
     ✨
    </button>

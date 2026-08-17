@@ -39,6 +39,8 @@ import {
  getStoredLedgerSettings,
  getStoredTxHighlights,
  getStoredTxRowSettings,
+ getStoredArchiveHighlights,
+ getStoredArchiveRowSettings,
  getStoredLedgerHighlights,
  getStoredTransactionTableSettings,
  getStoredArchiveTableSettings,
@@ -48,6 +50,8 @@ import {
  ledgerHighlightsStorageKeyPrefix,
  txHighlightsStorageKey,
  txRowSettingsStorageKey,
+ archiveHighlightsStorageKey,
+ archiveRowSettingsStorageKey,
  notifySettingsChanged,
  getStoredTheme,
  getStoredClientsOrgOrder,
@@ -284,6 +288,16 @@ function AuthenticatedHome() {
  // so editing a summed row's amount afterward updates the total instead of it going stale.
  const [txSumMode, setTxSumMode] = useState(false);
  const [txSumSelection, setTxSumSelection] = useState<Set<number>>(new Set());
+ // Archive keeps its own highlight marks, click-mode, and sum-selection state — entirely
+ // separate from the Transactions table's above. A transaction still missing a party shows
+ // in BOTH tables at once (same id — see displayedTransactionRows' comment), so sharing one
+ // Map/Set would make marking a row in Archive show it marked in Transactions too.
+ const [archiveRowClickHighlight, setArchiveRowClickHighlight] = useState<boolean>(() => getStoredArchiveRowSettings().rowClickHighlight);
+ const [archiveRowClickActive, setArchiveRowClickActive] = useState(false);
+ const [highlightedArchiveRows, setHighlightedArchiveRows] = useState<Map<number, string>>(() => getStoredArchiveHighlights());
+ const [archiveRowHighlightColor, setArchiveRowHighlightColor] = useState<string>(() => getStoredArchiveRowSettings().rowHighlightColor);
+ const [archiveSumMode, setArchiveSumMode] = useState(false);
+ const [archiveSumSelection, setArchiveSumSelection] = useState<Set<number>>(new Set());
  const setLedgerStartingBalanceDrafts = useLedgerStore((s) => s.setLedgerStartingBalanceDrafts);
  const setEditingStartingBalanceIds = useLedgerStore((s) => s.setEditingStartingBalanceIds);
  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<number | null>(null);
@@ -840,6 +854,7 @@ function AuthenticatedHome() {
    // Re-hydrate this user's private row highlights from the just-applied storage so a
    // fresh device shows the entries they highlighted elsewhere.
    setHighlightedTxRows(getStoredTxHighlights());
+   setHighlightedArchiveRows(getStoredArchiveHighlights());
    setHighlightedLedgerRows(getStoredLedgerHighlights(selectedClientForLedger?.id));
    // The settings above are re-read fresh by their owning component on every
    // navigation/mount, so writing them into localStorage is enough. These, however, are
@@ -1275,7 +1290,71 @@ function AuthenticatedHome() {
   pushUserTableSettings();
  }
 
+ // Archive's own mirrors of the four functions above — see the archiveRowClickHighlight/
+ // highlightedArchiveRows declarations for why these must stay independent from Transactions'.
+ function setArchiveRowClickMode(mode: 'highlight' | 'copy' | 'none') {
+  if (mode === 'none') {
+   setArchiveRowClickActive(false);
+   return;
+  }
+  const highlight = mode === 'highlight';
+  setArchiveRowClickActive(true);
+  setArchiveRowClickHighlight(highlight);
+  try {
+   const stored = JSON.parse(window.localStorage.getItem(archiveRowSettingsStorageKey) ?? '{}') as Record<string, unknown>;
+   window.localStorage.setItem(archiveRowSettingsStorageKey, JSON.stringify({ ...stored, rowClickHighlight: highlight }));
+  } catch {
+   /* ignore */
+  }
+  pushSharedSettingsIfOwner();
+  pushUserTableSettings();
+ }
 
+ function toggleArchiveSumMode() {
+  setArchiveSumMode((on) => {
+   if (on) setArchiveSumSelection(new Set());
+   return !on;
+  });
+ }
+
+ function toggleArchiveSumEntry(id: number) {
+  setArchiveSumSelection((prev) => {
+   const next = new Set(prev);
+   if (next.has(id)) next.delete(id);
+   else next.add(id);
+   return next;
+  });
+ }
+
+ function toggleArchiveRowHighlight(txnId: number) {
+  setHighlightedArchiveRows((current) => {
+   const next = new Map(current);
+   if (next.has(txnId)) {
+    next.delete(txnId);
+   } else {
+    next.set(txnId, archiveRowHighlightColor);
+   }
+   try {
+    window.localStorage.setItem(archiveHighlightsStorageKey, JSON.stringify(Object.fromEntries(next)));
+   } catch {
+    /* ignore */
+   }
+   return next;
+  });
+  pushUserTableSettings();
+ }
+
+ function updateArchiveRowHighlightColor(next: string) {
+  setArchiveRowHighlightColor(next);
+  try {
+   const stored = JSON.parse(window.localStorage.getItem(archiveRowSettingsStorageKey) ?? '{}') as Record<string, unknown>;
+   window.localStorage.setItem(archiveRowSettingsStorageKey, JSON.stringify({ ...stored, rowHighlightColor: next }));
+  } catch {
+   /* ignore */
+  }
+  pushSharedSettingsIfOwner();
+  pushUserTableSettings();
+ }
 
 
 
@@ -1733,6 +1812,21 @@ function AuthenticatedHome() {
   }
   return [...byCurrency.values()].sort((a, b) => a.code.localeCompare(b.code));
  }, [txSumSelection, transactionTableRowMap]);
+
+ // Archive's own mirror of txSumByCurrency above — see archiveSumSelection's declaration.
+ const archiveSumByCurrency = useMemo(() => {
+  const byCurrency = new Map<string, { code: string; symbol: string; total: number; count: number }>();
+  for (const id of archiveSumSelection) {
+   const row = transactionTableRowMap.get(id);
+   if (!row) continue;
+   const code = row.currencyCode || '';
+   const existing = byCurrency.get(code) ?? { code, symbol: row.currencySymbol || '', total: 0, count: 0 };
+   existing.total += row.amount;
+   existing.count += 1;
+   byCurrency.set(code, existing);
+  }
+  return [...byCurrency.values()].sort((a, b) => a.code.localeCompare(b.code));
+ }, [archiveSumSelection, transactionTableRowMap]);
  const selectedOrganizationClients = useMemo(
   () => (selectedOrganizationForClients ? clients.filter((client) => client.organizationId === selectedOrganizationForClients.id) : []),
   [clients, selectedOrganizationForClients],
@@ -2600,12 +2694,12 @@ function AuthenticatedHome() {
          getTransactionTableDraft={getTransactionTableDraft}
          updateTransactionTableDraft={updateTransactionTableDraft}
          txTableHistory={txTableHistory}
-         highlightedTxRows={highlightedTxRows}
-         txRowClickHighlight={txRowClickHighlight}
-         txRowClickActive={txRowClickActive}
-         txSumMode={txSumMode}
-         txSumSelection={txSumSelection}
-         txSumByCurrency={txSumByCurrency}
+         highlightedTxRows={isArchiveSection ? highlightedArchiveRows : highlightedTxRows}
+         txRowClickHighlight={isArchiveSection ? archiveRowClickHighlight : txRowClickHighlight}
+         txRowClickActive={isArchiveSection ? archiveRowClickActive : txRowClickActive}
+         txSumMode={isArchiveSection ? archiveSumMode : txSumMode}
+         txSumSelection={isArchiveSection ? archiveSumSelection : txSumSelection}
+         txSumByCurrency={isArchiveSection ? archiveSumByCurrency : txSumByCurrency}
          transactionsImportInputRef={transactionsImportInputRef}
          onCancelAllTransactions={onCancelAllTransactions}
          onCopyTransactionRow={onCopyTransactionRow}
@@ -2631,10 +2725,10 @@ function AuthenticatedHome() {
          openClientLedger={openClientLedger}
          openTransactionExportModal={openTransactionExportModal}
          openTransactionTableSettingsModal={openTransactionTableSettingsModal}
-         setTxRowClickMode={setTxRowClickMode}
-         toggleTxRowHighlight={toggleTxRowHighlight}
-         toggleTxSumMode={toggleTxSumMode}
-         toggleTxSumEntry={toggleTxSumEntry}
+         setTxRowClickMode={isArchiveSection ? setArchiveRowClickMode : setTxRowClickMode}
+         toggleTxRowHighlight={isArchiveSection ? toggleArchiveRowHighlight : toggleTxRowHighlight}
+         toggleTxSumMode={isArchiveSection ? toggleArchiveSumMode : toggleTxSumMode}
+         toggleTxSumEntry={isArchiveSection ? toggleArchiveSumEntry : toggleTxSumEntry}
         />
        ) : null}
       </div>
@@ -2651,8 +2745,8 @@ function AuthenticatedHome() {
      section={section}
      closeTransactionTableSettingsModal={closeTransactionTableSettingsModal}
      saveTransactionTableSettingsModal={saveTransactionTableSettingsModal}
-     txRowHighlightColor={txRowHighlightColor}
-     updateTxRowHighlightColor={updateTxRowHighlightColor}
+     txRowHighlightColor={isArchiveSection ? archiveRowHighlightColor : txRowHighlightColor}
+     updateTxRowHighlightColor={isArchiveSection ? updateArchiveRowHighlightColor : updateTxRowHighlightColor}
     />
    ) : null}
 

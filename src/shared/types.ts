@@ -199,6 +199,8 @@ export type TransactionForm = {
  // Free-text "paid to / received from" name for whichever side (from/to) has no registered
  // account — see Transaction.counterParty.
  counterParty: string;
+ // Archive-only free-text note — see Transaction.archiveNote. Unused outside section 'archive'.
+ archiveNote: string;
 };
 
 // Form state for a true archive entry (a historical record from before this database — never
