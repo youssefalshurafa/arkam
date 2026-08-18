@@ -7,13 +7,14 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { formatDateValue } from '@/shared/utils/date';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatRateValue } from '@/shared/utils/format';
-import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
-import { seamlessInputClassName, seamlessSelectClassName } from '@/shared/styles';
-import { getCommissionAmount, exchangeToBase, parseChargesPayer, type ChargesPayerParty } from '@/shared/utils/commission';
+import { seamlessSelectClassName } from '@/shared/styles';
+import { getCommissionAmount, exchangeToBase } from '@/shared/utils/commission';
 import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
+import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
+import EditableField from '@/shared/components/EditableField';
 import type { ClientAccount, Currency, Transaction, TransactionUpdateInput } from '@/shared/types';
 
 type TransactionDetailsModalProps = {
@@ -35,73 +36,6 @@ function row(label: string, value: ReactNode, key: string = label) {
    <span className="shrink-0 text-xs font-medium uppercase tracking-wide text-fg-faint">{label}</span>
    <span className="min-w-0 break-words text-right text-sm font-medium text-fg">{value}</span>
   </div>
- );
-}
-
-// A click-to-edit value: plain text until clicked, then an underlined (never boxed) input
-// in place, seamless with the surrounding row. Commits on blur/Enter, discards on Escape or
-// when the input is left unchanged from `editValue`. A real component (not a plain render
-// helper like `row`) because it owns its own edit-mode state.
-function EditableField({
- display,
- editValue,
- align = 'right',
- decimal = false,
- placeholder,
- onCommit,
-}: {
- display: ReactNode;
- editValue: string;
- align?: 'left' | 'right';
- decimal?: boolean;
- placeholder?: string;
- onCommit: (raw: string) => void;
-}) {
- const [editing, setEditing] = useState(false);
- const [draft, setDraft] = useState(editValue);
- const alignCls = align === 'right' ? 'text-right' : 'text-left';
-
- if (!editing) {
-  return (
-   <button
-    type="button"
-    onClick={() => {
-     setDraft(editValue);
-     setEditing(true);
-    }}
-    className={`-mx-1 min-w-0 break-words rounded-sm px-1 text-sm font-medium text-fg outline-none transition hover:bg-surface-hover ${alignCls}`}
-   >
-    {display}
-   </button>
-  );
- }
-
- const commit = () => {
-  setEditing(false);
-  if (draft !== editValue) onCommit(draft);
- };
-
- return (
-  <input
-   autoFocus
-   type="text"
-   inputMode={decimal ? 'decimal' : undefined}
-   dir={decimal ? 'ltr' : undefined}
-   value={draft}
-   placeholder={placeholder}
-   onChange={(e) => setDraft(decimal ? normalizePlainDecimalInput(e.target.value) : normalizeDecimalInput(e.target.value))}
-   onBlur={commit}
-   onKeyDown={(e) => {
-    if (e.key === 'Enter') {
-     e.preventDefault();
-     commit();
-    } else if (e.key === 'Escape') {
-     setDraft(editValue);
-     setEditing(false);
-    }
-   }}
-   className={`${seamlessInputClassName} max-w-full text-sm text-fg ${alignCls}`}
-  />
  );
 }
 
@@ -177,18 +111,17 @@ function EditableAccountField({
  * counterparty's commission is visible even while viewing the other client's ledger.
  * Mounted once at page level, where the full transaction list is in scope.
  *
- * Every value except who pays charges is editable in place via `EditableField`/
- * `EditableAccountField`/the type and currency `<select>`s — click a value, edit, blur/Enter
- * to stage the change (Escape or leaving it unchanged discards). Edits are buffered locally
- * and only written when Save is pressed; Cancel/closing discards them. Which client/account
- * each side belongs to (via `EditableAccountField`) and the transaction's own currency (via the
- * currency `<select>`) both mirror the same cross-currency exchange-rate reset the inline table
- * edit and the new-transaction form use (see `resetSideRate`/the effect in page.tsx): a side
- * that lands on the same currency as the transaction is forced to 1.00; a side that turns
- * cross-currency while still holding the untouched default rate is cleared so the row stays
- * pending until a real rate is entered — otherwise it would silently save as a 1:1 conversion
- * across a currency mismatch. Who pays charges is deliberately left read-only here — changing
- * that needs the full edit form's payer picker, not a seamless one-line edit.
+ * Every value is editable in place via `EditableField`/`EditableAccountField`/the type and
+ * currency `<select>`s (and, for who pays charges, `ChargesPayerSelects`) — click a value,
+ * edit, blur/Enter to stage the change (Escape or leaving it unchanged discards). Edits are
+ * buffered locally and only written when Save is pressed; Cancel/closing discards them. Which
+ * client/account each side belongs to (via `EditableAccountField`) and the transaction's own
+ * currency (via the currency `<select>`) both mirror the same cross-currency exchange-rate
+ * reset the inline table edit and the new-transaction form use (see `resetSideRate`/the effect
+ * in page.tsx): a side that lands on the same currency as the transaction is forced to 1.00; a
+ * side that turns cross-currency while still holding the untouched default rate is cleared so
+ * the row stays pending until a real rate is entered — otherwise it would silently save as a
+ * 1:1 conversion across a currency mismatch.
  */
 export default function TransactionDetailsModal({ transactions, clientAccounts, enabledCurrencies, localizedCurrencies, onUpdateTransactionFields }: TransactionDetailsModalProps) {
  const { language, isRTL } = useLanguage();
@@ -282,15 +215,6 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
   if (account.currencyId === newCurrencyId) return 1;
   return currentRate === 1 && !reversed ? 0 : currentRate;
  };
-
- // The stored chargesPayer encodes a payer→payee pair (each end is the sender, the receiver,
- // or "me"/the org). Resolve each end to a display name so the popup states who paid whom —
- // information a single client's ledger can't convey.
- const partyName = (party: ChargesPayerParty) =>
-  party === 'from' ? tx.clientFromName : party === 'to' ? tx.clientToName : party === 'me' ? t('charges_payer_me') : '';
- const chargesParties = parseChargesPayer(tx.chargesPayer);
- const chargesPayerName = partyName(chargesParties.payer);
- const chargesPayeeName = partyName(chargesParties.payee);
 
  const sideCard = (opts: {
   title: string;
@@ -561,17 +485,21 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
         <span className="text-fg-faint">{tx.chargesCurrencySymbol || tx.chargesCurrencyCode || ''}</span>
        </>,
       )}
-      {chargesPayerName || chargesPayeeName
-       ? row(
-          t('charges_payer_placeholder'),
-          <>
-           {chargesPayerName || <span className="text-fg-faint">—</span>}
-           <span className="mx-1.5 text-fg-faint">{t('charges_payer_to_placeholder')}</span>
-           {chargesPayeeName || <span className="text-fg-faint">—</span>}
-          </>,
-          'charges-payer',
-         )
-       : null}
+      {row(
+       t('charges_payer_placeholder'),
+       <ChargesPayerSelects
+        value={tx.chargesPayer}
+        onChange={(raw) => update({ chargesPayer: raw })}
+        fromLabel={tx.clientFromName || t('transaction_account_from')}
+        toLabel={tx.clientToName || t('transaction_account_to')}
+        meLabel={t('charges_payer_me')}
+        paidByPlaceholder={t('charges_payer_placeholder')}
+        paidToPlaceholder={t('charges_payer_to_placeholder')}
+        className={`${seamlessSelectClassName} text-sm text-fg`}
+        separator={<span className="mx-1 text-fg-faint">→</span>}
+       />,
+       'charges-payer',
+      )}
       {row(
        t('charges_description'),
        <EditableField

@@ -2730,6 +2730,7 @@ function AuthenticatedHome() {
          toggleTxRowHighlight={isArchiveSection ? toggleArchiveRowHighlight : toggleTxRowHighlight}
          toggleTxSumMode={isArchiveSection ? toggleArchiveSumMode : toggleTxSumMode}
          toggleTxSumEntry={isArchiveSection ? toggleArchiveSumEntry : toggleTxSumEntry}
+         onUpdateTransactionFields={onUpdateTransactionFields}
         />
        ) : null}
       </div>

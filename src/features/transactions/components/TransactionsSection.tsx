@@ -19,6 +19,7 @@ import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/dat
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
+import EditableField from '@/shared/components/EditableField';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
 import { useLongPress } from '@/shared/hooks/useLongPress';
@@ -37,6 +38,7 @@ import type {
  Transaction,
  TransactionTableDraft,
  TransactionTableRow,
+ TransactionUpdateInput,
 } from '@/shared/types';
 
 type CurrencyTotal = { code: string; symbol: string; total: number };
@@ -157,6 +159,7 @@ type TransactionsSectionProps = {
  toggleTxSumMode: () => void;
  toggleTxSumEntry: (id: number) => void;
  lockPastEditsEnabled: boolean;
+ onUpdateTransactionFields: (transactionId: number, patch: Partial<TransactionUpdateInput>) => void | Promise<void>;
 };
 
 export default function TransactionsSection(props: TransactionsSectionProps) {
@@ -171,7 +174,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   onArchiveEntrySubmit, onEditArchiveEntryInForm, onCancelArchiveEntryEdit,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
-  setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry, lockPastEditsEnabled,
+  setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry, lockPastEditsEnabled, onUpdateTransactionFields,
  } = props;
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
@@ -2175,10 +2178,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       placeholder={t('archive_more_info_placeholder')}
                       className={`${seamlessInputClassName} w-full text-sm text-fg`}
                      />
-                    ) : txn.archiveNote ? (
-                     <span className="min-w-0 flex-1 truncate" title={txn.archiveNote}>{txn.archiveNote}</span>
                     ) : (
-                     <span className="flex-1 text-fg-faint">-</span>
+                     <div className="min-w-0 flex-1" title={txn.archiveNote || undefined}>
+                      <EditableField
+                       editValue={txn.archiveNote}
+                       display={txn.archiveNote || <span className="text-fg-faint">-</span>}
+                       align={isRTL ? 'right' : 'left'}
+                       placeholder={t('archive_more_info_placeholder')}
+                       className="block w-full truncate"
+                       onCommit={(raw) => void onUpdateTransactionFields(txn.id, { archiveNote: raw })}
+                      />
+                     </div>
                     )}
                     {txn.isArchived ? (
                      <span
