@@ -488,6 +488,13 @@ async function getTreasuryLedgerData(app) {
             t.charges_payer AS "chargesPayer",
             t.charges_exchange_rate AS "chargesExchangeRate",
             t.charges_description AS "chargesDescription",
+            t.charges2,
+            t.charges2_currency_id AS "charges2CurrencyId",
+            chcur2.code AS "charges2CurrencyCode",
+            chcur2.symbol AS "charges2CurrencySymbol",
+            t.charges2_payer AS "chargesPayer2",
+            t.charges2_exchange_rate AS "charges2ExchangeRate",
+            t.charges2_description AS "charges2Description",
             t.description,
             COALESCE(t.description_from, '') AS "descriptionFrom",
             COALESCE(t.description_to, '') AS "descriptionTo",
@@ -509,6 +516,7 @@ async function getTreasuryLedgerData(app) {
         LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
         JOIN ${schema}.currencies cur ON cur.id = t.currency_id
         LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
+        LEFT JOIN ${schema}.currencies chcur2 ON chcur2.id = t.charges2_currency_id
         LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
         WHERE c_from.system_kind = 'treasury' OR c_to.system_kind = 'treasury'
         ORDER BY t.created_at ASC
@@ -883,6 +891,13 @@ async function listTransactions(app) {
                 t.charges_payer AS "chargesPayer",
                 t.charges_exchange_rate AS "chargesExchangeRate",
                 t.charges_description AS "chargesDescription",
+                t.charges2,
+                t.charges2_currency_id AS "charges2CurrencyId",
+                chcur2.code AS "charges2CurrencyCode",
+                chcur2.symbol AS "charges2CurrencySymbol",
+                t.charges2_payer AS "chargesPayer2",
+                t.charges2_exchange_rate AS "charges2ExchangeRate",
+                t.charges2_description AS "charges2Description",
                 t.description,
                 COALESCE(t.description_from, '') AS "descriptionFrom",
                 COALESCE(t.description_to, '') AS "descriptionTo",
@@ -904,6 +919,7 @@ async function listTransactions(app) {
             LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
             JOIN ${schema}.currencies cur ON cur.id = t.currency_id
             LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
+            LEFT JOIN ${schema}.currencies chcur2 ON chcur2.id = t.charges2_currency_id
             LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
             ${memberFilter}
             ORDER BY t.created_at DESC
@@ -1036,9 +1052,14 @@ async function createTransaction(app, txn) {
                     archive_note,
                     counter_party,
                     distribution_location_id,
-                    created_at
+                    created_at,
+                    charges2,
+                    charges2_currency_id,
+                    charges2_payer,
+                    charges2_exchange_rate,
+                    charges2_description
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
                 RETURNING id
             `,
             [
@@ -1067,6 +1088,11 @@ async function createTransaction(app, txn) {
                 txn.counterParty?.trim() || '',
                 txn.distributionLocationId || null,
                 txn.createdAt.trim(),
+                txn.charges2 || 0,
+                txn.charges2CurrencyId || null,
+                txn.chargesPayer2 || '',
+                txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
+                txn.charges2Description?.trim() || '',
             ],
         );
         return { id: result.rows[0].id };
@@ -1098,9 +1124,14 @@ async function createTransaction(app, txn) {
                 is_archived,
                 archive_note,
                 counter_party,
-                distribution_location_id
+                distribution_location_id,
+                charges2,
+                charges2_currency_id,
+                charges2_payer,
+                charges2_exchange_rate,
+                charges2_description
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
             RETURNING id
         `,
         [
@@ -1128,6 +1159,11 @@ async function createTransaction(app, txn) {
             txn.archiveNote?.trim() || '',
             txn.counterParty?.trim() || '',
             txn.distributionLocationId || null,
+            txn.charges2 || 0,
+            txn.charges2CurrencyId || null,
+            txn.chargesPayer2 || '',
+            txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
+            txn.charges2Description?.trim() || '',
         ],
     );
     return { id: result.rows[0].id };
@@ -1198,7 +1234,12 @@ async function updateTransaction(app, txn) {
                 distribution_location_id = $24,
                 -- Only the one-sided-transaction path sends counterParty; other paths leave it
                 -- untouched via COALESCE (same precedent as archiveNote above).
-                counter_party = COALESCE($25, counter_party)
+                counter_party = COALESCE($25, counter_party),
+                charges2 = $26,
+                charges2_currency_id = $27,
+                charges2_payer = $28,
+                charges2_exchange_rate = $29,
+                charges2_description = $30
             WHERE id = $20
         `,
         [
@@ -1228,6 +1269,11 @@ async function updateTransaction(app, txn) {
             txn.exchangeActualAmount === undefined ? null : txn.exchangeActualAmount,
             txn.distributionLocationId || null,
             txn.counterParty === undefined || txn.counterParty === null ? null : String(txn.counterParty).trim(),
+            txn.charges2 || 0,
+            txn.charges2CurrencyId || null,
+            txn.chargesPayer2 || '',
+            txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
+            txn.charges2Description?.trim() || '',
         ],
     );
 }
@@ -1610,6 +1656,11 @@ function txColValue(col, row, now) {
         case 'charges_payer': return row.chargesPayer || '';
         case 'charges_exchange_rate': return row.chargesExchangeRate ?? 1;
         case 'charges_description': return row.chargesDescription || '';
+        case 'charges2': return row.charges2 ?? 0;
+        case 'charges2_currency_id': return row.charges2CurrencyId ?? null;
+        case 'charges2_payer': return row.chargesPayer2 || '';
+        case 'charges2_exchange_rate': return row.charges2ExchangeRate ?? 1;
+        case 'charges2_description': return row.charges2Description || '';
         case 'description': return row.description?.trim() || '';
         case 'exchange_actual_amount': return row.exchangeActualAmount != null ? row.exchangeActualAmount : null;
         case 'archive_note': return row.archiveNote?.trim() || '';
@@ -1633,6 +1684,7 @@ async function bulkImportTransactions(app, { transactions = [] } = {}) {
             'exchange_rate_from_reversed', 'exchange_rate_to_reversed',
             'charges', 'charges_currency_id', 'charges_payer', 'charges_exchange_rate',
             'charges_description', 'description', 'exchange_actual_amount', 'archive_note', 'is_archived', 'counter_party', 'created_at',
+            'charges2', 'charges2_currency_id', 'charges2_payer', 'charges2_exchange_rate', 'charges2_description',
         ];
         const quotedCols = cols.map((c) => `"${c}"`).join(', ');
         const maxBatch = Math.max(1, Math.floor(60000 / cols.length));

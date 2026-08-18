@@ -476,6 +476,15 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- distribution-commission calculator.
                 ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS distribution_location_id INTEGER REFERENCES ${schema}.distribution_locations(id) ON DELETE SET NULL;
 
+                -- A second, fully independent charge/expense slot on the same transaction, so a
+                -- transaction can carry two separate org-settled charges at once (e.g. one affecting
+                -- the "from" side, another affecting the "to" side) — mirrors the charges* columns above.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS charges2 DOUBLE PRECISION NOT NULL DEFAULT 0;
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS charges2_currency_id INTEGER REFERENCES ${schema}.currencies(id) ON DELETE SET NULL;
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS charges2_payer TEXT NOT NULL DEFAULT '';
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS charges2_exchange_rate DOUBLE PRECISION NOT NULL DEFAULT 1;
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS charges2_description TEXT NOT NULL DEFAULT '';
+
                 -- Single-row store for workspace-wide UI settings shared across members.
                 -- "settings" holds a snapshot of the shared ledger/transaction table
                 -- preferences (a map of localStorage keys to values); "version" bumps on

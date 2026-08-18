@@ -38,9 +38,10 @@ export function computeAccountBalances({ clientAccounts, transactions }: {
     // side's account currency via the same rate that converts `amount` (see ledgerBalances.ts's
     // computeTransactionSideNetChange for the canonical version of this formula).
     const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (transaction.charges * transaction.exchangeRateFrom) : 0;
+    const chargeEffect2 = transaction.charges2 > 0 ? chargeLedgerEffect(transaction.chargesPayer2, 'from') * (transaction.charges2 * transaction.exchangeRateFrom) : 0;
     const netChange = pending
      ? 0
-     : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) + chargeEffect;
+     : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) + chargeEffect + chargeEffect2;
     balanceByAccount.set(transaction.accountFromId, (balanceByAccount.get(transaction.accountFromId) ?? 0) + netChange);
    }
   }
@@ -49,10 +50,11 @@ export function computeAccountBalances({ clientAccounts, transactions }: {
    if (account) {
     const pending = isPendingTransactionTo(transaction, account.currencyId);
     const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * transaction.exchangeRateTo) : 0;
+    const chargeEffect2 = transaction.charges2 > 0 ? chargeLedgerEffect(transaction.chargesPayer2, 'to') * (transaction.charges2 * transaction.exchangeRateTo) : 0;
     const toBase = exchangeToBase(transaction);
     const netChange = pending
      ? 0
-     : -(toBase - getCommissionAmount(toBase, transaction.commissionTo)) + chargeEffect;
+     : -(toBase - getCommissionAmount(toBase, transaction.commissionTo)) + chargeEffect + chargeEffect2;
     balanceByAccount.set(transaction.accountToId, (balanceByAccount.get(transaction.accountToId) ?? 0) + netChange);
    }
   }

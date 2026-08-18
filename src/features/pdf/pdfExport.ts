@@ -60,11 +60,20 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
     header: t('charges'),
     isNum: true,
     cell: (tx) => {
-     if (!tx.charges) return '-';
-     const parts = [`${tx.charges.toLocaleString(numLocale)}${tx.chargesCurrencyCode ? ` ${tx.chargesCurrencyCode}` : ''}`];
-     if (tx.chargesPayer) parts.push(tx.chargesPayer === 'from' ? tx.clientFromName : tx.chargesPayer === 'to' ? tx.clientToName : '');
-     if (tx.chargesDescription) parts.push(tx.chargesDescription);
-     return esc(parts.filter(Boolean).join(' — '));
+     const chargeCells: string[] = [];
+     if (tx.charges) {
+      const parts = [`${tx.charges.toLocaleString(numLocale)}${tx.chargesCurrencyCode ? ` ${tx.chargesCurrencyCode}` : ''}`];
+      if (tx.chargesPayer) parts.push(tx.chargesPayer === 'from' ? tx.clientFromName : tx.chargesPayer === 'to' ? tx.clientToName : '');
+      if (tx.chargesDescription) parts.push(tx.chargesDescription);
+      chargeCells.push(parts.filter(Boolean).join(' — '));
+     }
+     if (tx.charges2) {
+      const parts = [`${tx.charges2.toLocaleString(numLocale)}${tx.charges2CurrencyCode ? ` ${tx.charges2CurrencyCode}` : ''}`];
+      if (tx.chargesPayer2) parts.push(tx.chargesPayer2 === 'from' ? tx.clientFromName : tx.chargesPayer2 === 'to' ? tx.clientToName : '');
+      if (tx.charges2Description) parts.push(tx.charges2Description);
+      chargeCells.push(parts.filter(Boolean).join(' — '));
+     }
+     return chargeCells.length > 0 ? esc(chargeCells.join(' / ')) : '-';
     },
    },
    {
@@ -327,18 +336,23 @@ export function generateLedgerHtml(
     isNum: true,
     cell: (e) => {
      const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
-     if (e.charges <= 0 || !e.chargeAffectsThisAccount) return base;
      // Color reflects whether the charge is in this account's favor (isChargesPayerThisAccount:
      // they bear it = red, they don't = green). The +/- sign is a different question — whether
      // the charge was added on top of or subtracted from the stated amount to reach the net
      // figure — which is negated on the incoming ('to') side relative to the outgoing ('from')
      // side because of how chargeLedgerEffect folds into the two sides' net-change formulas.
-     const cls = e.isChargesPayerThisAccount ? 'neg' : 'pos';
-     const chargeAddsToAmount = e.direction === 'outgoing' ? !e.isChargesPayerThisAccount : e.isChargesPayerThisAccount;
-     const sign = chargeAddsToAmount ? '+' : '−';
-     const val = e.charges.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
-     const desc = e.chargesDescription ? `<span class="charges-desc">${esc(e.chargesDescription)}</span>` : '';
-     return `${base}<div class="charges-line"><span class="${cls}">${sign}${val}</span>${desc}</div>`;
+     const chargeLine = (amount: number, isChargesPayerThisAccount: boolean, description: string) => {
+      const cls = isChargesPayerThisAccount ? 'neg' : 'pos';
+      const chargeAddsToAmount = e.direction === 'outgoing' ? !isChargesPayerThisAccount : isChargesPayerThisAccount;
+      const sign = chargeAddsToAmount ? '+' : '−';
+      const val = amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
+      const desc = description ? `<span class="charges-desc">${esc(description)}</span>` : '';
+      return `<div class="charges-line"><span class="${cls}">${sign}${val}</span>${desc}</div>`;
+     };
+     let result = base;
+     if (e.charges > 0 && e.chargeAffectsThisAccount) result += chargeLine(e.charges, e.isChargesPayerThisAccount, e.chargesDescription);
+     if (e.charges2 > 0 && e.chargeAffectsThisAccount2) result += chargeLine(e.charges2, e.isChargesPayerThisAccount2, e.charges2Description);
+     return result;
     },
    },
    {

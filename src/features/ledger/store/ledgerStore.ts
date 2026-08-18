@@ -36,6 +36,12 @@ export type OneSidedTransactionModalState = {
  chargesPayer: string;
  chargesExchangeRate: string;
  chargesDescription: string;
+ // A second, fully independent charge slot — see Transaction.charges2.
+ charges2: string;
+ charges2CurrencyId: number | null;
+ chargesPayer2: string;
+ charges2ExchangeRate: string;
+ charges2Description: string;
  description: string;
  // Free-text name for the unset side (not a registered client) — e.g. "cash payment to
  // landlord". Keeps this row out of the Archive's missing-party list; see counterParty on

@@ -10,7 +10,7 @@ import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
-import type { Client, ClientAccount, ClientAccountLedger, Currency, Transaction } from '@/shared/types';
+import type { Client, ClientAccount, ClientAccountLedger, Currency, Transaction, TransactionTableRow } from '@/shared/types';
 
 type OneSidedTransactionModalProps = {
  selectedClientLedgers: ClientAccountLedger[];
@@ -22,6 +22,10 @@ type OneSidedTransactionModalProps = {
  enabledCurrencies: Currency[];
  onSubmitOneSidedTransaction: () => void;
  lockPastEditsEnabled: boolean;
+ // A row copied on the Transactions page (see onCopyTransactionRow), pastable into this modal
+ // via onPasteIntoOneSidedTransaction — mirrors the Transactions page's own copy/paste.
+ copiedTransaction: TransactionTableRow | null;
+ onPasteIntoOneSidedTransaction: () => void;
 };
 
 // A transaction with only one real party — the client whose ledger this was opened from. The
@@ -40,6 +44,8 @@ export default function OneSidedTransactionModal({
  enabledCurrencies,
  onSubmitOneSidedTransaction,
  lockPastEditsEnabled,
+ copiedTransaction,
+ onPasteIntoOneSidedTransaction,
 }: OneSidedTransactionModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
@@ -48,6 +54,7 @@ export default function OneSidedTransactionModal({
  const ledgerDecimals = useLedgerStore((s) => s.ledgerDecimals);
  const setModal = useLedgerStore((s) => s.setOneSidedTransactionModal);
  const [expensesOpen, setExpensesOpen] = useState(false);
+ const [expenses2Open, setExpenses2Open] = useState(false);
  const { suggestions: descriptionSuggestions, excludeSuggestion: excludeDescriptionSuggestion } = useDescriptionSuggestions({
   transactions,
   query: modal?.description ?? '',
@@ -82,7 +89,39 @@ export default function OneSidedTransactionModal({
            void onSubmitOneSidedTransaction();
           }}
          >
-          <h3 className="text-lg font-semibold text-fg">{t('one_sided_transaction_add')}</h3>
+          <div className="flex items-start justify-between gap-2">
+           <h3 className="text-lg font-semibold text-fg">{t('one_sided_transaction_add')}</h3>
+           {copiedTransaction ? (
+            <button
+             type="button"
+             onClick={onPasteIntoOneSidedTransaction}
+             title={t('paste_transaction')}
+             aria-label={t('paste_transaction')}
+             className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-accent-weak px-2.5 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent-weak"
+            >
+             <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+             >
+              <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+              <rect
+               x="9"
+               y="3"
+               width="6"
+               height="4"
+               rx="1"
+              />
+             </svg>
+            </button>
+           ) : null}
+          </div>
           {ledger ? (
            <p className="mt-1 text-sm text-fg-faint">
             {clientName} &mdash; {ledger.currencyName}
@@ -248,6 +287,32 @@ export default function OneSidedTransactionModal({
                onChargesPayerChange={(value) => setModal((prev) => (prev ? { ...prev, chargesPayer: value } : prev))}
                chargesDescription={modal.chargesDescription}
                onChargesDescriptionChange={(value) => setModal((prev) => (prev ? { ...prev, chargesDescription: value } : prev))}
+               fromLabel={isClientFrom ? clientName || t('transaction_account_from') : modal.counterParty.trim() || t('charges_payer_me')}
+               toLabel={isClientFrom ? modal.counterParty.trim() || t('charges_payer_me') : clientName || t('transaction_account_to')}
+               meLabel={t('charges_payer_me')}
+              />
+             </div>
+            ) : null}
+           </div>
+
+           <div>
+            <button
+             type="button"
+             onClick={() => setExpenses2Open((prev) => !prev)}
+             className="text-sm font-medium text-accent hover:underline"
+            >
+             {expenses2Open ? '▾' : '▸'} {t('extra_expenses')}
+            </button>
+            {expenses2Open ? (
+             <div className="mt-2 rounded border border-border bg-surface-2 p-3">
+              <ChargesEditFields
+               t={t}
+               charges={modal.charges2}
+               onChargesChange={(value) => setModal((prev) => (prev ? { ...prev, charges2: value } : prev))}
+               chargesPayer={modal.chargesPayer2}
+               onChargesPayerChange={(value) => setModal((prev) => (prev ? { ...prev, chargesPayer2: value } : prev))}
+               chargesDescription={modal.charges2Description}
+               onChargesDescriptionChange={(value) => setModal((prev) => (prev ? { ...prev, charges2Description: value } : prev))}
                fromLabel={isClientFrom ? clientName || t('transaction_account_from') : modal.counterParty.trim() || t('charges_payer_me')}
                toLabel={isClientFrom ? modal.counterParty.trim() || t('charges_payer_me') : clientName || t('transaction_account_to')}
                meLabel={t('charges_payer_me')}

@@ -203,7 +203,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // to that entry's client ledger, where the actual badge (and its "ignore" action) lives.
  const anomalyReviewMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveFilterShowHidden, setArchiveFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, isSubmittingTransaction, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveFilterShowHidden, setArchiveFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, expensesExpandedTxns2, setExpensesExpandedTxns2, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, isSubmittingTransaction, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -2040,65 +2040,96 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                   ) : null}
                   {transactionTableSettings.columns.charges ? (
                    <td className="px-4 py-3 text-fg-muted">
-                    {isEditingRow && draft ? (
-                     (() => {
-                      const isZero = parseFloat(draft.charges) === 0;
-                      const expanded = expensesExpandedTxns.has(txn.id);
-                      if (isZero && !expanded) {
+                    {(() => {
+                     // A transaction can carry two fully independent charges at once (e.g. one
+                     // org-settled charge per side) — this renders one of the two slots.
+                     const renderChargeCell = (slot: 1 | 2) => {
+                      const isSlot2 = slot === 2;
+                      const draftAmount = (isSlot2 ? draft?.charges2 : draft?.charges) ?? '0';
+                      const draftPayer = (isSlot2 ? draft?.chargesPayer2 : draft?.chargesPayer) ?? '';
+                      const draftDescription = (isSlot2 ? draft?.charges2Description : draft?.chargesDescription) ?? '';
+                      const txnAmount = isSlot2 ? txn.charges2 : txn.charges;
+                      const txnPayer = isSlot2 ? txn.chargesPayer2 : txn.chargesPayer;
+                      const txnCurrencyCode = isSlot2 ? txn.charges2CurrencyCode : txn.chargesCurrencyCode;
+                      const txnExchangeRate = isSlot2 ? txn.charges2ExchangeRate : txn.chargesExchangeRate;
+                      const txnDescription = isSlot2 ? txn.charges2Description : txn.chargesDescription;
+
+                      if (isEditingRow && draft) {
+                       const isZero = parseFloat(draftAmount) === 0;
+                       const expanded = expensesExpandedTxns.has(txn.id) || (isSlot2 && expensesExpandedTxns2.has(txn.id));
+                       if (isZero && !expanded) {
+                        // The second slot's own "add" prompt only appears once the first slot is
+                        // active (expanded or already has an amount).
+                        if (isSlot2) {
+                         const slot1Active = parseFloat(draft.charges) !== 0 || expensesExpandedTxns.has(txn.id);
+                         if (!slot1Active) return null;
+                        }
+                        return (
+                         <button
+                          type="button"
+                          onClick={() => (isSlot2 ? setExpensesExpandedTxns2 : setExpensesExpandedTxns)((prev) => new Set([...prev, txn.id]))}
+                          className="text-sm text-accent hover:underline"
+                         >
+                          + {t('add_expenses')}
+                         </button>
+                        );
+                       }
                        return (
-                        <button
-                         type="button"
-                         onClick={() => setExpensesExpandedTxns((prev) => new Set([...prev, txn.id]))}
-                         className="text-sm text-accent hover:underline"
-                        >
-                         + {t('add_expenses')}
-                        </button>
+                        <ChargesEditFields
+                         t={t}
+                         charges={draftAmount}
+                         onChargesChange={(value) => updateTransactionTableDraft(txn.id, isSlot2 ? { charges2: value } : { charges: value })}
+                         chargesPayer={draftPayer}
+                         onChargesPayerChange={(chargesPayer) => updateTransactionTableDraft(txn.id, isSlot2 ? { chargesPayer2: chargesPayer } : { chargesPayer })}
+                         chargesDescription={draftDescription}
+                         onChargesDescriptionChange={(value) => updateTransactionTableDraft(txn.id, isSlot2 ? { charges2Description: value } : { chargesDescription: value })}
+                         fromLabel={txn.clientFromName}
+                         toLabel={txn.clientToName}
+                         meLabel={t('charges_payer_me')}
+                        />
                        );
                       }
+
+                      if (!txnAmount) {
+                       // Only the first slot shows the "no charges" dash placeholder.
+                       return isSlot2 ? null : <span className="text-fg-faint">-</span>;
+                      }
                       return (
-                       <ChargesEditFields
-                        t={t}
-                        charges={draft.charges}
-                        onChargesChange={(value) => updateTransactionTableDraft(txn.id, { charges: value })}
-                        chargesPayer={draft.chargesPayer}
-                        onChargesPayerChange={(chargesPayer) => updateTransactionTableDraft(txn.id, { chargesPayer })}
-                        chargesDescription={draft.chargesDescription}
-                        onChargesDescriptionChange={(value) => updateTransactionTableDraft(txn.id, { chargesDescription: value })}
-                        fromLabel={txn.clientFromName}
-                        toLabel={txn.clientToName}
-                        meLabel={t('charges_payer_me')}
-                       />
-                      );
-                     })()
-                    ) : txn.charges ? (
-                     <div>
-                      <span className="whitespace-nowrap">
-                       <span>{txn.charges.toLocaleString(numLocale)}</span>
-                       {txn.chargesCurrencyCode && <span className="text-fg-faint"> {txn.chargesCurrencyCode}</span>}
-                      </span>
-                      {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-fg-faint">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
-                      {txn.chargesPayer && (
-                       <div className="text-xs text-fg-faint">
-                        {txn.chargesPayer === 'from'
-                         ? txn.clientFromName
-                         : txn.chargesPayer === 'to'
-                           ? txn.clientToName
-                           : txn.chargesPayer === 'me_to_from'
-                             ? t('charges_payer_me_to_name', { name: txn.clientFromName })
-                             : txn.chargesPayer === 'me_to_to'
-                               ? t('charges_payer_me_to_name', { name: txn.clientToName })
-                               : txn.chargesPayer === 'from_to_me'
-                                 ? t('charges_payer_name_to_me', { name: txn.clientFromName })
-                                 : txn.chargesPayer === 'to_to_me'
-                                   ? t('charges_payer_name_to_me', { name: txn.clientToName })
-                                   : ''}
+                       <div>
+                        <span className="whitespace-nowrap">
+                         <span>{txnAmount.toLocaleString(numLocale)}</span>
+                         {txnCurrencyCode && <span className="text-fg-faint"> {txnCurrencyCode}</span>}
+                        </span>
+                        {txnExchangeRate !== 1 && txnCurrencyCode && <div className="text-xs text-fg-faint">@ {txnExchangeRate.toFixed(4)}</div>}
+                        {txnPayer && (
+                         <div className="text-xs text-fg-faint">
+                          {txnPayer === 'from'
+                           ? txn.clientFromName
+                           : txnPayer === 'to'
+                             ? txn.clientToName
+                             : txnPayer === 'me_to_from'
+                               ? t('charges_payer_me_to_name', { name: txn.clientFromName })
+                               : txnPayer === 'me_to_to'
+                                 ? t('charges_payer_me_to_name', { name: txn.clientToName })
+                                 : txnPayer === 'from_to_me'
+                                   ? t('charges_payer_name_to_me', { name: txn.clientFromName })
+                                   : txnPayer === 'to_to_me'
+                                     ? t('charges_payer_name_to_me', { name: txn.clientToName })
+                                     : ''}
+                         </div>
+                        )}
+                        {txnDescription && <div className="text-xs italic text-fg-faint">{txnDescription}</div>}
                        </div>
-                      )}
-                      {txn.chargesDescription && <div className="text-xs italic text-fg-faint">{txn.chargesDescription}</div>}
-                     </div>
-                    ) : (
-                     <span className="text-fg-faint">-</span>
-                    )}
+                      );
+                     };
+
+                     return (
+                      <div className="flex flex-col gap-2">
+                       {renderChargeCell(1)}
+                       {renderChargeCell(2)}
+                      </div>
+                     );
+                    })()}
                    </td>
                   ) : null}
                   {transactionTableSettings.columns.commission ? (

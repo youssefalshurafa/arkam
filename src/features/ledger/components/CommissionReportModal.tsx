@@ -299,6 +299,11 @@ export default function CommissionReportModal({ ledgers, clientAccounts, onUpdat
    chargesPayer: '',
    chargesExchangeRate: '1',
    chargesDescription: '',
+   charges2: '0',
+   charges2CurrencyId: null,
+   chargesPayer2: '',
+   charges2ExchangeRate: '1',
+   charges2Description: '',
    description: `${t('commission_report_description_prefix')}: ${descriptionBody}`,
    counterParty: '',
   });

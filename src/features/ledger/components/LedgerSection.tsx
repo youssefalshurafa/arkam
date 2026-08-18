@@ -3196,110 +3196,140 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       })()}
                      </tr>
                      {(() => {
-                      const chargesRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
-                      const isEditingThisRow = editingLedgerRowKeys.has(chargesRowKey);
+                      const baseChargesRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                      const isEditingThisRow = editingLedgerRowKeys.has(baseChargesRowKey);
                       const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
                       const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 2 : 1);
-                      // An org-settled charge only affects the one named client, so it is editable
-                      // from that client's ledger but not the other side's. Everything else is
-                      // editable here — including a charge still being added (charges <= 0) with no
-                      // payer picked yet. Gate on the saved effect, not the live draft, so the section
-                      // doesn't vanish mid-edit while the user is changing the dropdown.
-                      const chargesBelongHere = entry.charges <= 0 || entry.chargeAffectsThisAccount;
+                      const chargesHighlightColor = highlightedLedgerRows.get(baseChargesRowKey);
 
-                      if (isEditingThisRow && chargesDraft && chargesBelongHere) {
-                       const isZero = parseFloat(chargesDraft.charges) === 0;
-                       const expanded = ledgerExpensesExpandedKeys.has(chargesRowKey);
-                       if (isZero && !expanded) {
+                      // A transaction can carry two fully independent charges (e.g. one org-settled
+                      // charge per side) — this renders one of the two slots. Both slots share the
+                      // same visibility/editing mechanics, parameterized by which set of fields they read.
+                      const renderChargeSlot = (slot: 1 | 2) => {
+                       const isSlot2 = slot === 2;
+                       const chargesRowKey = isSlot2 ? `${baseChargesRowKey}:2` : baseChargesRowKey;
+                       const draftAmount = (isSlot2 ? chargesDraft?.charges2 : chargesDraft?.charges) ?? '0';
+                       const draftPayer = (isSlot2 ? chargesDraft?.chargesPayer2 : chargesDraft?.chargesPayer) ?? '';
+                       const draftDescription = (isSlot2 ? chargesDraft?.charges2Description : chargesDraft?.chargesDescription) ?? '';
+                       const entryAmount = isSlot2 ? entry.charges2 : entry.charges;
+                       const entryAffectsThisAccount = isSlot2 ? entry.chargeAffectsThisAccount2 : entry.chargeAffectsThisAccount;
+                       const entryIsPayerThisAccount = isSlot2 ? entry.isChargesPayerThisAccount2 : entry.isChargesPayerThisAccount;
+                       const entryCurrencyCode = isSlot2 ? entry.charges2CurrencyCode : entry.chargesCurrencyCode;
+                       const entryDescription = isSlot2 ? entry.charges2Description : entry.chargesDescription;
+                       // An org-settled charge only affects the one named client, so it is editable
+                       // from that client's ledger but not the other side's. Everything else is
+                       // editable here — including a charge still being added (charges <= 0) with no
+                       // payer picked yet. Gate on the saved effect, not the live draft, so the section
+                       // doesn't vanish mid-edit while the user is changing the dropdown.
+                       const chargesBelongHere = entryAmount <= 0 || entryAffectsThisAccount;
+
+                       if (isEditingThisRow && chargesDraft && chargesBelongHere) {
+                        const isZero = parseFloat(draftAmount) === 0;
+                        const expanded = ledgerExpensesExpandedKeys.has(chargesRowKey);
+                        if (isZero && !expanded) {
+                         // The second slot's own "add" prompt only appears once the first slot is
+                         // active (expanded or already has an amount) — keeps the common single-charge
+                         // row from showing two "add expenses" prompts at once.
+                         if (isSlot2) {
+                          const slot1Active = parseFloat(chargesDraft.charges || '0') !== 0 || ledgerExpensesExpandedKeys.has(baseChargesRowKey);
+                          if (!slot1Active) return null;
+                         }
+                         return (
+                          <tr
+                           key={`${ledger.accountId}-${entry.transactionId}-charges-edit-slot${slot}`}
+                           className="border-t border-dashed border-border bg-surface-2"
+                          >
+                           <td
+                            colSpan={colSpanCount}
+                            className="px-4 py-2"
+                           >
+                            <button
+                             type="button"
+                             onClick={() => setLedgerExpensesExpandedKeys((prev) => new Set([...prev, chargesRowKey]))}
+                             className="text-sm text-accent hover:underline"
+                            >
+                             + {t('add_expenses')}
+                            </button>
+                           </td>
+                          </tr>
+                         );
+                        }
+                        const ledgerAccountName = clientAccounts.find((a) => a.id === ledger.accountId)?.clientName ?? ledger.currencyCode;
+                        // The payer values 'from'/'to' refer to the transaction's accountFrom/accountTo,
+                        // which side this ledger account sits on depends on the entry direction: on an
+                        // outgoing entry this account is the "from" side, on an incoming entry the "to" side.
+                        const fromSideName = entry.direction === 'outgoing' ? ledgerAccountName : entry.counterpartyName;
+                        const toSideName = entry.direction === 'outgoing' ? entry.counterpartyName : ledgerAccountName;
                         return (
                          <tr
-                          key={`${ledger.accountId}-${entry.transactionId}-charges-edit`}
-                          className="border-t border-dashed border-border bg-surface-2"
+                          key={`${ledger.accountId}-${entry.transactionId}-charges-edit-slot${slot}`}
+                          className="border-t border-dashed border-border bg-warn-bg"
                          >
                           <td
                            colSpan={colSpanCount}
                            className="px-4 py-2"
                           >
-                           <button
-                            type="button"
-                            onClick={() => setLedgerExpensesExpandedKeys((prev) => new Set([...prev, chargesRowKey]))}
-                            className="text-sm text-accent hover:underline"
-                           >
-                            + {t('add_expenses')}
-                           </button>
+                           <div className="flex flex-wrap items-start gap-3">
+                            <span className="mt-6 text-xs font-medium text-warn-text">{t('charges')}</span>
+                            <ChargesEditFields
+                             t={t}
+                             charges={draftAmount}
+                             onChargesChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, isSlot2 ? { charges2: value } : { charges: value })}
+                             chargesPayer={draftPayer}
+                             onChargesPayerChange={(chargesPayer) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, isSlot2 ? { chargesPayer2: chargesPayer } : { chargesPayer })}
+                             chargesDescription={draftDescription}
+                             onChargesDescriptionChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, isSlot2 ? { charges2Description: value } : { chargesDescription: value })}
+                             fromLabel={fromSideName}
+                             toLabel={toSideName}
+                             meLabel={t('charges_payer_me')}
+                            />
+                           </div>
                           </td>
                          </tr>
                         );
                        }
-                       const ledgerAccountName = clientAccounts.find((a) => a.id === ledger.accountId)?.clientName ?? ledger.currencyCode;
-                       // The payer values 'from'/'to' refer to the transaction's accountFrom/accountTo,
-                       // which side this ledger account sits on depends on the entry direction: on an
-                       // outgoing entry this account is the "from" side, on an incoming entry the "to" side.
-                       const fromSideName = entry.direction === 'outgoing' ? ledgerAccountName : entry.counterpartyName;
-                       const toSideName = entry.direction === 'outgoing' ? entry.counterpartyName : ledgerAccountName;
-                       return (
-                        <tr
-                         key={`${ledger.accountId}-${entry.transactionId}-charges-edit`}
-                         className="border-t border-dashed border-border bg-warn-bg"
-                        >
-                         <td
-                          colSpan={colSpanCount}
-                          className="px-4 py-2"
-                         >
-                          <div className="flex flex-wrap items-start gap-3">
-                           <span className="mt-6 text-xs font-medium text-warn-text">{t('charges')}</span>
-                           <ChargesEditFields
-                            t={t}
-                            charges={chargesDraft.charges}
-                            onChargesChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { charges: value })}
-                            chargesPayer={chargesDraft.chargesPayer}
-                            onChargesPayerChange={(chargesPayer) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesPayer })}
-                            chargesDescription={chargesDraft.chargesDescription}
-                            onChargesDescriptionChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { chargesDescription: value })}
-                            fromLabel={fromSideName}
-                            toLabel={toSideName}
-                            meLabel={t('charges_payer_me')}
-                           />
-                          </div>
-                         </td>
-                        </tr>
-                       );
-                      }
 
-                      if (!isEditingThisRow && entry.charges > 0 && entry.chargeAffectsThisAccount) {
-                       const chargesHighlightColor = highlightedLedgerRows.get(chargesRowKey);
-                       // Color reflects whether the charge is in this account's favor
-                       // (isChargesPayerThisAccount: they bear it = red, they don't = green). The
-                       // +/- sign is a different question — whether the charge was added on top of
-                       // or subtracted from the stated amount to reach the net figure — which is
-                       // negated on the incoming ('to') side relative to the outgoing ('from') side
-                       // because of how chargeLedgerEffect folds into the two sides' net-change
-                       // formulas.
-                       const chargeAddsToAmount = entry.direction === 'outgoing' ? !entry.isChargesPayerThisAccount : entry.isChargesPayerThisAccount;
-                       return (
-                        <tr
-                         key={`${ledger.accountId}-${entry.transactionId}-charges-view`}
-                         className={`${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''}`}
-                         style={chargesHighlightColor ? { backgroundColor: resolveHighlightBg(chargesHighlightColor, isDark) } : undefined}
-                        >
-                         <td
-                          colSpan={colSpanCount}
-                          className="px-4 pb-1.5 pt-0 pl-10 align-top"
+                       if (!isEditingThisRow && entryAmount > 0 && entryAffectsThisAccount) {
+                        // Color reflects whether the charge is in this account's favor
+                        // (isChargesPayerThisAccount: they bear it = red, they don't = green). The
+                        // +/- sign is a different question — whether the charge was added on top of
+                        // or subtracted from the stated amount to reach the net figure — which is
+                        // negated on the incoming ('to') side relative to the outgoing ('from') side
+                        // because of how chargeLedgerEffect folds into the two sides' net-change
+                        // formulas.
+                        const chargeAddsToAmount = entry.direction === 'outgoing' ? !entryIsPayerThisAccount : entryIsPayerThisAccount;
+                        return (
+                         <tr
+                          key={`${ledger.accountId}-${entry.transactionId}-charges-view-slot${slot}`}
+                          className={`${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''}`}
+                          style={chargesHighlightColor ? { backgroundColor: resolveHighlightBg(chargesHighlightColor, isDark) } : undefined}
                          >
-                          <div className={`flex items-center gap-1.5 text-xs font-semibold leading-none ${entry.isChargesPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
-                           <span>
-                            {chargeAddsToAmount ? '+' : '−'}
-                            {entry.charges.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
-                            {renderLedgerCurrencySuffix('', entry.chargesCurrencyCode ?? '')}
-                           </span>
-                           {entry.chargesDescription && <span className="font-normal italic text-fg-faint">{entry.chargesDescription}</span>}
-                          </div>
-                         </td>
-                        </tr>
-                       );
-                      }
+                          <td
+                           colSpan={colSpanCount}
+                           className="px-4 pb-1.5 pt-0 pl-10 align-top"
+                          >
+                           <div className={`flex items-center gap-1.5 text-xs font-semibold leading-none ${entryIsPayerThisAccount ? 'text-bad-text' : 'text-good-text'}`}>
+                            <span>
+                             {chargeAddsToAmount ? '+' : '−'}
+                             {entryAmount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
+                             {renderLedgerCurrencySuffix('', entryCurrencyCode ?? '')}
+                            </span>
+                            {entryDescription && <span className="font-normal italic text-fg-faint">{entryDescription}</span>}
+                           </div>
+                          </td>
+                         </tr>
+                        );
+                       }
 
-                      return null;
+                       return null;
+                      };
+
+                      return (
+                       <>
+                        {renderChargeSlot(1)}
+                        {renderChargeSlot(2)}
+                       </>
+                      );
                      })()}
                     </Fragment>
                     );

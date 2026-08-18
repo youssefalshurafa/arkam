@@ -150,6 +150,7 @@ export function useTransactionActions({
  const setTxToQuery = useTransactionsStore((s) => s.setTxToQuery);
  const setTxToOpen = useTransactionsStore((s) => s.setTxToOpen);
  const setIsNewTransactionExpensesOpen = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen);
+ const setIsNewTransactionExpensesOpen2 = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen2);
  const txFromRateReversed = useTransactionsStore((s) => s.txFromRateReversed);
  const setTxFromRateReversed = useTransactionsStore((s) => s.setTxFromRateReversed);
  const txToRateReversed = useTransactionsStore((s) => s.txToRateReversed);
@@ -240,6 +241,11 @@ function buildTransactionTableDraft(transaction: TransactionTableRow): Transacti
   chargesPayer: transaction.chargesPayer,
   chargesExchangeRate: formatRateValue(transaction.chargesExchangeRate),
   chargesDescription: transaction.chargesDescription,
+  charges2: String(transaction.charges2),
+  charges2CurrencyId: transaction.charges2CurrencyId,
+  chargesPayer2: transaction.chargesPayer2,
+  charges2ExchangeRate: formatRateValue(transaction.charges2ExchangeRate),
+  charges2Description: transaction.charges2Description,
   description: transaction.description,
   counterParty: transaction.counterParty,
   archiveNote: transaction.archiveNote,
@@ -452,6 +458,11 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
   chargesPayer: transactionForm.chargesPayer,
   chargesExchangeRate: 1,
   chargesDescription: transactionForm.chargesDescription,
+  charges2: parseFloat(transactionForm.charges2) || 0,
+  charges2CurrencyId: transactionForm.currencyId,
+  chargesPayer2: transactionForm.chargesPayer2,
+  charges2ExchangeRate: 1,
+  charges2Description: transactionForm.charges2Description,
   description: transactionForm.description,
   descriptionFrom: txSplitDescription ? transactionForm.descriptionFrom : '',
   descriptionTo: txSplitDescription ? transactionForm.descriptionTo : '',
@@ -482,6 +493,11 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
    chargesPayer: txPayload.chargesPayer,
    chargesExchangeRate: txPayload.chargesExchangeRate,
    chargesDescription: txPayload.chargesDescription,
+   charges2: txPayload.charges2,
+   charges2CurrencyId: txPayload.charges2CurrencyId,
+   chargesPayer2: txPayload.chargesPayer2,
+   charges2ExchangeRate: txPayload.charges2ExchangeRate,
+   charges2Description: txPayload.charges2Description,
    description: txPayload.description,
    descriptionFrom: txPayload.descriptionFrom,
    descriptionTo: txPayload.descriptionTo,
@@ -529,6 +545,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
   const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
   const cur = txPayload.currencyId != null ? currencyMap.get(txPayload.currencyId) : undefined;
   const chargesCur = txPayload.chargesCurrencyId != null ? currencyMap.get(txPayload.chargesCurrencyId) : null;
+  const charges2Cur = txPayload.charges2CurrencyId != null ? currencyMap.get(txPayload.charges2CurrencyId) : null;
   setTransactions((prev) => [
    ...prev,
    {
@@ -559,6 +576,13 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
     chargesPayer: txPayload.chargesPayer,
     chargesExchangeRate: txPayload.chargesExchangeRate,
     chargesDescription: txPayload.chargesDescription,
+    charges2: txPayload.charges2,
+    charges2CurrencyId: txPayload.charges2CurrencyId,
+    charges2CurrencyCode: charges2Cur?.code ?? null,
+    charges2CurrencySymbol: charges2Cur?.symbol ?? null,
+    chargesPayer2: txPayload.chargesPayer2,
+    charges2ExchangeRate: txPayload.charges2ExchangeRate,
+    charges2Description: txPayload.charges2Description,
     description: txPayload.description,
     descriptionFrom: txPayload.descriptionFrom,
     descriptionTo: txPayload.descriptionTo,
@@ -584,6 +608,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
   setTxToRateReversed(false);
   // Keep the form open so several entries can be added in a row.
   setIsNewTransactionExpensesOpen(false);
+  setIsNewTransactionExpensesOpen2(false);
   setNewTransactionDate(localDateKey());
   setError('');
   showToast(t('toast_transaction_created'));
@@ -1265,6 +1290,11 @@ function buildTransactionCreatePayload(tx: Transaction, createdAt: string) {
   chargesPayer: tx.chargesPayer,
   chargesExchangeRate: tx.chargesExchangeRate,
   chargesDescription: tx.chargesDescription,
+  charges2: tx.charges2,
+  charges2CurrencyId: tx.charges2CurrencyId,
+  chargesPayer2: tx.chargesPayer2,
+  charges2ExchangeRate: tx.charges2ExchangeRate,
+  charges2Description: tx.charges2Description,
   description: tx.description,
   descriptionFrom: tx.descriptionFrom,
   descriptionTo: tx.descriptionTo,
@@ -1344,6 +1374,11 @@ function onPasteCopiedTransaction() {
   chargesPayer: row.chargesPayer,
   chargesExchangeRate: String(row.chargesExchangeRate),
   chargesDescription: row.chargesDescription,
+  charges2: row.charges2 ? String(row.charges2) : '',
+  charges2CurrencyId: row.charges2CurrencyId,
+  chargesPayer2: row.chargesPayer2,
+  charges2ExchangeRate: String(row.charges2ExchangeRate),
+  charges2Description: row.charges2Description,
   description: row.description,
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
@@ -1358,6 +1393,7 @@ function onPasteCopiedTransaction() {
  setTxFromQuery('');
  setTxToQuery('');
  setIsNewTransactionExpensesOpen(true);
+ setIsNewTransactionExpensesOpen2(true);
  // Mirrors onEditTransactionInForm below: default the date to match what was copied, so a
  // batch of same-day backdated entries doesn't require retyping the date on every paste.
  setNewTransactionDate(row.createdAt.slice(0, 10));
@@ -1385,6 +1421,11 @@ function onEditTransactionInForm(row: TransactionTableRow) {
   chargesPayer: row.chargesPayer,
   chargesExchangeRate: String(row.chargesExchangeRate),
   chargesDescription: row.chargesDescription,
+  charges2: row.charges2 ? String(row.charges2) : '',
+  charges2CurrencyId: row.charges2CurrencyId,
+  chargesPayer2: row.chargesPayer2,
+  charges2ExchangeRate: String(row.charges2ExchangeRate),
+  charges2Description: row.charges2Description,
   description: row.description,
   descriptionFrom: row.descriptionFrom ?? '',
   descriptionTo: row.descriptionTo ?? '',
@@ -1399,6 +1440,7 @@ function onEditTransactionInForm(row: TransactionTableRow) {
  setTxFromQuery('');
  setTxToQuery('');
  setIsNewTransactionExpensesOpen(Boolean(row.charges) || Boolean(row.chargesPayer));
+ setIsNewTransactionExpensesOpen2(Boolean(row.charges2) || Boolean(row.chargesPayer2));
  setEditingTransaction({ id: row.id, createdAt: row.createdAt });
  setNewTransactionDate(row.createdAt.slice(0, 10));
  if (section === 'archive') setIsNewArchiveSectionOpen(true);
@@ -1418,6 +1460,7 @@ function onCancelEditTransaction() {
  setTxFromRateReversed(false);
  setTxToRateReversed(false);
  setIsNewTransactionExpensesOpen(false);
+ setIsNewTransactionExpensesOpen2(false);
  setNewTransactionDate(localDateKey());
  setError('');
 }
@@ -1468,6 +1511,11 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
     chargesPayer: original?.chargesPayer ?? '',
     chargesExchangeRate: original?.chargesExchangeRate ?? 1,
     chargesDescription: original?.chargesDescription ?? '',
+    charges2: original?.charges2 ?? 0,
+    charges2CurrencyId: original?.charges2CurrencyId ?? null,
+    chargesPayer2: original?.chargesPayer2 ?? '',
+    charges2ExchangeRate: original?.charges2ExchangeRate ?? 1,
+    charges2Description: original?.charges2Description ?? '',
     description: archiveEntryForm.description,
     archiveNote: archiveEntryForm.archiveNote,
     distributionLocationId: original?.distributionLocationId ?? null,
@@ -1545,6 +1593,13 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
     chargesPayer: txPayload.chargesPayer,
     chargesExchangeRate: txPayload.chargesExchangeRate,
     chargesDescription: txPayload.chargesDescription,
+    charges2: 0,
+    charges2CurrencyId: null,
+    charges2CurrencyCode: null,
+    charges2CurrencySymbol: null,
+    chargesPayer2: '',
+    charges2ExchangeRate: 1,
+    charges2Description: '',
     description: txPayload.description,
     descriptionFrom: txPayload.descriptionFrom,
     descriptionTo: txPayload.descriptionTo,
@@ -1751,6 +1806,11 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
     chargesPayer: draggedRow.chargesPayer,
     chargesExchangeRate: draggedRow.chargesExchangeRate,
     chargesDescription: draggedRow.chargesDescription,
+    charges2: draggedRow.charges2,
+    charges2CurrencyId: draggedRow.charges2CurrencyId,
+    chargesPayer2: draggedRow.chargesPayer2,
+    charges2ExchangeRate: draggedRow.charges2ExchangeRate,
+    charges2Description: draggedRow.charges2Description,
     description: draggedRow.description,
     counterParty: draggedRow.counterParty,
     distributionLocationId: draggedRow.distributionLocationId,
@@ -1812,6 +1872,11 @@ function buildTableTransactionUpdate(transactionId: number, draft: TransactionTa
   chargesPayer: draft.chargesPayer,
   chargesExchangeRate: 1,
   chargesDescription: draft.chargesDescription,
+  charges2: parseFloat(draft.charges2) || 0,
+  charges2CurrencyId: draft.currencyId,
+  chargesPayer2: draft.chargesPayer2,
+  charges2ExchangeRate: 1,
+  charges2Description: draft.charges2Description,
   description: draft.description,
   archiveNote: draft.archiveNote,
   counterParty: draft.counterParty,
@@ -2053,14 +2118,20 @@ const buildTransactionExportData = (fromDate: string, toDate: string) => {
    cells.push(txn.amount ? `${txn.amount.toLocaleString(numLocale)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
   }
   if (columns.charges) {
-   if (!txn.charges) {
-    cells.push('-');
-   } else {
+   const chargeCells: string[] = [];
+   if (txn.charges) {
     const parts = [`${txn.charges.toLocaleString(numLocale)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
     if (txn.chargesPayer) parts.push(txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : '');
     if (txn.chargesDescription) parts.push(txn.chargesDescription);
-    cells.push(parts.filter(Boolean).join(' — '));
+    chargeCells.push(parts.filter(Boolean).join(' — '));
    }
+   if (txn.charges2) {
+    const parts = [`${txn.charges2.toLocaleString(numLocale)}${txn.charges2CurrencyCode ? ` ${txn.charges2CurrencyCode}` : ''}`];
+    if (txn.chargesPayer2) parts.push(txn.chargesPayer2 === 'from' ? txn.clientFromName : txn.chargesPayer2 === 'to' ? txn.clientToName : '');
+    if (txn.charges2Description) parts.push(txn.charges2Description);
+    chargeCells.push(parts.filter(Boolean).join(' — '));
+   }
+   cells.push(chargeCells.length > 0 ? chargeCells.join(' / ') : '-');
   }
   if (columns.commission) {
    const parts: string[] = [];
