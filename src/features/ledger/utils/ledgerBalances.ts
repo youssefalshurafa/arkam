@@ -1,5 +1,5 @@
 import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
-import { buildLockBoundaries, isReconciledMember, reconciliationRefId } from '@/features/ledger/utils/reconciliation';
+import { buildLockBoundaries, isReconciledMember } from '@/features/ledger/utils/reconciliation';
 import type {
  ClientAccount,
  ClientAccountLedger,
@@ -83,6 +83,15 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
   return clientAccounts
    .filter((account) => account.clientId === selectedClientForLedger.id)
    .map((account) => {
+    // `boundary` is the ACTIVE (newest) reconciliation for this account — the one actually
+    // enforced by the edit/delete/reorder guards (isLocked below) and, since it's a pure
+    // function of a row's own createdAt/id (see isReconciledMember), computed once per entry
+    // here rather than in a second pass, so it can also break sort ties: a not-yet-reconciled
+    // row must never render before a reconciled one on this account, regardless of what its
+    // raw createdAt happens to compare to (guards against any stray timestamp irregularity in
+    // older data). Every reconciliation on the account still gets its own ✓ badge below, though
+    // — an audit trail of every balance the client has ever agreed to, not just the latest.
+    const boundary = lockBoundaries.get(account.id) ?? null;
     const entries = transactions
      .flatMap<ClientLedgerEntry>((transaction) => {
       // Archive-only records are historical and never affect a client's ledger/balance.
@@ -125,6 +134,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          distributionLocationId: transaction.distributionLocationId,
          distributionLocationName: transaction.distributionLocationName,
          distributionLocationKind: transaction.distributionLocationKind,
+         isLocked: isReconciledMember(transaction.createdAt, transaction.id, boundary),
         },
        ];
       }
@@ -166,6 +176,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          distributionLocationId: transaction.distributionLocationId,
          distributionLocationName: transaction.distributionLocationName,
          distributionLocationKind: transaction.distributionLocationKind,
+         isLocked: isReconciledMember(transaction.createdAt, transaction.id, boundary),
         },
        ];
       }
@@ -173,19 +184,14 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
       return [];
      })
      .sort((left, right) => {
+      if (left.isLocked !== right.isLocked) return left.isLocked ? -1 : 1;
       const dateDiff = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
       if (dateDiff !== 0) return dateDiff;
       return left.transactionId - right.transactionId;
      });
 
-    // Entries are ordered purely by createdAt (drag-to-reorder persists the order by
-    // rewriting timestamps), so a running balance accumulated in this order is durable.
-    // `boundary` is the ACTIVE (newest) reconciliation — the one actually enforced by the
-    // edit/delete/reorder guards (isLocked below). Every reconciliation on the account still
-    // gets its own ✓ badge, though — an audit trail of every balance the client has ever agreed
-    // to, not just the latest (a client may reconcile with the same account repeatedly over
-    // time, and each of those points is worth keeping visible, not just the most recent one).
-    const boundary = lockBoundaries.get(account.id) ?? null;
+    // Entries are ordered purely by createdAt/isLocked (drag-to-reorder persists the order
+    // by rewriting timestamps), so a running balance accumulated in this order is durable.
     // Which row each of the account's reconciliations shows its ✓ badge on: whichever member of
     // ITS OWN frozen set currently sits LAST (highest index) in ledger order — same-day
     // siblings can be dragged around an anchor without moving that reconciliation record. Two
@@ -208,12 +214,10 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
     let runningBalance = account.startingBalance ?? 0;
     const entriesWithBalance = entries.map((entry) => {
      runningBalance += entry.netChange;
-     const refId = reconciliationRefId(entry);
      const mark = markByTransactionId.get(entry.transactionId);
      return {
       ...entry,
       runningBalance,
-      isLocked: isReconciledMember(entry.createdAt, refId, boundary),
       ...(mark ? { reconciledMark: { id: mark.id, balance: mark.balance, note: mark.note } } : {}),
      };
     });

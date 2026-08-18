@@ -13,12 +13,13 @@ import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { saveArchiveFilter, saveTableZoom, saveTxFilter } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
-import { formatRateValue, HIGHLIGHT_PEN_CURSOR, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
+import { formatRateValue, highlightPenCursor, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
+import EditableField from '@/shared/components/EditableField';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
 import { useLongPress } from '@/shared/hooks/useLongPress';
@@ -37,6 +38,7 @@ import type {
  Transaction,
  TransactionTableDraft,
  TransactionTableRow,
+ TransactionUpdateInput,
 } from '@/shared/types';
 
 type CurrencyTotal = { code: string; symbol: string; total: number };
@@ -123,6 +125,7 @@ type TransactionsSectionProps = {
  highlightedTxRows: Map<number, string>;
  txRowClickHighlight: boolean;
  txRowClickActive: boolean;
+ txRowHighlightColor: string;
  txSumMode: boolean;
  txSumSelection: Set<number>;
  txSumByCurrency: SumCurrencyTotal[];
@@ -156,6 +159,7 @@ type TransactionsSectionProps = {
  toggleTxSumMode: () => void;
  toggleTxSumEntry: (id: number) => void;
  lockPastEditsEnabled: boolean;
+ onUpdateTransactionFields: (transactionId: number, patch: Partial<TransactionUpdateInput>) => void | Promise<void>;
 };
 
 export default function TransactionsSection(props: TransactionsSectionProps) {
@@ -163,14 +167,14 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   isLoading, section, clients, clientAccounts, enabledCurrencies, transactions, clientAccountMap, currencyMap,
   displayedTransactionRows, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
   selectedTransactionSums, archiveCurrencyTotals, workspaceAnomalies,
-  getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive,
+  getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive, txRowHighlightColor,
   txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopyTransactionRow, onDeleteSelectedTransactions,
   onDeleteTransactionTableRow, onToggleTransactionArchiveHidden, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction, onEditTransactionInForm, onCancelEditTransaction,
   onArchiveEntrySubmit, onEditArchiveEntryInForm, onCancelArchiveEntryEdit,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
-  setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry, lockPastEditsEnabled,
+  setTxRowClickMode, toggleTxRowHighlight, toggleTxSumMode, toggleTxSumEntry, lockPastEditsEnabled, onUpdateTransactionFields,
  } = props;
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
@@ -1450,7 +1454,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  WebkitUserSelect: 'none',
                  userSelect: 'none',
                  ...(color ? { backgroundColor: resolveHighlightBg(color, isDark) } : {}),
-                 ...(isEditingRow || txSumMode || !txRowClickActive ? {} : txRowClickHighlight ? { cursor: HIGHLIGHT_PEN_CURSOR } : { cursor: 'copy' }),
+                 ...(isEditingRow || txSumMode || !txRowClickActive ? {} : txRowClickHighlight ? { cursor: highlightPenCursor(txRowHighlightColor) } : { cursor: 'copy' }),
                 };
                })()}
                onClick={(e) => {
@@ -2174,10 +2178,17 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       placeholder={t('archive_more_info_placeholder')}
                       className={`${seamlessInputClassName} w-full text-sm text-fg`}
                      />
-                    ) : txn.archiveNote ? (
-                     <span className="min-w-0 flex-1 truncate" title={txn.archiveNote}>{txn.archiveNote}</span>
                     ) : (
-                     <span className="flex-1 text-fg-faint">-</span>
+                     <div className="min-w-0 flex-1" title={txn.archiveNote || undefined}>
+                      <EditableField
+                       editValue={txn.archiveNote}
+                       display={txn.archiveNote || <span className="text-fg-faint">-</span>}
+                       align={isRTL ? 'right' : 'left'}
+                       placeholder={t('archive_more_info_placeholder')}
+                       className="block w-full truncate"
+                       onCommit={(raw) => void onUpdateTransactionFields(txn.id, { archiveNote: raw })}
+                      />
+                     </div>
                     )}
                     {txn.isArchived ? (
                      <span

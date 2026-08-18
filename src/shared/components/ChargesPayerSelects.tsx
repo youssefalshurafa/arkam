@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { ChargesPayerParty } from '@/shared/utils/commission';
 import { combineChargesPayer, parseChargesPayer } from '@/shared/utils/commission';
 
@@ -15,6 +16,10 @@ type ChargesPayerSelectsProps = {
  paidByPlaceholder: string;
  paidToPlaceholder: string;
  className: string;
+ // Rendered between the two selects. Callers that already wrap both in a bordered/divided
+ // container (e.g. ChargesEditFields) don't need one; callers presenting the pair inline with
+ // no visible box (e.g. TransactionDetailsModal) do, so the two names don't run together.
+ separator?: ReactNode;
 };
 
 // The "paid by" / "to" pair of pickers for a transaction's extra-expense payer,
@@ -23,7 +28,7 @@ type ChargesPayerSelectsProps = {
 // options). Each side offers the FROM client, the TO client, and "me" (the org),
 // excluding whichever party is already selected on the other side. See
 // shared/utils/commission.ts for how the pair maps to the stored enum value.
-export default function ChargesPayerSelects({ value, onChange, fromLabel, toLabel, meLabel, paidByPlaceholder, paidToPlaceholder, className }: ChargesPayerSelectsProps) {
+export default function ChargesPayerSelects({ value, onChange, fromLabel, toLabel, meLabel, paidByPlaceholder, paidToPlaceholder, className, separator }: ChargesPayerSelectsProps) {
  // combineChargesPayer only yields a non-empty stored value once BOTH sides are
  // picked, so deriving the selects' displayed value straight from `value` made the
  // very first pick (either side, on a blank pair) snap back to the placeholder —
@@ -66,6 +71,7 @@ export default function ChargesPayerSelects({ value, onChange, fromLabel, toLabe
      </option>
     ))}
    </select>
+   {separator}
    <select
     value={pending.payee}
     onChange={(event) => setPayee(event.target.value as ChargesPayerParty)}
