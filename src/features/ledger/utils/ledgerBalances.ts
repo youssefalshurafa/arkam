@@ -26,6 +26,10 @@ export type NetChangeSideInput = {
  chargesCurrencyId: number | null;
  chargesPayer: string;
  chargesExchangeRate: number;
+ // A second, fully independent charge slot — see Transaction.charges2.
+ charges2: number;
+ charges2CurrencyId: number | null;
+ chargesPayer2: string;
 };
 
 // The net ledger effect of a transaction on ONE side's account balance — the single source
@@ -45,11 +49,13 @@ export function computeTransactionSideNetChange(tx: NetChangeSideInput, accountC
  // converted into this side's account currency by the exact same rate that converts `amount`
  // — i.e. the charge behaves as if it were added to `amount` before that multiplication.
  const chargeEffect = tx.charges > 0 ? chargeLedgerEffect(tx.chargesPayer, side) * (tx.charges * rate) : 0;
+ // The second, independent charge slot follows the exact same convention.
+ const chargeEffect2 = tx.charges2 > 0 ? chargeLedgerEffect(tx.chargesPayer2, side) * (tx.charges2 * rate) : 0;
  if (side === 'from') {
-  return tx.amount * rate + getCommissionAmount(tx.amount * rate, commission) + chargeEffect;
+  return tx.amount * rate + getCommissionAmount(tx.amount * rate, commission) + chargeEffect + chargeEffect2;
  }
  const toBase = exchangeToBase(tx);
- return -(toBase - getCommissionAmount(toBase, commission)) + chargeEffect;
+ return -(toBase - getCommissionAmount(toBase, commission)) + chargeEffect + chargeEffect2;
 }
 
 type ComputeArgs = {
@@ -131,6 +137,13 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          chargesDescription: transaction.chargesDescription,
          isChargesPayerThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'from') < 0,
          chargeAffectsThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'from') !== 0,
+         charges2: transaction.charges2,
+         charges2CurrencyCode: transaction.charges2CurrencyCode,
+         chargesPayer2: transaction.chargesPayer2,
+         charges2ExchangeRate: transaction.charges2ExchangeRate,
+         charges2Description: transaction.charges2Description,
+         isChargesPayerThisAccount2: chargeLedgerEffect(transaction.chargesPayer2, 'from') < 0,
+         chargeAffectsThisAccount2: chargeLedgerEffect(transaction.chargesPayer2, 'from') !== 0,
          distributionLocationId: transaction.distributionLocationId,
          distributionLocationName: transaction.distributionLocationName,
          distributionLocationKind: transaction.distributionLocationKind,
@@ -173,6 +186,13 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          chargesDescription: transaction.chargesDescription,
          isChargesPayerThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'to') < 0,
          chargeAffectsThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'to') !== 0,
+         charges2: transaction.charges2,
+         charges2CurrencyCode: transaction.charges2CurrencyCode,
+         chargesPayer2: transaction.chargesPayer2,
+         charges2ExchangeRate: transaction.charges2ExchangeRate,
+         charges2Description: transaction.charges2Description,
+         isChargesPayerThisAccount2: chargeLedgerEffect(transaction.chargesPayer2, 'to') < 0,
+         chargeAffectsThisAccount2: chargeLedgerEffect(transaction.chargesPayer2, 'to') !== 0,
          distributionLocationId: transaction.distributionLocationId,
          distributionLocationName: transaction.distributionLocationName,
          distributionLocationKind: transaction.distributionLocationKind,

@@ -126,6 +126,10 @@ type TransactionsStore = {
  setCommissionExpandedTxns: Dispatch<SetStateAction<Set<number>>>;
  expensesExpandedTxns: Set<number>;
  setExpensesExpandedTxns: Dispatch<SetStateAction<Set<number>>>;
+ // Independent collapse state for the second, fully independent charge slot — see
+ // Transaction.charges2. Mirrors expensesExpandedTxns above exactly.
+ expensesExpandedTxns2: Set<number>;
+ setExpensesExpandedTxns2: Dispatch<SetStateAction<Set<number>>>;
  isNewTransactionSectionOpen: boolean;
  setIsNewTransactionSectionOpen: Dispatch<SetStateAction<boolean>>;
  // Archive keeps its own collapse state (defaults closed — creating an archived
@@ -134,6 +138,8 @@ type TransactionsStore = {
  setIsNewArchiveSectionOpen: Dispatch<SetStateAction<boolean>>;
  isNewTransactionExpensesOpen: boolean;
  setIsNewTransactionExpensesOpen: Dispatch<SetStateAction<boolean>>;
+ isNewTransactionExpensesOpen2: boolean;
+ setIsNewTransactionExpensesOpen2: Dispatch<SetStateAction<boolean>>;
  transactionTableDrafts: Record<number, TransactionTableDraft>;
  setTransactionTableDrafts: Dispatch<SetStateAction<Record<number, TransactionTableDraft>>>;
  transactionForm: TransactionForm;
@@ -291,12 +297,16 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setCommissionExpandedTxns: setter('commissionExpandedTxns'),
   expensesExpandedTxns: new Set(),
   setExpensesExpandedTxns: setter('expensesExpandedTxns'),
+  expensesExpandedTxns2: new Set(),
+  setExpensesExpandedTxns2: setter('expensesExpandedTxns2'),
   isNewTransactionSectionOpen: false,
   setIsNewTransactionSectionOpen: setter('isNewTransactionSectionOpen'),
   isNewArchiveSectionOpen: false,
   setIsNewArchiveSectionOpen: setter('isNewArchiveSectionOpen'),
   isNewTransactionExpensesOpen: false,
   setIsNewTransactionExpensesOpen: setter('isNewTransactionExpensesOpen'),
+  isNewTransactionExpensesOpen2: false,
+  setIsNewTransactionExpensesOpen2: setter('isNewTransactionExpensesOpen2'),
   transactionTableDrafts: {},
   setTransactionTableDrafts: setter('transactionTableDrafts'),
   transactionForm: emptyTransactionForm(),

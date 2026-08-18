@@ -444,35 +444,42 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
                       })()}
                     </td>
                     <td className="px-4 py-3 text-fg-muted">
-                      {txn.charges ? (
-                        <div>
-                          <span className="whitespace-nowrap">
-                            <span>{txn.charges.toLocaleString(numLocale)}</span>
-                            {txn.chargesCurrencyCode && <span className="text-fg-faint"> {txn.chargesCurrencyCode}</span>}
-                          </span>
-                          {txn.chargesExchangeRate !== 1 && txn.chargesCurrencyCode && <div className="text-xs text-fg-faint">@ {txn.chargesExchangeRate.toFixed(4)}</div>}
-                          {txn.chargesPayer && (
-                            <div className="text-xs text-fg-faint">
-                              {txn.chargesPayer === 'from'
-                                ? txn.clientFromName
-                                : txn.chargesPayer === 'to'
-                                  ? txn.clientToName
-                                  : txn.chargesPayer === 'me_to_from'
-                                    ? t('charges_payer_me_to_name', { name: txn.clientFromName })
-                                    : txn.chargesPayer === 'me_to_to'
-                                      ? t('charges_payer_me_to_name', { name: txn.clientToName })
-                                      : txn.chargesPayer === 'from_to_me'
-                                        ? t('charges_payer_name_to_me', { name: txn.clientFromName })
-                                        : txn.chargesPayer === 'to_to_me'
-                                          ? t('charges_payer_name_to_me', { name: txn.clientToName })
-                                          : ''}
-                            </div>
-                          )}
-                          {txn.chargesDescription && <div className="text-xs italic text-fg-faint">{txn.chargesDescription}</div>}
-                        </div>
-                      ) : (
-                        <span className="text-fg-faint">-</span>
-                      )}
+                      {(() => {
+                        const renderCharge = (amount: number, currencyCode: string | null, exchangeRate: number, payer: string, description: string) => (
+                          <div>
+                            <span className="whitespace-nowrap">
+                              <span>{amount.toLocaleString(numLocale)}</span>
+                              {currencyCode && <span className="text-fg-faint"> {currencyCode}</span>}
+                            </span>
+                            {exchangeRate !== 1 && currencyCode && <div className="text-xs text-fg-faint">@ {exchangeRate.toFixed(4)}</div>}
+                            {payer && (
+                              <div className="text-xs text-fg-faint">
+                                {payer === 'from'
+                                  ? txn.clientFromName
+                                  : payer === 'to'
+                                    ? txn.clientToName
+                                    : payer === 'me_to_from'
+                                      ? t('charges_payer_me_to_name', { name: txn.clientFromName })
+                                      : payer === 'me_to_to'
+                                        ? t('charges_payer_me_to_name', { name: txn.clientToName })
+                                        : payer === 'from_to_me'
+                                          ? t('charges_payer_name_to_me', { name: txn.clientFromName })
+                                          : payer === 'to_to_me'
+                                            ? t('charges_payer_name_to_me', { name: txn.clientToName })
+                                            : ''}
+                              </div>
+                            )}
+                            {description && <div className="text-xs italic text-fg-faint">{description}</div>}
+                          </div>
+                        );
+                        if (!txn.charges && !txn.charges2) return <span className="text-fg-faint">-</span>;
+                        return (
+                          <div className="space-y-2">
+                            {txn.charges ? renderCharge(txn.charges, txn.chargesCurrencyCode, txn.chargesExchangeRate, txn.chargesPayer, txn.chargesDescription) : null}
+                            {txn.charges2 ? renderCharge(txn.charges2, txn.charges2CurrencyCode, txn.charges2ExchangeRate, txn.chargesPayer2, txn.charges2Description) : null}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-fg-muted">
                       {(() => {

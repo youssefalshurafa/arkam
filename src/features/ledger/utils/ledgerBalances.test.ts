@@ -54,6 +54,13 @@ function makeTransaction(overrides: Partial<Transaction> = {}): Transaction {
   chargesPayer: '',
   chargesExchangeRate: 1,
   chargesDescription: '',
+  charges2: 0,
+  charges2CurrencyId: null,
+  charges2CurrencyCode: null,
+  charges2CurrencySymbol: null,
+  chargesPayer2: '',
+  charges2ExchangeRate: 1,
+  charges2Description: '',
   description: '',
   descriptionFrom: '',
   descriptionTo: '',
@@ -167,5 +174,69 @@ describe('computeClientLedgers — reconciliation-aware sort', () => {
 
   expect(ledger.entries.map((e) => e.transactionId)).toEqual([tx2.id, tx1.id]);
   expect(ledger.entries.every((e) => !e.isLocked)).toBe(true);
+ });
+});
+
+describe('computeClientLedgers — two independent charge slots', () => {
+ const account = makeAccount();
+ const counterAccount = makeCounterAccount();
+ const clientAccounts = [account, counterAccount];
+ const clientAccountMap = new Map(clientAccounts.map((a) => [a.id, a]));
+ const currencyMap = new Map([[1, { id: 1, code: 'USD', name: 'US Dollar', symbol: '$', isEnabled: 1, isMain: 1, createdAt: '2026-01-01T00:00:00.000Z' }]]);
+
+ // Reproduces the reported bug's scenario: one org-settled charge on the "from" side (charges)
+ // and a second, separate org-settled charge on the "to" side (charges2), on the same
+ // transaction. Before the second charge slot existed, only one charge could be stored, so it
+ // could only ever belong to one side — the other side's charges editor had nothing to show.
+ it('keeps two org-settled charges on opposite sides fully independent', () => {
+  // makeTransaction defaults accountFromId to counterAccount.id (2) and accountToId to account.id (1).
+  const tx = makeTransaction({
+   id: 1,
+   amount: 100,
+   charges: 80,
+   chargesPayer: 'from_to_me', // counterAccount's client (from) pays 80 to the org
+   charges2: 100,
+   chargesPayer2: 'me_to_to', // the org pays 100 to account's client (to)
+  });
+
+  const [fromLedger] = computeClientLedgers({
+   selectedClientForLedger: { id: counterAccount.clientId },
+   section: 'client-ledger',
+   pdfExportModal: null,
+   clientAccounts,
+   transactions: [tx],
+   reconciliations: [],
+   clientAccountMap,
+   currencyMap,
+   enabled: true,
+  });
+  const [toLedger] = computeClientLedgers({
+   selectedClientForLedger: { id: account.clientId },
+   section: 'client-ledger',
+   pdfExportModal: null,
+   clientAccounts,
+   transactions: [tx],
+   reconciliations: [],
+   clientAccountMap,
+   currencyMap,
+   enabled: true,
+  });
+
+  const fromEntry = fromLedger.entries[0];
+  const toEntry = toLedger.entries[0];
+
+  // The first charge (from -> org) only affects the "from" side.
+  expect(fromEntry.chargeAffectsThisAccount).toBe(true);
+  expect(fromEntry.isChargesPayerThisAccount).toBe(true);
+  expect(toEntry.chargeAffectsThisAccount).toBe(false);
+
+  // The second charge (org -> to) only affects the "to" side, independently of the first.
+  expect(toEntry.chargeAffectsThisAccount2).toBe(true);
+  expect(toEntry.isChargesPayerThisAccount2).toBe(false);
+  expect(fromEntry.chargeAffectsThisAccount2).toBe(false);
+
+  // Both charges fold into their own side's running balance (starting balance 0, one transaction).
+  expect(fromEntry.runningBalance).toBe(20); // +100 sent, -80 for the charge it bears
+  expect(toEntry.runningBalance).toBe(0); // -100 received, +100 for the charge it's credited
  });
 });

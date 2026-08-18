@@ -25,6 +25,7 @@ export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTra
   const toAccount = input.accountToId != null ? clientAccountMap.get(input.accountToId) : undefined;
   const currency = currencyMap.get(input.currencyId);
   const chargesCurrency = input.chargesCurrencyId != null ? currencyMap.get(input.chargesCurrencyId) : null;
+  const charges2Currency = input.charges2CurrencyId != null ? currencyMap.get(input.charges2CurrencyId) : null;
   setTransactions((prev) =>
    prev.map((tx) =>
     tx.id === input.id
@@ -56,6 +57,13 @@ export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTra
         chargesPayer: input.chargesPayer,
         chargesExchangeRate: input.chargesExchangeRate,
         chargesDescription: input.chargesDescription,
+        charges2: input.charges2,
+        charges2CurrencyId: input.charges2CurrencyId,
+        charges2CurrencyCode: charges2Currency?.code ?? null,
+        charges2CurrencySymbol: charges2Currency?.symbol ?? null,
+        chargesPayer2: input.chargesPayer2,
+        charges2ExchangeRate: input.charges2ExchangeRate,
+        charges2Description: input.charges2Description,
         description: input.description,
         archiveNote: input.archiveNote ?? tx.archiveNote,
         counterParty: input.counterParty ?? tx.counterParty,

@@ -513,6 +513,51 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
      </div>
     ) : null}
 
+    {tx.charges2 > 0 ? (
+     <div className="mt-3 divide-y divide-border rounded border border-border bg-surface-2 px-3">
+      {row(
+       t('charges'),
+       <>
+        <EditableField
+         editValue={String(tx.charges2)}
+         display={fmt(tx.charges2)}
+         decimal
+         onCommit={(raw) => {
+          const parsed = parseFloat(raw);
+          if (Number.isFinite(parsed) && parsed >= 0) update({ charges2: parsed });
+         }}
+        />{' '}
+        <span className="text-fg-faint">{tx.charges2CurrencySymbol || tx.charges2CurrencyCode || ''}</span>
+       </>,
+      )}
+      {row(
+       t('charges_payer_placeholder'),
+       <ChargesPayerSelects
+        value={tx.chargesPayer2}
+        onChange={(raw) => update({ chargesPayer2: raw })}
+        fromLabel={tx.clientFromName || t('transaction_account_from')}
+        toLabel={tx.clientToName || t('transaction_account_to')}
+        meLabel={t('charges_payer_me')}
+        paidByPlaceholder={t('charges_payer_placeholder')}
+        paidToPlaceholder={t('charges_payer_to_placeholder')}
+        className={`${seamlessSelectClassName} text-sm text-fg`}
+        separator={<span className="mx-1 text-fg-faint">→</span>}
+       />,
+       'charges2-payer',
+      )}
+      {row(
+       t('charges_description'),
+       <EditableField
+        editValue={tx.charges2Description}
+        display={tx.charges2Description || <span className="text-fg-faint">—</span>}
+        placeholder={t('charges_description_placeholder')}
+        onCommit={(raw) => update({ charges2Description: raw })}
+       />,
+       'charges2-desc',
+      )}
+     </div>
+    ) : null}
+
     {isArchiveEligible(tx) ? (
      <div className="mt-3 divide-y divide-border rounded border border-border bg-surface-2 px-3">
       {row(

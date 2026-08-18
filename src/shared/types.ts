@@ -148,6 +148,15 @@ export type Transaction = {
  chargesPayer: string;
  chargesExchangeRate: number;
  chargesDescription: string;
+ // A second, fully independent charge slot — lets a transaction carry two separate charges at
+ // once (e.g. one org-settled charge per side). Mirrors the charges* fields above exactly.
+ charges2: number;
+ charges2CurrencyId: number | null;
+ charges2CurrencyCode: string | null;
+ charges2CurrencySymbol: string | null;
+ chargesPayer2: string;
+ charges2ExchangeRate: number;
+ charges2Description: string;
  description: string;
  descriptionFrom: string;
  descriptionTo: string;
@@ -190,6 +199,12 @@ export type TransactionForm = {
  chargesPayer: string;
  chargesExchangeRate: string;
  chargesDescription: string;
+ // A second, fully independent charge slot — see Transaction.charges2.
+ charges2: string;
+ charges2CurrencyId: number | null;
+ chargesPayer2: string;
+ charges2ExchangeRate: string;
+ charges2Description: string;
  description: string;
  descriptionFrom: string;
  descriptionTo: string;
@@ -233,6 +248,12 @@ export type TransactionUpdateInput = {
  chargesPayer: string;
  chargesExchangeRate: number;
  chargesDescription: string;
+ // A second, fully independent charge slot — see Transaction.charges2.
+ charges2: number;
+ charges2CurrencyId: number | null;
+ chargesPayer2: string;
+ charges2ExchangeRate: number;
+ charges2Description: string;
  description: string;
  descriptionFrom?: string;
  descriptionTo?: string;
@@ -263,6 +284,12 @@ export type TransactionTableDraft = {
  chargesPayer: string;
  chargesExchangeRate: string;
  chargesDescription: string;
+ // A second, fully independent charge slot — see Transaction.charges2.
+ charges2: string;
+ charges2CurrencyId: number | null;
+ chargesPayer2: string;
+ charges2ExchangeRate: string;
+ charges2Description: string;
  description: string;
  counterParty: string;
  archiveNote: string;
@@ -289,6 +316,12 @@ export type LedgerTransactionDraft = {
  chargesPayer: string;
  chargesExchangeRate: string;
  chargesDescription: string;
+ // A second, fully independent charge slot — see Transaction.charges2.
+ charges2: string;
+ charges2CurrencyId: number | null;
+ chargesPayer2: string;
+ charges2ExchangeRate: string;
+ charges2Description: string;
  distributionLocationId: number | null;
 };
 
@@ -331,6 +364,15 @@ export type ClientLedgerEntry = {
  // Whether the charge touches this account's ledger at all (shown + counted). False for the
  // "off side" of an org-settled charge, which only affects the one named client.
  chargeAffectsThisAccount: boolean;
+ // A second, fully independent charge slot — see Transaction.charges2. Same semantics as the
+ // charges*/isChargesPayerThisAccount/chargeAffectsThisAccount fields above, evaluated separately.
+ charges2: number;
+ charges2CurrencyCode: string | null;
+ chargesPayer2: string;
+ charges2ExchangeRate: number;
+ charges2Description: string;
+ isChargesPayerThisAccount2: boolean;
+ chargeAffectsThisAccount2: boolean;
  // Set when a reconciliation mark sits exactly on this row (the agreed-balance point).
  reconciledMark?: { id: number; balance: number; note: string };
  // True when this row is at or before the account's newest reconciliation (the lock

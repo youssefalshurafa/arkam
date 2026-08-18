@@ -1703,6 +1703,11 @@ function AuthenticatedHome() {
      chargesPayer: tx.chargesPayer,
      chargesExchangeRate: tx.chargesExchangeRate,
      chargesDescription: tx.chargesDescription,
+     charges2: tx.charges2,
+     charges2CurrencyId: tx.charges2CurrencyId,
+     chargesPayer2: tx.chargesPayer2,
+     charges2ExchangeRate: tx.charges2ExchangeRate,
+     charges2Description: tx.charges2Description,
      description: tx.description,
      archiveNote: tx.archiveNote,
      counterParty: tx.counterParty,
@@ -1750,6 +1755,11 @@ function AuthenticatedHome() {
     chargesPayer: tx.chargesPayer,
     chargesExchangeRate: tx.chargesExchangeRate,
     chargesDescription: tx.chargesDescription,
+    charges2: tx.charges2,
+    charges2CurrencyId: tx.charges2CurrencyId,
+    chargesPayer2: tx.chargesPayer2,
+    charges2ExchangeRate: tx.charges2ExchangeRate,
+    charges2Description: tx.charges2Description,
     description: tx.description,
     descriptionFrom: tx.descriptionFrom,
     descriptionTo: tx.descriptionTo,
@@ -1998,6 +2008,7 @@ function AuthenticatedHome() {
   const {
    openOneSidedTransactionModal,
    onSubmitOneSidedTransaction,
+   onPasteIntoOneSidedTransaction,
    openNewTransactionModal,
    closeNewTransactionModal,
    onLedgerColumnDrop,
@@ -2781,6 +2792,8 @@ function AuthenticatedHome() {
     enabledCurrencies={enabledCurrencies}
     onSubmitOneSidedTransaction={onSubmitOneSidedTransaction}
     lockPastEditsEnabled={lockPastEditsEnabled}
+    copiedTransaction={copiedTransaction}
+    onPasteIntoOneSidedTransaction={onPasteIntoOneSidedTransaction}
    />
 
    <NewTransactionModal

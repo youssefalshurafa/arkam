@@ -135,6 +135,7 @@ export function useLedgerActions({
  const setTxFromOpen = useTransactionsStore((s) => s.setTxFromOpen);
  const setTxToQuery = useTransactionsStore((s) => s.setTxToQuery);
  const setTxToOpen = useTransactionsStore((s) => s.setTxToOpen);
+ const copiedTransaction = useTransactionsStore((s) => s.copiedTransaction);
  const setTxSplitDescription = useTransactionsStore((s) => s.setTxSplitDescription);
  const setNewTransactionDate = useTransactionsStore((s) => s.setNewTransactionDate);
 
@@ -215,8 +216,53 @@ function openOneSidedTransactionModal(accountId: number) {
   chargesPayer: '',
   chargesExchangeRate: '1',
   chargesDescription: '',
+  charges2: '0',
+  charges2CurrencyId: null,
+  chargesPayer2: '',
+  charges2ExchangeRate: '1',
+  charges2Description: '',
   description: '',
   counterParty: '',
+ });
+}
+
+// Fills the open one-sided-transaction modal from a row copied on the Transactions page
+// (useTransactionsStore's `copiedTransaction`), mirroring the Transactions page's own
+// onPasteCopiedTransaction. The modal only has one real account side — this ledger's own
+// account, fixed by whichever `direction` is currently selected — so the copied row's
+// from/to-side fields are picked based on that direction rather than copying both sides.
+// Deliberately leaves `date` untouched (stays at today, as set when the modal opened) — unlike
+// the Transactions page's own paste, this one is for logging a fresh transaction today from a
+// template, not backdating a batch of entries to match the copied row's date.
+function onPasteIntoOneSidedTransaction() {
+ if (!copiedTransaction) return;
+ const row = copiedTransaction;
+ setOneSidedTransactionModal((prev) => {
+  if (!prev) return prev;
+  const isClientFrom = prev.direction === 'client_from';
+  const rate = isClientFrom ? row.exchangeRateFrom : row.exchangeRateTo;
+  const reversed = !!(isClientFrom ? row.exchangeRateFromReversed : row.exchangeRateToReversed);
+  return {
+   ...prev,
+   type: row.type,
+   amount: row.amount ? String(row.amount) : '',
+   currencyId: row.currencyId,
+   exchangeRate: rate ? (reversed ? formatRateValue(1 / rate) : String(rate)) : '',
+   exchangeRateReversed: reversed,
+   commission: String(isClientFrom ? row.commissionFrom : row.commissionTo),
+   charges: row.charges ? String(row.charges) : '0',
+   chargesCurrencyId: row.chargesCurrencyId,
+   chargesPayer: row.chargesPayer,
+   chargesExchangeRate: String(row.chargesExchangeRate || 1),
+   chargesDescription: row.chargesDescription,
+   charges2: row.charges2 ? String(row.charges2) : '0',
+   charges2CurrencyId: row.charges2CurrencyId,
+   chargesPayer2: row.chargesPayer2,
+   charges2ExchangeRate: String(row.charges2ExchangeRate || 1),
+   charges2Description: row.charges2Description,
+   description: row.description,
+   counterParty: row.counterParty || '',
+  };
  });
 }
 
@@ -299,6 +345,11 @@ async function onSubmitOneSidedTransaction() {
   chargesPayer: oneSidedTransactionModal.chargesPayer,
   chargesExchangeRate: 1,
   chargesDescription: oneSidedTransactionModal.chargesDescription,
+  charges2: parseFloat(oneSidedTransactionModal.charges2) || 0,
+  charges2CurrencyId: oneSidedTransactionModal.currencyId,
+  chargesPayer2: oneSidedTransactionModal.chargesPayer2,
+  charges2ExchangeRate: 1,
+  charges2Description: oneSidedTransactionModal.charges2Description,
   description: oneSidedTransactionModal.description,
   descriptionFrom: '',
   descriptionTo: '',
@@ -373,6 +424,11 @@ function buildLedgerTransactionDraft(transaction: Transaction, ledgerAccountId: 
   chargesPayer: transaction.chargesPayer,
   chargesExchangeRate: String(transaction.chargesExchangeRate || 1),
   chargesDescription: transaction.chargesDescription,
+  charges2: String(transaction.charges2 || 0),
+  charges2CurrencyId: transaction.charges2CurrencyId,
+  chargesPayer2: transaction.chargesPayer2,
+  charges2ExchangeRate: String(transaction.charges2ExchangeRate || 1),
+  charges2Description: transaction.charges2Description,
   distributionLocationId: transaction.distributionLocationId,
  };
 }
@@ -499,6 +555,11 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
   chargesPayer: draft.chargesPayer,
   chargesExchangeRate: 1,
   chargesDescription: draft.chargesDescription,
+  charges2: parseFloat(draft.charges2) || 0,
+  charges2CurrencyId: draft.currencyId,
+  chargesPayer2: draft.chargesPayer2,
+  charges2ExchangeRate: 1,
+  charges2Description: draft.charges2Description,
   description: draft.description,
   counterParty: draft.counterParty,
   distributionLocationId: draft.distributionLocationId,
@@ -549,6 +610,11 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
   chargesPayer: transaction.chargesPayer,
   chargesExchangeRate: transaction.chargesExchangeRate,
   chargesDescription: transaction.chargesDescription,
+  charges2: transaction.charges2,
+  charges2CurrencyId: transaction.charges2CurrencyId,
+  chargesPayer2: transaction.chargesPayer2,
+  charges2ExchangeRate: transaction.charges2ExchangeRate,
+  charges2Description: transaction.charges2Description,
   description: transaction.description,
   counterParty: transaction.counterParty,
   distributionLocationId: transaction.distributionLocationId,
@@ -1054,6 +1120,11 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
     chargesPayer: tx.chargesPayer,
     chargesExchangeRate: tx.chargesExchangeRate,
     chargesDescription: tx.chargesDescription,
+    charges2: tx.charges2,
+    charges2CurrencyId: tx.charges2CurrencyId,
+    chargesPayer2: tx.chargesPayer2,
+    charges2ExchangeRate: tx.charges2ExchangeRate,
+    charges2Description: tx.charges2Description,
     description: tx.description,
     counterParty: tx.counterParty,
     distributionLocationId: tx.distributionLocationId,
@@ -1207,6 +1278,7 @@ async function onExportLedgerExcel(
  return {
   openOneSidedTransactionModal,
   onSubmitOneSidedTransaction,
+  onPasteIntoOneSidedTransaction,
   openNewTransactionModal,
   closeNewTransactionModal,
   onLedgerColumnDrop,

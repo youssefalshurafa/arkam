@@ -81,6 +81,8 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
  const setTxToRateReversed = useTransactionsStore((s) => s.setTxToRateReversed);
  const isNewTransactionExpensesOpen = useTransactionsStore((s) => s.isNewTransactionExpensesOpen);
  const setIsNewTransactionExpensesOpen = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen);
+ const isNewTransactionExpensesOpen2 = useTransactionsStore((s) => s.isNewTransactionExpensesOpen2);
+ const setIsNewTransactionExpensesOpen2 = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen2);
 
  // Exchange (صرف) transactions get the الفعلي (actual settled destination amount) section in
  // place of the "Extra Expenses" block. Archive-only records never touch a ledger, so they keep
@@ -1069,6 +1071,66 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
                   type="text"
                   value={transactionForm.chargesDescription}
                   onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
+                  className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                  placeholder={t('charges_description_placeholder')}
+                 />
+                </div>
+               </div>
+              )}
+             </div>
+            ) : null}
+
+            {!isExchangeTransaction ? (
+             <div className="mt-4">
+              <button
+               type="button"
+               onClick={() => setIsNewTransactionExpensesOpen2((prev) => !prev)}
+               className="flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+              >
+               <span>{isNewTransactionExpensesOpen2 ? '?' : '?'}</span>
+               {t('extra_expenses')}
+              </button>
+              {isNewTransactionExpensesOpen2 && (
+               <div className="mt-3 rounded border border-border bg-surface-2 p-4">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                 <input
+                  type="text"
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={formatAmountInput(transactionForm.charges2)}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, charges2: normalizeDecimalInput(event.target.value) }))}
+                  className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
+                  placeholder="0"
+                 />
+                 <ChargesPayerSelects
+                  value={transactionForm.chargesPayer2}
+                  onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer2: chargesPayer }))}
+                  fromLabel={
+                   transactionForm.accountFromId
+                    ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')))
+                    : transactionForm.type === 'exchange'
+                      ? t('transaction_seller')
+                      : t('transaction_account_from')
+                  }
+                  toLabel={
+                   transactionForm.accountToId
+                    ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')))
+                    : transactionForm.type === 'exchange'
+                      ? t('transaction_buyer')
+                      : t('transaction_account_to')
+                  }
+                  meLabel={t('charges_payer_me')}
+                  paidByPlaceholder={t('charges_payer_placeholder')}
+                  paidToPlaceholder={t('charges_payer_to_placeholder')}
+                  className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+                 />
+                </div>
+                <div className="mt-2">
+                 <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
+                 <input
+                  type="text"
+                  value={transactionForm.charges2Description}
+                  onChange={(event) => setTransactionForm((current) => ({ ...current, charges2Description: event.target.value }))}
                   className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
                   placeholder={t('charges_description_placeholder')}
                  />
