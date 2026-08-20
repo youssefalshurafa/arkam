@@ -1027,7 +1027,7 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
                onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
                className="flex items-center gap-1 text-sm font-medium text-accent hover:underline"
               >
-               <span>{isNewTransactionExpensesOpen ? '?' : '?'}</span>
+               <span>{isNewTransactionExpensesOpen ? '▾' : '▸'}</span>
                {t('extra_expenses')}
               </button>
               {isNewTransactionExpensesOpen && (
@@ -1077,19 +1077,18 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
                 </div>
                </div>
               )}
-             </div>
-            ) : null}
-
-            {!isExchangeTransaction ? (
-             <div className="mt-4">
-              <button
-               type="button"
-               onClick={() => setIsNewTransactionExpensesOpen2((prev) => !prev)}
-               className="flex items-center gap-1 text-sm font-medium text-accent hover:underline"
-              >
-               <span>{isNewTransactionExpensesOpen2 ? '?' : '?'}</span>
-               {t('extra_expenses')}
-              </button>
+              {/* A second, independent charge only makes sense once the first is actually being
+                  used — showing both toggles up front reads as duplicated UI for the common case
+                  of a single expense. This link only appears after the first is opened. */}
+              {isNewTransactionExpensesOpen && !isNewTransactionExpensesOpen2 ? (
+               <button
+                type="button"
+                onClick={() => setIsNewTransactionExpensesOpen2(true)}
+                className="mt-2 text-sm text-accent hover:underline"
+               >
+                + {t('add_expenses')}
+               </button>
+              ) : null}
               {isNewTransactionExpensesOpen2 && (
                <div className="mt-3 rounded border border-border bg-surface-2 p-4">
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
