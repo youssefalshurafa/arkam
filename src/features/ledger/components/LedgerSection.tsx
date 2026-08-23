@@ -26,7 +26,7 @@ import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/acco
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch } from '@/features/ledger/utils/ledgerEntries';
-import type { RateAnomaly, CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
+import { anomalyKey, type RateAnomaly, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useAiEditLedger, type AiEditLedgerReviewRow } from '@/features/ledger/hooks/useAiEditLedger';
@@ -64,6 +64,10 @@ type LedgerSectionProps = {
  selectedClientLedgers: ClientAccountLedger[];
  ledgerRateAnomalies: Map<number, RateAnomaly>;
  ledgerCommissionAnomalies: Map<number, CommissionAnomaly>;
+ // Every dismissed rate/commission/pendingRate flag, workspace-wide — see anomalyKey. Used
+ // directly (not pre-filtered into a map like the two above) to filter the pending-rate
+ // warning list, which has no separate anomaly-detection step of its own.
+ ignoredAnomalySet: Set<string>;
  orderedLedgerColumnOptions: Array<{ key: LedgerColumnKey; label: string }>;
  ledgerHistory: DraftHistory;
  getClientLedgerDraft: (transactionId: number, ledgerAccountId: number) => LedgerTransactionDraft | null;
@@ -80,7 +84,7 @@ type LedgerSectionProps = {
  onEditSelectedLedgerEntries: () => void;
  onReconcileLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
- onIgnoreAnomaly: (kind: 'rate' | 'commission', transactionId: number, accountId: number) => void;
+ onIgnoreAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
  onLedgerEditFieldArrowKey: (event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number, pagedEntries: ClientLedgerEntry[], entryIdx: number) => void;
@@ -105,7 +109,7 @@ type LedgerSectionProps = {
 export default function LedgerSection(props: LedgerSectionProps) {
  const {
   isLoading, clients, clientAccounts, transactions, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
-  selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, ledgerRateAnomalies, ledgerCommissionAnomalies,
+  selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, ledgerRateAnomalies, ledgerCommissionAnomalies, ignoredAnomalySet,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
@@ -916,7 +920,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  {ledger.currentBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                 </p>
                 {(() => {
-                 const pendingEntries = ledger.entries.filter((e) => e.pendingRate);
+                 const pendingEntries = ledger.entries.filter(
+                  (e) => e.pendingRate && !ignoredAnomalySet.has(anomalyKey('pendingRate', e.transactionId, ledger.accountId)),
+                 );
                  const pendingCount = pendingEntries.length;
                  if (pendingCount === 0) return null;
                  const isOpen = pendingEntriesOpenAccountIds.has(ledger.accountId);
@@ -960,21 +966,58 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    </button>
                    {isOpen && (
                     <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto rounded border border-amber-200 bg-warn-bg p-2 text-xs text-fg-muted">
-                     {pendingEntries.map((entry) => (
-                      <li
-                       key={`${entry.transactionId}-${entry.direction}`}
-                       className="flex items-center gap-2 whitespace-nowrap"
-                      >
-                       <span className="shrink-0 text-fg-faint">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
-                       <span className="shrink-0 font-medium">{entry.counterpartyName}</span>
-                       <span className="min-w-0 flex-1 truncate italic text-fg-faint" title={entry.description}>
-                        {entry.description}
-                       </span>
-                       <span className="shrink-0">
-                        {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
-                       </span>
-                      </li>
-                     ))}
+                     {pendingEntries.map((entry) => {
+                      // Right-click (desktop) opens a one-item menu to dismiss just this entry
+                      // from the warning above — a long-press (rowLongPress, shared with the
+                      // ledger rows below) covers Android/iOS touch, which never fires
+                      // onContextMenu, and the visible "⋮" button is the guaranteed-discoverable
+                      // fallback on touch, same three-way pattern as the row action menu.
+                      const openPendingEntryMenu = (event: ReactMouseEvent) => {
+                       rowContextMenu.open(event, [
+                        {
+                         key: 'ignore',
+                         label: t('ignore_anomaly_confirm_button'),
+                         onSelect: () => onIgnoreAnomaly('pendingRate', entry.transactionId, ledger.accountId),
+                        },
+                       ]);
+                      };
+                      return (
+                       <li
+                        key={`${entry.transactionId}-${entry.direction}`}
+                        onContextMenu={openPendingEntryMenu}
+                        {...rowLongPress.bind(openPendingEntryMenu)}
+                        className="flex items-center gap-2 whitespace-nowrap"
+                       >
+                        <span className="shrink-0 text-fg-faint">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
+                        <span className="shrink-0 font-medium">{entry.counterpartyName}</span>
+                        <span className="min-w-0 flex-1 truncate italic text-fg-faint" title={entry.description}>
+                         {entry.description}
+                        </span>
+                        <span className="shrink-0">
+                         {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
+                        </span>
+                        <button
+                         type="button"
+                         title={t('row_actions_menu')}
+                         aria-label={t('row_actions_menu')}
+                         onClick={openPendingEntryMenu}
+                         className="shrink-0 rounded p-0.5 text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
+                        >
+                         <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="currentColor"
+                          aria-hidden
+                         >
+                          <circle cx="12" cy="5" r="1.8" />
+                          <circle cx="12" cy="12" r="1.8" />
+                          <circle cx="12" cy="19" r="1.8" />
+                         </svg>
+                        </button>
+                       </li>
+                      );
+                     })}
                     </ul>
                    )}
                   </>
