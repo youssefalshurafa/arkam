@@ -235,6 +235,10 @@ function AuthenticatedHome() {
  const transactions = workspaceData?.transactions ?? EMPTY_TRANSACTIONS;
  const reconciliations = workspaceData?.reconciliations ?? EMPTY_RECONCILIATIONS;
  const ignoredAnomalies = workspaceData?.ignoredAnomalies ?? EMPTY_IGNORED_ANOMALIES;
+ // Anomaly badges the user already reviewed and dismissed via the ledger row's "ignore"
+ // action — excluded from every check below, workspace-wide. Declared early since the
+ // pending-pricing counts/entries (organization page, حصاد اليوم) also need it.
+ const ignoredAnomalySet = useMemo(() => buildIgnoredAnomalySet(ignoredAnomalies), [ignoredAnomalies]);
  const harvestRates = workspaceData?.harvestRates ?? EMPTY_HARVEST_RATES;
  const writeOffMargins = workspaceData?.writeOffMargins ?? EMPTY_WRITE_OFF_MARGINS;
  const clientAccounts = workspaceData?.clientAccounts ?? EMPTY_CLIENT_ACCOUNTS;
@@ -1630,8 +1634,8 @@ function AuthenticatedHome() {
  // Per-client count of transactions awaiting a manually-entered exchange rate (excluded from
  // clientPageBalances above until set). Shown on the organization page.
  const clientPendingPricingCounts = useMemo(
-  () => computeClientPendingPricingCounts({ clientAccounts, transactions }),
-  [clientAccounts, transactions],
+  () => computeClientPendingPricingCounts({ clientAccounts, transactions, ignored: ignoredAnomalySet }),
+  [clientAccounts, transactions, ignoredAnomalySet],
  );
 
  // Client ids whose most recent transaction is reconciled — drives the org page's per-client
@@ -1643,8 +1647,8 @@ function AuthenticatedHome() {
  // The actual pending rows behind those counts, keyed by client — drives the
  // org page's "waiting for pricing" popup (opened by clicking the count).
  const clientPendingPricingEntries = useMemo(
-  () => computeClientPendingPricingEntries({ clientAccounts, transactions }),
-  [clientAccounts, transactions],
+  () => computeClientPendingPricingEntries({ clientAccounts, transactions, ignored: ignoredAnomalySet }),
+  [clientAccounts, transactions, ignoredAnomalySet],
  );
  const [pendingPricingModalClientId, setPendingPricingModalClientId] = useState<number | null>(null);
  // Organizations-list "awaiting pricing" column: clicking an org's count first opens a list of
@@ -1936,10 +1940,6 @@ function AuthenticatedHome() {
   () => computeClientLedgers({ selectedClientForLedger, section, pdfExportModal, clientAccounts, transactions, reconciliations, clientAccountMap, currencyMap }),
   [reconciliations, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
  );
-
- // Anomaly badges the user already reviewed and dismissed via the ledger row's "ignore"
- // action — excluded from every check below, workspace-wide.
- const ignoredAnomalySet = useMemo(() => buildIgnoredAnomalySet(ignoredAnomalies), [ignoredAnomalies]);
 
  // Flags rows whose exchange rate deviates sharply from other transactions in the same
  // currency pair (most notably a ×/÷ toggle mistake) so LedgerSection can badge them while
@@ -2681,6 +2681,8 @@ function AuthenticatedHome() {
          isLoading={isLoading}
          navigateToSection={navigateToSection}
          onSaveRate={onSavePendingPricingRate}
+         ignoredAnomalySet={ignoredAnomalySet}
+         onIgnoreAnomaly={onIgnoreAnomaly}
         />
        ) : null}
 
@@ -2881,6 +2883,7 @@ function AuthenticatedHome() {
       setPendingPricingModalOrgId(null);
      }}
      onSaveRate={onSavePendingPricingRate}
+     onIgnoreAnomaly={onIgnoreAnomaly}
     />
    ) : null}
 

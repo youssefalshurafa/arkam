@@ -19,11 +19,12 @@ function isOnOrBeforeDay(iso: string, day: string): boolean {
 // reference price (harvestBalance.ts / harvestRateResolver.ts) — a currency already priced for
 // today can still have individual transactions nobody ever entered a rate for, and those stay
 // excluded from every balance calc (including this one) until fixed, which is what this surfaces.
-export function computeHarvestAwaitingPricingByClient({ transactions, clientAccounts, day }: {
+export function computeHarvestAwaitingPricingByClient({ transactions, clientAccounts, day, ignored }: {
   transactions: Transaction[];
   clientAccounts: ClientAccount[];
   day: string;
+  ignored: Set<string>;
 }): Map<number, PendingPricingEntry[]> {
   const cutoffTransactions = transactions.filter((tx) => isOnOrBeforeDay(tx.createdAt, day));
-  return computeClientPendingPricingEntries({ clientAccounts, transactions: cutoffTransactions });
+  return computeClientPendingPricingEntries({ clientAccounts, transactions: cutoffTransactions, ignored });
 }
