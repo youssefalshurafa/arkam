@@ -30,6 +30,8 @@ type HarvestSectionProps = {
   isLoading: boolean;
   navigateToSection: (section: Section) => void;
   onSaveRate: (entry: PendingPricingEntry, rate: string, reversed: boolean) => Promise<boolean>;
+  ignoredAnomalySet: Set<string>;
+  onIgnoreAnomaly: (kind: 'pendingRate', transactionId: number, accountId: number) => void;
 };
 
 function WarnGlyph({ className = 'h-3.5 w-3.5' }: { className?: string }) {
@@ -50,7 +52,7 @@ function orgGroupKey(organizationId: number | null): string {
   return `org:${organizationId ?? 'none'}`;
 }
 
-export default function HarvestSection({ clientAccounts, clients, currencies, transactions, harvestRates, isLoading, navigateToSection, onSaveRate }: HarvestSectionProps) {
+export default function HarvestSection({ clientAccounts, clients, currencies, transactions, harvestRates, isLoading, navigateToSection, onSaveRate, ignoredAnomalySet, onIgnoreAnomaly }: HarvestSectionProps) {
   const { language, isRTL } = useLanguage();
   const { t } = useTranslation(language);
   const numLocale = language === 'fr' ? 'en-US' : language;
@@ -169,8 +171,8 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
   // organization page and client ledger show, surfaced via the "N transactions awaiting
   // pricing" popup. Cumulative like the General Balance above it, not same-day-only.
   const awaitingPricingByClient = useMemo(
-    () => computeHarvestAwaitingPricingByClient({ transactions, clientAccounts, day: selectedDay }),
-    [transactions, clientAccounts, selectedDay],
+    () => computeHarvestAwaitingPricingByClient({ transactions, clientAccounts, day: selectedDay, ignored: ignoredAnomalySet }),
+    [transactions, clientAccounts, selectedDay, ignoredAnomalySet],
   );
   const awaitingPricingTotalCount = useMemo(
     () => [...awaitingPricingByClient.values()].reduce((sum, entries) => sum + entries.length, 0),
@@ -557,6 +559,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
           ledgerDateFormat={ledgerDateFormat}
           onClose={() => setPendingPricingClientId(null)}
           onSaveRate={onSaveRate}
+          onIgnoreAnomaly={onIgnoreAnomaly}
         />
       ) : null}
     </div>

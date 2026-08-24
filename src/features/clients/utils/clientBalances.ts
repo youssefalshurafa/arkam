@@ -1,5 +1,6 @@
 import { computeAccountBalances, isPendingTransactionFrom, isPendingTransactionTo } from '@/shared/utils/accountBalances';
 import { buildLockBoundaries, isReconciledMember } from '@/features/ledger/utils/reconciliation';
+import { anomalyKey } from '@/features/ledger/utils/ledgerAnomalies';
 import type { ClientAccount, Reconciliation, Transaction } from '@/shared/types';
 
 export type ClientBalanceEntry = { accountId: number; currencyId: number; currencyCode: string; currencySymbol: string; balance: number };
@@ -24,9 +25,13 @@ export function computeClientPageBalances({ clientAccounts, transactions }: {
 // Per-client count of transactions still "waiting for pricing" — a cross-currency row with no
 // exchange rate entered yet, excluded from the balance above until the user sets one. Used by
 // the organization page's client list to surface rows a client's balance doesn't yet reflect.
-export function computeClientPendingPricingCounts({ clientAccounts, transactions }: {
+// `ignored` excludes rows the user already dismissed via the ledger/popup "ignore" action (see
+// anomalyKey/'pendingRate' in ledgerAnomalies.ts) — otherwise an ignored row keeps reappearing
+// here even though it no longer warns anywhere else.
+export function computeClientPendingPricingCounts({ clientAccounts, transactions, ignored }: {
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
+ ignored: Set<string>;
 }): Map<number, number> {
  const accountMap = new Map(clientAccounts.map((account) => [account.id, account]));
  const countByClient = new Map<number, number>();
@@ -35,9 +40,13 @@ export function computeClientPendingPricingCounts({ clientAccounts, transactions
  for (const transaction of transactions) {
   if (transaction.isArchived) continue;
   const fromAccount = transaction.accountFromId != null ? accountMap.get(transaction.accountFromId) : undefined;
-  if (fromAccount && isPendingTransactionFrom(transaction, fromAccount.currencyId)) bump(fromAccount.clientId);
+  if (fromAccount && isPendingTransactionFrom(transaction, fromAccount.currencyId) && !ignored.has(anomalyKey('pendingRate', transaction.id, fromAccount.id))) {
+   bump(fromAccount.clientId);
+  }
   const toAccount = transaction.accountToId != null ? accountMap.get(transaction.accountToId) : undefined;
-  if (toAccount && isPendingTransactionTo(transaction, toAccount.currencyId)) bump(toAccount.clientId);
+  if (toAccount && isPendingTransactionTo(transaction, toAccount.currencyId) && !ignored.has(anomalyKey('pendingRate', transaction.id, toAccount.id))) {
+   bump(toAccount.clientId);
+  }
  }
 
  return countByClient;
@@ -109,14 +118,17 @@ export type PendingPricingEntry = {
  // into (the rate means "1 <currencyCode> = rate <accountCurrencyCode>").
  transactionId: number;
  side: 'from' | 'to';
+ accountId: number;
  accountCurrencyCode: string;
 };
 
 // Like computeClientPendingPricingCounts, but returns the actual pending rows per client
 // (newest first) so the org page can list them in a popup rather than just count them.
-export function computeClientPendingPricingEntries({ clientAccounts, transactions }: {
+// `ignored` — see computeClientPendingPricingCounts.
+export function computeClientPendingPricingEntries({ clientAccounts, transactions, ignored }: {
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
+ ignored: Set<string>;
 }): Map<number, PendingPricingEntry[]> {
  const accountMap = new Map(clientAccounts.map((account) => [account.id, account]));
  const byClient = new Map<number, PendingPricingEntry[]>();
@@ -129,7 +141,7 @@ export function computeClientPendingPricingEntries({ clientAccounts, transaction
  for (const transaction of transactions) {
   if (transaction.isArchived) continue;
   const fromAccount = transaction.accountFromId != null ? accountMap.get(transaction.accountFromId) : undefined;
-  if (fromAccount && isPendingTransactionFrom(transaction, fromAccount.currencyId)) {
+  if (fromAccount && isPendingTransactionFrom(transaction, fromAccount.currencyId) && !ignored.has(anomalyKey('pendingRate', transaction.id, fromAccount.id))) {
    push(fromAccount.clientId, {
     key: `t${transaction.id}-from`,
     createdAt: transaction.createdAt,
@@ -140,11 +152,12 @@ export function computeClientPendingPricingEntries({ clientAccounts, transaction
     description: transaction.description,
     transactionId: transaction.id,
     side: 'from',
+    accountId: fromAccount.id,
     accountCurrencyCode: fromAccount.currencyCode,
    });
   }
   const toAccount = transaction.accountToId != null ? accountMap.get(transaction.accountToId) : undefined;
-  if (toAccount && isPendingTransactionTo(transaction, toAccount.currencyId)) {
+  if (toAccount && isPendingTransactionTo(transaction, toAccount.currencyId) && !ignored.has(anomalyKey('pendingRate', transaction.id, toAccount.id))) {
    push(toAccount.clientId, {
     key: `t${transaction.id}-to`,
     createdAt: transaction.createdAt,
@@ -155,6 +168,7 @@ export function computeClientPendingPricingEntries({ clientAccounts, transaction
     description: transaction.description,
     transactionId: transaction.id,
     side: 'to',
+    accountId: toAccount.id,
     accountCurrencyCode: toAccount.currencyCode,
    });
   }

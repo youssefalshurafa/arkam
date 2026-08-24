@@ -28,6 +28,11 @@ type PendingPricingModalProps = {
  // "1 <entry currency> = rate <account currency>" (multiply); when true it means
  // "1 <account currency> = rate <entry currency>" (divide).
  onSaveRate: (entry: PendingPricingEntry, rate: string, reversed: boolean) => Promise<boolean>;
+ // Dismisses one pending row from every "awaiting pricing" warning workspace-wide (this popup,
+ // the client ledger's own pending list, the organization count) without setting a rate — for
+ // rows the user has reviewed and decided don't need one. Shared with the ledger row's own
+ // ignore action (see anomalyKey/'pendingRate' in ledgerAnomalies.ts).
+ onIgnoreAnomaly: (kind: 'pendingRate', transactionId: number, accountId: number) => void;
 };
 
 // Popup listing one client's cross-currency rows that still have no exchange rate (excluded
@@ -42,6 +47,7 @@ export default function PendingPricingModal({
  onBack,
  onClose,
  onSaveRate,
+ onIgnoreAnomaly,
 }: PendingPricingModalProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -186,6 +192,19 @@ export default function PendingPricingModal({
              ? ltrIsolate(t('pending_pricing_rate_hint', { from: entry.accountCurrencyCode, to: entry.currencyCode }))
              : ltrIsolate(t('pending_pricing_rate_hint', { from: entry.currencyCode, to: entry.accountCurrencyCode }))}
            </span>
+           <button
+            type="button"
+            title={t('ignore_anomaly_hint')}
+            onClick={() => onIgnoreAnomaly('pendingRate', entry.transactionId, entry.accountId)}
+            disabled={isSaving || savingAll}
+            className="inline-flex shrink-0 items-center gap-1 rounded p-1 text-[10px] leading-none text-fg-faint transition hover:bg-surface-hover hover:text-fg disabled:opacity-50"
+           >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+             <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+             <path d="m4 4 16 16" />
+            </svg>
+            {t('ignore_anomaly_confirm_button')}
+           </button>
            {/* input + save grouped so they never split across a wrap, and pushed to the row end */}
            <div className="ms-auto flex items-center gap-2">
             <input
