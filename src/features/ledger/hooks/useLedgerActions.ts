@@ -942,10 +942,11 @@ async function onRemoveReconciliation(entry: ClientLedgerEntry, ledgerAccountId:
  }
 }
 
-// Dismisses a rate/commission anomaly badge (see ledgerAnomalies.ts) the user reviewed and
-// judged fine — shared workspace-wide, so it stops flagging for every member, not just the
-// one who ignored it. `accountId` is which side of the transaction this applies to.
-async function onIgnoreAnomaly(kind: 'rate' | 'commission', transactionId: number, accountId: number) {
+// Dismisses a rate/commission anomaly badge, or a pending-exchange-rate warning-list entry
+// (see ledgerAnomalies.ts), the user reviewed and judged fine — shared workspace-wide, so it
+// stops flagging for every member, not just the one who ignored it. `accountId` is which side
+// of the transaction this applies to.
+async function onIgnoreAnomaly(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number) {
  if (!(await confirmDialog({ message: t('ignore_anomaly_confirm'), confirmText: t('ignore_anomaly_confirm_button') }))) return;
  try {
   const created = await accountingApi.createIgnoredAnomaly({ kind, transactionId, accountId });

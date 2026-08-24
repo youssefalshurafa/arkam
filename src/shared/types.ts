@@ -401,12 +401,13 @@ export type Reconciliation = {
  createdAt: string;
 };
 
-// A rate/commission anomaly badge (see ledgerAnomalies.ts) a user chose to dismiss.
-// `accountId` is which side of the transaction this applies to — a single transaction can
-// independently flag on its "from" side and "to" side, each belonging to a different account.
+// A rate/commission anomaly badge, or a pending-exchange-rate warning-list entry (see
+// ledgerAnomalies.ts), a user chose to dismiss. `accountId` is which side of the transaction
+// this applies to — a single transaction can independently flag on its "from" side and "to"
+// side, each belonging to a different account.
 export type IgnoredAnomaly = {
  id: number;
- kind: 'rate' | 'commission';
+ kind: 'rate' | 'commission' | 'pendingRate';
  transactionId: number;
  accountId: number;
  createdAt: string;

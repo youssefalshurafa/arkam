@@ -174,7 +174,7 @@ export function checkLedgerEntryCommission(
 
 // Identifies one (kind, transaction side) flag for the ignore-list — a transaction's "from"
 // and "to" sides belong to different accounts and are dismissed independently.
-export function anomalyKey(kind: 'rate' | 'commission', transactionId: number, accountId: number): string {
+export function anomalyKey(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number): string {
  return `${kind}:${transactionId}:${accountId}`;
 }
 

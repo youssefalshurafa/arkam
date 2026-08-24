@@ -1398,7 +1398,7 @@ async function listIgnoredAnomalies(app) {
 
 async function createIgnoredAnomaly(app, { kind, transactionId, accountId }) {
     const { schema } = await getSchemaInfo(app);
-    if (kind !== 'rate' && kind !== 'commission') throw new Error('Invalid anomaly kind.');
+    if (kind !== 'rate' && kind !== 'commission' && kind !== 'pendingRate') throw new Error('Invalid anomaly kind.');
     if (!transactionId) throw new Error('A transaction is required.');
     if (!accountId) throw new Error('An account is required.');
     await assertMemberCanWriteAccount(app, accountId);

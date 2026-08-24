@@ -2597,6 +2597,7 @@ function AuthenticatedHome() {
          selectedClientLedgers={selectedClientLedgers}
          ledgerRateAnomalies={ledgerRateAnomalies}
          ledgerCommissionAnomalies={ledgerCommissionAnomalies}
+         ignoredAnomalySet={ignoredAnomalySet}
          orderedLedgerColumnOptions={orderedLedgerColumnOptions}
          ledgerHistory={combinedLedgerHistory}
          getClientLedgerDraft={getClientLedgerDraft}

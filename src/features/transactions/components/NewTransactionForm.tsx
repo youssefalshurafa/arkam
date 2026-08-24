@@ -278,12 +278,12 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
 
  // Which button triggered the submit — read from the native SubmitEvent's `submitter` so the
  // two ledger-modal buttons (see below) can share one <form onSubmit> instead of needing
- // separate handlers. Only the "close" button's value carries `onSaveAndClose` through; the
- // "keep open" button (and the Transactions page's single button) passes nothing, so the
- // handler falls back to its existing "stay open" behavior.
+ // separate handlers. Only the "keep open" button's value opts out of `onSaveAndClose`; every
+ // other case — the "close" button, or pressing Enter in a field (submitter is null then) —
+ // closes after saving.
  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
   const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-  const closeAfter = onSaveAndClose && submitter?.value === 'close' ? onSaveAndClose : undefined;
+  const closeAfter = onSaveAndClose && submitter?.value !== 'new' ? onSaveAndClose : undefined;
   onTransactionSubmit(event, closeAfter);
  };
 
