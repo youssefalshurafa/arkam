@@ -350,6 +350,7 @@ function AuthenticatedHome() {
  const setIsExportingTransactions = useTransactionsStore((s) => s.setIsExportingTransactions);
  const txSortDir = useTransactionsStore((s) => s.txSortDir);
  const setTxSortDir = useTransactionsStore((s) => s.setTxSortDir);
+ const archiveSortDir = useTransactionsStore((s) => s.archiveSortDir);
  const setTxFilterOpen = useTransactionsStore((s) => s.setTxFilterOpen);
  const txFilterSearch = useTransactionsStore((s) => s.txFilterSearch);
  const setTxFilterSearch = useTransactionsStore((s) => s.setTxFilterSearch);
@@ -936,9 +937,12 @@ function AuthenticatedHome() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [sharedSettingsEnabled, isWorkspaceOwner, activeWorkspaceId, sessionUserId]);
 
+ // Archive keeps its own sort direction, separate from the Transactions table's (see
+ // archiveSortDir in transactionsStore.ts) — pick whichever is active for the section shown.
+ const activeSortDir = section === 'archive' ? archiveSortDir : txSortDir;
  const transactionTableRows = useMemo<TransactionTableRow[]>(
-  () => buildTransactionTableRows({ transactions, txSortDir }),
-  [transactions, txSortDir],
+  () => buildTransactionTableRows({ transactions, txSortDir: activeSortDir }),
+  [transactions, activeSortDir],
  );
 
  useEffect(() => {

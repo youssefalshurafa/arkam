@@ -2402,6 +2402,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      const capturedKey = rowKey;
                                      setTimeout(() => setLedgerCounterpartyOpen((current) => (current === capturedKey ? null : current)), 150);
                                     }}
+                                    onKeyDown={(e) => {
+                                     // The dropdown's onFocus/onChange intercept normal typing, so Enter
+                                     // never reaches the row-level save handler like it does for plain
+                                     // fields (e.g. exchange rate) — close the picker and save explicitly.
+                                     if (e.key !== 'Enter') return;
+                                     e.preventDefault();
+                                     e.stopPropagation();
+                                     setLedgerCounterpartyQuery('');
+                                     setLedgerCounterpartyOpen(null);
+                                     (e.target as HTMLInputElement).blur();
+                                     void onSaveLedgerRow(entry.transactionId, ledger.accountId);
+                                    }}
                                     placeholder={t('transaction_account_placeholder')}
                                     style={{ width: '12rem' }}
                                     className={`${seamlessInputClassName} pe-6 text-xs text-fg`}
