@@ -370,10 +370,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
   return () => cancelAnimationFrame(raf);
  }, [pendingLedgerScrollTarget]);
 
- // Wording for a commission flag. Names the row's description whenever it has one, because the
- // history the engine compared against is scoped to that description (see buildCommissionSamples):
- // saying a bare "46 of 49 previous transactions" reads as plainly wrong to someone whose
- // "Turkiye" transfers always carry commission while their "factura" ones never do.
+ // Wording for a commission flag. Names both the counterparty and (when present) the description,
+ // because the history the engine compared against is narrowed to exactly that combination — see
+ // buildCommissionSamples. A bare "5 of 5 previous transactions" is actively confusing on a ledger
+ // showing dozens of same-description rows, since almost all of those are with OTHER counterparties
+ // and were never part of the comparison.
  const commissionAnomalyText = (entry: ClientLedgerEntry, anomaly: CommissionAnomaly) => {
   const description = entry.description?.trim() ?? '';
   const vars = {
@@ -382,6 +383,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
    matchCount: String(anomaly.matchCount),
    sampleSize: String(anomaly.sampleSize),
    date: formatDateValue(entry.createdAt, ledgerDateFormat),
+   counterparty: entry.counterpartyName,
    description,
   };
   return {

@@ -133,7 +133,9 @@ export type CommissionAnomaly = {
  matchCount: number;
 };
 
-type CommissionSample = { transactionId: number; commission: number };
+// `ts` orders a bucket chronologically so a transaction can be judged against only what came
+// before it — see checkCommission.
+type CommissionSample = { transactionId: number; commission: number; ts: number };
 
 // Which side of the transaction `accountId` sat on: 'from' (it sent/converted out) or 'to' (it
 // received). Commission convention is frequently direction-dependent for a given relationship —
@@ -202,14 +204,28 @@ export function buildCommissionSamples(transactions: Transaction[]): Map<string,
  for (const tx of transactions) {
   if (tx.isArchived || tx.type === 'adjustment') continue;
   if (tx.accountFromId != null && tx.accountToId != null) {
-   addSample(samples, commissionPairKey(tx.accountFromId, tx.accountToId, 'from', sideDescription(tx, 'from')), { transactionId: tx.id, commission: tx.commissionFrom });
-   addSample(samples, commissionPairKey(tx.accountToId, tx.accountFromId, 'to', sideDescription(tx, 'to')), { transactionId: tx.id, commission: tx.commissionTo });
+   const ts = new Date(tx.createdAt).getTime();
+   addSample(samples, commissionPairKey(tx.accountFromId, tx.accountToId, 'from', sideDescription(tx, 'from')), { transactionId: tx.id, commission: tx.commissionFrom, ts });
+   addSample(samples, commissionPairKey(tx.accountToId, tx.accountFromId, 'to', sideDescription(tx, 'to')), { transactionId: tx.id, commission: tx.commissionTo, ts });
   }
+ }
+ // Chronological, tie-broken by id — the same ordering the ledger itself uses — so checkCommission
+ // can take a prefix and get exactly "everything that happened before this transaction".
+ for (const bucket of samples.values()) {
+  bucket.sort((a, b) => a.ts - b.ts || a.transactionId - b.transactionId);
  }
  return samples;
 }
 
 // Core commission check, reused by both the export gate and the ledger-row badge.
+//
+// Only transactions RECORDED BEFORE this one count as evidence. Comparing against the whole
+// bucket meant a transaction could be flagged for breaking a convention that only formed after it
+// — most starkly the very first transaction of a relationship, which was judged entirely against
+// its own future (observed live: a 0.8% transfer flagged because the five that came later were all
+// 2.4%). "You've always done X, so why Y this time" is only a meaningful question about the past.
+// A side effect worth knowing: deliberately changing a rate flags the first transaction at the new
+// rate once, because at that moment it is genuinely indistinguishable from a typo.
 export function checkCommission(
  enteredCommission: number,
  accountId: number,
@@ -222,7 +238,11 @@ export function checkCommission(
  if (counterpartyAccountId == null) return null;
  const bucket = samples.get(commissionPairKey(accountId, counterpartyAccountId, role, normalizeDescriptionKey(description)));
  if (!bucket) return null;
- const others = bucket.filter((s) => s.transactionId !== transactionId).map((s) => s.commission);
+ // The bucket is in chronological order, so everything before this transaction's own position is
+ // its prior history. A transaction absent from the bucket (an unsaved edit being previewed) is
+ // treated as happening now, so the whole bucket is its history.
+ const ownIndex = bucket.findIndex((s) => s.transactionId === transactionId);
+ const others = (ownIndex === -1 ? bucket : bucket.slice(0, ownIndex)).map((s) => s.commission);
  if (others.length < MIN_COMMISSION_SAMPLE) return null;
  const { mode, count, share } = modeWithShare(others);
  // No established convention for this pair (commission genuinely varies deal-to-deal) — nothing

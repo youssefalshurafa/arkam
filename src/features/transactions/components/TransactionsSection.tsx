@@ -714,6 +714,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               title={t('missing_counterparty_alert', { count: missingCounterpartyToday.length })}
               className="relative cursor-pointer rounded border border-warn bg-warn-bg p-2 text-warn-text transition hover:opacity-80"
              >
+              {/* An "unknown person" figure, deliberately NOT the warning triangle used by the
+                  mistake-review button beside it — these sat side by side looking identical. This
+                  one asks "who was the other party?", not "this value looks wrong". */}
               <svg
                width="16"
                height="16"
@@ -725,18 +728,14 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                strokeLinejoin="round"
                aria-hidden
               >
-               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+               <circle cx="9" cy="7.5" r="3.5" />
+               <path d="M15 21v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V21" />
+               <path d="M17.4 10.2a2.1 2.1 0 1 1 2.85 1.96c-.75.28-1.25.99-1.25 1.79v.3" />
                <line
-                x1="12"
-                y1="9"
-                x2="12"
-                y2="13"
-               />
-               <line
-                x1="12"
-                y1="17"
-                x2="12.01"
-                y2="17"
+                x1="19"
+                y1="17.6"
+                x2="19.01"
+                y2="17.6"
                />
               </svg>
               <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-bad px-1 text-[10px] font-bold text-white">
