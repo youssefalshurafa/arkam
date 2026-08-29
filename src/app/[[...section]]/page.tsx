@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -65,7 +65,7 @@ import {
  saveLedgerHighlightPresets,
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
-import { getSectionFromPath } from '@/shared/utils/section';
+import { getSectionFromPath, setSectionUrl } from '@/shared/utils/section';
 import { localDateKey } from '@/shared/utils/date';
 import { SkBar, SkTablePanel, SK_CLIENTS, SK_CURRENCIES } from '@/shared/components/skeletons/Skeletons';
 import { useWorkspaceData, useWorkspaceCache } from '@/features/workspace/hooks/useWorkspaceData';
@@ -164,7 +164,6 @@ let appOpenBeaconSent = false;
 let lastRecordedSection: string | null = null;
 
 function AuthenticatedHome() {
- const router = useRouter();
  const pathname = usePathname();
  const { language, setLanguage, isRTL } = useLanguage();
  const { setTheme } = useTheme();
@@ -1062,13 +1061,13 @@ function AuthenticatedHome() {
  function navigateToSection(nextSection: Section) {
   setSection(nextSection);
   if (nextSection === 'client-ledger' || nextSection === 'organization-clients') return;
-  router.replace(nextSection === 'overview' ? '/' : `/${nextSection}`);
+  setSectionUrl(nextSection === 'overview' ? '/' : `/${nextSection}`, 'replace');
  }
 
  function openOrganizationClientsPage(organization: Organization) {
   setSelectedOrganizationForClients(organization);
   setSection('organization-clients');
-  router.push(`/organizations/${organization.id}`);
+  setSectionUrl(`/organizations/${organization.id}`, 'push');
  }
 
  // Jumps to the Clients tab with the new-client form pre-scoped to this organization,
@@ -1099,7 +1098,7 @@ function AuthenticatedHome() {
   // Otherwise it restores the last-viewed account or defaults to the first.
   if (accountId != null) setSelectedLedgerAccountId(accountId);
   setSection('client-ledger');
-  router.push(`/clients/${client.id}`);
+  setSectionUrl(`/clients/${client.id}`, 'push');
  }
 
  function toggleLedgerColumn(column: LedgerColumnKey) {
@@ -1529,31 +1528,6 @@ function AuthenticatedHome() {
   ...(treasuryEnabled ? [{ key: 'treasury' as const, label: t('nav_treasury'), icon: 'treasury' as IconName }] : []),
   ...(isSuperAdminUser ? [{ key: 'harvest' as const, label: t('nav_harvest'), icon: 'harvest' as IconName }] : []),
  ];
-
- // Primes the Client-Side Router Cache for every sidebar destination up front, so even the
- // FIRST click into a section is served from cache rather than starting a cold server round-trip
- // — sidebar items are plain buttons (not next/link), so without this nothing gets prefetched at
- // all. Paired with next.config.ts's staleTimes.dynamic, this is what actually removes the
- // navigation delay/URL-desync; the list mirrors navigateToSection's own '/' vs '/${section}'
- // mapping. Depends only on the two flags that change which sections exist, not on `navItems`
- // itself (that array is rebuilt every render with fresh t() label strings).
- useEffect(() => {
-  const sectionKeys: Section[] = [
-   'overview',
-   'organizations',
-   'clients',
-   'currencies',
-   'transactions',
-   'archive',
-   'live-rates',
-   ...(treasuryEnabled ? (['treasury'] as const) : []),
-   ...(isSuperAdminUser ? (['harvest'] as const) : []),
-  ];
-  for (const key of sectionKeys) {
-   router.prefetch(key === 'overview' ? '/' : `/${key}`);
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [treasuryEnabled, isSuperAdminUser]);
 
  // Editors (workspace role 'member') don't get destructive/billing controls.
  const currentWorkspaceRole = userWorkspaces.find((workspace) => workspace.id === activeWorkspaceId)?.role ?? '';

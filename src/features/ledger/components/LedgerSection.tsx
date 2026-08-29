@@ -8,7 +8,7 @@ import { useLongPress } from '@/shared/hooks/useLongPress';
 import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { useRouter } from 'next/navigation';
+import { setSectionUrl } from '@/shared/utils/section';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { resolveHighlightBg } from '@/shared/utils/highlightColor';
@@ -116,7 +116,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
   openOneSidedTransactionModal, openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
  } = props;
- const router = useRouter();
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
  const { t } = useTranslation(language);
@@ -725,7 +724,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
               onClick={() => {
                if (backToOrganization) {
                 setSection('organization-clients');
-                router.replace(`/organizations/${selectedOrganizationForClients!.id}`);
+                setSectionUrl(`/organizations/${selectedOrganizationForClients!.id}`, 'replace');
                } else {
                 navigateToSection('clients');
                }
