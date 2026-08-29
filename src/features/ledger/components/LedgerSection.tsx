@@ -106,6 +106,13 @@ type LedgerSectionProps = {
  onWriteOffBalance: (accountId: number, balance: number, dateKey?: string) => void;
 };
 
+// Deep-link ("jump to this flagged row") safety bounds — see the two effects that use them.
+// The request is retried while the ledger loads, so it needs an expiry; the scroll polls for the
+// row across frames, so it needs a frame cap. Both are generous: they only stop a request that
+// can never resolve (e.g. the transaction was deleted), not a merely slow one.
+const FLASH_REQUEST_TIMEOUT_MS = 10_000;
+const FLASH_SCROLL_MAX_FRAMES = 120;
+
 export default function LedgerSection(props: LedgerSectionProps) {
  const {
   isLoading, clients, clientAccounts, transactions, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
@@ -281,50 +288,86 @@ export default function LedgerSection(props: LedgerSectionProps) {
  }, [editingLedgerRowKeys]);
 
  // Deep-link from the Transactions/Overview "needs review" list (see flashLedgerEntry in
- // ledgerStore.ts): jumps to whichever page the flagged transaction lands on and clears any
- // filter that would otherwise hide it, then hands off to the effect below once that row is
- // actually in the DOM.
- //
- // Clearing the filters is itself the tricky part: page.tsx has its own effect that resets
- // ledgerPageState to {} any time one of these filter fields changes (see the useEffect keyed on
- // ledgerFilterSearch/etc there) — normal and correct for a person editing the filter bar by
- // hand, but it lands in the very same render pass as the filter clear below and would
- // immediately stomp the target page we're about to set, right after we set it (observed live:
- // the ledger jumps to the right page for a moment, then snaps to the last page instead). A
- // macrotask delay lets that reset — and its own re-render — fully settle first, so writing the
- // page state after it is guaranteed to be the last word.
+ // ledgerStore.ts). Getting from "a flag was clicked in another section" to "that exact row is
+ // on screen and flashing" takes three stages, each waiting on something the previous one can't
+ // synchronously guarantee: this effect resolves the request against ledger data that may not
+ // have loaded yet, the next puts the ledger on the right page, and the last waits for that row
+ // to actually paint before scrolling to it.
  const [pendingLedgerScrollTarget, setPendingLedgerScrollTarget] = useState<{ rowKey: string; kind: 'rate' | 'commission' } | null>(null);
+ const [pendingLedgerJump, setPendingLedgerJump] = useState<{ transactionId: number; accountId: number; kind: 'rate' | 'commission'; targetPage: number } | null>(null);
  useEffect(() => {
   if (!flashLedgerEntry) return;
-  const { transactionId, accountId, kind } = flashLedgerEntry;
-  setFlashLedgerEntry(null);
+  const { transactionId, accountId, kind, requestedAt } = flashLedgerEntry;
   const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
-  const idx = ledger?.entries.findIndex((e) => e.transactionId === transactionId) ?? -1;
-  if (!ledger || idx === -1) return;
+  const idx = ledger ? ledger.entries.findIndex((e) => e.transactionId === transactionId) : -1;
+  if (idx === -1) {
+   // The click that set this request came from another section, so this ledger may not be built
+   // yet on the first render here. Deliberately DON'T consume the request: leave it in place and
+   // let this effect re-run when selectedClientLedgers updates, rather than dropping it. Expire it
+   // eventually so a row that can never resolve (e.g. the transaction was deleted) stops retrying.
+   if (Date.now() - requestedAt > FLASH_REQUEST_TIMEOUT_MS) setFlashLedgerEntry(null);
+   return;
+  }
+  // Clear any filter that would hide the row. Handing the rest to a second effect (rather than
+  // finishing here) is deliberate: consuming the request below changes this effect's own
+  // dependency, so React re-runs it immediately — and any cleanup scheduled here would be torn
+  // down before it could run. That is exactly what silently killed the jump before.
   setLedgerFilterSearch('');
   setLedgerFilterCounterparty('');
   setLedgerFilterDateFrom('');
   setLedgerFilterDateTo('');
-  const targetPage = Math.floor(idx / ledgerPageSize) + 1;
-  const timer = setTimeout(() => {
-   setLedgerPageState((prev) => ({ ...prev, [accountId]: targetPage }));
-   setPendingLedgerScrollTarget({ rowKey: getLedgerTransactionDraftKey(transactionId, accountId), kind });
-  }, 0);
-  return () => clearTimeout(timer);
+  setPendingLedgerJump({ transactionId, accountId, kind, targetPage: Math.floor(idx / ledgerPageSize) + 1 });
+  setFlashLedgerEntry(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [flashLedgerEntry]);
+ }, [flashLedgerEntry, selectedClientLedgers, ledgerPageSize]);
 
- // Once the page/filter change above has committed and the target row exists in the DOM, scroll
- // to it and flash its badge 3 times (see .mce-flash-warning in globals.css) to draw the eye.
+ // Puts the ledger on the page holding the target row, then hands off to the scroll/flash effect.
+ // This has to contend with page.tsx's own effect, which resets ledgerPageState to {} whenever a
+ // filter field changes (correct for someone editing the filter bar by hand, but it also fires on
+ // the filter clear above). Parent effects run after child effects in the same commit, so that
+ // reset would always win a single assignment. Rather than racing it on a timer, this simply
+ // re-asserts the target page whenever it doesn't hold and only proceeds once it sticks.
+ useEffect(() => {
+  if (!pendingLedgerJump) return;
+  // Wait for the filter clear to actually land, so the reset it triggers happens before we assert.
+  if (ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) return;
+  const { transactionId, accountId, kind, targetPage } = pendingLedgerJump;
+  if (ledgerPageState[accountId] !== targetPage) {
+   setLedgerPageState((prev) => ({ ...prev, [accountId]: targetPage }));
+   return;
+  }
+  setPendingLedgerScrollTarget({ rowKey: getLedgerTransactionDraftKey(transactionId, accountId), kind });
+  setPendingLedgerJump(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [pendingLedgerJump, ledgerPageState, ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
+
+ // Scrolls the target row into view and flashes its badge 3 times (see .mce-flash-warning in
+ // globals.css) to draw the eye. The row usually isn't in the DOM yet when this first runs — the
+ // page switch above still has to commit and paint — so this polls across animation frames
+ // instead of looking once and giving up (looking once is what made the jump land on the right
+ // page but never actually scroll or flash). Bounded so it can't spin forever.
  const [flashingLedgerBadge, setFlashingLedgerBadge] = useState<{ rowKey: string; kind: 'rate' | 'commission' } | null>(null);
  useEffect(() => {
   if (!pendingLedgerScrollTarget || typeof document === 'undefined') return;
   const { rowKey, kind } = pendingLedgerScrollTarget;
-  setPendingLedgerScrollTarget(null);
-  const rowEl = document.querySelector(`tr[data-drag-row-key="${CSS.escape(rowKey)}"]`);
-  if (!rowEl) return;
-  rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  setFlashingLedgerBadge({ rowKey, kind });
+  let framesLeft = FLASH_SCROLL_MAX_FRAMES;
+  let raf = 0;
+  const findAndFlash = () => {
+   const rowEl = document.querySelector(`tr[data-drag-row-key="${CSS.escape(rowKey)}"]`);
+   if (rowEl) {
+    setPendingLedgerScrollTarget(null);
+    rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashingLedgerBadge({ rowKey, kind });
+    return;
+   }
+   if (framesLeft-- <= 0) {
+    setPendingLedgerScrollTarget(null);
+    return;
+   }
+   raf = requestAnimationFrame(findAndFlash);
+  };
+  raf = requestAnimationFrame(findAndFlash);
+  return () => cancelAnimationFrame(raf);
  }, [pendingLedgerScrollTarget]);
 
  // Same "last two highlighted rows define an inclusive date range" convention as

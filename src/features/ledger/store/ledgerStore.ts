@@ -70,7 +70,10 @@ export type FlashLedgerEntryTarget = {
  transactionId: number;
  accountId: number;
  kind: 'rate' | 'commission';
- nonce: number;
+ // Date.now() at click time. Makes each request distinct (so re-clicking the same entry re-fires
+ // the effect), and doubles as the deadline for giving up — the request is retried as ledger data
+ // arrives rather than being dropped on the first miss, so it needs an expiry. See LedgerSection.
+ requestedAt: number;
 };
 
 function initialLedgerPageSize(): number {
@@ -149,7 +152,7 @@ type LedgerStore = {
  // A "jump to this flagged transaction" request from outside the ledger view (the Transactions/
  // Overview "needs review" list) — LedgerSection consumes it once (flips the right page, clears
  // any filter hiding the row, scrolls to it, and flashes its badge), then clears it back to null.
- // `nonce` makes every request distinct even when the same entry is clicked again in a row.
+ // `requestedAt` makes every request distinct even when the same entry is clicked again in a row.
  flashLedgerEntry: FlashLedgerEntryTarget | null;
  setFlashLedgerEntry: Dispatch<SetStateAction<FlashLedgerEntryTarget | null>>;
  ledgerExpensesExpandedKeys: Set<string>;

@@ -763,7 +763,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                    const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
                    if (!client) return;
                    openClientLedger(client, 'clients', anomaly.accountId);
-                   setFlashLedgerEntry({ transactionId: anomaly.transactionId, accountId: anomaly.accountId, kind: anomaly.kind, nonce: Date.now() });
+                   setFlashLedgerEntry({ transactionId: anomaly.transactionId, accountId: anomaly.accountId, kind: anomaly.kind, requestedAt: Date.now() });
                   },
                  };
                 }),
