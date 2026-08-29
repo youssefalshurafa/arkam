@@ -334,6 +334,10 @@ export type ClientLedgerEntry = {
  createdAt: string;
  counterpartyName: string;
  counterpartyClientId: number | null;
+ // The counterparty's specific ClientAccount id (not just their client id) — a client may have
+ // several currency accounts, and the commission-anomaly check needs the exact account-pair
+ // relationship, not just "this client" in general. See ledgerAnomalies.ts.
+ counterpartyAccountId: number | null;
  // Currency of the counterparty's own account (may differ from this entry's/account's
  // currency in a cross-currency transaction) — shown next to their name in the ledger.
  counterpartyCurrencyCode: string;

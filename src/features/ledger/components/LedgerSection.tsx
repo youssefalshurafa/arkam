@@ -8,7 +8,7 @@ import { useLongPress } from '@/shared/hooks/useLongPress';
 import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { useRouter } from 'next/navigation';
+import { setSectionUrl } from '@/shared/utils/section';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { resolveHighlightBg } from '@/shared/utils/highlightColor';
@@ -84,7 +84,7 @@ type LedgerSectionProps = {
  onEditSelectedLedgerEntries: () => void;
  onReconcileLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
- onIgnoreAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number) => void;
+ onIgnoreAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
  onLedgerEditFieldArrowKey: (event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number, pagedEntries: ClientLedgerEntry[], entryIdx: number) => void;
@@ -106,6 +106,13 @@ type LedgerSectionProps = {
  onWriteOffBalance: (accountId: number, balance: number, dateKey?: string) => void;
 };
 
+// Deep-link ("jump to this flagged row") safety bounds — see the two effects that use them.
+// The request is retried while the ledger loads, so it needs an expiry; the scroll polls for the
+// row across frames, so it needs a frame cap. Both are generous: they only stop a request that
+// can never resolve (e.g. the transaction was deleted), not a merely slow one.
+const FLASH_REQUEST_TIMEOUT_MS = 10_000;
+const FLASH_SCROLL_MAX_FRAMES = 120;
+
 export default function LedgerSection(props: LedgerSectionProps) {
  const {
   isLoading, clients, clientAccounts, transactions, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
@@ -116,7 +123,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
   openOneSidedTransactionModal, openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
  } = props;
- const router = useRouter();
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
  const { t } = useTranslation(language);
@@ -136,7 +142,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // page's balance-chip write-off uses, applied here to gate the ledger row's "Write off" menu
  // item against the account's current overall balance (see resolveWriteOffThreshold).
  const writeOffMarginByCurrency = useMemo(() => writeOffMarginMap(writeOffMargins), [writeOffMargins]);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerRowHighlightColor, ledgerRowHighlightPresets, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerRowHighlightColor, ledgerRowHighlightPresets, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed, flashLedgerEntry, setFlashLedgerEntry } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
  // sit at the bottom of the scrollable table. Jump there on open (and whenever the
@@ -280,6 +286,111 @@ export default function LedgerSection(props: LedgerSectionProps) {
   const rowEl = document.querySelector(`tr[data-drag-row-key="${CSS.escape(newlyOpenedKey)}"]`);
   rowEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
  }, [editingLedgerRowKeys]);
+
+ // Deep-link from the Transactions/Overview "needs review" list (see flashLedgerEntry in
+ // ledgerStore.ts). Getting from "a flag was clicked in another section" to "that exact row is
+ // on screen and flashing" takes three stages, each waiting on something the previous one can't
+ // synchronously guarantee: this effect resolves the request against ledger data that may not
+ // have loaded yet, the next puts the ledger on the right page, and the last waits for that row
+ // to actually paint before scrolling to it.
+ const [pendingLedgerScrollTarget, setPendingLedgerScrollTarget] = useState<{ rowKey: string; kind: 'rate' | 'commission' } | null>(null);
+ const [pendingLedgerJump, setPendingLedgerJump] = useState<{ transactionId: number; accountId: number; kind: 'rate' | 'commission'; targetPage: number } | null>(null);
+ useEffect(() => {
+  if (!flashLedgerEntry) return;
+  const { transactionId, accountId, kind, requestedAt } = flashLedgerEntry;
+  const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
+  const idx = ledger ? ledger.entries.findIndex((e) => e.transactionId === transactionId) : -1;
+  if (idx === -1) {
+   // The click that set this request came from another section, so this ledger may not be built
+   // yet on the first render here. Deliberately DON'T consume the request: leave it in place and
+   // let this effect re-run when selectedClientLedgers updates, rather than dropping it. Expire it
+   // eventually so a row that can never resolve (e.g. the transaction was deleted) stops retrying.
+   if (Date.now() - requestedAt > FLASH_REQUEST_TIMEOUT_MS) setFlashLedgerEntry(null);
+   return;
+  }
+  // Clear any filter that would hide the row. Handing the rest to a second effect (rather than
+  // finishing here) is deliberate: consuming the request below changes this effect's own
+  // dependency, so React re-runs it immediately — and any cleanup scheduled here would be torn
+  // down before it could run. That is exactly what silently killed the jump before.
+  setLedgerFilterSearch('');
+  setLedgerFilterCounterparty('');
+  setLedgerFilterDateFrom('');
+  setLedgerFilterDateTo('');
+  setPendingLedgerJump({ transactionId, accountId, kind, targetPage: Math.floor(idx / ledgerPageSize) + 1 });
+  setFlashLedgerEntry(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [flashLedgerEntry, selectedClientLedgers, ledgerPageSize]);
+
+ // Puts the ledger on the page holding the target row, then hands off to the scroll/flash effect.
+ // This has to contend with page.tsx's own effect, which resets ledgerPageState to {} whenever a
+ // filter field changes (correct for someone editing the filter bar by hand, but it also fires on
+ // the filter clear above). Parent effects run after child effects in the same commit, so that
+ // reset would always win a single assignment. Rather than racing it on a timer, this simply
+ // re-asserts the target page whenever it doesn't hold and only proceeds once it sticks.
+ useEffect(() => {
+  if (!pendingLedgerJump) return;
+  // Wait for the filter clear to actually land, so the reset it triggers happens before we assert.
+  if (ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) return;
+  const { transactionId, accountId, kind, targetPage } = pendingLedgerJump;
+  if (ledgerPageState[accountId] !== targetPage) {
+   setLedgerPageState((prev) => ({ ...prev, [accountId]: targetPage }));
+   return;
+  }
+  setPendingLedgerScrollTarget({ rowKey: getLedgerTransactionDraftKey(transactionId, accountId), kind });
+  setPendingLedgerJump(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [pendingLedgerJump, ledgerPageState, ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
+
+ // Scrolls the target row into view and flashes its badge 3 times (see .mce-flash-warning in
+ // globals.css) to draw the eye. The row usually isn't in the DOM yet when this first runs — the
+ // page switch above still has to commit and paint — so this polls across animation frames
+ // instead of looking once and giving up (looking once is what made the jump land on the right
+ // page but never actually scroll or flash). Bounded so it can't spin forever.
+ const [flashingLedgerBadge, setFlashingLedgerBadge] = useState<{ rowKey: string; kind: 'rate' | 'commission' } | null>(null);
+ useEffect(() => {
+  if (!pendingLedgerScrollTarget || typeof document === 'undefined') return;
+  const { rowKey, kind } = pendingLedgerScrollTarget;
+  let framesLeft = FLASH_SCROLL_MAX_FRAMES;
+  let raf = 0;
+  const findAndFlash = () => {
+   const rowEl = document.querySelector(`tr[data-drag-row-key="${CSS.escape(rowKey)}"]`);
+   if (rowEl) {
+    setPendingLedgerScrollTarget(null);
+    rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashingLedgerBadge({ rowKey, kind });
+    return;
+   }
+   if (framesLeft-- <= 0) {
+    setPendingLedgerScrollTarget(null);
+    return;
+   }
+   raf = requestAnimationFrame(findAndFlash);
+  };
+  raf = requestAnimationFrame(findAndFlash);
+  return () => cancelAnimationFrame(raf);
+ }, [pendingLedgerScrollTarget]);
+
+ // Wording for a commission flag. Names both the counterparty and (when present) the description,
+ // because the history the engine compared against is narrowed to exactly that combination — see
+ // buildCommissionSamples. A bare "5 of 5 previous transactions" is actively confusing on a ledger
+ // showing dozens of same-description rows, since almost all of those are with OTHER counterparties
+ // and were never part of the comparison.
+ const commissionAnomalyText = (entry: ClientLedgerEntry, anomaly: CommissionAnomaly) => {
+  const description = entry.description?.trim() ?? '';
+  const vars = {
+   entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }),
+   expected: formatRateValue(anomaly.referenceCommission),
+   matchCount: String(anomaly.matchCount),
+   sampleSize: String(anomaly.sampleSize),
+   date: formatDateValue(entry.createdAt, ledgerDateFormat),
+   counterparty: entry.counterpartyName,
+   description,
+  };
+  return {
+   hint: `${t(description ? 'ledger_anomaly_commission_badge_hint_described' : 'ledger_anomaly_commission_badge_hint', vars)} — ${t('ignore_anomaly_hint')}`,
+   reason: t(description ? 'ledger_anomaly_commission_reason_described' : 'ledger_anomaly_commission_reason', vars),
+  };
+ };
 
  // Same "last two highlighted rows define an inclusive date range" convention as
  // openCommissionModalFromHighlights below (the ledger's one existing "use highlighted rows"
@@ -678,7 +789,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
               onClick={() => {
                if (backToOrganization) {
                 setSection('organization-clients');
-                router.replace(`/organizations/${selectedOrganizationForClients!.id}`);
+                setSectionUrl(`/organizations/${selectedOrganizationForClients!.id}`, 'replace');
                } else {
                 navigateToSection('clients');
                }
@@ -1832,6 +1943,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       );
                     }
                    })}
+                   {/* Trailing header cell matching the always-visible flag indicator column (see
+                       the flagged-row <td> appended after the mapped columns below) */}
+                   <th className="px-2 py-3" />
                   </tr>
                  </thead>
                  <tbody>
@@ -2402,6 +2516,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      const capturedKey = rowKey;
                                      setTimeout(() => setLedgerCounterpartyOpen((current) => (current === capturedKey ? null : current)), 150);
                                     }}
+                                    onKeyDown={(e) => {
+                                     // The dropdown's onFocus/onChange intercept normal typing, so Enter
+                                     // never reaches the row-level save handler like it does for plain
+                                     // fields (e.g. exchange rate) — close the picker and save explicitly.
+                                     if (e.key !== 'Enter') return;
+                                     e.preventDefault();
+                                     e.stopPropagation();
+                                     setLedgerCounterpartyQuery('');
+                                     setLedgerCounterpartyOpen(null);
+                                     (e.target as HTMLInputElement).blur();
+                                     void onSaveLedgerRow(entry.transactionId, ledger.accountId);
+                                    }}
                                     placeholder={t('transaction_account_placeholder')}
                                     style={{ width: '12rem' }}
                                     className={`${seamlessInputClassName} pe-6 text-xs text-fg`}
@@ -2901,8 +3027,25 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      <button
                                       type="button"
                                       title={`${t('ledger_anomaly_badge_hint', { entered: formatRateValue(sameCurrencyAnomaly.enteredRate), expected: formatRateValue(sameCurrencyAnomaly.referenceRate) })} — ${t('ignore_anomaly_hint')}`}
-                                      onClick={() => onIgnoreAnomaly('rate', entry.transactionId, ledger.accountId)}
-                                      className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80"
+                                      onClick={() =>
+                                       onIgnoreAnomaly(
+                                        'rate',
+                                        entry.transactionId,
+                                        ledger.accountId,
+                                        t('ledger_anomaly_rate_reason', {
+                                         date: formatDateValue(entry.createdAt, ledgerDateFormat),
+                                         expected: formatRateValue(sameCurrencyAnomaly.referenceRate),
+                                         sampleSize: String(sameCurrencyAnomaly.sampleSize),
+                                         entered: formatRateValue(sameCurrencyAnomaly.enteredRate),
+                                        }),
+                                       )
+                                      }
+                                      onAnimationEnd={() => setFlashingLedgerBadge(null)}
+                                      className={`inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80${
+                                       flashingLedgerBadge?.kind === 'rate' && flashingLedgerBadge.rowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
+                                        ? ' mce-flash-warning'
+                                        : ''
+                                      }`}
                                      >
                                       ⚠ {t('ledger_anomaly_badge')}
                                      </button>
@@ -2943,8 +3086,25 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      <button
                                       type="button"
                                       title={`${t('ledger_anomaly_badge_hint', { entered: formatRateValue(anomaly.enteredRate), expected: formatRateValue(anomaly.referenceRate) })} — ${t('ignore_anomaly_hint')}`}
-                                      onClick={() => onIgnoreAnomaly('rate', entry.transactionId, ledger.accountId)}
-                                      className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80"
+                                      onClick={() =>
+                                       onIgnoreAnomaly(
+                                        'rate',
+                                        entry.transactionId,
+                                        ledger.accountId,
+                                        t('ledger_anomaly_rate_reason', {
+                                         date: formatDateValue(entry.createdAt, ledgerDateFormat),
+                                         expected: formatRateValue(anomaly.referenceRate),
+                                         sampleSize: String(anomaly.sampleSize),
+                                         entered: formatRateValue(anomaly.enteredRate),
+                                        }),
+                                       )
+                                      }
+                                      onAnimationEnd={() => setFlashingLedgerBadge(null)}
+                                      className={`inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80${
+                                       flashingLedgerBadge?.kind === 'rate' && flashingLedgerBadge.rowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
+                                        ? ' mce-flash-warning'
+                                        : ''
+                                      }`}
                                      >
                                       ⚠ {t('ledger_anomaly_badge')}
                                      </button>
@@ -3055,7 +3215,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  </div>
                                 );
                                })()
-                              ) : entry.commission ? (
+                              ) : entry.commission || ledgerCommissionAnomalies.has(entry.transactionId) ? (
                                (() => {
                                 const commissionAnomaly = ledgerCommissionAnomalies.get(entry.transactionId);
                                 return (
@@ -3066,9 +3226,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   {commissionAnomaly ? (
                                    <button
                                     type="button"
-                                    title={`${t('ledger_anomaly_commission_badge_hint', { entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }), expected: formatRateValue(commissionAnomaly.referenceCommission) })} — ${t('ignore_anomaly_hint')}`}
-                                    onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId)}
-                                    className="inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80"
+                                    title={commissionAnomalyText(entry, commissionAnomaly).hint}
+                                    onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId, commissionAnomalyText(entry, commissionAnomaly).reason)}
+                                    onAnimationEnd={() => setFlashingLedgerBadge(null)}
+                                    className={`inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80${
+                                     flashingLedgerBadge?.kind === 'commission' && flashingLedgerBadge.rowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
+                                      ? ' mce-flash-warning'
+                                      : ''
+                                    }`}
                                    >
                                     ⚠ {t('ledger_anomaly_commission_badge')}
                                    </button>
@@ -3237,12 +3402,70 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         </>
                        );
                       })()}
+                      {(() => {
+                       // Lives in its own trailing cell, after every data column, rather than inside
+                       // one of the toggleable columns above — so a flagged row stays visible no
+                       // matter which columns are currently shown/hidden (a rate/commission anomaly
+                       // can otherwise hide behind a turned-off column with no indication anything
+                       // needs review).
+                       const rateAnomaly = ledgerRateAnomalies.get(entry.transactionId);
+                       const commissionAnomaly = ledgerCommissionAnomalies.get(entry.transactionId);
+                       if (!rateAnomaly && !commissionAnomaly) return <td className="px-2 py-3" />;
+                       const flagRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                       const badgeClassName = (kind: 'rate' | 'commission') =>
+                        `rounded-full bg-warn-bg px-1 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80${
+                         flashingLedgerBadge?.kind === kind && flashingLedgerBadge.rowKey === flagRowKey ? ' mce-flash-warning' : ''
+                        }`;
+                       return (
+                        <td className="px-2 py-3">
+                         <span className="flex items-center gap-0.5">
+                          {rateAnomaly ? (
+                           <button
+                            type="button"
+                            title={`${t('ledger_anomaly_badge_hint', { entered: formatRateValue(rateAnomaly.enteredRate), expected: formatRateValue(rateAnomaly.referenceRate) })} — ${t('ignore_anomaly_hint')}`}
+                            onClick={() =>
+                             onIgnoreAnomaly(
+                              'rate',
+                              entry.transactionId,
+                              ledger.accountId,
+                              t('ledger_anomaly_rate_reason', {
+                               date: formatDateValue(entry.createdAt, ledgerDateFormat),
+                               expected: formatRateValue(rateAnomaly.referenceRate),
+                               sampleSize: String(rateAnomaly.sampleSize),
+                               entered: formatRateValue(rateAnomaly.enteredRate),
+                              }),
+                             )
+                            }
+                            onAnimationEnd={() => setFlashingLedgerBadge(null)}
+                            className={badgeClassName('rate')}
+                           >
+                            ⚠
+                           </button>
+                          ) : null}
+                          {commissionAnomaly ? (
+                           <button
+                            type="button"
+                            title={commissionAnomalyText(entry, commissionAnomaly).hint}
+                            onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId, commissionAnomalyText(entry, commissionAnomaly).reason)}
+                            onAnimationEnd={() => setFlashingLedgerBadge(null)}
+                            className={badgeClassName('commission')}
+                           >
+                            ⚠
+                           </button>
+                          ) : null}
+                         </span>
+                        </td>
+                       );
+                      })()}
                      </tr>
                      {(() => {
                       const baseChargesRowKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                       const isEditingThisRow = editingLedgerRowKeys.has(baseChargesRowKey);
                       const chargesDraft = isEditingThisRow ? getClientLedgerDraft(entry.transactionId, ledger.accountId) : null;
-                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 2 : 1);
+                      // +1 for the trailing always-visible flag-indicator column (see the flagged-row
+                      // <td> appended after the mapped columns above), on top of the visible data
+                      // columns and the actions/checkbox column(s).
+                      const colSpanCount = orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 2 : 1) + 1;
                       const chargesHighlightColor = highlightedLedgerRows.get(baseChargesRowKey);
 
                       // A transaction can carry two fully independent charges (e.g. one org-settled
@@ -3392,7 +3615,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     return (
                      <tr>
                       <td
-                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 2 : 1)}
+                       colSpan={orderedLedgerColumnOptions.filter((c) => ledgerColumnVisibility[c.key]).length + (selectionMode ? 2 : 1) + 1}
                        className="px-4 py-6 text-sm text-fg-faint"
                       >
                        {t('no_search_results')}

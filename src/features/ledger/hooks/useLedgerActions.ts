@@ -946,8 +946,9 @@ async function onRemoveReconciliation(entry: ClientLedgerEntry, ledgerAccountId:
 // (see ledgerAnomalies.ts), the user reviewed and judged fine — shared workspace-wide, so it
 // stops flagging for every member, not just the one who ignored it. `accountId` is which side
 // of the transaction this applies to.
-async function onIgnoreAnomaly(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number) {
- if (!(await confirmDialog({ message: t('ignore_anomaly_confirm'), confirmText: t('ignore_anomaly_confirm_button') }))) return;
+async function onIgnoreAnomaly(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string) {
+ const message = reason ? `${reason}\n\n${t('ignore_anomaly_confirm')}` : t('ignore_anomaly_confirm');
+ if (!(await confirmDialog({ message, confirmText: t('ignore_anomaly_confirm_button') }))) return;
  try {
   const created = await accountingApi.createIgnoredAnomaly({ kind, transactionId, accountId });
   if (created.id != null) {

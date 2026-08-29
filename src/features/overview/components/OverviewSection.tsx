@@ -10,9 +10,10 @@ import { SkBar } from '@/shared/components/skeletons/Skeletons';
 import { panelClassName, mutedPanelClassName } from '@/shared/styles';
 import { renderIcon } from '@/shared/utils/icons';
 import { normalizeDecimalInput } from '@/shared/utils/decimal';
-import { localDateKey } from '@/shared/utils/date';
+import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import { anomalyKey, type FlaggedAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
+import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import type {
  Client,
  ClientAccount,
@@ -62,6 +63,7 @@ export default function OverviewSection({
  const numLocale = language === 'fr' ? 'en-US' : language;
 
  const { overviewFlipped, setOverviewFlipped } = useOverviewStore();
+ const setFlashLedgerEntry = useLedgerStore((s) => s.setFlashLedgerEntry);
  const { setters, invalidate, setError } = useWorkspaceActions();
  const setHarvestRates = setters.setHarvestRates;
  const today = localDateKey();
@@ -247,12 +249,15 @@ export default function OverviewSection({
                  const account = clientAccountById.get(anomaly.accountId);
                  const kindLabel = anomaly.kind === 'rate' ? t('ledger_anomaly_badge') : t('ledger_anomaly_commission_badge');
                  const amountLabel = tx ? `${tx.amount.toLocaleString(numLocale)} ${tx.currencyCode}` : '';
+                 const dateLabel = tx ? formatDateValue(tx.createdAt, 'day-month') : '';
                  return {
                   key: anomalyKey(anomaly.kind, anomaly.transactionId, anomaly.accountId),
-                  label: `${account?.clientName ?? ''} · ${kindLabel}${amountLabel ? ` · ${amountLabel}` : ''}`,
+                  label: `${account?.clientName ?? ''} · ${kindLabel}${amountLabel ? ` · ${amountLabel}` : ''}${dateLabel ? ` · ${dateLabel}` : ''}`,
                   onSelect: () => {
                    const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
-                   if (client) openClientLedger(client, 'clients', anomaly.accountId);
+                   if (!client) return;
+                   openClientLedger(client, 'clients', anomaly.accountId);
+                   setFlashLedgerEntry({ transactionId: anomaly.transactionId, accountId: anomaly.accountId, kind: anomaly.kind, requestedAt: Date.now() });
                   },
                  };
                 }),

@@ -183,6 +183,26 @@ html[dir='rtl'] textarea {
  text-align: right;
 }
 
+/* Deep-linking to a flagged ledger row from the Transactions/Overview "needs review" list —
+   lights up the clicked entry's warning badge 3 times then settles back to normal, so it's
+   unmistakable which row the click landed on. animation-iteration-count handles the "3 times
+   and stop" on its own — see flashLedgerEntry in ledgerStore.ts / LedgerSection.tsx. */
+.mce-flash-warning {
+ animation: mce-flash-warning 0.6s ease-in-out 3;
+}
+@keyframes mce-flash-warning {
+ 0%, 100% {
+  background-color: var(--warn-bg);
+  color: var(--warn-text);
+  transform: scale(1);
+ }
+ 50% {
+  background-color: var(--warn);
+  color: #fff;
+  transform: scale(1.2);
+ }
+}
+
 /* Indeterminate top loading bar (GlobalLoadingBar) */
 @keyframes loading-bar {
  0% {

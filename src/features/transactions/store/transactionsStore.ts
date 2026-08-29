@@ -86,6 +86,10 @@ type TransactionsStore = {
  setIsExportingTransactions: Dispatch<SetStateAction<boolean>>;
  txSortDir: 'desc' | 'asc';
  setTxSortDir: Dispatch<SetStateAction<'desc' | 'asc'>>;
+ // Archive keeps its own sort direction, entirely separate from the Transactions table's
+ // (see txSortDir above) — otherwise toggling sort on one page would also resort the other.
+ archiveSortDir: 'desc' | 'asc';
+ setArchiveSortDir: Dispatch<SetStateAction<'desc' | 'asc'>>;
  txFilterOpen: boolean;
  setTxFilterOpen: Dispatch<SetStateAction<boolean>>;
  txFilterSearch: string;
@@ -263,6 +267,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setIsExportingTransactions: setter('isExportingTransactions'),
   txSortDir: 'desc',
   setTxSortDir: setter('txSortDir'),
+  archiveSortDir: 'desc',
+  setArchiveSortDir: setter('archiveSortDir'),
   txFilterOpen: false,
   setTxFilterOpen: setter('txFilterOpen'),
   txFilterSearch: initialTxFilter.search,

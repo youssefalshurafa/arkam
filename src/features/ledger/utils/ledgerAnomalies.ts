@@ -105,11 +105,18 @@ export function checkLedgerEntry(
  return checkRate(entry.exchangeRate, entry.currencyCode, accountCurrencyCode, entry.transactionId, samples);
 }
 
-// Below this many other exchange-transaction samples for the account, there's no meaningful
-// baseline — never flag, to avoid false positives on accounts with little exchange history.
+// Below this many other same-pair samples, there's no meaningful baseline — never flag, to
+// avoid false positives on new/rarely-used client relationships.
 const MIN_COMMISSION_SAMPLE = 5;
-// Historical commissions below this are treated as "effectively zero" (a commission-free
-// account), separately from the ratio bound below (which needs a nonzero reference).
+// A pair's commission history must agree on one value at least this often to count as an
+// established convention. Commission is frequently negotiated per-deal (unlike exchange rates,
+// which track a real market), so unlike the rate check, deviation from a loose statistical
+// center (e.g. a median) is not a reliable signal — plenty of genuinely-variable relationships
+// would trip it. Requiring near-unanimous agreement first means we only compare against pairs
+// that actually have a convention to break.
+const MODE_SHARE_THRESHOLD = 0.9;
+// Commissions below this are treated as "effectively zero" — both for deciding whether the
+// pair's mode itself is a zero-commission convention, and for comparing an entered value to it.
 const COMMISSION_ZERO_EPSILON = 0.01;
 const MAX_COMMISSION_RATIO = 1.5;
 const MIN_COMMISSION_RATIO = 1 / MAX_COMMISSION_RATIO;
@@ -120,56 +127,162 @@ export type CommissionAnomaly = {
  enteredCommission: number;
  referenceCommission: number;
  sampleSize: number;
+ // How many of `sampleSize` prior transactions actually carried `referenceCommission` — lets
+ // the UI explain the flag ("0% in 51 of 51 previous transactions with this client") rather
+ // than just stating a bare reference number.
+ matchCount: number;
 };
 
-type CommissionSample = { transactionId: number; commission: number };
+// `ts` orders a bucket chronologically so a transaction can be judged against only what came
+// before it — see checkCommission.
+type CommissionSample = { transactionId: number; commission: number; ts: number };
 
-// Historical commission pool per account (not workspace-wide — commission practice is
-// client/account-specific: some clients get charged commission on exchanges, others never
-// do), scoped to `exchange`-type transactions only, since commission on other transaction
-// types isn't a comparable practice.
-export function buildCommissionSamples(transactions: Transaction[]): Map<number, CommissionSample[]> {
- const samples = new Map<number, CommissionSample[]>();
+// Which side of the transaction `accountId` sat on: 'from' (it sent/converted out) or 'to' (it
+// received). Commission convention is frequently direction-dependent for a given relationship —
+// e.g. a client who is never charged when paying out, only when receiving — so this must be part
+// of the bucket key, not folded into a single "this account with this counterparty" pool.
+type CommissionRole = 'from' | 'to';
+
+// Descriptions are compared exactly once case and spacing are normalised — deliberately no fuzzy
+// or semantic matching. Two labels that mean the same thing to a person ("turkiye" / "turk euro")
+// stay separate groups, which is the safe direction: a group with too little history simply isn't
+// judged, whereas guessing that two labels are equivalent could merge genuinely different
+// commission conventions back together — the very bug this grouping exists to fix.
+function normalizeDescriptionKey(description: string): string {
+ return description.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// The description as it appears on this side's ledger row. Mirrors computeClientLedgers
+// (ledgerBalances.ts), so the history a transaction is judged against is exactly the set of rows
+// the user sees carrying the same label.
+function sideDescription(tx: Transaction, side: CommissionRole): string {
+ const own = side === 'from' ? tx.descriptionFrom : tx.descriptionTo;
+ return normalizeDescriptionKey(own?.trim() || tx.description || '');
+}
+
+function commissionPairKey(accountId: number, counterpartyAccountId: number, role: CommissionRole, descriptionKey: string): string {
+ return `${accountId}:${counterpartyAccountId}:${role}:${descriptionKey}`;
+}
+
+// The most frequent value in a sample (rounded to the commission input's own precision, 2
+// decimals, so near-identical entries count as the same convention), how many samples share it,
+// and its share of the sample — used to decide whether a pair's history is consistent enough to
+// compare against, and to explain the flag to the user.
+function modeWithShare(values: number[]): { mode: number; count: number; share: number } {
+ const counts = new Map<number, number>();
+ for (const v of values) {
+  const key = Math.round(v * 100) / 100;
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+ }
+ let mode = values[0];
+ let best = 0;
+ for (const [key, count] of counts) {
+  if (count > best) {
+   best = count;
+   mode = key;
+  }
+ }
+ return { mode, count: best, share: best / values.length };
+}
+
+// Historical commission pool per (account, counterparty-account, direction, description) — not per
+// account alone, not workspace-wide, and not merged across directions or transaction kinds.
+// Commission practice is specific to one client-to-client relationship, to which way the money
+// moved, AND to what kind of business the transaction is: the same two accounts routinely charge
+// on one kind of transaction and never on another (observed live: a client charging ~0.9% on
+// "turk euro" transfers while 46 of their 49 "factura" transfers carry none). Pooling those
+// together lets the more common kind outvote the rarer one, so every transaction of the rarer kind
+// reads as a deviation from a "convention" it never belonged to. Descriptions are whatever each
+// workspace actually types — nothing here is specific to any user's vocabulary; a workspace that
+// leaves descriptions blank simply forms one group and behaves as it did before.
+//
+// Commission is a universal field applied the same way for every transaction type except
+// `adjustment` (a balance correction, not a real settled trade) — see
+// computeTransactionSideNetChange, which has no type gate on commission either.
+export function buildCommissionSamples(transactions: Transaction[]): Map<string, CommissionSample[]> {
+ const samples = new Map<string, CommissionSample[]>();
  for (const tx of transactions) {
-  if (tx.isArchived || tx.type !== 'exchange') continue;
-  if (tx.accountFromId != null) addSample(samples, tx.accountFromId, { transactionId: tx.id, commission: tx.commissionFrom });
-  if (tx.accountToId != null) addSample(samples, tx.accountToId, { transactionId: tx.id, commission: tx.commissionTo });
+  if (tx.isArchived || tx.type === 'adjustment') continue;
+  if (tx.accountFromId != null && tx.accountToId != null) {
+   const ts = new Date(tx.createdAt).getTime();
+   addSample(samples, commissionPairKey(tx.accountFromId, tx.accountToId, 'from', sideDescription(tx, 'from')), { transactionId: tx.id, commission: tx.commissionFrom, ts });
+   addSample(samples, commissionPairKey(tx.accountToId, tx.accountFromId, 'to', sideDescription(tx, 'to')), { transactionId: tx.id, commission: tx.commissionTo, ts });
+  }
+ }
+ // Chronological, tie-broken by id — the same ordering the ledger itself uses — so checkCommission
+ // can take a prefix and get exactly "everything that happened before this transaction".
+ for (const bucket of samples.values()) {
+  bucket.sort((a, b) => a.ts - b.ts || a.transactionId - b.transactionId);
  }
  return samples;
 }
 
 // Core commission check, reused by both the export gate and the ledger-row badge.
+//
+// Only transactions RECORDED BEFORE this one count as evidence. Comparing against the whole
+// bucket meant a transaction could be flagged for breaking a convention that only formed after it
+// — most starkly the very first transaction of a relationship, which was judged entirely against
+// its own future (observed live: a 0.8% transfer flagged because the five that came later were all
+// 2.4%). "You've always done X, so why Y this time" is only a meaningful question about the past.
+// A side effect worth knowing: deliberately changing a rate flags the first transaction at the new
+// rate once, because at that moment it is genuinely indistinguishable from a typo.
 export function checkCommission(
  enteredCommission: number,
  accountId: number,
+ counterpartyAccountId: number | null,
+ role: CommissionRole,
+ description: string,
  transactionId: number,
- samples: Map<number, CommissionSample[]>,
+ samples: Map<string, CommissionSample[]>,
 ): CommissionAnomaly | null {
- const bucket = samples.get(accountId);
+ if (counterpartyAccountId == null) return null;
+ const bucket = samples.get(commissionPairKey(accountId, counterpartyAccountId, role, normalizeDescriptionKey(description)));
  if (!bucket) return null;
- const others = bucket.filter((s) => s.transactionId !== transactionId).map((s) => s.commission);
+ // The bucket is in chronological order, so everything before this transaction's own position is
+ // its prior history. A transaction absent from the bucket (an unsaved edit being previewed) is
+ // treated as happening now, so the whole bucket is its history.
+ const ownIndex = bucket.findIndex((s) => s.transactionId === transactionId);
+ const others = (ownIndex === -1 ? bucket : bucket.slice(0, ownIndex)).map((s) => s.commission);
  if (others.length < MIN_COMMISSION_SAMPLE) return null;
- const ref = median(others);
- const entered = Math.abs(enteredCommission);
- if (Math.abs(ref) < COMMISSION_ZERO_EPSILON) {
-  // This account's history is essentially commission-free on exchanges — any nontrivial
-  // commission is a break from its own established pattern.
-  if (entered < COMMISSION_ZERO_EPSILON) return null;
+ const { mode, count, share } = modeWithShare(others);
+ // No established convention for this pair (commission genuinely varies deal-to-deal) — nothing
+ // to compare against, so never flag.
+ if (share < MODE_SHARE_THRESHOLD) return null;
+
+ const entered = enteredCommission;
+ const modeIsZero = Math.abs(mode) < COMMISSION_ZERO_EPSILON;
+ let flagged: boolean;
+ if (modeIsZero) {
+  // This pair has never carried commission — any nontrivial commission is a break.
+  flagged = Math.abs(entered) >= COMMISSION_ZERO_EPSILON;
+ } else if (Math.sign(entered) !== Math.sign(mode) && Math.abs(entered) >= COMMISSION_ZERO_EPSILON) {
+  // A fee became a rebate (or vice versa) — a clear break regardless of magnitude.
+  flagged = true;
  } else {
-  const ratio = entered / Math.abs(ref);
-  if (ratio <= MAX_COMMISSION_RATIO && ratio >= MIN_COMMISSION_RATIO) return null;
+  // Magnitude break either way: entered back to zero when the pair always carries commission
+  // (ratio 0/mode falls outside the bounds below, so this is covered by the same check), or an
+  // outsized/undersized value relative to the established amount.
+  const ratio = Math.abs(entered) / Math.abs(mode);
+  flagged = !(ratio <= MAX_COMMISSION_RATIO && ratio >= MIN_COMMISSION_RATIO);
  }
- return { transactionId, accountId, enteredCommission, referenceCommission: ref, sampleSize: others.length };
+ if (!flagged) return null;
+ return { transactionId, accountId, enteredCommission, referenceCommission: mode, sampleSize: others.length, matchCount: count };
 }
 
 // Convenience for checking an already-computed ledger row against its own account.
 export function checkLedgerEntryCommission(
  entry: ClientLedgerEntry,
  accountId: number,
- samples: Map<number, CommissionSample[]>,
+ samples: Map<string, CommissionSample[]>,
 ): CommissionAnomaly | null {
- if (entry.type !== 'exchange') return null;
- return checkCommission(entry.commission, accountId, entry.transactionId, samples);
+ if (entry.type === 'adjustment') return null;
+ // 'outgoing' means this account was the transaction's "from" side (it sent/converted out);
+ // 'incoming' means it was the "to" side (it received) — mirrors accountFromId/accountToId in
+ // computeClientLedgers (ledgerBalances.ts), which is where `direction` is set.
+ const role: CommissionRole = entry.direction === 'outgoing' ? 'from' : 'to';
+ // entry.description is already the per-side description computeClientLedgers resolved, so it
+ // matches the group buildCommissionSamples keyed this same row under.
+ return checkCommission(entry.commission, accountId, entry.counterpartyAccountId, role, entry.description, entry.transactionId, samples);
 }
 
 // Identifies one (kind, transaction side) flag for the ignore-list — a transaction's "from"
@@ -210,13 +323,13 @@ export function buildWorkspaceAnomalies(transactions: Transaction[], ignored: Se
    const rate = checkRate(tx.exchangeRateTo, tx.currencyCode, tx.accountToCurrencyCode, tx.id, rateSamples);
    if (rate) flagged.push({ kind: 'rate', transactionId: tx.id, accountId: tx.accountToId, enteredValue: rate.enteredRate, referenceValue: rate.referenceRate, sampleSize: rate.sampleSize });
   }
-  if (tx.type !== 'exchange') continue;
+  if (tx.type === 'adjustment') continue;
   if (tx.accountFromId != null && !ignored.has(anomalyKey('commission', tx.id, tx.accountFromId))) {
-   const commission = checkCommission(tx.commissionFrom, tx.accountFromId, tx.id, commissionSamples);
+   const commission = checkCommission(tx.commissionFrom, tx.accountFromId, tx.accountToId, 'from', sideDescription(tx, 'from'), tx.id, commissionSamples);
    if (commission) flagged.push({ kind: 'commission', transactionId: tx.id, accountId: tx.accountFromId, enteredValue: commission.enteredCommission, referenceValue: commission.referenceCommission, sampleSize: commission.sampleSize });
   }
   if (tx.accountToId != null && !ignored.has(anomalyKey('commission', tx.id, tx.accountToId))) {
-   const commission = checkCommission(tx.commissionTo, tx.accountToId, tx.id, commissionSamples);
+   const commission = checkCommission(tx.commissionTo, tx.accountToId, tx.accountFromId, 'to', sideDescription(tx, 'to'), tx.id, commissionSamples);
    if (commission) flagged.push({ kind: 'commission', transactionId: tx.id, accountId: tx.accountToId, enteredValue: commission.enteredCommission, referenceValue: commission.referenceCommission, sampleSize: commission.sampleSize });
   }
  }

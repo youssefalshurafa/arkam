@@ -30,6 +30,7 @@ import ArchiveExportModal from '@/features/transactions/components/ArchiveExport
 import NewTransactionForm from '@/features/transactions/components/NewTransactionForm';
 import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
 import { anomalyKey, type FlaggedAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
+import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import type {
  Client,
  ClientAccount,
@@ -163,6 +164,7 @@ type TransactionsSectionProps = {
 };
 
 export default function TransactionsSection(props: TransactionsSectionProps) {
+ const setFlashLedgerEntry = useLedgerStore((s) => s.setFlashLedgerEntry);
  const {
   isLoading, section, clients, clientAccounts, enabledCurrencies, transactions, clientAccountMap, currencyMap,
   displayedTransactionRows, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
@@ -203,11 +205,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // to that entry's client ledger, where the actual badge (and its "ignore" action) lives.
  const anomalyReviewMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir, setTxSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveFilterShowHidden, setArchiveFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, expensesExpandedTxns2, setExpensesExpandedTxns2, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, isSubmittingTransaction, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir: txSortDirStore, setTxSortDir: setTxSortDirStore, archiveSortDir, setArchiveSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveFilterShowHidden, setArchiveFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, expensesExpandedTxns2, setExpensesExpandedTxns2, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, isSubmittingTransaction, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
  const transactionTableSettings = section === 'archive' ? archiveTableSettings : transactionTableSettingsStore;
+ // Archive keeps its own sort direction, separate from the Transactions table's (see
+ // archiveSortDir in transactionsStore.ts) — resolve whichever is active here.
+ const txSortDir = section === 'archive' ? archiveSortDir : txSortDirStore;
+ const setTxSortDir = section === 'archive' ? setArchiveSortDir : setTxSortDirStore;
  // Archive keeps its own collapse flag (defaults closed — creating an archived transaction
  // is rare) so it doesn't inherit the Transactions form's open state when switching sections.
  const newSectionOpen = section === 'archive' ? isNewArchiveSectionOpen : isNewTransactionSectionOpen;
@@ -708,6 +714,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               title={t('missing_counterparty_alert', { count: missingCounterpartyToday.length })}
               className="relative cursor-pointer rounded border border-warn bg-warn-bg p-2 text-warn-text transition hover:opacity-80"
              >
+              {/* An "unknown person" figure, deliberately NOT the warning triangle used by the
+                  mistake-review button beside it — these sat side by side looking identical. This
+                  one asks "who was the other party?", not "this value looks wrong". */}
               <svg
                width="16"
                height="16"
@@ -719,18 +728,14 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                strokeLinejoin="round"
                aria-hidden
               >
-               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+               <circle cx="9" cy="7.5" r="3.5" />
+               <path d="M15 21v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V21" />
+               <path d="M17.4 10.2a2.1 2.1 0 1 1 2.85 1.96c-.75.28-1.25.99-1.25 1.79v.3" />
                <line
-                x1="12"
-                y1="9"
-                x2="12"
-                y2="13"
-               />
-               <line
-                x1="12"
-                y1="17"
-                x2="12.01"
-                y2="17"
+                x1="19"
+                y1="17.6"
+                x2="19.01"
+                y2="17.6"
                />
               </svg>
               <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-bad px-1 text-[10px] font-bold text-white">
@@ -749,12 +754,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  const account = clientAccountMap.get(anomaly.accountId);
                  const kindLabel = anomaly.kind === 'rate' ? t('ledger_anomaly_badge') : t('ledger_anomaly_commission_badge');
                  const amountLabel = tx ? `${tx.amount.toLocaleString(numLocale)} ${tx.currencyCode}` : '';
+                 const dateLabel = tx ? formatDateValue(tx.createdAt, transactionTableSettings.dateFormat) : '';
                  return {
                   key: anomalyKey(anomaly.kind, anomaly.transactionId, anomaly.accountId),
-                  label: `${account?.clientName ?? ''} · ${kindLabel}${amountLabel ? ` · ${amountLabel}` : ''}`,
+                  label: `${account?.clientName ?? ''} · ${kindLabel}${amountLabel ? ` · ${amountLabel}` : ''}${dateLabel ? ` · ${dateLabel}` : ''}`,
                   onSelect: () => {
                    const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
-                   if (client) openClientLedger(client, 'clients', anomaly.accountId);
+                   if (!client) return;
+                   openClientLedger(client, 'clients', anomaly.accountId);
+                   setFlashLedgerEntry({ transactionId: anomaly.transactionId, accountId: anomaly.accountId, kind: anomaly.kind, requestedAt: Date.now() });
                   },
                  };
                 }),
@@ -1431,7 +1439,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 e.preventDefault();
                 void onSaveTransactionTableRow(txn.id);
                }}
-               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${!txn.isArchived && txn.type !== 'adjustment' && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim() ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
+               className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${section !== 'archive' && !txn.isArchived && txn.type !== 'adjustment' && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim() ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
                 section === 'archive' && txn.archiveHidden ? 'opacity-50' : ''
                } ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''

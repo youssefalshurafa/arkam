@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -65,7 +65,7 @@ import {
  saveLedgerHighlightPresets,
 } from '@/shared/lib/localStorage';
 import { normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
-import { getSectionFromPath } from '@/shared/utils/section';
+import { getSectionFromPath, setSectionUrl } from '@/shared/utils/section';
 import { localDateKey } from '@/shared/utils/date';
 import { SkBar, SkTablePanel, SK_CLIENTS, SK_CURRENCIES } from '@/shared/components/skeletons/Skeletons';
 import { useWorkspaceData, useWorkspaceCache } from '@/features/workspace/hooks/useWorkspaceData';
@@ -164,7 +164,6 @@ let appOpenBeaconSent = false;
 let lastRecordedSection: string | null = null;
 
 function AuthenticatedHome() {
- const router = useRouter();
  const pathname = usePathname();
  const { language, setLanguage, isRTL } = useLanguage();
  const { setTheme } = useTheme();
@@ -350,6 +349,7 @@ function AuthenticatedHome() {
  const setIsExportingTransactions = useTransactionsStore((s) => s.setIsExportingTransactions);
  const txSortDir = useTransactionsStore((s) => s.txSortDir);
  const setTxSortDir = useTransactionsStore((s) => s.setTxSortDir);
+ const archiveSortDir = useTransactionsStore((s) => s.archiveSortDir);
  const setTxFilterOpen = useTransactionsStore((s) => s.setTxFilterOpen);
  const txFilterSearch = useTransactionsStore((s) => s.txFilterSearch);
  const setTxFilterSearch = useTransactionsStore((s) => s.setTxFilterSearch);
@@ -936,9 +936,12 @@ function AuthenticatedHome() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [sharedSettingsEnabled, isWorkspaceOwner, activeWorkspaceId, sessionUserId]);
 
+ // Archive keeps its own sort direction, separate from the Transactions table's (see
+ // archiveSortDir in transactionsStore.ts) — pick whichever is active for the section shown.
+ const activeSortDir = section === 'archive' ? archiveSortDir : txSortDir;
  const transactionTableRows = useMemo<TransactionTableRow[]>(
-  () => buildTransactionTableRows({ transactions, txSortDir }),
-  [transactions, txSortDir],
+  () => buildTransactionTableRows({ transactions, txSortDir: activeSortDir }),
+  [transactions, activeSortDir],
  );
 
  useEffect(() => {
@@ -1058,13 +1061,13 @@ function AuthenticatedHome() {
  function navigateToSection(nextSection: Section) {
   setSection(nextSection);
   if (nextSection === 'client-ledger' || nextSection === 'organization-clients') return;
-  router.replace(nextSection === 'overview' ? '/' : `/${nextSection}`);
+  setSectionUrl(nextSection === 'overview' ? '/' : `/${nextSection}`, 'replace');
  }
 
  function openOrganizationClientsPage(organization: Organization) {
   setSelectedOrganizationForClients(organization);
   setSection('organization-clients');
-  router.push(`/organizations/${organization.id}`);
+  setSectionUrl(`/organizations/${organization.id}`, 'push');
  }
 
  // Jumps to the Clients tab with the new-client form pre-scoped to this organization,
@@ -1095,7 +1098,7 @@ function AuthenticatedHome() {
   // Otherwise it restores the last-viewed account or defaults to the first.
   if (accountId != null) setSelectedLedgerAccountId(accountId);
   setSection('client-ledger');
-  router.push(`/clients/${client.id}`);
+  setSectionUrl(`/clients/${client.id}`, 'push');
  }
 
  function toggleLedgerColumn(column: LedgerColumnKey) {
