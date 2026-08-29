@@ -370,6 +370,26 @@ export default function LedgerSection(props: LedgerSectionProps) {
   return () => cancelAnimationFrame(raf);
  }, [pendingLedgerScrollTarget]);
 
+ // Wording for a commission flag. Names the row's description whenever it has one, because the
+ // history the engine compared against is scoped to that description (see buildCommissionSamples):
+ // saying a bare "46 of 49 previous transactions" reads as plainly wrong to someone whose
+ // "Turkiye" transfers always carry commission while their "factura" ones never do.
+ const commissionAnomalyText = (entry: ClientLedgerEntry, anomaly: CommissionAnomaly) => {
+  const description = entry.description?.trim() ?? '';
+  const vars = {
+   entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }),
+   expected: formatRateValue(anomaly.referenceCommission),
+   matchCount: String(anomaly.matchCount),
+   sampleSize: String(anomaly.sampleSize),
+   date: formatDateValue(entry.createdAt, ledgerDateFormat),
+   description,
+  };
+  return {
+   hint: `${t(description ? 'ledger_anomaly_commission_badge_hint_described' : 'ledger_anomaly_commission_badge_hint', vars)} — ${t('ignore_anomaly_hint')}`,
+   reason: t(description ? 'ledger_anomaly_commission_reason_described' : 'ledger_anomaly_commission_reason', vars),
+  };
+ };
+
  // Same "last two highlighted rows define an inclusive date range" convention as
  // openCommissionModalFromHighlights below (the ledger's one existing "use highlighted rows"
  // feature) — resolved deterministically here rather than left for the AI to infer from raw
@@ -3204,21 +3224,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   {commissionAnomaly ? (
                                    <button
                                     type="button"
-                                    title={`${t('ledger_anomaly_commission_badge_hint', { entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }), expected: formatRateValue(commissionAnomaly.referenceCommission) })} — ${t('ignore_anomaly_hint')}`}
-                                    onClick={() =>
-                                     onIgnoreAnomaly(
-                                      'commission',
-                                      entry.transactionId,
-                                      ledger.accountId,
-                                      t('ledger_anomaly_commission_reason', {
-                                       date: formatDateValue(entry.createdAt, ledgerDateFormat),
-                                       expected: formatRateValue(commissionAnomaly.referenceCommission),
-                                       matchCount: String(commissionAnomaly.matchCount),
-                                       sampleSize: String(commissionAnomaly.sampleSize),
-                                       entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }),
-                                      }),
-                                     )
-                                    }
+                                    title={commissionAnomalyText(entry, commissionAnomaly).hint}
+                                    onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId, commissionAnomalyText(entry, commissionAnomaly).reason)}
                                     onAnimationEnd={() => setFlashingLedgerBadge(null)}
                                     className={`inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80${
                                      flashingLedgerBadge?.kind === 'commission' && flashingLedgerBadge.rowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
@@ -3436,21 +3443,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                           {commissionAnomaly ? (
                            <button
                             type="button"
-                            title={`${t('ledger_anomaly_commission_badge_hint', { entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }), expected: formatRateValue(commissionAnomaly.referenceCommission) })} — ${t('ignore_anomaly_hint')}`}
-                            onClick={() =>
-                             onIgnoreAnomaly(
-                              'commission',
-                              entry.transactionId,
-                              ledger.accountId,
-                              t('ledger_anomaly_commission_reason', {
-                               date: formatDateValue(entry.createdAt, ledgerDateFormat),
-                               expected: formatRateValue(commissionAnomaly.referenceCommission),
-                               matchCount: String(commissionAnomaly.matchCount),
-                               sampleSize: String(commissionAnomaly.sampleSize),
-                               entered: entry.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 }),
-                              }),
-                             )
-                            }
+                            title={commissionAnomalyText(entry, commissionAnomaly).hint}
+                            onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId, commissionAnomalyText(entry, commissionAnomaly).reason)}
                             onAnimationEnd={() => setFlashingLedgerBadge(null)}
                             className={badgeClassName('commission')}
                            >

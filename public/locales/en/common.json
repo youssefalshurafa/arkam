@@ -693,6 +693,8 @@
  "ledger_anomaly_commission_badge": "Check commission",
  "ledger_anomaly_commission_badge_hint": "Entered commission {{entered}}% looks unusual for this account — its typical exchange commission is around {{expected}}%",
  "ledger_anomaly_commission_reason": "This client relationship has had {{expected}}% commission in {{matchCount}} of {{sampleSize}} previous transactions — this transaction ({{date}}) has {{entered}}%.",
+ "ledger_anomaly_commission_badge_hint_described": "Entered commission {{entered}}% looks unusual for \"{{description}}\" transactions with this client — those are usually around {{expected}}%",
+ "ledger_anomaly_commission_reason_described": "This client relationship has had {{expected}}% commission in {{matchCount}} of {{sampleSize}} previous \"{{description}}\" transactions — this transaction ({{date}}) has {{entered}}%.",
  "ignore_anomaly_hint": "Click to ignore this warning",
  "ignore_anomaly_confirm": "Ignore this warning? It won't be flagged again unless you un-ignore it later.",
  "ignore_anomaly_confirm_button": "Ignore",

@@ -695,6 +695,8 @@
  "ledger_anomaly_commission_badge": "راجع العمولة",
  "ledger_anomaly_commission_badge_hint": "العمولة المُدخَلة {{entered}}% تبدو غير معتادة لهذا الحساب — العمولة المعتادة على الصرف لديه تقارب {{expected}}%",
  "ledger_anomaly_commission_reason": "هذه العلاقة مع العميل كانت عمولتها {{expected}}% في {{matchCount}} من أصل {{sampleSize}} معاملة سابقة — بينما هذه المعاملة ({{date}}) عمولتها {{entered}}%.",
+ "ledger_anomaly_commission_badge_hint_described": "العمولة المُدخَلة {{entered}}% تبدو غير معتادة لمعاملات \"{{description}}\" مع هذا العميل — عادةً تقارب {{expected}}%",
+ "ledger_anomaly_commission_reason_described": "هذه العلاقة مع العميل كانت عمولتها {{expected}}% في {{matchCount}} من أصل {{sampleSize}} معاملة سابقة بوصف \"{{description}}\" — بينما هذه المعاملة ({{date}}) عمولتها {{entered}}%.",
  "ignore_anomaly_hint": "اضغط لتجاهل هذا التحذير",
  "ignore_anomaly_confirm": "تجاهل هذا التحذير؟ لن يظهر مجددًا إلا إذا ألغيت التجاهل لاحقًا.",
  "ignore_anomaly_confirm_button": "تجاهل",

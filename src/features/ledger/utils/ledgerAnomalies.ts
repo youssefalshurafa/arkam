@@ -141,8 +141,25 @@ type CommissionSample = { transactionId: number; commission: number };
 // of the bucket key, not folded into a single "this account with this counterparty" pool.
 type CommissionRole = 'from' | 'to';
 
-function commissionPairKey(accountId: number, counterpartyAccountId: number, role: CommissionRole): string {
- return `${accountId}:${counterpartyAccountId}:${role}`;
+// Descriptions are compared exactly once case and spacing are normalised — deliberately no fuzzy
+// or semantic matching. Two labels that mean the same thing to a person ("turkiye" / "turk euro")
+// stay separate groups, which is the safe direction: a group with too little history simply isn't
+// judged, whereas guessing that two labels are equivalent could merge genuinely different
+// commission conventions back together — the very bug this grouping exists to fix.
+function normalizeDescriptionKey(description: string): string {
+ return description.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// The description as it appears on this side's ledger row. Mirrors computeClientLedgers
+// (ledgerBalances.ts), so the history a transaction is judged against is exactly the set of rows
+// the user sees carrying the same label.
+function sideDescription(tx: Transaction, side: CommissionRole): string {
+ const own = side === 'from' ? tx.descriptionFrom : tx.descriptionTo;
+ return normalizeDescriptionKey(own?.trim() || tx.description || '');
+}
+
+function commissionPairKey(accountId: number, counterpartyAccountId: number, role: CommissionRole, descriptionKey: string): string {
+ return `${accountId}:${counterpartyAccountId}:${role}:${descriptionKey}`;
 }
 
 // The most frequent value in a sample (rounded to the commission input's own precision, 2
@@ -166,22 +183,27 @@ function modeWithShare(values: number[]): { mode: number; count: number; share: 
  return { mode, count: best, share: best / values.length };
 }
 
-// Historical commission pool per (account, counterparty-account, role) — not per account alone,
-// not workspace-wide, and not even merged across both transaction directions for the same pair.
-// Commission practice is specific to one client-to-client relationship *and* which way the money
-// moved: the same two accounts can legitimately charge commission only when converting out and
-// never when receiving (or vice versa), so pooling both directions together would average two
-// different conventions into one and misflag whichever direction is less common. Commission is a
-// universal field applied the same way for every transaction type except `adjustment` (a balance
-// correction, not a real settled trade) — see computeTransactionSideNetChange, which has no type
-// gate on commission either.
+// Historical commission pool per (account, counterparty-account, direction, description) — not per
+// account alone, not workspace-wide, and not merged across directions or transaction kinds.
+// Commission practice is specific to one client-to-client relationship, to which way the money
+// moved, AND to what kind of business the transaction is: the same two accounts routinely charge
+// on one kind of transaction and never on another (observed live: a client charging ~0.9% on
+// "turk euro" transfers while 46 of their 49 "factura" transfers carry none). Pooling those
+// together lets the more common kind outvote the rarer one, so every transaction of the rarer kind
+// reads as a deviation from a "convention" it never belonged to. Descriptions are whatever each
+// workspace actually types — nothing here is specific to any user's vocabulary; a workspace that
+// leaves descriptions blank simply forms one group and behaves as it did before.
+//
+// Commission is a universal field applied the same way for every transaction type except
+// `adjustment` (a balance correction, not a real settled trade) — see
+// computeTransactionSideNetChange, which has no type gate on commission either.
 export function buildCommissionSamples(transactions: Transaction[]): Map<string, CommissionSample[]> {
  const samples = new Map<string, CommissionSample[]>();
  for (const tx of transactions) {
   if (tx.isArchived || tx.type === 'adjustment') continue;
   if (tx.accountFromId != null && tx.accountToId != null) {
-   addSample(samples, commissionPairKey(tx.accountFromId, tx.accountToId, 'from'), { transactionId: tx.id, commission: tx.commissionFrom });
-   addSample(samples, commissionPairKey(tx.accountToId, tx.accountFromId, 'to'), { transactionId: tx.id, commission: tx.commissionTo });
+   addSample(samples, commissionPairKey(tx.accountFromId, tx.accountToId, 'from', sideDescription(tx, 'from')), { transactionId: tx.id, commission: tx.commissionFrom });
+   addSample(samples, commissionPairKey(tx.accountToId, tx.accountFromId, 'to', sideDescription(tx, 'to')), { transactionId: tx.id, commission: tx.commissionTo });
   }
  }
  return samples;
@@ -193,11 +215,12 @@ export function checkCommission(
  accountId: number,
  counterpartyAccountId: number | null,
  role: CommissionRole,
+ description: string,
  transactionId: number,
  samples: Map<string, CommissionSample[]>,
 ): CommissionAnomaly | null {
  if (counterpartyAccountId == null) return null;
- const bucket = samples.get(commissionPairKey(accountId, counterpartyAccountId, role));
+ const bucket = samples.get(commissionPairKey(accountId, counterpartyAccountId, role, normalizeDescriptionKey(description)));
  if (!bucket) return null;
  const others = bucket.filter((s) => s.transactionId !== transactionId).map((s) => s.commission);
  if (others.length < MIN_COMMISSION_SAMPLE) return null;
@@ -237,7 +260,9 @@ export function checkLedgerEntryCommission(
  // 'incoming' means it was the "to" side (it received) — mirrors accountFromId/accountToId in
  // computeClientLedgers (ledgerBalances.ts), which is where `direction` is set.
  const role: CommissionRole = entry.direction === 'outgoing' ? 'from' : 'to';
- return checkCommission(entry.commission, accountId, entry.counterpartyAccountId, role, entry.transactionId, samples);
+ // entry.description is already the per-side description computeClientLedgers resolved, so it
+ // matches the group buildCommissionSamples keyed this same row under.
+ return checkCommission(entry.commission, accountId, entry.counterpartyAccountId, role, entry.description, entry.transactionId, samples);
 }
 
 // Identifies one (kind, transaction side) flag for the ignore-list — a transaction's "from"
@@ -280,11 +305,11 @@ export function buildWorkspaceAnomalies(transactions: Transaction[], ignored: Se
   }
   if (tx.type === 'adjustment') continue;
   if (tx.accountFromId != null && !ignored.has(anomalyKey('commission', tx.id, tx.accountFromId))) {
-   const commission = checkCommission(tx.commissionFrom, tx.accountFromId, tx.accountToId, 'from', tx.id, commissionSamples);
+   const commission = checkCommission(tx.commissionFrom, tx.accountFromId, tx.accountToId, 'from', sideDescription(tx, 'from'), tx.id, commissionSamples);
    if (commission) flagged.push({ kind: 'commission', transactionId: tx.id, accountId: tx.accountFromId, enteredValue: commission.enteredCommission, referenceValue: commission.referenceCommission, sampleSize: commission.sampleSize });
   }
   if (tx.accountToId != null && !ignored.has(anomalyKey('commission', tx.id, tx.accountToId))) {
-   const commission = checkCommission(tx.commissionTo, tx.accountToId, tx.accountFromId, 'to', tx.id, commissionSamples);
+   const commission = checkCommission(tx.commissionTo, tx.accountToId, tx.accountFromId, 'to', sideDescription(tx, 'to'), tx.id, commissionSamples);
    if (commission) flagged.push({ kind: 'commission', transactionId: tx.id, accountId: tx.accountToId, enteredValue: commission.enteredCommission, referenceValue: commission.referenceCommission, sampleSize: commission.sampleSize });
   }
  }
