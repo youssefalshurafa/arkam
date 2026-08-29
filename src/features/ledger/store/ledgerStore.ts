@@ -66,6 +66,13 @@ export type CommissionModalState = {
  settlementSelections: Record<string, boolean>;
 };
 
+export type FlashLedgerEntryTarget = {
+ transactionId: number;
+ accountId: number;
+ kind: 'rate' | 'commission';
+ nonce: number;
+};
+
 function initialLedgerPageSize(): number {
  if (typeof window === 'undefined') return 50;
  const stored = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
@@ -139,6 +146,12 @@ type LedgerStore = {
  setLedgerPageState: Dispatch<SetStateAction<Record<number, number>>>;
  ledgerPageSize: number;
  setLedgerPageSize: Dispatch<SetStateAction<number>>;
+ // A "jump to this flagged transaction" request from outside the ledger view (the Transactions/
+ // Overview "needs review" list) — LedgerSection consumes it once (flips the right page, clears
+ // any filter hiding the row, scrolls to it, and flashes its badge), then clears it back to null.
+ // `nonce` makes every request distinct even when the same entry is clicked again in a row.
+ flashLedgerEntry: FlashLedgerEntryTarget | null;
+ setFlashLedgerEntry: Dispatch<SetStateAction<FlashLedgerEntryTarget | null>>;
  ledgerExpensesExpandedKeys: Set<string>;
  setLedgerExpensesExpandedKeys: Dispatch<SetStateAction<Set<string>>>;
  showLedgerCurrencySymbol: boolean;
@@ -257,6 +270,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setLedgerPageState: setter('ledgerPageState'),
   ledgerPageSize: initialLedgerPageSize(),
   setLedgerPageSize: setter('ledgerPageSize'),
+  flashLedgerEntry: null,
+  setFlashLedgerEntry: setter('flashLedgerEntry'),
   ledgerExpensesExpandedKeys: new Set(),
   setLedgerExpensesExpandedKeys: setter('ledgerExpensesExpandedKeys'),
   showLedgerCurrencySymbol: true,

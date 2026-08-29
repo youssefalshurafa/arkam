@@ -30,6 +30,7 @@ import ArchiveExportModal from '@/features/transactions/components/ArchiveExport
 import NewTransactionForm from '@/features/transactions/components/NewTransactionForm';
 import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
 import { anomalyKey, type FlaggedAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
+import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import type {
  Client,
  ClientAccount,
@@ -163,6 +164,7 @@ type TransactionsSectionProps = {
 };
 
 export default function TransactionsSection(props: TransactionsSectionProps) {
+ const setFlashLedgerEntry = useLedgerStore((s) => s.setFlashLedgerEntry);
  const {
   isLoading, section, clients, clientAccounts, enabledCurrencies, transactions, clientAccountMap, currencyMap,
   displayedTransactionRows, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
@@ -753,12 +755,15 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                  const account = clientAccountMap.get(anomaly.accountId);
                  const kindLabel = anomaly.kind === 'rate' ? t('ledger_anomaly_badge') : t('ledger_anomaly_commission_badge');
                  const amountLabel = tx ? `${tx.amount.toLocaleString(numLocale)} ${tx.currencyCode}` : '';
+                 const dateLabel = tx ? formatDateValue(tx.createdAt, transactionTableSettings.dateFormat) : '';
                  return {
                   key: anomalyKey(anomaly.kind, anomaly.transactionId, anomaly.accountId),
-                  label: `${account?.clientName ?? ''} · ${kindLabel}${amountLabel ? ` · ${amountLabel}` : ''}`,
+                  label: `${account?.clientName ?? ''} · ${kindLabel}${amountLabel ? ` · ${amountLabel}` : ''}${dateLabel ? ` · ${dateLabel}` : ''}`,
                   onSelect: () => {
                    const client = account ? clients.find((c) => c.id === account.clientId) : undefined;
-                   if (client) openClientLedger(client, 'clients', anomaly.accountId);
+                   if (!client) return;
+                   openClientLedger(client, 'clients', anomaly.accountId);
+                   setFlashLedgerEntry({ transactionId: anomaly.transactionId, accountId: anomaly.accountId, kind: anomaly.kind, nonce: Date.now() });
                   },
                  };
                 }),
