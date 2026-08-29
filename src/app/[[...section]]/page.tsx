@@ -1530,6 +1530,31 @@ function AuthenticatedHome() {
   ...(isSuperAdminUser ? [{ key: 'harvest' as const, label: t('nav_harvest'), icon: 'harvest' as IconName }] : []),
  ];
 
+ // Primes the Client-Side Router Cache for every sidebar destination up front, so even the
+ // FIRST click into a section is served from cache rather than starting a cold server round-trip
+ // — sidebar items are plain buttons (not next/link), so without this nothing gets prefetched at
+ // all. Paired with next.config.ts's staleTimes.dynamic, this is what actually removes the
+ // navigation delay/URL-desync; the list mirrors navigateToSection's own '/' vs '/${section}'
+ // mapping. Depends only on the two flags that change which sections exist, not on `navItems`
+ // itself (that array is rebuilt every render with fresh t() label strings).
+ useEffect(() => {
+  const sectionKeys: Section[] = [
+   'overview',
+   'organizations',
+   'clients',
+   'currencies',
+   'transactions',
+   'archive',
+   'live-rates',
+   ...(treasuryEnabled ? (['treasury'] as const) : []),
+   ...(isSuperAdminUser ? (['harvest'] as const) : []),
+  ];
+  for (const key of sectionKeys) {
+   router.prefetch(key === 'overview' ? '/' : `/${key}`);
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [treasuryEnabled, isSuperAdminUser]);
+
  // Editors (workspace role 'member') don't get destructive/billing controls.
  const currentWorkspaceRole = userWorkspaces.find((workspace) => workspace.id === activeWorkspaceId)?.role ?? '';
  const isEditorRole = currentWorkspaceRole === 'member';
