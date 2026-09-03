@@ -142,6 +142,29 @@ async function onRestoreBackupFile(event: ChangeEvent<HTMLInputElement>) {
  }
 }
 
+// How long a downloaded backup stays "recent" before the UI starts nudging. A week is a
+// deliberate compromise: short enough that a lost laptop costs at most a few days of work,
+// long enough that the reminder doesn't become background noise people learn to ignore.
+const BACKUP_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Previously only a never-backed-up workspace was flagged, so a backup taken months ago
+// rendered in the same faint grey as one taken this morning — the label was there, but it read
+// as reassurance either way.
+//
+// Three states rather than a boolean because 'never' and 'stale' want the same warning colour
+// but different copy: lastBackupLabel already says "no backup yet" for 'never', so adding
+// "you haven't backed up in over a week" on top of it just says the same thing twice.
+// An unparseable timestamp counts as 'never': if we can't tell when the last backup happened,
+// we shouldn't imply there was one.
+function backupFreshness(): 'never' | 'stale' | 'fresh' {
+ if (!lastBackupAt) return 'never';
+
+ const then = new Date(lastBackupAt).getTime();
+ if (!Number.isFinite(then)) return 'never';
+
+ return Date.now() - then > BACKUP_STALE_AFTER_MS ? 'stale' : 'fresh';
+}
+
 // Localized "Last backup: 2 days ago" style label, or a "never" message.
 function lastBackupLabel(): string {
  if (!lastBackupAt) return t('backup_last_never');
@@ -181,5 +204,5 @@ function lastBackupLabel(): string {
  return t('backup_last_label').replace('{time}', time);
 }
 
- return { onDownloadBackup, onRestoreBackupFile, lastBackupLabel };
+ return { onDownloadBackup, onRestoreBackupFile, lastBackupLabel, backupFreshness };
 }

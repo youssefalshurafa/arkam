@@ -548,6 +548,8 @@
  "ledger_highlight_net_change": "Highlight net change column",
  "commission_from_him": "Commission from the client — click to make it for the client",
  "commission_for_him": "Commission for the client — click to make it from the client",
+ "commission_dir_for": "For him",
+ "commission_dir_from": "From him",
  "ledger_row_highlight_color": "Row highlight color",
  "ledger_highlight_presets_label": "Saved colors",
  "ledger_highlight_preset_select": "Use color {{n}}",
@@ -1377,5 +1379,22 @@
  "admin_action_reject_reset": "Rejected password reset",
  "admin_action_upload_image": "Updated homepage image",
  "admin_action_remove_image": "Removed homepage image",
- "admin_action_login": "Signed in"
+ "admin_action_login": "Signed in",
+ "audit_action_delete": "Deleted",
+ "audit_action_update": "Edited",
+ "audit_created_by": "Created by {{user}} on {{date}}",
+ "audit_history": "Change history",
+ "audit_no_changes": "No recorded changes.",
+ "audit_other_changes": "Other fields were edited.",
+ "audit_unknown_user": "Unknown user",
+ "backup_stale_hint": "No backup has been downloaded in over a week. Consider downloading one now.",
+ "section_error_body": "This section could not be displayed. No saved data was lost — you can switch to another section from the sidebar.",
+ "section_error_reload": "Reload page",
+ "section_error_retry": "Try again",
+ "section_error_title": "Something went wrong in this section",
+ "ledger_drag_handle_title": "Drag to reorder — right-click (or hold on touch) to move it a step",
+ "ledger_move_up": "Move up",
+ "ledger_move_down": "Move down",
+ "ledger_move_day_start": "Move to start of day",
+ "ledger_move_day_end": "Move to end of day"
 }

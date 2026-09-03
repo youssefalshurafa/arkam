@@ -8,6 +8,7 @@ import { ltrIsolate } from '@/shared/utils/format';
 import { localDateKey } from '@/shared/utils/date';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
+import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
 import type { Client, ClientAccount, ClientAccountLedger, Currency, Transaction, TransactionTableRow } from '@/shared/types';
@@ -257,7 +258,14 @@ export default function OneSidedTransactionModal({
            ) : null}
 
            <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('commission')} (%)</label>
+            <div className="flex items-center justify-between gap-2">
+             <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('commission')} (%)</label>
+             <CommissionDirectionToggle
+              value={modal.commission}
+              onChange={(next) => setModal((prev) => (prev ? { ...prev, commission: next } : prev))}
+              t={t}
+             />
+            </div>
             <input
              type="text"
              inputMode="decimal"

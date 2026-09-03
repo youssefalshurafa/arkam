@@ -1057,9 +1057,10 @@ async function createTransaction(app, txn) {
                     charges2_currency_id,
                     charges2_payer,
                     charges2_exchange_rate,
-                    charges2_description
+                    charges2_description,
+                    created_by
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
                 RETURNING id
             `,
             [
@@ -1093,6 +1094,7 @@ async function createTransaction(app, txn) {
                 txn.chargesPayer2 || '',
                 txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
                 txn.charges2Description?.trim() || '',
+                app?.userId || null,
             ],
         );
         return { id: result.rows[0].id };
@@ -1129,9 +1131,10 @@ async function createTransaction(app, txn) {
                 charges2_currency_id,
                 charges2_payer,
                 charges2_exchange_rate,
-                charges2_description
+                charges2_description,
+                created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
             RETURNING id
         `,
         [
@@ -1164,9 +1167,37 @@ async function createTransaction(app, txn) {
             txn.chargesPayer2 || '',
             txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
             txn.charges2Description?.trim() || '',
+            app?.userId || null,
         ],
     );
     return { id: result.rows[0].id };
+}
+
+// Snapshots a transaction as it exists RIGHT NOW into transaction_history, before the caller
+// overwrites or deletes it. `action` is 'update' or 'delete'.
+//
+// Callers must pass an `executor` (a client inside withTransaction) so the snapshot and the
+// change it describes commit or roll back together — a snapshot without its change would
+// invent an edit that never happened, and a change without its snapshot loses the audit record.
+//
+// Deliberately NOT covered by this, because none of them go through a single-row path:
+//   * deleteAllTransactions      — wipes the table wholesale
+//   * ON DELETE CASCADE          — rows removed when an account or currency is deleted
+//   * moveAccountTransactions    — bulk re-pointing of account_from_id/account_to_id
+// If per-row history is ever wanted for those, they need their own snapshot loop; today they
+// leave no trail, and that limitation is intentional rather than overlooked.
+async function recordTransactionHistory(app, schema, transactionId, action, executor) {
+    const existing = await query(`SELECT * FROM ${schema}.transactions WHERE id = $1`, [transactionId], executor);
+    const row = existing.rows[0];
+    if (!row) {
+        return;
+    }
+
+    await query(
+        `INSERT INTO ${schema}.transaction_history (transaction_id, action, changed_by, snapshot) VALUES ($1, $2, $3, $4)`,
+        [transactionId, action, app?.userId || null, JSON.stringify(row)],
+        executor,
+    );
 }
 
 async function updateTransaction(app, txn) {
@@ -1202,80 +1233,89 @@ async function updateTransaction(app, txn) {
         );
     }
 
-    await query(
-        `
-            UPDATE ${schema}.transactions
-            SET account_from_id = $1,
-                account_to_id = $2,
-                currency_id = $3,
-                amount = $4,
-                type = $5,
-                exchange_rate_from = $6,
-                commission_from = $7,
-                exchange_rate_to = $8,
-                commission_to = $9,
-                exchange_rate_from_reversed = $10,
-                exchange_rate_to_reversed = $11,
-                charges = $12,
-                charges_currency_id = $13,
-                charges_payer = $14,
-                charges_exchange_rate = $15,
-                charges_description = $16,
-                description = $17,
-                archive_note = COALESCE($18, archive_note),
-                created_at = $19,
-                -- Per-side overrides are preserved (COALESCE) when a caller omits them, so the
-                -- table inline-edit / reorder paths don't wipe descriptions set at creation time.
-                description_from = COALESCE($21, description_from),
-                description_to = COALESCE($22, description_to),
-                -- Exchange actual-amount override is preserved (COALESCE) when a caller omits it, so
-                -- table inline-edit / reorder paths don't wipe an override set at creation time.
-                exchange_actual_amount = COALESCE($23, exchange_actual_amount),
-                distribution_location_id = $24,
-                -- Only the one-sided-transaction path sends counterParty; other paths leave it
-                -- untouched via COALESCE (same precedent as archiveNote above).
-                counter_party = COALESCE($25, counter_party),
-                charges2 = $26,
-                charges2_currency_id = $27,
-                charges2_payer = $28,
-                charges2_exchange_rate = $29,
-                charges2_description = $30
-            WHERE id = $20
-        `,
-        [
-            txn.accountFromId || null,
-            txn.accountToId || null,
-            txn.currencyId,
-            txn.amount || 0,
-            txn.type || 'exchange',
-            txn.exchangeRateFrom != null ? txn.exchangeRateFrom : 1,
-            txn.commissionFrom || 0,
-            txn.exchangeRateTo != null ? txn.exchangeRateTo : 1,
-            txn.commissionTo || 0,
-            Boolean(txn.exchangeRateFromReversed),
-            Boolean(txn.exchangeRateToReversed),
-            txn.charges || 0,
-            txn.chargesCurrencyId || null,
-            txn.chargesPayer || '',
-            txn.chargesExchangeRate != null ? txn.chargesExchangeRate : 1,
-            txn.chargesDescription?.trim() || '',
-            txn.description?.trim() || '',
-            // Only the table inline-edit sends archiveNote; other paths leave it untouched via COALESCE.
-            txn.archiveNote === undefined || txn.archiveNote === null ? null : String(txn.archiveNote).trim(),
-            txn.createdAt,
-            txn.id,
-            txn.descriptionFrom === undefined || txn.descriptionFrom === null ? null : String(txn.descriptionFrom).trim(),
-            txn.descriptionTo === undefined || txn.descriptionTo === null ? null : String(txn.descriptionTo).trim(),
-            txn.exchangeActualAmount === undefined ? null : txn.exchangeActualAmount,
-            txn.distributionLocationId || null,
-            txn.counterParty === undefined || txn.counterParty === null ? null : String(txn.counterParty).trim(),
-            txn.charges2 || 0,
-            txn.charges2CurrencyId || null,
-            txn.chargesPayer2 || '',
-            txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
-            txn.charges2Description?.trim() || '',
-        ],
-    );
+    await withTransaction(async (client) => {
+        await recordTransactionHistory(app, schema, txn.id, 'update', client);
+        await query(
+            `
+                UPDATE ${schema}.transactions
+                SET account_from_id = $1,
+                    account_to_id = $2,
+                    currency_id = $3,
+                    amount = $4,
+                    type = $5,
+                    exchange_rate_from = $6,
+                    commission_from = $7,
+                    exchange_rate_to = $8,
+                    commission_to = $9,
+                    exchange_rate_from_reversed = $10,
+                    exchange_rate_to_reversed = $11,
+                    charges = $12,
+                    charges_currency_id = $13,
+                    charges_payer = $14,
+                    charges_exchange_rate = $15,
+                    charges_description = $16,
+                    description = $17,
+                    archive_note = COALESCE($18, archive_note),
+                    created_at = $19,
+                    -- Per-side overrides are preserved (COALESCE) when a caller omits them, so the
+                    -- table inline-edit / reorder paths don't wipe descriptions set at creation time.
+                    description_from = COALESCE($21, description_from),
+                    description_to = COALESCE($22, description_to),
+                    -- Exchange actual-amount override is preserved (COALESCE) when a caller omits it, so
+                    -- table inline-edit / reorder paths don't wipe an override set at creation time.
+                    exchange_actual_amount = COALESCE($23, exchange_actual_amount),
+                    distribution_location_id = $24,
+                    -- Only the one-sided-transaction path sends counterParty; other paths leave it
+                    -- untouched via COALESCE (same precedent as archiveNote above).
+                    counter_party = COALESCE($25, counter_party),
+                    charges2 = $26,
+                    charges2_currency_id = $27,
+                    charges2_payer = $28,
+                    charges2_exchange_rate = $29,
+                    charges2_description = $30,
+                    -- Audit stamp: who last touched this row, and when. The values being replaced
+                    -- are captured in transaction_history by recordTransactionHistory above.
+                    updated_by = $31,
+                    updated_at = NOW()
+                WHERE id = $20
+            `,
+            [
+                txn.accountFromId || null,
+                txn.accountToId || null,
+                txn.currencyId,
+                txn.amount || 0,
+                txn.type || 'exchange',
+                txn.exchangeRateFrom != null ? txn.exchangeRateFrom : 1,
+                txn.commissionFrom || 0,
+                txn.exchangeRateTo != null ? txn.exchangeRateTo : 1,
+                txn.commissionTo || 0,
+                Boolean(txn.exchangeRateFromReversed),
+                Boolean(txn.exchangeRateToReversed),
+                txn.charges || 0,
+                txn.chargesCurrencyId || null,
+                txn.chargesPayer || '',
+                txn.chargesExchangeRate != null ? txn.chargesExchangeRate : 1,
+                txn.chargesDescription?.trim() || '',
+                txn.description?.trim() || '',
+                // Only the table inline-edit sends archiveNote; other paths leave it untouched via COALESCE.
+                txn.archiveNote === undefined || txn.archiveNote === null ? null : String(txn.archiveNote).trim(),
+                txn.createdAt,
+                txn.id,
+                txn.descriptionFrom === undefined || txn.descriptionFrom === null ? null : String(txn.descriptionFrom).trim(),
+                txn.descriptionTo === undefined || txn.descriptionTo === null ? null : String(txn.descriptionTo).trim(),
+                txn.exchangeActualAmount === undefined ? null : txn.exchangeActualAmount,
+                txn.distributionLocationId || null,
+                txn.counterParty === undefined || txn.counterParty === null ? null : String(txn.counterParty).trim(),
+                txn.charges2 || 0,
+                txn.charges2CurrencyId || null,
+                txn.chargesPayer2 || '',
+                txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
+                txn.charges2Description?.trim() || '',
+                app?.userId || null,
+            ],
+            client,
+        );
+    });
 }
 
 // A pure display-filter toggle (Archive table row hidden/unhidden) — deliberately a small,
@@ -1319,9 +1359,47 @@ async function deleteTransaction(app, payload) {
             Boolean(acknowledgeReconciliationOverride),
         );
     }
-    await query(`DELETE FROM ${schema}.transactions WHERE id = $1`, [transactionId]);
+    await withTransaction(async (client) => {
+        // Snapshot before the delete: this history row becomes the ONLY surviving copy of the
+        // transaction, so it and the delete must commit together.
+        await recordTransactionHistory(app, schema, transactionId, 'delete', client);
+        await query(`DELETE FROM ${schema}.transactions WHERE id = $1`, [transactionId], client);
+    });
 }
 
+// The audit trail for one transaction: who created it, plus every recorded change, newest
+// first. Returns raw user ids in `changedBy`/`createdBy` — the route resolves those to display
+// names, since users live in the shared `public` schema, outside this workspace schema.
+async function listTransactionHistory(app, payload) {
+    const transactionId = typeof payload === 'object' && payload !== null ? payload.transactionId : payload;
+    if (!transactionId) {
+        throw new Error('Transaction id is required.');
+    }
+
+    const { schema } = await getSchemaInfo(app);
+
+    // The transaction itself may be gone (a 'delete' history row outlives it), so this is a
+    // separate lookup that's allowed to come back empty rather than a join.
+    const current = await query(
+        `SELECT created_by AS "createdBy", updated_by AS "updatedBy", created_at AS "createdAt", updated_at AS "updatedAt"
+         FROM ${schema}.transactions WHERE id = $1`,
+        [transactionId],
+    );
+
+    const history = await query(
+        `SELECT id, action, changed_by AS "changedBy", changed_at AS "changedAt", snapshot
+         FROM ${schema}.transaction_history
+         WHERE transaction_id = $1
+         ORDER BY changed_at DESC, id DESC`,
+        [transactionId],
+    );
+
+    return { current: current.rows[0] || null, history: history.rows };
+}
+
+// Wholesale wipe — deliberately NOT snapshotted into transaction_history (see
+// recordTransactionHistory): writing one history row per transaction here would double the
+// table's size on an operation whose entire point is to clear it out.
 async function deleteAllTransactions(app) {
     const { schema } = await getSchemaInfo(app);
     await query(`DELETE FROM ${schema}.transactions`);
@@ -1575,6 +1653,15 @@ async function importWorkspaceData(app, backup) {
         for (const table of [...BACKUP_TABLES].reverse()) {
             await query(`DELETE FROM ${schema}.${quoteIdentifier(table)}`, [], client);
         }
+
+        // The audit trail is scoped to the transaction rows being replaced, and it is not part
+        // of BACKUP_TABLES (history would balloon every backup, and older backups predate the
+        // table entirely). It has to be cleared here rather than left behind: the restore below
+        // re-inserts transactions with their ORIGINAL ids, so any surviving history row would
+        // silently re-attach itself to whatever different transaction now holds that id —
+        // attributing one transaction's edits to another. Dropping it is the honest outcome;
+        // a restore is a replacement of the workspace's history, not an addition to it.
+        await query(`DELETE FROM ${schema}.transaction_history`, [], client);
 
         // Re-insert, parents before children, preserving original ids. Rows are
         // grouped by column signature (normally one group since backups come from
@@ -1961,6 +2048,7 @@ module.exports = {
     updateTransaction,
     setTransactionArchiveHidden,
     deleteTransaction,
+    listTransactionHistory,
     deleteTransactionsBulk,
     deleteAllTransactions,
     listReconciliations,

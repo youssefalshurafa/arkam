@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'node:path';
+import { getServerSession } from 'next-auth';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const db = require('@/server/db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
+import { authOptions } from '@/server/auth-options';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
+import { validateActionPayload } from './schemas';
 import type { ClientAccount, Transaction } from '@/shared/types';
 
 export const runtime = 'nodejs';
@@ -18,6 +21,9 @@ const readOnlyActions = new Set([
  'listClientAccounts',
  'listCurrencies',
  'listTransactions',
+ // Audit trail for a single transaction. Read-only and no stricter than listTransactions —
+ // anyone who can already see a transaction can see who touched it.
+ 'listTransactionHistory',
  'listReconciliations',
  'listIgnoredAnomalies',
  'listHarvestRates',
@@ -101,44 +107,24 @@ type AuthContext = {
  defaultWorkspaceId: string | null;
 };
 
-async function resolveAuthContext(request: NextRequest): Promise<AuthContext | null> {
- const cookieHeader = request.cookies
-  .getAll()
-  .map((cookie) => `${cookie.name}=${cookie.value}`)
-  .join('; ');
-
- if (!cookieHeader) {
-  return null;
- }
-
+// Reads the session in-process. This used to fetch('/api/auth/session') back through the
+// Next server on every call — a full extra HTTP round-trip per request, and this is the
+// route every load and mutation in the app funnels through, so a single workspace load paid
+// for ten of them. getServerSession decodes the same JWT directly and returns the same
+// user.id / user.defaultWorkspaceId the session callback populates (see auth-options.ts),
+// which is what every other route in this app already does.
+async function resolveAuthContext(): Promise<AuthContext | null> {
  try {
-  const sessionResponse = await fetch(new URL('/api/auth/session', request.nextUrl.origin), {
-   method: 'GET',
-   headers: {
-    cookie: cookieHeader,
-   },
-   cache: 'no-store',
-  });
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id;
 
-  if (!sessionResponse.ok) {
-   return null;
-  }
-
-  const sessionPayload = (await sessionResponse.json()) as {
-   user?: {
-    id?: string;
-    defaultWorkspaceId?: string | null;
-   };
-  };
-
-  const userId = sessionPayload?.user?.id;
   if (!userId) {
    return null;
   }
 
   return {
    userId,
-   defaultWorkspaceId: sessionPayload.user?.defaultWorkspaceId || null,
+   defaultWorkspaceId: session.user?.defaultWorkspaceId || null,
   };
  } catch {
   return null;
@@ -184,9 +170,25 @@ function createAppLike(workspaceId: string, todayKey: string | null, userId: str
  };
 }
 
+/**
+ * True for errors raised by the Postgres driver rather than thrown deliberately by db.js.
+ * node-postgres sets both `code` (SQLSTATE) and `severity` on every error it raises; a
+ * hand-thrown `new Error('…')` has neither. See the catch block in POST for why this
+ * distinction matters.
+ */
+function isDatabaseError(error: unknown): boolean {
+ if (typeof error !== 'object' || error === null) return false;
+ const candidate = error as { code?: unknown; severity?: unknown };
+ return typeof candidate.code === 'string' && typeof candidate.severity === 'string';
+}
+
 export async function POST(request: NextRequest) {
+ // Hoisted out of the try purely so the catch block can name the failing action when it
+ // logs a database error.
+ let currentAction: string | undefined;
+
  try {
-  const authContext = await resolveAuthContext(request);
+  const authContext = await resolveAuthContext();
   const userId = authContext?.userId;
 
   if (!userId) {
@@ -196,6 +198,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json()) as Body;
   const action = body.action;
   const payload = body.payload as never;
+  currentAction = action;
 
   if (!action) {
    return NextResponse.json({ error: 'Missing action.' }, { status: 400 });
@@ -240,6 +243,16 @@ export async function POST(request: NextRequest) {
   // Write-off margins are workspace-wide financial config, same tier as the Treasury toggle.
   if (action === 'saveWriteOffMargin' && role !== 'owner' && role !== 'admin') {
    return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
+  }
+
+  // Shape-check the payload for the actions that move money or mutate in bulk. Runs AFTER
+  // the auth/role gates so a malformed payload can never reveal which actions exist to
+  // someone who isn't allowed to call them. See schemas.ts — this is a gate only: the
+  // ORIGINAL payload is what gets forwarded to db.js below, never zod's parsed output,
+  // because zod strips unknown keys and would silently drop fields the client relies on.
+  const validationError = validateActionPayload(action, payload);
+  if (validationError) {
+   return NextResponse.json({ error: `Invalid payload for ${action}. ${validationError}` }, { status: 400 });
   }
 
   const clientDateHeader = request.headers.get('x-client-date');
@@ -389,6 +402,19 @@ export async function POST(request: NextRequest) {
    case 'deleteAllTransactions':
     await db.deleteAllTransactions(appLike);
     return NextResponse.json({ ok: true });
+   case 'listTransactionHistory': {
+    const trail = (await db.listTransactionHistory(appLike, payload)) as {
+     current: { createdBy: string | null; updatedBy: string | null } | null;
+     history: { changedBy: string | null }[];
+    };
+    // Attribute the ids to people in one batched lookup. Users live in the shared `public`
+    // schema, so db.js can't join to them from inside the workspace schema.
+    const userIds = [trail.current?.createdBy, trail.current?.updatedBy, ...trail.history.map((entry) => entry.changedBy)].filter(
+     (value): value is string => typeof value === 'string' && value.length > 0,
+    );
+    const users = await authDb.getUserDisplayNamesByIds(userIds);
+    return NextResponse.json({ ...trail, users });
+   }
    case 'listReconciliations':
     return NextResponse.json(await db.listReconciliations(appLike));
    case 'createReconciliation':
@@ -437,6 +463,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });
   }
  } catch (error) {
+  // db.js throws plain Errors carrying deliberate, user-facing text that the UI displays
+  // verbatim ("At least one party (sender or receiver) is required.", the reconciliation-lock
+  // and past-edit-lock messages, …), so those must pass through unchanged.
+  //
+  // A driver error is a different animal: node-postgres attaches `code` AND `severity` to
+  // everything it raises, which a hand-thrown Error never has. Those messages name schemas,
+  // columns, and constraints, so they get logged server-side and replaced with a generic
+  // line. Discriminating on the error object rather than the message keeps every intentional
+  // message intact while leaking nothing.
+  if (isDatabaseError(error)) {
+   console.error(`[api/accounting] database error on action "${currentAction ?? 'unknown'}"`, error);
+   return NextResponse.json({ error: 'A database error occurred. Please try again, or contact support if it persists.' }, { status: 500 });
+  }
+
   const message = error instanceof Error ? error.message : 'Unexpected server error.';
   return NextResponse.json({ error: message }, { status: 500 });
  }

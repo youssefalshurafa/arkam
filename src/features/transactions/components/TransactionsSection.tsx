@@ -19,6 +19,7 @@ import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/dat
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
+import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import EditableField from '@/shared/components/EditableField';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
@@ -2171,6 +2172,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           placeholder="0"
                          />
                          <span className="text-xs text-fg-faint">%</span>
+                         <CommissionDirectionToggle
+                          value={draft.commissionFrom}
+                          onChange={(next) => updateTransactionTableDraft(txn.id, { commissionFrom: next })}
+                          t={t}
+                         />
                         </div>
                         <div className="flex items-center gap-2">
                          <span className="shrink-0 text-xs text-fg-faint">{txn.clientToName}:</span>
@@ -2184,6 +2190,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                           placeholder="0"
                          />
                          <span className="text-xs text-fg-faint">%</span>
+                         <CommissionDirectionToggle
+                          value={draft.commissionTo}
+                          onChange={(next) => updateTransactionTableDraft(txn.id, { commissionTo: next })}
+                          t={t}
+                         />
                         </div>
                        </div>
                       );

@@ -1,9 +1,9 @@
 'use client';
 
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction } from 'react';
-import { usePointerDrag } from '@/shared/hooks/usePointerDrag';
+import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode, SetStateAction, TouchEvent as ReactTouchEvent } from 'react';
+import { usePointerDrag, type DragHalf } from '@/shared/hooks/usePointerDrag';
 import { useLongPress } from '@/shared/hooks/useLongPress';
 import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
@@ -22,6 +22,7 @@ import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } 
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, highlightPenCursor } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
+import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
@@ -112,6 +113,9 @@ type LedgerSectionProps = {
 // can never resolve (e.g. the transaction was deleted), not a merely slow one.
 const FLASH_REQUEST_TIMEOUT_MS = 10_000;
 const FLASH_SCROLL_MAX_FRAMES = 120;
+// How long a just-moved row keeps its "it landed here" ring. Long enough to find the row after
+// the ledger has paged to it, short enough not to be mistaken for a persistent row state.
+const MOVED_ROW_RING_MS = 1_500;
 
 export default function LedgerSection(props: LedgerSectionProps) {
  const {
@@ -149,12 +153,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // selected client or currency account changes) so the latest activity is visible
  // without the user having to scroll down manually.
  const ledgerTableScrollRef = useRef<HTMLDivElement | null>(null);
- // Bounding-rect target for the drag-into-header-to-page-back gesture (see ledgerRowDrag below)
- // — a direct geometric clientY-vs-rect comparison rather than elementFromPoint()+closest('thead'),
- // since the sticky header sitting under an actively pointer-captured drag is exactly the kind of
- // overlapping-layers case where relying on "what's the topmost element at this pixel" is more
- // failure-prone than just asking "is the pointer above this specific element's bottom edge."
- const ledgerTableHeadRef = useRef<HTMLTableSectionElement | null>(null);
  useLayoutEffect(() => {
   const el = ledgerTableScrollRef.current;
   if (el) el.scrollTop = el.scrollHeight;
@@ -172,6 +170,23 @@ export default function LedgerSection(props: LedgerSectionProps) {
   });
  }, [ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
 
+ // The filter bar applied to one account's entries, in render order. This is THE list the user
+ // sees — pagination slices it, the pager counts it, the clipboard-paste handlers index into it,
+ // and the row-move actions below resolve a row's neighbours from it — so it lives in one place
+ // rather than being re-inlined at each of those sites (where it silently drifted out of sync
+ // before). ledger.entries is already in the user's manual order (applied in the memo).
+ const visibleLedgerEntries = useCallback(
+  (entries: ClientAccountLedger['entries']) =>
+   entries.filter((e) => {
+    if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
+    if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
+    if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
+    if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
+    return true;
+   }),
+  [ledgerFilterDateFrom, ledgerFilterDateTo, ledgerFilterCounterparty, ledgerFilterSearch, ledgerFilterWholeWord],
+ );
+
  // Right-click row actions (Edit/Reconcile/Write off/Delete) — replaces a cluster of
  // per-row icon buttons with a single context menu, decluttering the actions column.
  // contextMenuRowKey drives a border on whichever row the open menu belongs to; closeRowMenu
@@ -181,6 +196,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // iOS Safari has no equivalent of Android's long-press-fires-contextmenu behavior, so the
  // row menu is otherwise unreachable by touch-and-hold on iPhone — see useLongPress.ts.
  const rowLongPress = useLongPress();
+ // A second instance for the drag handle's own menu (the reorder actions). Separate from
+ // rowLongPress because the two bind different elements to different menus, and only one of
+ // them can be under a finger at a time either way.
+ const dragHandleLongPress = useLongPress();
  // Only one row's description suggestions are ever live at a time (whichever row is focused)
  // — hooks can't be called per-row inside the ledger's row-rendering loop, so this single
  // shared instance retargets to whichever row last gained focus; every other row gets an
@@ -293,7 +312,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // synchronously guarantee: this effect resolves the request against ledger data that may not
  // have loaded yet, the next puts the ledger on the right page, and the last waits for that row
  // to actually paint before scrolling to it.
- const [pendingLedgerScrollTarget, setPendingLedgerScrollTarget] = useState<{ rowKey: string; kind: 'rate' | 'commission' } | null>(null);
+ const [pendingLedgerScrollTarget, setPendingLedgerScrollTarget] = useState<{ rowKey: string; kind: 'rate' | 'commission' | 'moved' } | null>(null);
  const [pendingLedgerJump, setPendingLedgerJump] = useState<{ transactionId: number; accountId: number; kind: 'rate' | 'commission'; targetPage: number } | null>(null);
  useEffect(() => {
   if (!flashLedgerEntry) return;
@@ -341,12 +360,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [pendingLedgerJump, ledgerPageState, ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
 
- // Scrolls the target row into view and flashes its badge 3 times (see .mce-flash-warning in
- // globals.css) to draw the eye. The row usually isn't in the DOM yet when this first runs — the
- // page switch above still has to commit and paint — so this polls across animation frames
- // instead of looking once and giving up (looking once is what made the jump land on the right
- // page but never actually scroll or flash). Bounded so it can't spin forever.
+ // Scrolls the target row into view, then draws the eye to it. The row usually isn't in the DOM
+ // yet when this first runs — the page switch above still has to commit and paint — so this polls
+ // across animation frames instead of looking once and giving up (looking once is what made the
+ // jump land on the right page but never actually scroll or flash). Bounded so it can't spin
+ // forever. Two callers with two kinds of "look here": a deep-linked flag flashes that row's
+ // warning badge 3 times (see .mce-flash-warning in globals.css), while a row that was just moved
+ // by the context menu has no badge to flash and gets a brief ring on the row itself instead.
  const [flashingLedgerBadge, setFlashingLedgerBadge] = useState<{ rowKey: string; kind: 'rate' | 'commission' } | null>(null);
+ const [movedLedgerRowKey, setMovedLedgerRowKey] = useState<string | null>(null);
  useEffect(() => {
   if (!pendingLedgerScrollTarget || typeof document === 'undefined') return;
   const { rowKey, kind } = pendingLedgerScrollTarget;
@@ -357,7 +379,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
    if (rowEl) {
     setPendingLedgerScrollTarget(null);
     rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setFlashingLedgerBadge({ rowKey, kind });
+    if (kind === 'moved') setMovedLedgerRowKey(rowKey);
+    else setFlashingLedgerBadge({ rowKey, kind });
     return;
    }
    if (framesLeft-- <= 0) {
@@ -369,6 +392,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
   raf = requestAnimationFrame(findAndFlash);
   return () => cancelAnimationFrame(raf);
  }, [pendingLedgerScrollTarget]);
+
+ // The moved-row ring is a momentary "it landed here" cue, not a state the row stays in.
+ useEffect(() => {
+  if (!movedLedgerRowKey) return;
+  const timer = setTimeout(() => setMovedLedgerRowKey(null), MOVED_ROW_RING_MS);
+  return () => clearTimeout(timer);
+ }, [movedLedgerRowKey]);
 
  // Wording for a commission flag. Names both the counterparty and (when present) the description,
  // because the history the engine compared against is narrowed to exactly that combination — see
@@ -509,73 +539,23 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // while a drag is in flight, lets that onClick swallow the stray post-drag click so
  // reordering a row never also highlights it.
  const justDraggedLedgerRowRef = useRef(false);
- // "Drag a row up into the header → go to the previous page" — the previous page's rows are
- // the ones chronologically just before the current page's first row, so this is how you reorder
- // across a page boundary without having to change the page size first. currentLedgerPageRef is
- // populated as a byproduct of the table body's own pagination math below (see `currentLedgerPage`
- // in the tbody render) so this doesn't need to re-derive it from ledgerPageState's raw (possibly
- // out-of-range) value. HEADER_DWELL_MS avoids flipping the instant the pointer merely brushes the
- // header on its way elsewhere.
- const currentLedgerPageRef = useRef<Record<number, number>>({});
- const draggedRowAccountIdRef = useRef<number | null>(null);
- const headerDwellTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
- const headerDwellActiveRef = useRef(false);
- const HEADER_DWELL_MS = 600;
- const clearHeaderDwell = () => {
-  headerDwellActiveRef.current = false;
-  if (headerDwellTimerRef.current) {
-   clearTimeout(headerDwellTimerRef.current);
-   headerDwellTimerRef.current = null;
-  }
- };
  const ledgerRowDrag = usePointerDrag<string>({
   parseKey: (raw) => raw,
-  // Distinct from the column drag's attribute below — both drags run on the same table, and a
-  // row drag's header-dwell page-back gesture deliberately hovers the header, where the column
-  // drag's `<th data-drag-key>` cells used to get hit-tested as if they were valid row targets
-  // (elementFromPoint doesn't know which hook's drag is active). That produced a bogus "hovered
-  // row" whose key was actually a column key, so releasing over the header — the natural way to
-  // end this gesture — silently failed to drop (the bogus key never matches a real row).
+  // Distinct from the column drag's attribute below — both drags run on the same table, and
+  // dragging a row up over the header would otherwise let the column drag's `<th data-drag-key>`
+  // cells be hit-tested as if they were valid row targets (elementFromPoint doesn't know which
+  // hook's drag is active). That produced a bogus "hovered row" whose key was actually a column
+  // key, so releasing over the header silently failed to drop.
   attr: 'data-drag-row-key',
   onDragStart: (key) => {
    justDraggedLedgerRowRef.current = true;
    setDragLedgerRowKey(key);
-   draggedRowAccountIdRef.current = Number(key.slice(key.lastIndexOf(':') + 1));
   },
   onHoverChange: (overKey, half) => {
    setDragOverLedgerRowKey(overKey);
    if (half) setDragOverLedgerHalf(half);
   },
-  onPointerMove: (_clientX, clientY) => {
-   const theadRect = ledgerTableHeadRef.current?.getBoundingClientRect();
-   // At-or-above the header's own bottom edge — covers hovering the header itself, and also
-   // dragging past it entirely (further up, off the table) as an equally valid "go back" gesture.
-   const overHeader = !!theadRect && clientY <= theadRect.bottom;
-   if (!overHeader) {
-    clearHeaderDwell();
-    return;
-   }
-   if (headerDwellActiveRef.current) return; // already counting down to a page-back
-   headerDwellActiveRef.current = true;
-   headerDwellTimerRef.current = setTimeout(() => {
-    headerDwellTimerRef.current = null;
-    const accountId = draggedRowAccountIdRef.current;
-    const current = accountId != null ? currentLedgerPageRef.current[accountId] : null;
-    if (accountId != null && current != null && current > 1) {
-     setLedgerPageState((prev) => ({ ...prev, [accountId]: current - 1 }));
-     // Let the previous page's rows render before scrolling, so the newly-current page's
-     // bottom rows — the ones the user actually wants to drop onto — are in view.
-     requestAnimationFrame(() => {
-      ledgerTableScrollRef.current?.scrollTo({ top: ledgerTableScrollRef.current.scrollHeight });
-     });
-    }
-    // Still holding over the header afterward keeps paging back, one page per dwell period.
-    headerDwellActiveRef.current = false;
-   }, HEADER_DWELL_MS);
-  },
   onDrop: (draggedKey, overKey, half) => {
-   clearHeaderDwell();
-   draggedRowAccountIdRef.current = null;
    if (overKey !== null && draggedKey !== overKey && half) {
     const accountId = Number(draggedKey.slice(draggedKey.lastIndexOf(':') + 1));
     const keysToMove =
@@ -594,6 +574,86 @@ export default function LedgerSection(props: LedgerSectionProps) {
   },
   renderGhost: ledgerRowGhostLabel,
  });
+
+ // Keyboard/menu-driven reordering, the reliable counterpart to the drag above. Dragging can only
+ // reach a row that is currently on screen, which makes moving a row across a page boundary a
+ // gesture nobody can complete; these resolve the move from the data instead, and the ledger
+ // follows the row to whatever page it lands on.
+ //
+ // Everything here is expressed as a drop, so it goes through the very same reorder engine as the
+ // drag (onLedgerRowDrop): same same-day reflow of createdAt, same reconciliation guard, same
+ // optimistic update. A move is therefore only ever legal WITHIN one calendar day — a row's date
+ // is changed by an explicit edit, never by reordering — so each of the four moves resolves to a
+ // target sharing this row's date, or to null, which renders the menu item greyed out rather than
+ // letting a click do nothing at all.
+ type LedgerRowMove = { targetKey: string; half: DragHalf; newIndex: number };
+ const ledgerRowMoves = (entry: ClientLedgerEntry, ledger: ClientAccountLedger) => {
+  const visible = visibleLedgerEntries(ledger.entries);
+  const index = visible.findIndex((e) => e.transactionId === entry.transactionId);
+  if (index === -1) return null;
+  const day = entry.createdAt.slice(0, 10);
+  const isSameDay = (e: ClientLedgerEntry) => e.createdAt.slice(0, 10) === day;
+  const keyOf = (e: ClientLedgerEntry) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId);
+  // Outer bounds of this row's date group as rendered — the first and last rows the user can see
+  // sharing its date, which is what "start/end of day" means to them.
+  let firstOfDay = index;
+  let lastOfDay = index;
+  while (firstOfDay > 0 && isSameDay(visible[firstOfDay - 1])) firstOfDay -= 1;
+  while (lastOfDay < visible.length - 1 && isSameDay(visible[lastOfDay + 1])) lastOfDay += 1;
+  // The page the row is on right now, by the same math the table body uses (ledgerPageState holds
+  // a raw, possibly out-of-range value; absent means "the last page").
+  const totalPages = Math.max(1, Math.ceil(visible.length / ledgerPageSize));
+  const currentPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalPages));
+  const move = (targetIndex: number, half: DragHalf): LedgerRowMove | null =>
+   targetIndex === index ? null : { targetKey: keyOf(visible[targetIndex]), half, newIndex: targetIndex };
+  return {
+   currentPage,
+   up: index > firstOfDay ? move(index - 1, 'top') : null,
+   down: index < lastOfDay ? move(index + 1, 'bottom') : null,
+   dayStart: move(firstOfDay, 'top'),
+   dayEnd: move(lastOfDay, 'bottom'),
+  };
+ };
+
+ // Applies one of those moves. onLedgerRowDrop's optimistic setTransactions runs synchronously
+ // for a same-day reflow (its reconciliation confirm short-circuits), so the reorder, the page
+ // switch and the scroll request all batch into a single render — the row never appears to move
+ // twice.
+ const moveLedgerRow = (rowKey: string, ledger: ClientAccountLedger, currentPage: number, move: LedgerRowMove) => {
+  void onLedgerRowDrop([rowKey], move.targetKey, move.half, ledger.accountId);
+  const newPage = Math.floor(move.newIndex / ledgerPageSize) + 1;
+  if (newPage !== currentPage) setLedgerPageState((prev) => ({ ...prev, [ledger.accountId]: newPage }));
+  setPendingLedgerScrollTarget({ rowKey, kind: 'moved' });
+ };
+
+ // Alt+↑ / Alt+↓ on a single-selected row, so a run of moves doesn't mean reopening the context
+ // menu for each step. Scoped to exactly one selected row: with several selected there's no one
+ // row the shortcut could mean, and the row menu already switches to bulk actions there. The key
+ // is the row key, which a move doesn't change, so the selection survives and the shortcut repeats.
+ useEffect(() => {
+  if (selectedLedgerEntryKeys.size !== 1) return;
+  const onKeyDown = (event: KeyboardEvent) => {
+   if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+   const target = event.target as HTMLElement | null;
+   if (target?.isContentEditable || (target && /^(INPUT|SELECT|TEXTAREA)$/.test(target.tagName))) return;
+   const [rowKey] = [...selectedLedgerEntryKeys];
+   const accountId = Number(rowKey.slice(rowKey.lastIndexOf(':') + 1));
+   const transactionId = Number(rowKey.slice(0, rowKey.lastIndexOf(':')));
+   const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
+   const entry = ledger?.entries.find((e) => e.transactionId === transactionId);
+   if (!ledger || !entry) return;
+   // Same lock the menu's Edit/Delete respect — a move rewrites createdAt, so it is a past edit.
+   if (lockPastEditsEnabled && isBeforeToday(entry.createdAt)) return;
+   const moves = ledgerRowMoves(entry, ledger);
+   const move = event.key === 'ArrowUp' ? moves?.up : moves?.down;
+   if (!moves || !move) return;
+   event.preventDefault();
+   moveLedgerRow(rowKey, ledger, moves.currentPage, move);
+  };
+  window.addEventListener('keydown', onKeyDown);
+  return () => window.removeEventListener('keydown', onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [selectedLedgerEntryKeys, selectedClientLedgers, visibleLedgerEntries, ledgerPageState, ledgerPageSize, lockPastEditsEnabled]);
 
  // Column drag-to-reorder (header cells) — same pointer-events approach, no half needed since
  // dropping just inserts the dragged column at the target's index.
@@ -1524,14 +1584,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                })()}
 
                {(() => {
-                const ordered = ledger.entries;
-                const visible = ordered.filter((e) => {
-                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                 if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
-                 return true;
-                });
+                const visible = visibleLedgerEntries(ledger.entries);
                 const visibleCount = visible.length;
                 const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
                 const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
@@ -1670,7 +1723,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  className="w-full text-sm"
                  style={{ zoom: String(tableZoom) }}
                 >
-                 <thead ref={ledgerTableHeadRef} className="sticky top-0 z-20 bg-surface-hover text-fg-muted">
+                 <thead className="sticky top-0 z-20 bg-surface-hover text-fg-muted">
                   <tr>
                    <th className="w-10 px-2 py-3">
                     {editAllLedgerAccountIds.has(ledger.accountId) ? (
@@ -1950,21 +2003,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  </thead>
                  <tbody>
                   {(() => {
-                   // ledger.entries is already in the user's manual order (applied in the memo).
-                   const ordered = ledger.entries;
-                   const visible = ordered.filter((e) => {
-                    if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                    if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                    if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                    if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
-                    return true;
-                   });
+                   const visible = visibleLedgerEntries(ledger.entries);
                    // Pagination: entries sorted oldest→newest; page N = newest (last chunk).
                    const totalLedgerPages = Math.max(1, Math.ceil(visible.length / ledgerPageSize));
                    const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));
-                   // Byproduct capture for the drag-into-header-to-page-back gesture above — see
-                   // currentLedgerPageRef's own comment.
-                   currentLedgerPageRef.current[ledger.accountId] = currentLedgerPage;
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
                    const pagedEntries = visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
                    return pagedEntries.map((entry, entryIdx) => {
@@ -2058,6 +2100,53 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
                      ]);
                     };
+                    // Reordering without dragging, hung off the drag handle itself rather than the
+                    // row menu — the grip is what the gesture is "about", so right-clicking it (or,
+                    // on a phone, holding it) offers the same move the drag would, including the
+                    // ones a drag can't reach because the destination is on another page.
+                    //
+                    // Behind the same lock as Edit, since a reorder rewrites this row's createdAt.
+                    // Each item is greyed out when there is nowhere legal for it to go: a move only
+                    // ever reorders rows WITHIN one calendar day, so a row already at the top or
+                    // bottom of its date group has no up/down neighbour to trade places with.
+                    const openMoveMenu = (event: ReactMouseEvent) => {
+                     // The row itself opens the actions menu on right-click; without this the
+                     // handle's menu would be replaced by the row's as the event bubbled up.
+                     event.stopPropagation?.();
+                     const rowKeyForMenu = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
+                     if (editingLedgerRowKeys.has(rowKeyForMenu)) return;
+                     const rowLocked = lockPastEditsEnabled && isBeforeToday(entry.createdAt);
+                     const moves = ledgerRowMoves(entry, ledger);
+                     setContextMenuRowKey(rowKeyForMenu);
+                     const moveItem = (key: string, labelKey: string, move: LedgerRowMove | null | undefined) => ({
+                      key,
+                      label: t(labelKey),
+                      disabled: rowLocked || !moves || !move,
+                      onSelect: () => {
+                       if (moves && move) moveLedgerRow(rowKeyForMenu, ledger, moves.currentPage, move);
+                      },
+                     });
+                     rowContextMenu.open(event, [
+                      moveItem('move-up', 'ledger_move_up', moves?.up),
+                      moveItem('move-down', 'ledger_move_down', moves?.down),
+                      moveItem('move-day-start', 'ledger_move_day_start', moves?.dayStart),
+                      moveItem('move-day-end', 'ledger_move_day_end', moves?.dayEnd),
+                     ]);
+                    };
+                    // The row binds its own long-press to the row menu, and touch events from the
+                    // handle bubble to it — so both holds would arm and the row's menu would be
+                    // the one left standing. Swallowing touchstart here keeps the row's timer from
+                    // ever arming; its touchmove/end handlers are no-ops without it.
+                    const moveMenuTouchProps = (() => {
+                     const bound = dragHandleLongPress.bind(openMoveMenu);
+                     return {
+                      ...bound,
+                      onTouchStart: (event: ReactTouchEvent) => {
+                       event.stopPropagation();
+                       bound.onTouchStart(event);
+                      },
+                     };
+                    })();
                     return (
                     <Fragment key={`${ledger.accountId}-${entry.transactionId}-${entry.direction}`}>
                      <tr
@@ -2116,9 +2205,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                       className={`border-t border-border align-top transition-colors ${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} hover:bg-surface-hover ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark && !hasVisibleChargesRow ? 'border-b-2 border-b-emerald-500' : ''} ${dragLedgerRowKey !== null && ((selectedLedgerEntryKeys.has(dragLedgerRowKey) && selectedLedgerEntryKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))) || dragLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)) ? 'opacity-40' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${dragOverLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) && dragOverLedgerHalf === 'bottom' ? 'border-b-2 border-b-blue-500' : ''} ${
                        contextMenuRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
                         ? 'ring-2 ring-inset ring-indigo-400'
-                        : editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))
-                          ? editingRowRingClassName
-                          : ''
+                        : movedLedgerRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
+                          ? 'ring-2 ring-inset ring-blue-400'
+                          : editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))
+                            ? editingRowRingClassName
+                            : ''
                       }`}
                      >
                       {(() => {
@@ -2202,10 +2293,18 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            // visible "⋮" button beside the drag handle — the only way to reach them
                            // on touch devices, which have no right-click event to hook into.
                            <div className="flex items-center justify-center gap-1">
+                            {/* The grip does double duty: drag it to reorder within the page, or
+                                open its menu — right-click on desktop, touch-and-hold on a phone
+                                (useLongPress; iOS never fires contextmenu from a hold) — to move
+                                the row a step at a time, including onto another page, which a
+                                drag can't reach. The hold also starts a drag that goes nowhere,
+                                since a stationary gesture drops the row back onto itself. */}
                             <span
                              {...ledgerRowDrag.dragHandleProps(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                             {...moveMenuTouchProps}
+                             onContextMenu={openMoveMenu}
                              className="cursor-grab text-fg-faint hover:text-fg-faint active:cursor-grabbing"
-                             title="Drag to reorder"
+                             title={t('ledger_drag_handle_title')}
                             >
                              <svg
                               width="12"
@@ -2922,17 +3021,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                       if (values.length <= 1) return;
                                       event.preventDefault();
 
-                                      // Rebuild the same filtered visible list the table renders, so we
-                                      // can map row positions to transaction drafts. ledger.entries is
-                                      // already in the user's manual order (applied in the memo).
-                                      const ordered = ledger.entries;
-                                      const visible = ordered.filter((e) => {
-                                       if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                                       if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                                       if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                                       if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
-                                       return true;
-                                      });
+                                      // The same filtered visible list the table renders, so row
+                                      // positions map to the right transaction drafts.
+                                      const visible = visibleLedgerEntries(ledger.entries);
 
                                       // Spread each pasted value down consecutive editable rate inputs,
                                       // starting at the row that received the paste. Rows not in edit
@@ -3148,17 +3239,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                     if (values.length <= 1) return;
                                     event.preventDefault();
 
-                                    // Rebuild the same filtered visible list the table renders so pasted
-                                    // values map to the right rows, then spread them down consecutive
-                                    // editable commission inputs starting at the row that received the paste.
-                                    const ordered = ledger.entries;
-                                    const visible = ordered.filter((e) => {
-                                     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                                     if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                                     if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                                     if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
-                                     return true;
-                                    });
+                                    // The same filtered visible list the table renders, so pasted values
+                                    // map to the right rows, then spread them down consecutive editable
+                                    // commission inputs starting at the row that received the paste.
+                                    const visible = visibleLedgerEntries(ledger.entries);
                                     const startKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
                                     const startIdx = Math.max(
                                      0,
@@ -3188,30 +3272,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    className={`${seamlessInputClassName} text-xs ${commVal > 0 ? 'text-good-text font-semibold' : commVal < 0 ? 'text-bad-text font-semibold' : 'text-fg'}`}
                                    placeholder="0"
                                   />
-                                  <button
-                                   type="button"
-                                   title={commVal < 0 ? t('commission_from_him') : t('commission_for_him')}
-                                   onClick={() => {
-                                    const v = parseFloat(draft.commission) || 0;
-                                    if (v !== 0) updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: String(-v) });
-                                   }}
-                                   className="shrink-0 rounded p-0.5 text-fg-faint transition hover:bg-surface-hover hover:text-fg-muted"
-                                  >
-                                   <svg
-                                    width="14"
-                                    height="14"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.8"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    aria-hidden
-                                   >
-                                    <path d="M7 4 3 8l4 4M3 8h13.5" />
-                                    <path d="M17 20l4-4-4-4m4 4H7.5" />
-                                   </svg>
-                                  </button>
+                                  <CommissionDirectionToggle
+                                   value={draft.commission}
+                                   onChange={(next) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { commission: next })}
+                                   t={t}
+                                   showLabel={false}
+                                  />
                                  </div>
                                 );
                                })()
@@ -3604,13 +3670,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                   {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) &&
                    ledger.entries.length > 0 &&
                    (() => {
-                    const visibleCount = ledger.entries.filter((e) => {
-                     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                     if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                     if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                     if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
-                     return true;
-                    }).length;
+                    const visibleCount = visibleLedgerEntries(ledger.entries).length;
                     if (visibleCount > 0) return null;
                     return (
                      <tr>
@@ -3627,14 +3687,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 </table>
                </div>
                {(() => {
-                const ordered = ledger.entries;
-                const visibleCount = ordered.filter((e) => {
-                 if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
-                 if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
-                 if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
-                 if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
-                 return true;
-                }).length;
+                const visibleCount = visibleLedgerEntries(ledger.entries).length;
                 if (visibleCount === 0) return null;
                 const totalLedgerPages = Math.max(1, Math.ceil(visibleCount / ledgerPageSize));
                 const currentLedgerPage = Math.max(1, Math.min(ledgerPageState[ledger.accountId] ?? 99999, totalLedgerPages));

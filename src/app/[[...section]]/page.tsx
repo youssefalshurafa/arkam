@@ -7,6 +7,7 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import HomePage from '@/components/marketing/HomePage';
+import { SectionErrorBoundary } from '@/components/ui/SectionErrorBoundary';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 
@@ -1434,7 +1435,7 @@ function AuthenticatedHome() {
 
 
 
-  const { onDownloadBackup, onRestoreBackupFile, lastBackupLabel } = useBackupActions({
+  const { onDownloadBackup, onRestoreBackupFile, lastBackupLabel, backupFreshness } = useBackupActions({
    setIsBackingUp,
    setIsRestoringBackup,
    lastBackupAt,
@@ -2295,8 +2296,8 @@ function AuthenticatedHome() {
    isBackingUp={isBackingUp}
    isRestoringBackup={isRestoringBackup}
    backupRestoreInputRef={backupRestoreInputRef}
-   lastBackupAt={lastBackupAt}
    lastBackupLabel={lastBackupLabel}
+   backupFreshness={backupFreshness}
    onDownloadBackup={onDownloadBackup}
    onRestoreBackupFile={onRestoreBackupFile}
    transactions={transactions}
@@ -2382,10 +2383,17 @@ function AuthenticatedHome() {
      ) : null}
 
      {/* Settings: full-width, no outer padding */}
-     {section === 'settings' ? settingsSection : null}
+     {/* SectionErrorBoundary sits INSIDE the shell (Sidebar/AppHeader are rendered above it),
+         so a render crash in one section leaves the nav usable and the user can switch away
+         instead of being forced to reload. key={section} remounts it on navigation, which
+         clears any caught error automatically. */}
+     {section === 'settings' ? (
+      <SectionErrorBoundary key="settings">{settingsSection}</SectionErrorBoundary>
+     ) : null}
 
      {section !== 'settings' ? (
-      <div className="flex flex-col gap-4 p-4">
+      <SectionErrorBoundary key={section}>
+       <div className="flex flex-col gap-4 p-4">
        {error ? (
         <div className="flex items-start justify-between gap-3 rounded border border-red-300 bg-bad-bg px-4 py-2 text-sm text-bad-text">
          <span>{error}</span>
@@ -2750,7 +2758,8 @@ function AuthenticatedHome() {
          onUpdateTransactionFields={onUpdateTransactionFields}
         />
        ) : null}
-      </div>
+       </div>
+      </SectionErrorBoundary>
      ) : null}
     </div>
    </main>

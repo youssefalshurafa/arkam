@@ -9,13 +9,16 @@ type DatabaseSettingsProps = {
  isBackingUp: boolean;
  isRestoringBackup: boolean;
  backupRestoreInputRef: RefObject<HTMLInputElement | null>;
- lastBackupAt: string | null;
+ // Computed in useBackupActions rather than here: it reads Date.now(), which the
+ // react-hooks/purity rule (rightly) forbids in a component body — same reason
+ // lastBackupLabel is a function prop rather than a string.
+ backupFreshness: () => 'never' | 'stale' | 'fresh';
  lastBackupLabel: () => string;
  onDownloadBackup: () => void;
  onRestoreBackupFile: (event: ChangeEvent<HTMLInputElement>) => void;
 };
 
-export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backupRestoreInputRef, lastBackupAt, lastBackupLabel, onDownloadBackup, onRestoreBackupFile }: DatabaseSettingsProps) {
+export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backupFreshness, lastBackupLabel, backupRestoreInputRef, onDownloadBackup, onRestoreBackupFile }: DatabaseSettingsProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
 
@@ -65,7 +68,10 @@ export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backu
        </svg>
        {isBackingUp ? t('backup_download_loading') : t('backup_download_button')}
       </button>
-      <p className={`mt-3 text-xs ${lastBackupAt ? 'text-fg-faint' : 'text-warn-text'}`}>{lastBackupLabel()}</p>
+      <p className={`mt-3 text-xs ${backupFreshness() === 'fresh' ? 'text-fg-faint' : 'text-warn-text'}`}>{lastBackupLabel()}</p>
+      {/* Only for 'stale' — for 'never', lastBackupLabel above already says there's no backup,
+          and repeating it here would just be the same warning twice. */}
+      {backupFreshness() === 'stale' ? <p className="mt-1 text-xs text-warn-text">{t('backup_stale_hint')}</p> : null}
      </div>
 
      <div className="rounded border border-amber-200 bg-surface p-4">

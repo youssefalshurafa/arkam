@@ -11,6 +11,7 @@ import { parseChargesPayer, combineChargesPayer, type ChargesPayerParty } from '
 import { ltrIsolate } from '@/shared/utils/format';
 import { localDateKey } from '@/shared/utils/date';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
+import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAiParseTransaction } from '@/features/transactions/hooks/useAiParseTransaction';
@@ -877,7 +878,14 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
                </div>
               )}
               <div>
-               <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_from')} (%)</label>
+               <div className="flex items-center justify-between gap-2">
+                <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_from')} (%)</label>
+                <CommissionDirectionToggle
+                 value={transactionForm.commissionFrom}
+                 onChange={(next) => setTransactionForm((current) => ({ ...current, commissionFrom: next }))}
+                 t={t}
+                />
+               </div>
                <input
                 type="text"
                 inputMode="decimal"
@@ -957,7 +965,14 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
                 </div>
                )}
                <div>
-                <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_to')} (%)</label>
+                <div className="flex items-center justify-between gap-2">
+                 <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_to')} (%)</label>
+                 <CommissionDirectionToggle
+                  value={transactionForm.commissionTo}
+                  onChange={(next) => setTransactionForm((current) => ({ ...current, commissionTo: next }))}
+                  t={t}
+                 />
+                </div>
                 <input
                  type="text"
                  inputMode="decimal"

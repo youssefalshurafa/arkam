@@ -53,8 +53,8 @@ type SettingsSectionProps = {
  isBackingUp: boolean;
  isRestoringBackup: boolean;
  backupRestoreInputRef: React.RefObject<HTMLInputElement | null>;
- lastBackupAt: string | null;
  lastBackupLabel: () => string;
+ backupFreshness: () => 'never' | 'stale' | 'fresh';
  onDownloadBackup: () => void;
  onRestoreBackupFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
  transactions: Transaction[];
@@ -110,8 +110,8 @@ export default function SettingsSection({
  isBackingUp,
  isRestoringBackup,
  backupRestoreInputRef,
- lastBackupAt,
  lastBackupLabel,
+ backupFreshness,
  onDownloadBackup,
  onRestoreBackupFile,
  transactions,
@@ -284,8 +284,8 @@ export default function SettingsSection({
      isBackingUp={isBackingUp}
      isRestoringBackup={isRestoringBackup}
      backupRestoreInputRef={backupRestoreInputRef}
-     lastBackupAt={lastBackupAt}
      lastBackupLabel={lastBackupLabel}
+     backupFreshness={backupFreshness}
      onDownloadBackup={onDownloadBackup}
      onRestoreBackupFile={onRestoreBackupFile}
     />

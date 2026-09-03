@@ -224,6 +224,7 @@ export const accountingApi = {
  deleteTransactionsBulk: (payload: { transactionIds: number[]; acknowledgeReconciliationOverride?: boolean }) =>
   request<{ ok: true; deleted: number }>({ action: 'deleteTransactionsBulk', payload }),
  deleteAllTransactions: () => request<{ ok: true }>({ action: 'deleteAllTransactions' }),
+ listTransactionHistory: (transactionId: number) => request<TransactionHistoryResponse>({ action: 'listTransactionHistory', payload: { transactionId } }),
  listReconciliations: () => request<unknown[]>({ action: 'listReconciliations' }),
  createReconciliation: (payload: unknown) => request<{ id: number }>({ action: 'createReconciliation', payload }),
  deleteReconciliation: (id: number) => request<{ ok: true }>({ action: 'deleteReconciliation', payload: id }),
@@ -360,6 +361,33 @@ export type WorkspaceSharedSettings = {
 export type BackupInfo = {
  lastBackupAt: string | null;
  lastBackupDevice: string | null;
+};
+
+/**
+ * One recorded change to a transaction. `snapshot` is the full DB row (raw snake_case column
+ * names) as it stood BEFORE this change — so an 'update' entry shows the superseded values,
+ * and a 'delete' entry is the last surviving copy of the row.
+ */
+export type TransactionHistoryEntry = {
+ id: number;
+ action: 'update' | 'delete';
+ changedBy: string | null;
+ changedAt: string;
+ snapshot: Record<string, unknown>;
+};
+
+export type TransactionHistoryResponse = {
+ // null once the transaction itself has been deleted — its history outlives it.
+ current: {
+  createdBy: string | null;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+ } | null;
+ history: TransactionHistoryEntry[];
+ // id -> person, for whichever ids could still be resolved. An id absent from this map
+ // belongs to a deleted login and must render as unknown, never as a guessed name.
+ users: Record<string, { name: string; email: string }>;
 };
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';

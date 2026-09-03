@@ -10,14 +10,6 @@ type UsePointerDragOptions<K> = {
  onDragStart?: (draggedKey: K) => void;
  /** Fired on every pointer move while dragging, with the currently hovered key/half (or both null when over nothing draggable). */
  onHoverChange: (overKey: K | null, half: DragHalf | null) => void;
- /**
-  * Fired on every pointer move while dragging, with the raw viewport coordinates and whatever
-  * element sits under the pointer (the same lookup `updateHover` already does, reused rather
-  * than calling `elementFromPoint` twice). For consumers that need something `onHoverChange`
-  * can't express — e.g. "the pointer is over the table's header, not a droppable row" — which
-  * `[data-drag-key]` hit-testing alone can't distinguish from "over nothing."
-  */
- onPointerMove?: (clientX: number, clientY: number, elementUnderPointer: Element | null) => void;
  /** Fired once when the pointer is released, with whatever was last reported to onHoverChange. */
  onDrop: (draggedKey: K, overKey: K | null, half: DragHalf | null) => void;
  /**
@@ -48,19 +40,17 @@ type UsePointerDragOptions<K> = {
  * drag-end) rather than React props on the drag handle itself, and pointer capture is taken on
  * `document.body` rather than the handle (`event.currentTarget`) — both deliberately, so the
  * gesture survives the handle's own row being unmounted mid-drag. That happens whenever a
- * consumer's `onHoverChange`/`onPointerMove` triggers a re-render that removes the dragged row
- * from the DOM entirely (e.g. the ledger's drag-into-header-to-page-back gesture, which changes
- * which page's rows are rendered while a row from the OLD page is still being dragged) — losing
- * pointer capture on a now-removed element fires an implicit `pointercancel` and silently ends
- * the drag with nothing dropped, which is exactly the bug this avoids. `document.body` and
- * `window` never unmount, so capture and the listeners keep working regardless of what the
- * consumer's table does mid-drag.
+ * consumer's `onHoverChange` triggers a re-render that removes the dragged row from the DOM
+ * entirely — losing pointer capture on a now-removed element fires an implicit `pointercancel`
+ * and silently ends the drag with nothing dropped, which is exactly the bug this avoids.
+ * `document.body` and `window` never unmount, so capture and the listeners keep working
+ * regardless of what the consumer's table does mid-drag.
  *
  * Usage: spread `dragHandleProps(key)` onto the drag handle element, put `data-drag-key={key}`
  * on each element that can be dropped onto (usually the row/column itself), and render
  * `{dragGhost}` once anywhere in the tree if `renderGhost` is passed.
  */
-export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onPointerMove, onDrop, axis = 'vertical', attr = 'data-drag-key', renderGhost }: UsePointerDragOptions<K>) {
+export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onDrop, axis = 'vertical', attr = 'data-drag-key', renderGhost }: UsePointerDragOptions<K>) {
  const draggedKeyRef = useRef<K | null>(null);
  const overRef = useRef<{ key: K; half: DragHalf | null } | null>(null);
  const ghostRef = useRef<HTMLDivElement | null>(null);
@@ -75,7 +65,6 @@ export function usePointerDrag<K>({ parseKey, onDragStart, onHoverChange, onPoin
 
  const updateHover = (clientX: number, clientY: number) => {
   const el = document.elementFromPoint(clientX, clientY);
-  onPointerMove?.(clientX, clientY, el);
   let target = (el as HTMLElement | null)?.closest(`[${attr}]`) as HTMLElement | null;
 
   // The pointer overshot past the top/bottom edge of the draggable list — e.g. a fast drag

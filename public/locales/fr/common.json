@@ -547,6 +547,8 @@
  "ledger_highlight_net_change": "Surligner la colonne variation nette",
  "commission_from_him": "Commission du client — cliquez pour la mettre pour le client",
  "commission_for_him": "Commission pour le client — cliquez pour la mettre du client",
+ "commission_dir_for": "Pour lui",
+ "commission_dir_from": "De lui",
  "ledger_row_highlight_color": "Couleur de surlignage des lignes",
  "ledger_highlight_presets_label": "Couleurs enregistrées",
  "ledger_highlight_preset_select": "Utiliser la couleur {{n}}",
@@ -1376,5 +1378,22 @@
  "admin_action_reject_reset": "Réinitialisation rejetée",
  "admin_action_upload_image": "Image d'accueil mise à jour",
  "admin_action_remove_image": "Image d'accueil retirée",
- "admin_action_login": "Connexion"
+ "admin_action_login": "Connexion",
+ "audit_action_delete": "Supprimé",
+ "audit_action_update": "Modifié",
+ "audit_created_by": "Créé par {{user}} le {{date}}",
+ "audit_history": "Historique des modifications",
+ "audit_no_changes": "Aucune modification enregistrée.",
+ "audit_other_changes": "D'autres champs ont été modifiés.",
+ "audit_unknown_user": "Utilisateur inconnu",
+ "backup_stale_hint": "Aucune sauvegarde téléchargée depuis plus d'une semaine. Pensez à en télécharger une.",
+ "section_error_body": "Cette section n'a pas pu être affichée. Aucune donnée enregistrée n'a été perdue — vous pouvez passer à une autre section depuis la barre latérale.",
+ "section_error_reload": "Recharger la page",
+ "section_error_retry": "Réessayer",
+ "section_error_title": "Une erreur est survenue dans cette section",
+ "ledger_drag_handle_title": "Glisser pour réordonner — clic droit (ou appui long au toucher) pour le déplacer d'un cran",
+ "ledger_move_up": "Monter",
+ "ledger_move_down": "Descendre",
+ "ledger_move_day_start": "Déplacer au début de la journée",
+ "ledger_move_day_end": "Déplacer à la fin de la journée"
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -10,6 +10,7 @@ import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { NEW_ROW_REF_ID, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
+import { isSameTransactionUpdate, transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
@@ -36,6 +37,11 @@ import type {
  TransactionUpdateInput,
  Transaction,
 } from '@/shared/types';
+
+// How long to wait after the last optimistic ledger write before reconciling with the server.
+// Long enough that a run of quick edits collapses into one refetch, short enough that anything
+// the server decided differently surfaces while the user is still looking at the same rows.
+const WORKSPACE_RESYNC_DELAY_MS = 1_500;
 
 // One already-SAVED edit to a ledger row, reversible/replayable by re-issuing the same update
 // API call with the previous/next persisted values. Distinct from `DraftHistory`, which only
@@ -109,6 +115,47 @@ export function useLedgerActions({
  });
  const { applyTransactionPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
 
+ // Reconciling refetch after optimistic ledger writes, coalesced. `loadData` invalidates the
+ // whole workspace snapshot — every organization, client, account and transaction in one
+ // round-trip — which is far too heavy to run once per saved row: editing a column with the
+ // arrow keys fired one per keystroke. The optimistic patch already shows the right values, so
+ // this exists only to pick up anything the server decided differently; running it once after
+ // the user stops is enough, and keeps a run of edits from queueing a reload behind each one.
+ const resyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+ const scheduleWorkspaceResync = useCallback(() => {
+  if (resyncTimerRef.current) clearTimeout(resyncTimerRef.current);
+  resyncTimerRef.current = setTimeout(() => {
+   resyncTimerRef.current = null;
+   void loadData();
+  }, WORKSPACE_RESYNC_DELAY_MS);
+ }, [loadData]);
+ // A pending resync is dropped if the ledger unmounts; whatever mounts next fetches on its own.
+ useEffect(() => () => {
+  if (resyncTimerRef.current) clearTimeout(resyncTimerRef.current);
+ }, []);
+
+ // Saves no longer hold the UI open until the server answers, which means a row can be closed
+ // and looking saved while its write is still on the wire. That window is short, but this is
+ // accounting data: closing the tab inside it would drop the edit with nothing on screen to
+ // suggest it hadn't landed. Track the writes still in flight and let the browser ask before
+ // unloading — the listener only exists while something is genuinely pending.
+ const pendingWritesRef = useRef(0);
+ // One stable listener identity for the whole hook's life — a fresh closure per call would be
+ // added under one identity and removed under another, leaving the warning armed forever.
+ const warnOnUnloadRef = useRef((event: BeforeUnloadEvent) => event.preventDefault());
+ const trackPendingWrite = useCallback(<T,>(request: Promise<T>): Promise<T> => {
+  if (pendingWritesRef.current === 0) window.addEventListener('beforeunload', warnOnUnloadRef.current);
+  pendingWritesRef.current += 1;
+  return request.finally(() => {
+   pendingWritesRef.current -= 1;
+   if (pendingWritesRef.current === 0) window.removeEventListener('beforeunload', warnOnUnloadRef.current);
+  });
+ }, []);
+ useEffect(() => {
+  const warn = warnOnUnloadRef.current;
+  return () => window.removeEventListener('beforeunload', warn);
+ }, []);
+
  const draggedLedgerColumn = useLedgerStore((s) => s.draggedLedgerColumn);
  const setDraggedLedgerColumn = useLedgerStore((s) => s.setDraggedLedgerColumn);
  const setLedgerColumnOrder = useLedgerStore((s) => s.setLedgerColumnOrder);
@@ -150,6 +197,16 @@ export function useLedgerActions({
  function pushLedgerEditAction(action: LedgerEditAction) {
   pastLedgerActions.current = [...pastLedgerActions.current, action].slice(-30);
   futureLedgerActions.current = [];
+  bumpLedgerActionHistory();
+  return action;
+ }
+
+ // Takes back an entry pushed for an edit that turned out not to have landed. Optimistic saves
+ // push their undo entry up front so undo works the instant the row closes; when the write then
+ // fails and the row is rolled back, its entry has to come off the stack too, or the next undo
+ // would "revert" a change the server never made.
+ function dropLedgerEditAction(action: LedgerEditAction) {
+  pastLedgerActions.current = pastLedgerActions.current.filter((entry) => entry !== action);
   bumpLedgerActionHistory();
  }
 
@@ -489,19 +546,36 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
  const rateEntered = draft.exchangeRate.trim() !== '' && Number.isFinite(parsedLedgerRate) && parsedLedgerRate >= 0;
  const rawLedgerRate = rateEntered ? parsedLedgerRate : crossCurrency ? 0 : 1;
  const rateIsReversed = !!ledgerRateReversed[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)] && rawLedgerRate > 0;
- const exchangeRate = rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
+ // A reversed rate is SHOWN as 1/rate and inverted again on the way back, and that round-trip
+ // loses precision at formatRateValue's six decimals: a stored 10.5 displays as 0.095238 and
+ // comes back as 10.5000105. Saving a row nobody edited would therefore nudge the stored rate a
+ // little further every time — and, worse for the common case, an untouched reversed row could
+ // never compare equal to what is stored, so it would keep paying for a save it doesn't need.
+ // When the field still holds the exact string the row was opened with, and nothing else that
+ // changes what the rate MEANS has moved, the user didn't touch it: keep the stored value.
+ const originalDraft = buildLedgerTransactionDraft(transaction, ledgerAccountId);
+ const originalIsOutgoing = transaction.accountFromId === ledgerAccountId;
+ const rateUntouched =
+  draft.exchangeRate === originalDraft.exchangeRate &&
+  draft.direction === originalDraft.direction &&
+  draft.ledgerAccountId === originalDraft.ledgerAccountId &&
+  draft.currencyId === originalDraft.currencyId &&
+  rateIsReversed === (originalIsOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed);
+ const storedRate = originalIsOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
+ const exchangeRate = rateUntouched ? storedRate : rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
  const commission = parseFloat(draft.commission) || 0;
 
- // Senderless/receiverless transactions are a legitimate, permanent shape (no
- // counterparty on that side) — only require a counterparty here if the
- // transaction already had one, so editing (e.g. just the exchange rate)
- // doesn't get blocked by a side that was never meant to be filled in.
- // Uses the transaction's ORIGINAL side relative to this ledger account (not
- // draft.direction), since reversing direction in the draft must not reinterpret
- // which side the original counterparty was already missing from.
- const originalIsOutgoing = transaction.accountFromId === ledgerAccountId;
+ // Senderless/receiverless transactions are a legitimate, permanent shape (no counterparty on
+ // that side), so the counterparty is never required here — neither for a row that never had
+ // one (editing e.g. just the exchange rate must not be blocked by a side that was never meant
+ // to be filled in) nor for one being deliberately cleared, which turns the row into a one-sided
+ // transaction exactly like clearing it from the transactions table or the details modal does.
+ // Only this ledger's own side is mandatory. `originalCounterpartyId` is still needed below to
+ // detect a counterparty being ADDED; it uses the transaction's ORIGINAL side relative to this
+ // ledger account (not draft.direction), since reversing direction in the draft must not
+ // reinterpret which side the original counterparty was already missing from.
  const originalCounterpartyId = originalIsOutgoing ? transaction.accountToId : transaction.accountFromId;
- if ((originalCounterpartyId != null && !draft.counterpartyAccountId) || !amount || draft.currencyId == null) {
+ if (!draft.ledgerAccountId || !amount || draft.currencyId == null) {
   return { error: 'transaction_required' };
  }
  if (draft.ledgerAccountId === draft.counterpartyAccountId) {
@@ -568,7 +642,7 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
  return { payload };
 }
 
-async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { skipReload = false } = {}): Promise<boolean> {
+async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { batch = false } = {}): Promise<boolean> {
  if (!accountingApi) {
   setError(t('error_bridge'));
   return false;
@@ -591,52 +665,28 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  // The row's pre-edit persisted state, for the saved-edit undo/redo stack — same field set as
  // `payload` above (not the full `Transaction` shape), read straight from `transaction` before
  // this save overwrites it.
- const previousPayload: TransactionUpdateInput = {
-  id: transaction.id,
-  accountFromId: transaction.accountFromId,
-  accountToId: transaction.accountToId,
-  currencyId: transaction.currencyId,
-  amount: transaction.amount,
-  type: transaction.type,
-  exchangeRateFrom: transaction.exchangeRateFrom,
-  commissionFrom: transaction.commissionFrom,
-  exchangeRateTo: transaction.exchangeRateTo,
-  commissionTo: transaction.commissionTo,
-  exchangeRateFromReversed: transaction.exchangeRateFromReversed,
-  exchangeRateToReversed: transaction.exchangeRateToReversed,
-  exchangeActualAmount: transaction.exchangeActualAmount,
-  charges: transaction.charges,
-  chargesCurrencyId: transaction.chargesCurrencyId,
-  chargesPayer: transaction.chargesPayer,
-  chargesExchangeRate: transaction.chargesExchangeRate,
-  chargesDescription: transaction.chargesDescription,
-  charges2: transaction.charges2,
-  charges2CurrencyId: transaction.charges2CurrencyId,
-  chargesPayer2: transaction.chargesPayer2,
-  charges2ExchangeRate: transaction.charges2ExchangeRate,
-  charges2Description: transaction.charges2Description,
-  description: transaction.description,
-  counterParty: transaction.counterParty,
-  distributionLocationId: transaction.distributionLocationId,
-  createdAt: transaction.createdAt,
- };
+ const previousPayload = transactionUpdateSnapshot(transaction);
+
+ // Opening a row for edit and leaving it alone — which is most of what arrowing up and down a
+ // column does — used to cost a full round-trip and a `loadData()` refetch per row, plus a
+ // possible reconciliation prompt, all to write back values identical to the ones already there.
+ // Treat that as a cancel: report success so the caller closes the row and drops the draft, but
+ // touch neither the server nor the undo stack, since there is nothing to undo.
+ if (isSameTransactionUpdate(payload, previousPayload)) {
+  return true;
+ }
 
  if (blockedByPastEditLock([transaction.createdAt, payload.createdAt], Boolean(transaction.isArchived))) {
   return false;
  }
 
  // Single-row saves check the lock here; batch saves are checked once up-front in
- // onSaveAllLedger (which passes skipReload) to avoid one dialog per row.
- if (!skipReload && !(await confirmIfTransactionEditLocked(transaction, payload))) {
+ // onSaveAllLedger (which checks the whole batch at once) to avoid one dialog per row.
+ if (!batch && !(await confirmIfTransactionEditLocked(transaction, payload))) {
   return false;
  }
 
- try {
-  await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
-  setError('');
-  // Optimistically reflect the edit so the ledger updates instantly (no page-wide reload,
-  // no account jump). The batch saver passes skipReload and reconciles once at the end.
-  applyTransactionPatch(payload);
+ const pushUndo = () =>
   pushLedgerEditAction({
    undo: async () => {
     await accountingApi.updateTransaction({ ...previousPayload, acknowledgeReconciliationOverride: true });
@@ -649,12 +699,44 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
     await loadData();
    },
   });
-  if (!skipReload) void loadData();
-  return true;
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_update'));
-  return false;
+
+ // Batch saves stay synchronous: onSaveAllLedger fires them all in parallel and needs each
+ // row's real outcome to decide which rows may close, so it can't be handed a provisional yes.
+ if (batch) {
+  try {
+   await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+   setError('');
+   applyTransactionPatch(payload);
+   pushUndo();
+   return true;
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+   return false;
+  }
  }
+
+ // A single-row save doesn't wait for the server. The row's new values are already known — the
+ // write is a plain UPDATE of exactly what's in `payload` — so the cache is patched, the row
+ // closes, and the request goes out behind it. Waiting bought nothing but the delay the user
+ // felt on every save and on every arrow-key step between rows.
+ setError('');
+ applyTransactionPatch(payload);
+ const undoEntry = pushUndo();
+ void trackPendingWrite(accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true }))
+  // Resync rather than refetch-per-save: several quick edits (or a run of arrow-key steps)
+  // collapse into one refetch once the user pauses, instead of a full workspace reload each.
+  .then(() => scheduleWorkspaceResync())
+  .catch((e) => {
+   // The write never landed, so put the row back the way it was rather than leaving the
+   // optimistic values on screen as though they had been saved, and take its undo entry back
+   // off the stack. loadData() re-reads the server's actual state, which is the only thing
+   // that can be trusted after a failure.
+   applyTransactionPatch(previousPayload);
+   dropLedgerEditAction(undoEntry);
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+   void loadData();
+  });
+ return true;
 }
 
 function onCancelLedgerTransaction(transactionId: number, ledgerAccountId: number) {
@@ -715,7 +797,7 @@ function onCancelAllLedger(ledger: ClientAccountLedger) {
 async function onSaveAllLedger(ledger: ClientAccountLedger) {
  const keys = ledger.entries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)).filter((k) => editingLedgerRowKeys.has(k));
 
- // One up-front lock check for the whole batch (the per-row saves below skipReload, so
+ // One up-front lock check for the whole batch (the per-row saves below pass `batch`, so
  // they don't each prompt). Builds the same updated record each row's real save would
  // write and warns once, only if some row's edit actually moves a reconciled balance
  // (not merely because the row sits at/before a lock line — see `useReconciliationLocks`).
@@ -730,6 +812,9 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
   if (!tx) continue;
   const built = buildLedgerTransactionUpdate(transactionId, accId, draft, tx);
   if ('error' in built) continue;
+  // A row nobody touched writes nothing (see onSaveLedgerTransaction), so it must not weigh in
+  // on whether this batch needs a reconciliation warning either.
+  if (isSameTransactionUpdate(built.payload, transactionUpdateSnapshot(tx))) continue;
   edits.push({ oldTx: tx, newPayload: built.payload });
  }
  if (!(await confirmIfBatchEditLocked(edits))) {
@@ -741,7 +826,7 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
  const results = await Promise.all(
   keys.map(async (key) => {
    const [txIdStr, accIdStr] = key.split(':');
-   const ok = await onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { skipReload: true });
+   const ok = await onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { batch: true });
    return [key, ok] as const;
   }),
  );
