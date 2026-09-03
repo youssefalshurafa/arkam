@@ -9,10 +9,12 @@ import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatRateValue } from '@/shared/utils/format';
 import { seamlessSelectClassName } from '@/shared/styles';
 import { getCommissionAmount, exchangeToBase } from '@/shared/utils/commission';
+import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
+import TransactionHistorySection from '@/features/transactions/components/TransactionHistorySection';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import EditableField from '@/shared/components/EditableField';
 import type { ClientAccount, Currency, Transaction, TransactionUpdateInput } from '@/shared/types';
@@ -279,11 +281,21 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       />
      </span>
     </div>
-    {row(
-     t('commission'),
-     <EditableField editValue={String(opts.commissionPct)} display={`${opts.commissionPct.toLocaleString(numLocale, { maximumFractionDigits: 2 })}%`} decimal onCommit={opts.onCommitCommission} />,
-     'commission',
-    )}
+    <div key="commission" className="flex items-start justify-between gap-4 py-1.5">
+     <span className="flex shrink-0 items-center gap-1 text-xs font-medium uppercase tracking-wide text-fg-faint">
+      {t('commission')}
+      <CommissionDirectionToggle
+       value={String(opts.commissionPct)}
+       // The sign is the direction, so a toggle is just a re-commit of the negated percent
+       // (`|| 0` also folds -0 and NaN back to a plain 0).
+       onChange={(next) => opts.onCommitCommission(String(parseFloat(next) || 0))}
+       t={t}
+      />
+     </span>
+     <span className="min-w-0 break-words text-right text-sm font-medium text-fg">
+      <EditableField editValue={String(opts.commissionPct)} display={`${opts.commissionPct.toLocaleString(numLocale, { maximumFractionDigits: 2 })}%`} decimal onCommit={opts.onCommitCommission} />
+     </span>
+    </div>
     {row(
      t('transaction_description'),
      <EditableField
@@ -571,6 +583,10 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       )}
      </div>
     ) : null}
+
+    {/* Audit trail. Reads `found`, not the merged `tx`, so it always describes what is
+        actually stored rather than the buffered, unsaved edits above it. */}
+    <TransactionHistorySection transaction={found} clientAccounts={clientAccounts} currencies={localizedCurrencies} dateFormat={dateFormat} />
 
     <div className="mt-5 flex justify-end gap-2">
      <button

@@ -13,12 +13,22 @@ type UseTransactionPatchersParams = {
  * Optimistic local-cache patcher shared by the ledger and transactions-table edit
  * flows — both edit the same underlying transaction records from different views,
  * so both need to re-resolve the derived display fields (client names, currency
- * code/symbol) the same way after a save. A background loadData() call afterward
- * reconciles with the server.
+ * code/symbol) the same way after a save.
+ *
+ * This is what the user actually looks at after a save: the ledger no longer waits for
+ * the write to land, and the reconciling refetch is deferred and coalesced (see
+ * scheduleWorkspaceResync in useLedgerActions). So the patch has to land the row exactly
+ * where the server will, normalizations included — anything it gets wrong is visible until
+ * that later refetch, and reads as the save having changed something the user didn't type.
+ * The normalizations below mirror db.js's `updateTransaction` statement one for one.
  */
 export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTransactionPatchersParams) {
  const { setters } = useWorkspaceActions();
  const setTransactions = setters.setTransactions as Dispatch<SetStateAction<Transaction[]>>;
+
+ // The server trims every free-text column on write; a locally-kept untrimmed value would
+ // otherwise sit in the cache looking like an edit nobody made.
+ const trimmed = (value: string | null | undefined) => (value == null ? value : value.trim());
 
  function applyTransactionPatch(input: TransactionUpdateInput) {
   const fromAccount = input.accountFromId != null ? clientAccountMap.get(input.accountFromId) : undefined;
@@ -42,31 +52,35 @@ export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTra
         currencyId: input.currencyId,
         currencyCode: currency?.code ?? tx.currencyCode,
         currencySymbol: currency?.symbol ?? tx.currencySymbol,
-        amount: input.amount,
+        amount: input.amount ?? 0,
         type: input.type,
-        exchangeRateFrom: input.exchangeRateFrom,
-        commissionFrom: input.commissionFrom,
-        exchangeRateTo: input.exchangeRateTo,
-        commissionTo: input.commissionTo,
+        exchangeRateFrom: input.exchangeRateFrom ?? 1,
+        commissionFrom: input.commissionFrom ?? 0,
+        exchangeRateTo: input.exchangeRateTo ?? 1,
+        commissionTo: input.commissionTo ?? 0,
         exchangeRateFromReversed: input.exchangeRateFromReversed ?? tx.exchangeRateFromReversed,
         exchangeRateToReversed: input.exchangeRateToReversed ?? tx.exchangeRateToReversed,
-        charges: input.charges,
+        charges: input.charges ?? 0,
         chargesCurrencyId: input.chargesCurrencyId,
         chargesCurrencyCode: chargesCurrency?.code ?? null,
         chargesCurrencySymbol: chargesCurrency?.symbol ?? null,
-        chargesPayer: input.chargesPayer,
-        chargesExchangeRate: input.chargesExchangeRate,
-        chargesDescription: input.chargesDescription,
-        charges2: input.charges2,
+        chargesPayer: input.chargesPayer ?? '',
+        chargesExchangeRate: input.chargesExchangeRate ?? 1,
+        chargesDescription: trimmed(input.chargesDescription) ?? '',
+        charges2: input.charges2 ?? 0,
         charges2CurrencyId: input.charges2CurrencyId,
         charges2CurrencyCode: charges2Currency?.code ?? null,
         charges2CurrencySymbol: charges2Currency?.symbol ?? null,
         chargesPayer2: input.chargesPayer2,
-        charges2ExchangeRate: input.charges2ExchangeRate,
-        charges2Description: input.charges2Description,
-        description: input.description,
-        archiveNote: input.archiveNote ?? tx.archiveNote,
-        counterParty: input.counterParty ?? tx.counterParty,
+        charges2ExchangeRate: input.charges2ExchangeRate ?? 1,
+        charges2Description: trimmed(input.charges2Description) ?? '',
+        description: trimmed(input.description) ?? '',
+        archiveNote: trimmed(input.archiveNote) ?? tx.archiveNote,
+        counterParty: trimmed(input.counterParty) ?? tx.counterParty,
+        // Both are COALESCE'd server-side: a caller that omits them keeps whatever is stored,
+        // so an omission here must keep the local value rather than blanking it.
+        exchangeActualAmount: input.exchangeActualAmount ?? tx.exchangeActualAmount,
+        distributionLocationId: input.distributionLocationId || null,
         createdAt: input.createdAt,
        }
      : tx,

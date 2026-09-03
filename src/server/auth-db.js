@@ -254,6 +254,31 @@ async function getDefaultWorkspaceIdByUserId(userId) {
 // Read on (most) session refreshes via the jwt callback (auth-options.ts), same as
 // getDefaultWorkspaceIdByUserId above — so an admin's change here reaches an already-signed-in
 // user without forcing a re-login, just not perfectly instantly.
+// Resolves a batch of user ids to display names, for attributing audit-trail entries.
+// Batched (= ANY) rather than one query per row, since a transaction's history can hold many
+// entries from a handful of distinct users.
+//
+// Returns a plain id -> { name, email } object. Ids with no matching row are simply absent:
+// a user's login can be deleted while their audit records live on (audit columns are
+// deliberately not foreign keys, see the workspace schema DDL), and the caller must render
+// those as unknown rather than inventing a name.
+async function getUserDisplayNamesByIds(userIds) {
+    const ids = [...new Set((userIds || []).filter((id) => typeof id === 'string' && id.length > 0))];
+    if (ids.length === 0) {
+        return {};
+    }
+
+    await ensurePublicSchema();
+
+    const result = await runQuery('SELECT id, name, email FROM users WHERE id = ANY($1::text[])', [ids]);
+
+    const byId = {};
+    for (const row of result.rows) {
+        byId[row.id] = { name: row.name, email: row.email };
+    }
+    return byId;
+}
+
 async function getUserAiEnabled(userId) {
     await ensurePublicSchema();
 
@@ -1532,6 +1557,7 @@ module.exports = {
     listUserWorkspaces,
     getDefaultWorkspaceIdByUserId,
     getUserAiEnabled,
+    getUserDisplayNamesByIds,
     updateUserAiEnabled,
     getWorkspaceRole,
     assertWorkspaceAccess,

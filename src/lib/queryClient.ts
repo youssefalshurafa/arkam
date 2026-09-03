@@ -49,6 +49,10 @@ export const queryKeys = {
  clients: () => [...queryKeys.all, 'clients'] as const,
  currencies: () => [...queryKeys.all, 'currencies'] as const,
  transactions: () => [...queryKeys.all, 'transactions'] as const,
+ // Audit trail for one transaction. Fetched lazily when the details modal's history section
+ // is expanded — deliberately NOT part of workspaceData's bundled snapshot, which already
+ // over-fetches; nobody needs every transaction's history on every page load.
+ transactionHistory: (transactionId: number) => [...queryKeys.all, 'transactionHistory', transactionId] as const,
  clientAccounts: () => [...queryKeys.all, 'clientAccounts'] as const,
  backupInfo: () => [...queryKeys.all, 'backupInfo'] as const,
  workspaces: () => [...queryKeys.all, 'workspaces'] as const,

@@ -5,6 +5,10 @@ import { isSuperAdmin } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 
+// How long the DB-derived claims on the JWT (defaultWorkspaceId, aiEnabled) may go without
+// being re-read. See the jwt callback for why this is a TTL rather than sign-in-only.
+const CLAIMS_TTL_MS = 5 * 60 * 1000;
+
 const providers: NextAuthOptions['providers'] = [
  CredentialsProvider({
   name: 'Credentials',
@@ -90,7 +94,7 @@ export const authOptions: NextAuthOptions = {
    }
    return true;
   },
-  async jwt({ token, account, user }) {
+  async jwt({ token, account, user, trigger }) {
    if (user?.id) {
     token.sub = user.id;
    }
@@ -104,9 +108,23 @@ export const authOptions: NextAuthOptions = {
     token.sub = dbUser.id;
    }
 
-   if (token.sub) {
+   // These two lookups used to run on EVERY session read, which with a JWT strategy means
+   // every getServerSession call — i.e. two DB round-trips on every single API request.
+   // /api/accounting alone fires ten of those in parallel for one workspace load.
+   //
+   // They still have to refresh periodically rather than only at sign-in: aiEnabled is
+   // flipped by a super-admin out-of-band, and defaultWorkspaceId changes when the user
+   // creates a workspace. A short TTL keeps both reasonably fresh while collapsing the
+   // steady-state cost to zero. (defaultWorkspaceId is the milder of the two — it is only a
+   // fallback, since the client sends x-workspace-id and getWorkspaceId in the accounting
+   // route gives that header precedence. aiEnabled has no such fallback.)
+   const refreshedAt = typeof token.claimsRefreshedAt === 'number' ? token.claimsRefreshedAt : 0;
+   const isStale = Date.now() - refreshedAt > CLAIMS_TTL_MS;
+
+   if (token.sub && (user || trigger === 'update' || isStale)) {
     token.defaultWorkspaceId = await authDb.getDefaultWorkspaceIdByUserId(token.sub);
     token.aiEnabled = await authDb.getUserAiEnabled(token.sub);
+    token.claimsRefreshedAt = Date.now();
    }
 
    return token;

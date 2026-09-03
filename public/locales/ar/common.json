@@ -550,6 +550,8 @@
  "ledger_highlight_net_change": "تمييز عمود صافي الحركة",
  "commission_from_him": "عمولة منه — انقر لجعلها له",
  "commission_for_him": "عمولة له — انقر لجعلها منه",
+ "commission_dir_for": "له",
+ "commission_dir_from": "منه",
  "ledger_row_highlight_color": "لون تمييز الصف",
  "ledger_highlight_presets_label": "الألوان المحفوظة",
  "ledger_highlight_preset_select": "استخدام اللون {{n}}",
@@ -1379,5 +1381,22 @@
  "admin_action_reject_reset": "رفض إعادة تعيين كلمة المرور",
  "admin_action_upload_image": "حدّث صورة الصفحة الرئيسية",
  "admin_action_remove_image": "أزال صورة الصفحة الرئيسية",
- "admin_action_login": "سجّل الدخول"
+ "admin_action_login": "سجّل الدخول",
+ "audit_action_delete": "حذف",
+ "audit_action_update": "تعديل",
+ "audit_created_by": "أنشأها {{user}} بتاريخ {{date}}",
+ "audit_history": "سجل التعديلات",
+ "audit_no_changes": "لا توجد تعديلات مسجلة.",
+ "audit_other_changes": "تم تعديل حقول أخرى.",
+ "audit_unknown_user": "مستخدم غير معروف",
+ "backup_stale_hint": "لم يتم إنشاء نسخة احتياطية منذ أكثر من أسبوع. ننصح بتنزيل نسخة الآن.",
+ "section_error_body": "تعذّر عرض هذا القسم. لم يتم فقدان أي بيانات محفوظة، ويمكنك التنقل إلى قسم آخر من القائمة الجانبية.",
+ "section_error_reload": "تحديث الصفحة",
+ "section_error_retry": "إعادة المحاولة",
+ "section_error_title": "حدث خطأ في هذا القسم",
+ "ledger_drag_handle_title": "اسحب لإعادة الترتيب — انقر بالزر الأيمن (أو اضغط مطولاً باللمس) لنقله خطوة",
+ "ledger_move_up": "تحريك للأعلى",
+ "ledger_move_down": "تحريك للأسفل",
+ "ledger_move_day_start": "نقل إلى بداية اليوم",
+ "ledger_move_day_end": "نقل إلى نهاية اليوم"
 }
