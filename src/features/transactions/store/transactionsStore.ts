@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { getStoredArchiveFilter, getStoredArchiveTableSettings, getStoredTableZoom, getStoredTransactionTableSettings, getStoredTxFilter } from '@/shared/lib/localStorage';
 import { localDateKey } from '@/shared/utils/date';
 import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
+import type { HiddenFilter } from '@/features/transactions/utils/transactionRows';
 import type {
  ArchiveEntryForm,
  ImportClientReview,
@@ -121,11 +122,13 @@ type TransactionsStore = {
  setArchiveFilterDateTo: Dispatch<SetStateAction<string>>;
  archiveFilterHideExpenses: boolean;
  setArchiveFilterHideExpenses: Dispatch<SetStateAction<boolean>>;
- // Rows marked archiveHidden are excluded from the Archive list unless this is on, so a user
- // can reveal (and un-hide) them again later. Archive-only — there's no Transactions-page
- // equivalent since only archive-eligible rows ever carry archiveHidden.
- archiveFilterShowHidden: boolean;
- setArchiveFilterShowHidden: Dispatch<SetStateAction<boolean>>;
+ // How the Archive list treats rows marked archiveHidden: leave them out (default), mix them
+ // back in, or show only them. The last is how a user reviews and un-hides what they've hidden.
+ // Archive-only — there's no Transactions-page equivalent since only archive-eligible rows ever
+ // carry archiveHidden. Deliberately not persisted: a hidden-only view is somewhere you visit to
+ // tidy up, not a state to come back to a week later wondering where the Archive went.
+ archiveHiddenFilter: HiddenFilter;
+ setArchiveHiddenFilter: Dispatch<SetStateAction<HiddenFilter>>;
  commissionExpandedTxns: Set<number>;
  setCommissionExpandedTxns: Dispatch<SetStateAction<Set<number>>>;
  expensesExpandedTxns: Set<number>;
@@ -297,8 +300,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setArchiveFilterDateTo: setter('archiveFilterDateTo'),
   archiveFilterHideExpenses: false,
   setArchiveFilterHideExpenses: setter('archiveFilterHideExpenses'),
-  archiveFilterShowHidden: false,
-  setArchiveFilterShowHidden: setter('archiveFilterShowHidden'),
+  archiveHiddenFilter: 'exclude',
+  setArchiveHiddenFilter: setter('archiveHiddenFilter'),
   commissionExpandedTxns: new Set(),
   setCommissionExpandedTxns: setter('commissionExpandedTxns'),
   expensesExpandedTxns: new Set(),

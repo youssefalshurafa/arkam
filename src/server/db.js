@@ -1462,6 +1462,7 @@ async function listIgnoredAnomalies(app) {
                 ia.kind,
                 ia.transaction_id AS "transactionId",
                 ia.account_id AS "accountId",
+                ia.scope,
                 ia.created_at AS "createdAt"
             FROM ${schema}.ignored_anomalies ia
             JOIN ${schema}.client_accounts ca ON ca.id = ia.account_id
@@ -1474,18 +1475,21 @@ async function listIgnoredAnomalies(app) {
     return result.rows;
 }
 
-async function createIgnoredAnomaly(app, { kind, transactionId, accountId }) {
+async function createIgnoredAnomaly(app, { kind, transactionId, accountId, scope }) {
     const { schema } = await getSchemaInfo(app);
     if (kind !== 'rate' && kind !== 'commission' && kind !== 'pendingRate') throw new Error('Invalid anomaly kind.');
     if (!transactionId) throw new Error('A transaction is required.');
     if (!accountId) throw new Error('An account is required.');
+    const resolvedScope = scope === 'description' ? 'description' : 'row';
     await assertMemberCanWriteAccount(app, accountId);
     const result = await query(
-        `INSERT INTO ${schema}.ignored_anomalies (kind, transaction_id, account_id)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (kind, transaction_id, account_id) DO NOTHING
+        `INSERT INTO ${schema}.ignored_anomalies (kind, transaction_id, account_id, scope)
+         VALUES ($1, $2, $3, $4)
+         -- DO UPDATE, not DO NOTHING: a row already dismissed on its own can later be widened to
+         -- speak for its whole description group, and DO NOTHING would silently drop that change.
+         ON CONFLICT (kind, transaction_id, account_id) DO UPDATE SET scope = EXCLUDED.scope
          RETURNING id`,
-        [kind, transactionId, accountId],
+        [kind, transactionId, accountId, resolvedScope],
     );
     return result.rows[0] ?? { id: null };
 }

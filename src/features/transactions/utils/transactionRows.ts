@@ -24,9 +24,26 @@ export function isArchiveEligible(row: Transaction): boolean {
  return !!row.isArchived || (row.type !== 'adjustment' && (!row.accountFromId || !row.accountToId) && !row.counterParty?.trim());
 }
 
+/**
+ * How the Archive treats rows the user hid from it: leave them out (the default), fold them
+ * back in alongside everything else, or show nothing but them. The third is what makes hiding
+ * reversible in practice — without a hidden-only view, a row that was hidden is gone from the
+ * list with no way to look at what you've accumulated.
+ */
+export type HiddenFilter = 'exclude' | 'include' | 'only';
+
+export function countHiddenArchiveRows(rows: Transaction[]): number {
+ return rows.filter((row) => isArchiveEligible(row) && row.archiveHidden).length;
+}
+
+function matchesHiddenFilter(row: TransactionTableRow, hiddenFilter: HiddenFilter): boolean {
+ if (hiddenFilter === 'include') return true;
+ return hiddenFilter === 'only' ? !!row.archiveHidden : !row.archiveHidden;
+}
+
 // Applies manual ordering, the archive/transactions split, and the active filters.
 // Ported verbatim from the page's displayedTransactionRows memo.
-export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txFilterShowHidden }: {
+export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txHiddenFilter }: {
  transactionTableRows: TransactionTableRow[];
  manualRowOrder: number[] | null;
  section: Section;
@@ -36,7 +53,7 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
  txFilterDateFrom: string;
  txFilterDateTo: string;
  txFilterHideExpenses: boolean;
- txFilterShowHidden: boolean;
+ txHiddenFilter: HiddenFilter;
 }): TransactionTableRow[] {
   const ordered = (() => {
    if (!manualRowOrder) return transactionTableRows;
@@ -46,11 +63,12 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
     return row ? [row] : [];
    });
   })();
-  // Rows the user explicitly hid from the Archive list (see setTransactionArchiveHidden) stay
-  // out of it unless "show hidden" is on — a pure display filter, doesn't affect balances.
+  // Rows the user explicitly hid from the Archive list (see setTransactionArchiveHidden). A
+  // pure display filter — hiding never touches balances, and a hidden row stays archive-
+  // eligible, so 'only' is a complete view of what was hidden rather than a lossy one.
   let filtered =
    section === 'archive'
-    ? ordered.filter((row) => isArchiveEligible(row) && (txFilterShowHidden || !row.archiveHidden))
+    ? ordered.filter((row) => isArchiveEligible(row) && matchesHiddenFilter(row, txHiddenFilter))
     : ordered.filter((row) => !row.isArchived);
   if (txFilterSearch) {
    filtered = filtered.filter(

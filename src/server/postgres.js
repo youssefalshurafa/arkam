@@ -1,7 +1,13 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { Pool } = require("pg");
 
-let pool;
+// Held on globalThis, not in a module-local, so a dev hot-reload reuses the pool it already
+// has. Re-evaluating this module would otherwise build a second Pool while the first keeps up
+// to `max` sockets alive (keepAlive, 30s idle timeout) with nothing left holding a reference
+// to close them. A handful of reloads is all it takes to sit at the provider's connection
+// ceiling, at which point new connections are refused with 53300 — one of the transient
+// SQLSTATEs handled below, but far better not to manufacture in the first place.
+const poolHome = globalThis;
 let publicSchemaReadyPromise;
 const workspaceSchemaReadyPromises = new Map();
 
@@ -20,16 +26,42 @@ function shouldUseSsl() {
     return sslMode === "true" || sslMode === "1" || sslMode === "require";
 }
 
+// SQLSTATEs that mean "the server is not ready for this right now", as opposed to "this query
+// is wrong". Every one of these is answered by waiting a moment and asking again.
+//
+// These matter because they arrive as real Postgres errors — carrying both `code` and
+// `severity` — which is exactly what route.ts's isDatabaseError() treats as a driver fault to
+// hide behind the generic "A database error occurred" toast. So before this list existed, a
+// Neon compute waking from auto-suspend (57P03) or briefly at its connection ceiling (53300)
+// didn't retry: it went straight to that toast. Whole page loads failed at once, because the
+// workspace snapshot fetches ten of these in parallel and they all hit the same cold compute,
+// while the app carried on looking healthy on React Query's cached data.
+const RETRYABLE_SQL_STATES = new Set([
+    "53300", // too_many_connections
+    "53400", // configuration_limit_exceeded
+    "57P01", // admin_shutdown
+    "57P02", // crash_shutdown
+    "57P03", // cannot_connect_now — Neon's compute is starting up
+    "08000", // connection_exception
+    "08003", // connection_does_not_exist
+    "08006", // connection_failure
+    "08001", // sqlclient_unable_to_establish_sqlconnection
+    "08004", // sqlserver_rejected_establishment_of_sqlconnection
+    "40001", // serialization_failure
+    "40P01", // deadlock_detected
+]);
+
 // Neon (this project's Postgres host) auto-suspends its compute after a period of
 // inactivity and "wakes up" on the next connection attempt — that cold start can take
 // longer than a few seconds. Left unhandled this surfaced to users as "Connection
 // terminated due to connection timeout" on the first request after any idle period (login
 // being the most common one), forcing a manual refresh-and-retry. It's transient, not a
-// real outage, so one retry after a short pause resolves the vast majority of cases
+// real outage, so retrying after a short pause resolves the vast majority of cases
 // automatically instead of surfacing an error the user has to retry themselves.
 function isTransientConnectionError(error) {
     const message = String(error?.message || "");
     return (
+        RETRYABLE_SQL_STATES.has(String(error?.code || "")) ||
         message.includes("Connection terminated") ||
         message.includes("timeout") ||
         error?.code === "ECONNRESET" ||
@@ -37,22 +69,35 @@ function isTransientConnectionError(error) {
     );
 }
 
+// Backoff rather than a single fixed pause: a Neon compute resuming from auto-suspend can take
+// several seconds, which one 1s retry regularly missed. Three attempts spread over ~2.4s cover
+// a cold start without stacking up long enough to matter against connectionTimeoutMillis.
+const RETRY_DELAYS_MS = [600, 1800];
+
 async function withConnectionRetry(run) {
-    try {
-        return await run();
-    } catch (error) {
-        if (!isTransientConnectionError(error)) {
-            throw error;
+    let lastError;
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+        try {
+            return await run();
+        } catch (error) {
+            if (!isTransientConnectionError(error)) {
+                throw error;
+            }
+            lastError = error;
+            const delay = RETRY_DELAYS_MS[attempt];
+            if (delay == null) break;
+            console.warn(`[postgres] Transient error (${error?.code || "no code"}), retrying in ${delay}ms:`, error?.message || error);
+            await new Promise((resolve) => setTimeout(resolve, delay));
         }
-        console.warn("[postgres] Transient connection error, retrying once:", error?.message || error);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return run();
     }
+    throw lastError;
 }
 
+const POOL_KEY = Symbol.for("arkam.postgres.pool");
+
 function getPool() {
-    if (!pool) {
-        pool = new Pool({
+    if (!poolHome[POOL_KEY]) {
+        const pool = new Pool({
             connectionString: getDatabaseUrl(),
             max: 20,
             idleTimeoutMillis: 30000,
@@ -85,9 +130,10 @@ function getPool() {
         // .connect method.
         const rawQuery = pool.query.bind(pool);
         pool.query = (text, params) => withConnectionRetry(() => rawQuery(text, params));
+        poolHome[POOL_KEY] = pool;
     }
 
-    return pool;
+    return poolHome[POOL_KEY];
 }
 
 async function query(text, params = [], executor = getPool()) {
@@ -578,6 +624,11 @@ async function ensureWorkspaceSchema(workspaceId) {
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     UNIQUE (kind, transaction_id, account_id)
                 );
+
+                -- 'row' (the original behaviour) dismisses one row; 'description' also marks that
+                -- row's rate as normal for other rows sharing its description, which is how a
+                -- group too small to form its own reference ever stops being flagged.
+                ALTER TABLE ${schema}.ignored_anomalies ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'row';
 
                 -- Daily FX reference rates for حصاد اليوم (Today's Harvest) and Overview's
                 -- balance cards — the SAME underlying rate, shared by both features (Overview

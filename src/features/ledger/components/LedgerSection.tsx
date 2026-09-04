@@ -85,7 +85,11 @@ type LedgerSectionProps = {
  onEditSelectedLedgerEntries: () => void;
  onReconcileLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
- onIgnoreAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string) => void;
+ onIgnoreAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string, description?: string) => void;
+ // Keys of warnings the user dismissed that would otherwise still be showing — see the muted
+ // chip rendered in the live badge's place, which is how an ignore gets undone.
+ ledgerIgnoredAnomalyKeys: Set<string>;
+ onRestoreIgnoredAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
  onLedgerEditFieldArrowKey: (event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number, pagedEntries: ClientLedgerEntry[], entryIdx: number) => void;
@@ -122,7 +126,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   isLoading, clients, clientAccounts, transactions, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, ledgerRateAnomalies, ledgerCommissionAnomalies, ignoredAnomalySet,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
-  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, onEditAllLedger,
+  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openOneSidedTransactionModal, openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
@@ -399,6 +403,23 @@ export default function LedgerSection(props: LedgerSectionProps) {
   const timer = setTimeout(() => setMovedLedgerRowKey(null), MOVED_ROW_RING_MS);
   return () => clearTimeout(timer);
  }, [movedLedgerRowKey]);
+
+ // A warning the user dismissed that would still be firing otherwise. It renders in the same
+ // slot as the live badge but muted, so an ignore leaves a visible, reversible mark instead of
+ // making the row look like it was never questioned — clicking it raises the warning again.
+ const renderIgnoredAnomalyChip = (kind: 'rate' | 'commission' | 'pendingRate', entry: ClientLedgerEntry, accountId: number) => {
+  if (!ledgerIgnoredAnomalyKeys.has(anomalyKey(kind, entry.transactionId, accountId))) return null;
+  return (
+   <button
+    type="button"
+    title={t('restore_anomaly_hint')}
+    onClick={() => onRestoreIgnoredAnomaly(kind, entry.transactionId, accountId)}
+    className="inline-flex items-center gap-1 rounded-full border border-border-strong px-1.5 py-0.5 text-[10px] font-semibold text-fg-faint transition hover:bg-surface-hover hover:text-fg-muted"
+   >
+    ⚠ {t('ledger_anomaly_ignored_badge')}
+   </button>
+  );
+ };
 
  // Wording for a commission flag. Names both the counterparty and (when present) the description,
  // because the history the engine compared against is narrowed to exactly that combination — see
@@ -3100,7 +3121,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   // Different currency but no rate entered yet: show a dash. This entry is
                                   // excluded from the balance until the user sets a rate.
                                   if (entry.pendingRate) {
-                                   return (
+                                   const pendingDash = (
                                     <span
                                      className="text-warn-text"
                                      title={t('ledger_rate_pending')}
@@ -3108,10 +3129,31 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      -
                                     </span>
                                    );
+                                   // Dismissing this row from the pending-pricing queue is
+                                   // otherwise invisible here — the dash looks the same either
+                                   // way. The chip says the row was set aside on purpose, and
+                                   // puts it back in the queue when clicked.
+                                   const ignoredChip = renderIgnoredAnomalyChip('pendingRate', entry, ledger.accountId);
+                                   if (!ignoredChip) return pendingDash;
+                                   return (
+                                    <div className="flex items-center gap-1">
+                                     {pendingDash}
+                                     {ignoredChip}
+                                    </div>
+                                   );
                                   }
                                   if (!txCurr || !accCurr || txCurr === accCurr || entry.exchangeRate === 1) {
                                    const sameCurrencyAnomaly = ledgerRateAnomalies.get(entry.transactionId);
-                                   if (!sameCurrencyAnomaly) return formatRateValue(entry.exchangeRate);
+                                   if (!sameCurrencyAnomaly) {
+                                    const ignoredChip = renderIgnoredAnomalyChip('rate', entry, ledger.accountId);
+                                    if (!ignoredChip) return formatRateValue(entry.exchangeRate);
+                                    return (
+                                     <div className="flex items-center gap-1">
+                                      <span>{formatRateValue(entry.exchangeRate)}</span>
+                                      {ignoredChip}
+                                     </div>
+                                    );
+                                   }
                                    return (
                                     <div className="flex items-center gap-1">
                                      <span>{formatRateValue(entry.exchangeRate)}</span>
@@ -3129,6 +3171,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                          sampleSize: String(sameCurrencyAnomaly.sampleSize),
                                          entered: formatRateValue(sameCurrencyAnomaly.enteredRate),
                                         }),
+                                        entry.description,
                                        )
                                       }
                                       onAnimationEnd={() => setFlashingLedgerBadge(null)}
@@ -3188,6 +3231,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                          sampleSize: String(anomaly.sampleSize),
                                          entered: formatRateValue(anomaly.enteredRate),
                                         }),
+                                        entry.description,
                                        )
                                       }
                                       onAnimationEnd={() => setFlashingLedgerBadge(null)}
@@ -3199,7 +3243,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                      >
                                       ⚠ {t('ledger_anomaly_badge')}
                                      </button>
-                                    ) : null}
+                                    ) : (
+                                     renderIgnoredAnomalyChip('rate', entry, ledger.accountId)
+                                    )}
                                    </div>
                                   );
                                  })();
@@ -3303,7 +3349,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    >
                                     ⚠ {t('ledger_anomaly_commission_badge')}
                                    </button>
-                                  ) : null}
+                                  ) : (
+                                   renderIgnoredAnomalyChip('commission', entry, ledger.accountId)
+                                  )}
                                  </span>
                                 );
                                })()
@@ -3500,6 +3548,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                sampleSize: String(rateAnomaly.sampleSize),
                                entered: formatRateValue(rateAnomaly.enteredRate),
                               }),
+                              entry.description,
                              )
                             }
                             onAnimationEnd={() => setFlashingLedgerBadge(null)}

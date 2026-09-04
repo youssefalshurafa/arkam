@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { confirmDialog } from '@/components/ui/AppDialog';
+import { choiceDialog, confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
@@ -30,6 +30,7 @@ import type {
  ClientAccountLedger,
  ClientLedgerEntry,
  Currency,
+ IgnoredAnomaly,
  LedgerColumnKey,
  LedgerTransactionDraft,
  PdfColVisibility,
@@ -52,6 +53,7 @@ type UseLedgerActionsParams = {
  clientAccounts: ClientAccount[];
  transactions: Transaction[];
  reconciliations: Reconciliation[];
+ ignoredAnomalies: IgnoredAnomaly[];
  currencyMap: Map<number, Currency>;
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
  selectedClientForLedger: Client | null;
@@ -79,6 +81,7 @@ export function useLedgerActions({
  clientAccounts,
  transactions,
  reconciliations,
+ ignoredAnomalies,
  currencyMap,
  clientAccountMap,
  selectedClientForLedger,
@@ -1031,18 +1034,55 @@ async function onRemoveReconciliation(entry: ClientLedgerEntry, ledgerAccountId:
 // (see ledgerAnomalies.ts), the user reviewed and judged fine — shared workspace-wide, so it
 // stops flagging for every member, not just the one who ignored it. `accountId` is which side
 // of the transaction this applies to.
-async function onIgnoreAnomaly(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string) {
+async function onIgnoreAnomaly(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string, description?: string) {
  const message = reason ? `${reason}\n\n${t('ignore_anomaly_confirm')}` : t('ignore_anomaly_confirm');
- if (!(await confirmDialog({ message, confirmText: t('ignore_anomaly_confirm_button') }))) return;
+ // A rate flag on a described row offers a third answer: accept this rate as normal for every row
+ // carrying that description. That is the only way a small group ever stops being flagged — it can
+ // never reach the sample count needed to form a reference of its own. The offer is explicit
+ // rather than inferred, because it changes how OTHER rows are judged, and it teaches rather than
+ // exempts: a row in the group at a genuinely wrong rate still flags (see buildAcceptedRates).
+ const groupLabel = kind === 'rate' ? (description ?? '').trim() : '';
+ let scope: 'row' | 'description' = 'row';
+ if (groupLabel) {
+  const answer = await choiceDialog({
+   message: `${message}\n\n${t('ignore_anomaly_scope_hint', { description: groupLabel })}`,
+   choices: [
+    { key: 'row', label: t('ignore_anomaly_scope_row') },
+    { key: 'description', label: t('ignore_anomaly_scope_description', { description: groupLabel }) },
+   ],
+  });
+  if (answer !== 'row' && answer !== 'description') return;
+  scope = answer;
+ } else if (!(await confirmDialog({ message, confirmText: t('ignore_anomaly_confirm_button') }))) {
+  return;
+ }
  try {
-  const created = await accountingApi.createIgnoredAnomaly({ kind, transactionId, accountId });
+  const created = await accountingApi.createIgnoredAnomaly({ kind, transactionId, accountId, scope });
   if (created.id != null) {
-   setIgnoredAnomalies((prev) => [...prev, { id: created.id as number, kind, transactionId, accountId, createdAt: new Date().toISOString() }]);
+   setIgnoredAnomalies((prev) => [...prev, { id: created.id as number, kind, transactionId, accountId, scope, createdAt: new Date().toISOString() }]);
   }
   setError('');
   await loadData();
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_save'));
+ }
+}
+
+// Puts a dismissed warning back. The ignore confirmation has always promised this ("it won't be
+// flagged again unless you un-ignore it later") but there was no way to actually do it: the row
+// stopped being flagged and nothing recorded that a judgement had been made, so an ignore fired
+// by mistake — or one whose reasoning stopped holding — was permanent. Workspace-wide, matching
+// the ignore itself.
+async function onRestoreIgnoredAnomaly(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number) {
+ const ignored = ignoredAnomalies.find((entry) => entry.kind === kind && entry.transactionId === transactionId && entry.accountId === accountId);
+ if (!ignored) return;
+ try {
+  await accountingApi.deleteIgnoredAnomaly(ignored.id);
+  setIgnoredAnomalies((prev) => prev.filter((entry) => entry.id !== ignored.id));
+  setError('');
+  await loadData();
+ } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }
 }
 
@@ -1383,6 +1423,7 @@ async function onExportLedgerExcel(
   onReconcileLedgerEntry,
   onRemoveReconciliation,
   onIgnoreAnomaly,
+  onRestoreIgnoredAnomaly,
   onToggleLedgerEntrySelection,
   onDeleteSelectedLedgerEntries,
   onEditSelectedLedgerEntries,

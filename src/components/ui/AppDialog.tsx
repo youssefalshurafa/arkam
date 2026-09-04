@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 
-type DialogKind = 'confirm' | 'alert' | 'prompt';
+type DialogKind = 'confirm' | 'alert' | 'prompt' | 'choice';
 type DialogTone = 'default' | 'danger';
 
 export interface DialogOptions {
@@ -22,6 +22,12 @@ export interface DialogOptions {
  defaultValue?: string;
  /** Prompt only: placeholder for the text field. */
  placeholder?: string;
+ /**
+  * Choice only: the answers on offer, beyond Cancel. Rendered as one button each and resolved as
+  * the chosen `key`. For decisions with more than two outcomes, where squeezing the third into a
+  * confirm would mean either a second dialog or a checkbox nobody reads.
+  */
+ choices?: Array<{ key: string; label: string; tone?: DialogTone }>;
 }
 
 interface DialogRequest extends DialogOptions {
@@ -40,7 +46,7 @@ function enqueue(kind: DialogKind, options: DialogOptions): Promise<boolean | st
    notify(request);
   } else {
    // No host mounted yet — fail safe (treat as cancelled / dismissed).
-   resolve(kind === 'confirm' ? false : kind === 'prompt' ? null : undefined);
+   resolve(kind === 'confirm' ? false : kind === 'prompt' || kind === 'choice' ? null : undefined);
   }
  });
 }
@@ -48,6 +54,14 @@ function enqueue(kind: DialogKind, options: DialogOptions): Promise<boolean | st
 /** Promise-based replacement for window.confirm. Resolves true if confirmed. */
 export function confirmDialog(options: DialogOptions): Promise<boolean> {
  return enqueue('confirm', options) as Promise<boolean>;
+}
+
+/**
+ * Multi-answer dialog: resolves to the chosen `choices[].key`, or null if cancelled/dismissed.
+ * `confirmDialog`'s boolean contract is left alone — it has too many callers to widen.
+ */
+export function choiceDialog(options: DialogOptions & { choices: NonNullable<DialogOptions['choices']> }): Promise<string | null> {
+ return enqueue('choice', options) as Promise<string | null>;
 }
 
 /** Promise-based replacement for window.alert. Resolves when dismissed. */
@@ -105,7 +119,7 @@ export function DialogHost() {
  };
 
  const onCancel = () => {
-  if (current.kind === 'prompt') settle(null);
+  if (current.kind === 'prompt' || current.kind === 'choice') settle(null);
   else if (current.kind === 'confirm') settle(false);
   else settle(undefined);
  };
@@ -116,15 +130,15 @@ export function DialogHost() {
  const confirmLabel = current.confirmText ?? fallbackConfirm;
  const cancelLabel = current.cancelText ?? t('cancel');
 
- const confirmClassName = isDanger
-  ? 'rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700'
-  : 'rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800';
+ const dangerClassName = 'rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700';
+ const primaryClassName = 'rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800';
+ const confirmClassName = isDanger ? dangerClassName : primaryClassName;
 
  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
   if (event.key === 'Escape') {
    event.preventDefault();
    onCancel();
-  } else if (event.key === 'Enter' && current.kind !== 'alert') {
+  } else if (event.key === 'Enter' && current.kind !== 'alert' && current.kind !== 'choice') {
    // For prompts, let Enter in the input submit; alerts only have one button.
    if (current.kind === 'prompt' && event.target !== inputRef.current) return;
    event.preventDefault();
@@ -161,7 +175,7 @@ export function DialogHost() {
      />
     ) : null}
 
-    <div className="mt-6 flex justify-end gap-2">
+    <div className="mt-6 flex flex-wrap justify-end gap-2">
      {showCancel ? (
       <button
        type="button"
@@ -171,14 +185,29 @@ export function DialogHost() {
        {cancelLabel}
       </button>
      ) : null}
-     <button
-      type="button"
-      onClick={onConfirm}
-      autoFocus={current.kind !== 'prompt'}
-      className={confirmClassName}
-     >
-      {confirmLabel}
-     </button>
+     {/* A choice dialog replaces the single confirm button with one per answer. The row wraps
+         because these labels are phrases rather than "OK"/"Cancel". */}
+     {current.kind === 'choice' ? (
+      current.choices?.map((choice) => (
+       <button
+        key={choice.key}
+        type="button"
+        onClick={() => settle(choice.key)}
+        className={choice.tone === 'danger' ? dangerClassName : confirmClassName}
+       >
+        {choice.label}
+       </button>
+      ))
+     ) : (
+      <button
+       type="button"
+       onClick={onConfirm}
+       autoFocus={current.kind !== 'prompt'}
+       className={confirmClassName}
+      >
+       {confirmLabel}
+      </button>
+     )}
     </div>
    </div>
   </div>
