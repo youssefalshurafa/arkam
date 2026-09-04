@@ -7,6 +7,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
+import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, localWallClock } from '@/shared/utils/date';
@@ -1320,6 +1321,39 @@ async function onToggleTransactionArchiveHidden(row: TransactionTableRow) {
  }
 }
 
+// Puts every hidden Archive row back at once — the escape hatch for someone who hid a batch of
+// rows and wants the list whole again without reversing each one from its context menu.
+// Confirmed first because it is bulk and not individually undoable.
+async function onUnhideAllArchiveTransactions() {
+ if (!accountingApi) return;
+ const hiddenRows = transactions.filter((tx) => isArchiveEligible(tx) && tx.archiveHidden);
+ if (hiddenRows.length === 0) return;
+ const confirmed = await confirmDialog({
+  title: t('tx_hidden_unhide_all'),
+  message: t('tx_hidden_unhide_all_confirm', { count: hiddenRows.length }),
+  confirmText: t('tx_hidden_unhide_all'),
+ });
+ if (!confirmed) return;
+ // Sequential rather than Promise.all: this is the one place a single click can fan out to an
+ // unbounded number of writes, and a hundred parallel connections is how a workspace ends up
+ // refused at its connection ceiling (see RETRYABLE_SQL_STATES in server/postgres.js).
+ const restored: number[] = [];
+ try {
+  for (const row of hiddenRows) {
+   await accountingApi.setTransactionArchiveHidden({ id: row.id, hidden: false });
+   restored.push(row.id);
+  }
+ } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_update'));
+ }
+ // Applied even on failure, for whatever did get through — the rows that were restored really
+ // are restored server-side, and leaving them dimmed would misreport the database's state.
+ if (restored.length > 0) {
+  const restoredIds = new Set(restored);
+  setTransactions((prev) => prev.map((tx) => (restoredIds.has(tx.id) ? { ...tx, archiveHidden: 0 } : tx)));
+ }
+}
+
 function onToggleTransactionSelection(transactionId: number) {
  setSelectedTransactionIds((current) => {
   const next = new Set(current);
@@ -2198,6 +2232,7 @@ async function onExportTransactionsExcel() {
   onDeleteTransaction,
   onDeleteTransactionTableRow,
   onToggleTransactionArchiveHidden,
+  onUnhideAllArchiveTransactions,
   onToggleTransactionSelection,
   onToggleSelectAllTransactions,
   onCopyTransactionRow,

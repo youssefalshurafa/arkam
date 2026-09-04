@@ -110,7 +110,7 @@ import {
  buildWorkspaceAnomalies,
  anomalyKey,
 } from '@/features/ledger/utils/ledgerAnomalies';
-import { buildTransactionTableRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
+import { buildTransactionTableRows, countHiddenArchiveRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, computeClientReconciledStatus, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
@@ -370,7 +370,7 @@ function AuthenticatedHome() {
  const archiveFilterDateFrom = useTransactionsStore((s) => s.archiveFilterDateFrom);
  const archiveFilterDateTo = useTransactionsStore((s) => s.archiveFilterDateTo);
  const archiveFilterHideExpenses = useTransactionsStore((s) => s.archiveFilterHideExpenses);
- const archiveFilterShowHidden = useTransactionsStore((s) => s.archiveFilterShowHidden);
+ const archiveHiddenFilter = useTransactionsStore((s) => s.archiveHiddenFilter);
  const setCommissionExpandedTxns = useTransactionsStore((s) => s.setCommissionExpandedTxns);
  const setExpensesExpandedTxns = useTransactionsStore((s) => s.setExpensesExpandedTxns);
  const setLedgerExpensesExpandedKeys = useLedgerStore((s) => s.setLedgerExpensesExpandedKeys);
@@ -984,10 +984,16 @@ function AuthenticatedHome() {
     txFilterDateFrom: activeFilterDateFrom,
     txFilterDateTo: activeFilterDateTo,
     txFilterHideExpenses: activeFilterHideExpenses,
-    txFilterShowHidden: archiveFilterShowHidden,
+    txHiddenFilter: archiveHiddenFilter,
    }),
-  [transactionTableRows, manualRowOrder, section, activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses, archiveFilterShowHidden],
+  [transactionTableRows, manualRowOrder, section, activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses, archiveHiddenFilter],
  );
+
+ // Surfaced next to the Archive's filter bar so hiding a row is visibly reversible: without a
+ // count, a hidden row simply vanishes and nothing on screen suggests there is anywhere to look
+ // for it. Counted off the unfiltered rows, so it reports everything hidden rather than only
+ // what survives the current search/date filters.
+ const archiveHiddenCount = useMemo(() => countHiddenArchiveRows(transactionTableRows), [transactionTableRows]);
 
  const txFilterClientOptions = useMemo(() => {
   const names = new Set<string>();
@@ -1869,6 +1875,7 @@ function AuthenticatedHome() {
    onDeleteTransaction,
    onDeleteTransactionTableRow,
    onToggleTransactionArchiveHidden,
+   onUnhideAllArchiveTransactions,
    onToggleTransactionSelection,
    onToggleSelectAllTransactions,
    onCopyTransactionRow,
@@ -2709,6 +2716,7 @@ function AuthenticatedHome() {
          clientAccountMap={clientAccountMap}
          currencyMap={currencyMap}
          displayedTransactionRows={displayedTransactionRows}
+    archiveHiddenCount={archiveHiddenCount}
          paginatedTransactions={paginatedTransactions}
          transactionsPager={transactionsPager}
          txFilterClientOptions={txFilterClientOptions}
@@ -2732,6 +2740,7 @@ function AuthenticatedHome() {
          onDeleteSelectedTransactions={onDeleteSelectedTransactions}
          onDeleteTransactionTableRow={onDeleteTransactionTableRow}
          onToggleTransactionArchiveHidden={onToggleTransactionArchiveHidden}
+         onUnhideAllArchiveTransactions={() => void onUnhideAllArchiveTransactions()}
          onEditAllTransactions={onEditAllTransactions}
          onExportArchivePdf={onExportArchivePdf}
          openArchiveExportModal={openArchiveExportModal}

@@ -114,6 +114,7 @@ type TransactionsSectionProps = {
  clientAccountMap: Map<number, ClientAccount>;
  currencyMap: Map<number, Currency>;
  displayedTransactionRows: TransactionTableRow[];
+ archiveHiddenCount: number;
  paginatedTransactions: TransactionTableRow[];
  transactionsPager: ReactNode;
  txFilterClientOptions: string[];
@@ -137,6 +138,7 @@ type TransactionsSectionProps = {
  onDeleteSelectedTransactions: () => void;
  onDeleteTransactionTableRow: (row: TransactionTableRow) => void;
  onToggleTransactionArchiveHidden: (row: TransactionTableRow) => void;
+ onUnhideAllArchiveTransactions: () => void;
  onEditAllTransactions: () => void;
  onExportArchivePdf: (range?: ArchiveExportModalState) => void;
  openArchiveExportModal: () => void;
@@ -168,12 +170,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const setFlashLedgerEntry = useLedgerStore((s) => s.setFlashLedgerEntry);
  const {
   isLoading, section, clients, clientAccounts, enabledCurrencies, transactions, clientAccountMap, currencyMap,
-  displayedTransactionRows, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
+  displayedTransactionRows, archiveHiddenCount, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
   selectedTransactionSums, archiveCurrencyTotals, workspaceAnomalies,
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive, txRowHighlightColor,
   txSumMode, txSumSelection, txSumByCurrency,
   transactionsImportInputRef, onCancelAllTransactions, onCopyTransactionRow, onDeleteSelectedTransactions,
-  onDeleteTransactionTableRow, onToggleTransactionArchiveHidden, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction, onEditTransactionInForm, onCancelEditTransaction,
+  onDeleteTransactionTableRow, onToggleTransactionArchiveHidden, onUnhideAllArchiveTransactions, onEditAllTransactions, onExportArchivePdf, openArchiveExportModal, onImportTransactionsFile, onPasteCopiedTransaction, onEditTransactionInForm, onCancelEditTransaction,
   onArchiveEntrySubmit, onEditArchiveEntryInForm, onCancelArchiveEntryEdit,
   onSaveAllTransactions, onSaveTransactionTableRow, onToggleSelectAllTransactions, onToggleTransactionSelection,
   onTransactionRowDrop, onTransactionSubmit, openClientLedger, openTransactionExportModal, openTransactionTableSettingsModal,
@@ -206,7 +208,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // to that entry's client ledger, where the actual badge (and its "ignore" action) lives.
  const anomalyReviewMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir: txSortDirStore, setTxSortDir: setTxSortDirStore, archiveSortDir, setArchiveSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveFilterShowHidden, setArchiveFilterShowHidden, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, expensesExpandedTxns2, setExpensesExpandedTxns2, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, isSubmittingTransaction, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir: txSortDirStore, setTxSortDir: setTxSortDirStore, archiveSortDir, setArchiveSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveHiddenFilter, setArchiveHiddenFilter, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, expensesExpandedTxns2, setExpensesExpandedTxns2, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, isSubmittingTransaction, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, isSubmittingArchiveEntry, tableZoom, setTableZoom } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -1072,6 +1074,41 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
            ))}
           </div>
 
+          {/* Hiding a row used to be a one-way door: it vanished, and the only route back was a
+              checkbox inside a collapsed filter panel you had to already know about. This states
+              plainly that hidden rows exist and offers the two things you'd want next — look at
+              them, or put them all back. It sits outside the filter panel deliberately, since
+              someone who doesn't know the panel has that control is exactly who needs it. */}
+          {section === 'archive' && archiveHiddenCount > 0 ? (
+           <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-border bg-surface-2 px-3 py-2 text-sm text-fg-muted">
+            <span>{t('tx_hidden_count', { count: archiveHiddenCount })}</span>
+            {archiveHiddenFilter === 'only' ? (
+             <button
+              type="button"
+              onClick={() => setArchiveHiddenFilter('exclude')}
+              className="cursor-pointer rounded border border-border-strong bg-surface px-2 py-1 text-xs font-semibold transition hover:bg-surface-hover"
+             >
+              {t('tx_hidden_back_to_archive')}
+             </button>
+            ) : (
+             <button
+              type="button"
+              onClick={() => setArchiveHiddenFilter('only')}
+              className="cursor-pointer rounded border border-border-strong bg-surface px-2 py-1 text-xs font-semibold transition hover:bg-surface-hover"
+             >
+              {t('tx_hidden_view')}
+             </button>
+            )}
+            <button
+             type="button"
+             onClick={onUnhideAllArchiveTransactions}
+             className="cursor-pointer rounded border border-border-strong bg-surface px-2 py-1 text-xs font-semibold transition hover:bg-surface-hover"
+            >
+             {t('tx_hidden_unhide_all')}
+            </button>
+           </div>
+          ) : null}
+
           <div className="mt-3 rounded border border-border bg-surface-2">
            <button
             type="button"
@@ -1093,9 +1130,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
             {t('tx_filter_toggle')}
-            {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveFilterShowHidden) && (
+            {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveHiddenFilter !== 'exclude') && (
              <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">
-              {[filterSearch, filterClient, filterDateFrom, filterDateTo, filterHideExpenses, archiveFilterShowHidden].filter(Boolean).length}
+              {[filterSearch, filterClient, filterDateFrom, filterDateTo, filterHideExpenses, archiveHiddenFilter !== 'exclude'].filter(Boolean).length}
              </span>
             )}
             <svg
@@ -1220,18 +1257,31 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               />
               {t('tx_filter_hide_expenses')}
              </label>
+             {/* Three-way rather than a show/hide checkbox: "only" is what makes hiding
+                 reversible in practice — it's the view where you can see everything you've
+                 hidden and put any of it back, instead of hunting for dimmed rows mixed in
+                 among all the others. */}
              {section === 'archive' ? (
-              <label className="flex cursor-pointer select-none items-center gap-2 self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover">
-               <input
-                type="checkbox"
-                checked={archiveFilterShowHidden}
-                onChange={(e) => setArchiveFilterShowHidden(e.target.checked)}
-                className="h-4 w-4 cursor-pointer rounded border-border-strong text-accent focus:ring-blue-300"
-               />
-               {t('tx_filter_show_hidden')}
-              </label>
+              <div className="flex flex-col gap-1 self-end">
+               <label className="text-xs font-medium text-fg-faint">{t('tx_filter_hidden_label')}</label>
+               <div className="flex overflow-hidden rounded border border-border-strong">
+                {(['exclude', 'include', 'only'] as const).map((mode) => (
+                 <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={archiveHiddenFilter === mode}
+                  onClick={() => setArchiveHiddenFilter(mode)}
+                  className={`cursor-pointer px-3 py-1.5 text-sm transition ${
+                   archiveHiddenFilter === mode ? 'bg-accent font-semibold text-white' : 'bg-surface text-fg-muted hover:bg-surface-hover'
+                  }`}
+                 >
+                  {t(`tx_filter_hidden_${mode}`)}
+                 </button>
+                ))}
+               </div>
+              </div>
              ) : null}
-             {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveFilterShowHidden) && (
+             {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveHiddenFilter !== 'exclude') && (
               <button
                type="button"
                onClick={() => {
@@ -1241,7 +1291,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 setFilterDateFrom('');
                 setFilterDateTo('');
                 setFilterHideExpenses(false);
-                setArchiveFilterShowHidden(false);
+                setArchiveHiddenFilter('exclude');
                }}
                className="self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover"
               >
@@ -1441,7 +1491,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 void onSaveTransactionTableRow(txn.id);
                }}
                className={`border-t border-border align-top transition-colors hover:bg-surface-hover ${section !== 'archive' && !txn.isArchived && txn.type !== 'adjustment' && (!txn.accountFromId || !txn.accountToId) && !txn.counterParty?.trim() ? 'bg-warn-bg' : index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${
-                section === 'archive' && txn.archiveHidden ? 'opacity-50' : ''
+                // Dimming marks a hidden row out from the visible ones around it, so it only
+                // means anything while the two are mixed together. In the hidden-only view every
+                // row is hidden, and dimming the whole table just looks broken.
+                section === 'archive' && txn.archiveHidden && archiveHiddenFilter === 'include' ? 'opacity-50' : ''
                } ${
                 dragRowId !== null && selectedTransactionIds.has(dragRowId) && selectedTransactionIds.has(txn.id) ? 'opacity-40' : dragRowId === txn.id ? 'opacity-40' : ''
                } ${dragOverRowId === txn.id && dragOverHalf === 'top' ? 'border-t-2 border-t-blue-500' : ''} ${
