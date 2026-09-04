@@ -414,6 +414,10 @@ export type IgnoredAnomaly = {
  kind: 'rate' | 'commission' | 'pendingRate';
  transactionId: number;
  accountId: number;
+ // 'row' dismisses just this row. 'description' additionally accepts this row's rate as normal
+ // for other rows carrying the same description — see buildAcceptedRates in ledgerAnomalies.ts.
+ // It never switches the check off for the group; a row far from every accepted rate still flags.
+ scope: 'row' | 'description';
  createdAt: string;
 };
 

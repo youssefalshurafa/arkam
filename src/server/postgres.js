@@ -625,6 +625,11 @@ async function ensureWorkspaceSchema(workspaceId) {
                     UNIQUE (kind, transaction_id, account_id)
                 );
 
+                -- 'row' (the original behaviour) dismisses one row; 'description' also marks that
+                -- row's rate as normal for other rows sharing its description, which is how a
+                -- group too small to form its own reference ever stops being flagged.
+                ALTER TABLE ${schema}.ignored_anomalies ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'row';
+
                 -- Daily FX reference rates for حصاد اليوم (Today's Harvest) and Overview's
                 -- balance cards — the SAME underlying rate, shared by both features (Overview
                 -- always means "today"; Harvest can view/edit any past day via its

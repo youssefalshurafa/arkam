@@ -107,6 +107,7 @@ import {
  checkLedgerEntryCommission,
  type CommissionAnomaly,
  buildIgnoredAnomalySet,
+ buildAcceptedRates,
  buildWorkspaceAnomalies,
  anomalyKey,
 } from '@/features/ledger/utils/ledgerAnomalies';
@@ -1952,42 +1953,51 @@ function AuthenticatedHome() {
   [reconciliations, clientAccounts, clientAccountMap, currencyMap, pdfExportModal, section, selectedClientForLedger, transactions],
  );
 
- // Flags rows whose exchange rate deviates sharply from other transactions in the same
- // currency pair (most notably a ×/÷ toggle mistake) so LedgerSection can badge them while
- // browsing, ahead of the blocking export-time check in useLedgerActions.
- const ledgerRateAnomalies: Map<number, RateAnomaly> = useMemo(() => {
-  const samples = buildRateSamples(transactions);
-  const map = new Map<number, RateAnomaly>();
+ // One pass over the open client's ledger rows producing everything the badges need: the rate
+ // and commission warnings to show, plus the keys of warnings that are currently IGNORED yet
+ // would still fire. That last set is what makes an ignore reversible — without it a dismissed
+ // warning leaves no trace anywhere, so there is no row to go back to and nothing to click.
+ const ledgerAnomalyState = useMemo(() => {
+  const rateSamples = buildRateSamples(transactions);
+  const commissionSamples = buildCommissionSamples(transactions);
+  const acceptedRates = buildAcceptedRates(transactions, ignoredAnomalies);
+  const rate = new Map<number, RateAnomaly>();
+  const commission = new Map<number, CommissionAnomaly>();
+  const ignoredKeys = new Set<string>();
   for (const ledger of selectedClientLedgers) {
    for (const entry of ledger.entries) {
-    if (ignoredAnomalySet.has(anomalyKey('rate', entry.transactionId, ledger.accountId))) continue;
-    const anomaly = checkLedgerEntry(entry, ledger.currencyCode, samples);
-    if (anomaly) map.set(entry.transactionId, anomaly);
+    const rateAnomaly = checkLedgerEntry(entry, ledger.currencyCode, rateSamples, acceptedRates);
+    if (rateAnomaly) {
+     const key = anomalyKey('rate', entry.transactionId, ledger.accountId);
+     if (ignoredAnomalySet.has(key)) ignoredKeys.add(key);
+     else rate.set(entry.transactionId, rateAnomaly);
+    }
+    const commissionAnomaly = checkLedgerEntryCommission(entry, ledger.accountId, commissionSamples);
+    if (commissionAnomaly) {
+     const key = anomalyKey('commission', entry.transactionId, ledger.accountId);
+     if (ignoredAnomalySet.has(key)) ignoredKeys.add(key);
+     else commission.set(entry.transactionId, commissionAnomaly);
+    }
+    // A dismissed "needs a rate" entry has no badge here to hide — it was dropped from the
+    // pending-pricing queue instead, leaving the transaction unpriced and out of every balance
+    // with nothing anywhere to show for it. The row still renders (as a dash), so this is the
+    // one place the dismissal can be made visible and taken back.
+    if (entry.pendingRate) {
+     const key = anomalyKey('pendingRate', entry.transactionId, ledger.accountId);
+     if (ignoredAnomalySet.has(key)) ignoredKeys.add(key);
+    }
    }
   }
-  return map;
- }, [selectedClientLedgers, transactions, ignoredAnomalySet]);
-
- // Flags exchange-transaction commissions that break from an account's own commission
- // history (e.g. an always commission-free account suddenly getting one) so LedgerSection
- // can badge them while browsing, ahead of the blocking export-time check in useLedgerActions.
- const ledgerCommissionAnomalies: Map<number, CommissionAnomaly> = useMemo(() => {
-  const samples = buildCommissionSamples(transactions);
-  const map = new Map<number, CommissionAnomaly>();
-  for (const ledger of selectedClientLedgers) {
-   for (const entry of ledger.entries) {
-    if (ignoredAnomalySet.has(anomalyKey('commission', entry.transactionId, ledger.accountId))) continue;
-    const anomaly = checkLedgerEntryCommission(entry, ledger.accountId, samples);
-    if (anomaly) map.set(entry.transactionId, anomaly);
-   }
-  }
-  return map;
- }, [selectedClientLedgers, transactions, ignoredAnomalySet]);
+  return { rate, commission, ignoredKeys };
+ }, [selectedClientLedgers, transactions, ignoredAnomalySet, ignoredAnomalies]);
+ const ledgerRateAnomalies = ledgerAnomalyState.rate;
+ const ledgerCommissionAnomalies = ledgerAnomalyState.commission;
+ const ledgerIgnoredAnomalyKeys = ledgerAnomalyState.ignoredKeys;
 
  // Workspace-wide flagged entries (every client, every account) for the "needs review"
  // indicator on the Transactions and Overview pages — unlike the two maps above, not scoped
  // to whichever client's ledger happens to be open right now.
- const workspaceAnomalies = useMemo(() => buildWorkspaceAnomalies(transactions, ignoredAnomalySet), [transactions, ignoredAnomalySet]);
+ const workspaceAnomalies = useMemo(() => buildWorkspaceAnomalies(transactions, ignoredAnomalySet, ignoredAnomalies), [transactions, ignoredAnomalySet, ignoredAnomalies]);
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -2037,6 +2047,7 @@ function AuthenticatedHome() {
    onReconcileLedgerEntry,
    onRemoveReconciliation,
    onIgnoreAnomaly,
+   onRestoreIgnoredAnomaly,
    onToggleLedgerEntrySelection,
    onDeleteSelectedLedgerEntries,
    onEditSelectedLedgerEntries,
@@ -2048,6 +2059,7 @@ function AuthenticatedHome() {
    clientAccounts,
    transactions,
    reconciliations,
+   ignoredAnomalies,
    currencyMap,
    clientAccountMap,
    selectedClientForLedger,
@@ -2626,6 +2638,8 @@ function AuthenticatedHome() {
          onReconcileLedgerEntry={onReconcileLedgerEntry}
          onRemoveReconciliation={onRemoveReconciliation}
          onIgnoreAnomaly={onIgnoreAnomaly}
+         ledgerIgnoredAnomalyKeys={ledgerIgnoredAnomalyKeys}
+         onRestoreIgnoredAnomaly={onRestoreIgnoredAnomaly}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditSelectedLedgerEntries={onEditSelectedLedgerEntries}
          onEditAllLedger={onEditAllLedger}
