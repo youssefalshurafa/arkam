@@ -10,6 +10,7 @@ import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { NEW_ROW_REF_ID, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
+import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import { isSameTransactionUpdate, transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
 import { formatRateValue } from '@/shared/utils/format';
@@ -54,6 +55,7 @@ type UseLedgerActionsParams = {
  transactions: Transaction[];
  reconciliations: Reconciliation[];
  ignoredAnomalies: IgnoredAnomaly[];
+ reviewSettings: ReviewEngineSettings;
  currencyMap: Map<number, Currency>;
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
  selectedClientForLedger: Client | null;
@@ -82,6 +84,7 @@ export function useLedgerActions({
  transactions,
  reconciliations,
  ignoredAnomalies,
+ reviewSettings,
  currencyMap,
  clientAccountMap,
  selectedClientForLedger,
@@ -1271,8 +1274,12 @@ function selectLedgerEntriesForRange(
 // commissions that break from this account's own commission history — and requires the user
 // to explicitly acknowledge before export proceeds. Mirrors the confirmIfLocked pattern.
 async function confirmIfLedgerAnomalies(entries: ClientLedgerEntry[], ledgerCurrencyCode: string, accountId: number): Promise<boolean> {
- const rateSamples = buildRateSamples(transactions);
- const commissionSamples = buildCommissionSamples(transactions);
+ // The badges and this gate are separately switchable: a workspace can want the quiet in-page
+ // hints without an interruption on the way out, or the reverse. The checks below would return
+ // nothing anyway when the engine is off, but returning early keeps the intent explicit.
+ if (!reviewSettings.enabled || !reviewSettings.warnOnExport) return true;
+ const rateSamples = buildRateSamples(transactions, reviewSettings);
+ const commissionSamples = buildCommissionSamples(transactions, reviewSettings);
  const flaggedRates = entries
   .map((entry) => ({ entry, anomaly: checkLedgerEntry(entry, ledgerCurrencyCode, rateSamples) }))
   .filter((x): x is { entry: ClientLedgerEntry; anomaly: NonNullable<typeof x.anomaly> } => x.anomaly != null)
@@ -1280,7 +1287,15 @@ async function confirmIfLedgerAnomalies(entries: ClientLedgerEntry[], ledgerCurr
  const flaggedCommissions = entries
   .map((entry) => ({ entry, anomaly: checkLedgerEntryCommission(entry, accountId, commissionSamples) }))
   .filter((x): x is { entry: ClientLedgerEntry; anomaly: NonNullable<typeof x.anomaly> } => x.anomaly != null)
-  .map(({ entry, anomaly }) => `${formatDateValue(entry.createdAt, pdfSettings.dateFormat)} · ${entry.description || entry.counterpartyName} — ${t('ledger_anomaly_entered')}: ${anomaly.enteredCommission}%, ${t('ledger_anomaly_expected')}: ~${formatRateValue(anomaly.referenceCommission)}%`);
+  .map(({ entry, anomaly }) => {
+   const head = `${formatDateValue(entry.createdAt, pdfSettings.dateFormat)} · ${entry.description || entry.counterpartyName} — ${t('ledger_anomaly_entered')}: ${anomaly.enteredCommission}%`;
+   // 'implausible' has no reference history to quote (see CEILING_PERCENTILE), so the line states
+   // the ceiling it broke rather than an "expected" value that was never observed. The other
+   // reasons all quote a real prior value, whichever scope it came from, so one line serves them.
+   return anomaly.reason === 'implausible'
+    ? `${head}, ${t('ledger_anomaly_commission_implausible_export', { expected: formatRateValue(anomaly.referenceCommission) })}`
+    : `${head}, ${t('ledger_anomaly_expected')}: ~${formatRateValue(anomaly.referenceCommission)}%`;
+  });
  const allLines = [...flaggedRates, ...flaggedCommissions];
  if (allLines.length === 0) return true;
  const shown = allLines.slice(0, 8);

@@ -1,5 +1,6 @@
 import { localDateKey } from '@/shared/utils/date';
 import type { SystemClient, TreasuryBalanceEntry, WriteOffMargin } from '@/shared/types';
+import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 
 const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
 
@@ -344,6 +345,7 @@ export const accountingApi = {
   request<WorkspaceSharedSettings>({ action: 'saveWorkspaceSettings', payload }),
  saveWorkspacePastEditLock: (enabled: boolean) => request<{ lockPastEditsEnabled: boolean }>({ action: 'saveWorkspacePastEditLock', payload: enabled }),
  saveTreasuryEnabled: (enabled: boolean) => request<{ treasuryEnabled: boolean }>({ action: 'saveTreasuryEnabled', payload: enabled }),
+ saveReviewEngineSettings: (settings: ReviewEngineSettings) => request<{ reviewEngine: unknown }>({ action: 'saveReviewEngineSettings', payload: settings }),
  getUserTableSettings: () => request<Record<string, string>>({ action: 'getUserTableSettings' }),
  saveUserTableSettings: (settings: Record<string, string>) => request<{ ok: true }>({ action: 'saveUserTableSettings', payload: settings }),
 };
@@ -356,6 +358,10 @@ export type WorkspaceSharedSettings = {
  version: number;
  lockPastEditsEnabled: boolean;
  treasuryEnabled: boolean;
+ // Raw Second Accountant configuration as stored. Deliberately untyped here: the server keeps
+ // it opaque, and resolveReviewSettings is the single place that gives it a shape, filling in
+ // and clamping whatever an older version (or a hand-edited row) left behind.
+ reviewEngine: unknown;
 };
 
 export type BackupInfo = {

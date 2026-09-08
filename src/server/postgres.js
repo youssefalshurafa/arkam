@@ -556,6 +556,14 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- it only controls visibility of the nav item and page (see page.tsx).
                 ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS treasury_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
+                -- Second Accountant configuration (owner/admin toggle, Settings > Second Accountant):
+                -- whether the entry-review engine runs at all, which of its checks are on, and how strict
+                -- each one is. One JSONB object rather than a column per knob, so a new setting needs no
+                -- migration; the client parses it through resolveReviewSettings, which fills in and clamps
+                -- anything missing or out of range. An empty object therefore means "all defaults", which
+                -- is what a workspace that has never opened the screen gets.
+                ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS review_engine JSONB NOT NULL DEFAULT '{}'::jsonb;
+
                 -- Per-user table layout settings (ledger column visibility/order, transaction
                 -- table settings, etc. — the same snapshot shape as the owner-shared settings
                 -- above). Persisted server-side per (user, workspace) so a user's layout choices

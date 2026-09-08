@@ -111,6 +111,7 @@ import {
  buildWorkspaceAnomalies,
  anomalyKey,
 } from '@/features/ledger/utils/ledgerAnomalies';
+import { resolveReviewSettings, type ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import { buildTransactionTableRows, countHiddenArchiveRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, computeClientReconciledStatus, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
@@ -756,6 +757,25 @@ function AuthenticatedHome() {
    const result = await accountingApi.saveWorkspacePastEditLock(enabled);
    queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), (current: typeof workspaceSettingsQuery.data) =>
     current ? { ...current, lockPastEditsEnabled: result.lockPastEditsEnabled } : current,
+   );
+   void workspaceSettingsQuery.refetch();
+  } catch (error) {
+   setError(error instanceof Error ? error.message : t('error_failed_save'));
+  }
+ }
+
+ // --- Second Accountant (entry-review engine) ------------------------------
+ // The workspace's configuration for the engine that checks entries against their own history
+ // (ledgerAnomalies.ts). Resolved through resolveReviewSettings so a workspace that has never
+ // opened the settings screen — or one saved by a version with fewer knobs — still gets a
+ // complete, in-range object rather than undefined holes.
+ const reviewSettings = useMemo(() => resolveReviewSettings(workspaceSettingsQuery.data?.reviewEngine), [workspaceSettingsQuery.data?.reviewEngine]);
+
+ async function saveReviewSettings(next: ReviewEngineSettings) {
+  try {
+   const result = await accountingApi.saveReviewEngineSettings(next);
+   queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), (current: typeof workspaceSettingsQuery.data) =>
+    current ? { ...current, reviewEngine: result.reviewEngine } : current,
    );
    void workspaceSettingsQuery.refetch();
   } catch (error) {
@@ -1560,6 +1580,9 @@ function AuthenticatedHome() {
   ...(isWorkspaceOwnerOrAdmin ? [{ key: 'treasury' as const, label: t('settings_treasury_title'), icon: 'treasury' as IconName }] : []),
   // Write-off margins are workspace-wide financial config, same tier as Treasury settings.
   ...(isWorkspaceOwnerOrAdmin ? [{ key: 'writeoff' as const, label: t('settings_writeoff_title'), icon: 'settings' as IconName }] : []),
+  // The Second Accountant decides what warnings every member sees, so it is owner/admin config
+  // like the two above.
+  ...(isWorkspaceOwnerOrAdmin ? [{ key: 'review' as const, label: t('settings_review_title'), icon: 'settings' as IconName }] : []),
   ...(isEditorRole ? [] : [{ key: 'danger' as const, label: t('settings_danger_title'), icon: 'settings' as IconName }]),
  ];
 
@@ -1958,8 +1981,8 @@ function AuthenticatedHome() {
  // would still fire. That last set is what makes an ignore reversible — without it a dismissed
  // warning leaves no trace anywhere, so there is no row to go back to and nothing to click.
  const ledgerAnomalyState = useMemo(() => {
-  const rateSamples = buildRateSamples(transactions);
-  const commissionSamples = buildCommissionSamples(transactions);
+  const rateSamples = buildRateSamples(transactions, reviewSettings);
+  const commissionSamples = buildCommissionSamples(transactions, reviewSettings);
   const acceptedRates = buildAcceptedRates(transactions, ignoredAnomalies);
   const rate = new Map<number, RateAnomaly>();
   const commission = new Map<number, CommissionAnomaly>();
@@ -1989,7 +2012,7 @@ function AuthenticatedHome() {
    }
   }
   return { rate, commission, ignoredKeys };
- }, [selectedClientLedgers, transactions, ignoredAnomalySet, ignoredAnomalies]);
+ }, [selectedClientLedgers, transactions, ignoredAnomalySet, ignoredAnomalies, reviewSettings]);
  const ledgerRateAnomalies = ledgerAnomalyState.rate;
  const ledgerCommissionAnomalies = ledgerAnomalyState.commission;
  const ledgerIgnoredAnomalyKeys = ledgerAnomalyState.ignoredKeys;
@@ -1997,7 +2020,10 @@ function AuthenticatedHome() {
  // Workspace-wide flagged entries (every client, every account) for the "needs review"
  // indicator on the Transactions and Overview pages — unlike the two maps above, not scoped
  // to whichever client's ledger happens to be open right now.
- const workspaceAnomalies = useMemo(() => buildWorkspaceAnomalies(transactions, ignoredAnomalySet, ignoredAnomalies), [transactions, ignoredAnomalySet, ignoredAnomalies]);
+ const workspaceAnomalies = useMemo(
+  () => buildWorkspaceAnomalies(transactions, ignoredAnomalySet, ignoredAnomalies, reviewSettings),
+  [transactions, ignoredAnomalySet, ignoredAnomalies, reviewSettings],
+ );
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -2059,6 +2085,7 @@ function AuthenticatedHome() {
    transactions,
    reconciliations,
    ignoredAnomalies,
+   reviewSettings,
    currencyMap,
    clientAccountMap,
    selectedClientForLedger,
@@ -2347,6 +2374,8 @@ function AuthenticatedHome() {
    openOrganizationClientsPage={openOrganizationClientsPage}
    localizedCurrencies={localizedCurrencies}
    writeOffMargins={writeOffMargins}
+   reviewSettings={reviewSettings}
+   onSaveReviewSettings={(next) => void saveReviewSettings(next)}
   />
  );
 

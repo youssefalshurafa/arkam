@@ -20,6 +20,8 @@ import CurrenciesSection from '@/features/currencies/components/CurrenciesSectio
 import ExchangeSettingsTab from '@/features/settings/components/ExchangeSettings';
 import TreasurySettings from '@/features/treasury/components/TreasurySettings';
 import WriteOffSettings from '@/features/settings/components/WriteOffSettings';
+import ReviewEngineSettingsTab from '@/features/settings/components/ReviewEngineSettings';
+import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import type {
  Client,
  ClientAccount,
@@ -86,6 +88,8 @@ type SettingsSectionProps = {
  openOrganizationClientsPage: (organization: Organization) => void;
  localizedCurrencies: Currency[];
  writeOffMargins: WriteOffMargin[];
+ reviewSettings: ReviewEngineSettings;
+ onSaveReviewSettings: (settings: ReviewEngineSettings) => void;
 };
 
 export default function SettingsSection({
@@ -143,6 +147,8 @@ export default function SettingsSection({
  openOrganizationClientsPage,
  localizedCurrencies,
  writeOffMargins,
+ reviewSettings,
+ onSaveReviewSettings,
 }: SettingsSectionProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -347,6 +353,17 @@ export default function SettingsSection({
      />
      <ExchangeSettingsTab />
     </div>
+   ) : null}
+   {settingsTab === 'review' ? (
+    <ReviewEngineSettingsTab
+     isWorkspaceOwnerOrAdmin={isWorkspaceOwnerOrAdmin}
+     transactions={transactions}
+     clients={clients}
+     clientAccounts={clientAccounts}
+     reviewSettings={reviewSettings}
+     onSave={onSaveReviewSettings}
+     openClientLedger={openClientLedger}
+    />
    ) : null}
    {settingsTab === 'writeoff' ? (
     <WriteOffSettings

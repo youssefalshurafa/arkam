@@ -316,8 +316,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // synchronously guarantee: this effect resolves the request against ledger data that may not
  // have loaded yet, the next puts the ledger on the right page, and the last waits for that row
  // to actually paint before scrolling to it.
- const [pendingLedgerScrollTarget, setPendingLedgerScrollTarget] = useState<{ rowKey: string; kind: 'rate' | 'commission' | 'moved' } | null>(null);
- const [pendingLedgerJump, setPendingLedgerJump] = useState<{ transactionId: number; accountId: number; kind: 'rate' | 'commission'; targetPage: number } | null>(null);
+ const [pendingLedgerScrollTarget, setPendingLedgerScrollTarget] = useState<{ rowKey: string; kind: 'rate' | 'commission' | 'row' | 'moved' } | null>(null);
+ const [pendingLedgerJump, setPendingLedgerJump] = useState<{ transactionId: number; accountId: number; kind: 'rate' | 'commission' | 'row'; targetPage: number } | null>(null);
  useEffect(() => {
   if (!flashLedgerEntry) return;
   const { transactionId, accountId, kind, requestedAt } = flashLedgerEntry;
@@ -383,7 +383,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
    if (rowEl) {
     setPendingLedgerScrollTarget(null);
     rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (kind === 'moved') setMovedLedgerRowKey(rowKey);
+    // 'row' arrives from a deep link to a row with no badge, 'moved' from the row-move menu;
+    // both want the ring on the row itself rather than a flash on a badge that isn't there.
+    if (kind === 'moved' || kind === 'row') setMovedLedgerRowKey(rowKey);
     else setFlashingLedgerBadge({ rowKey, kind });
     return;
    }
@@ -421,11 +423,19 @@ export default function LedgerSection(props: LedgerSectionProps) {
   );
  };
 
- // Wording for a commission flag. Names both the counterparty and (when present) the description,
- // because the history the engine compared against is narrowed to exactly that combination — see
- // buildCommissionSamples. A bare "5 of 5 previous transactions" is actively confusing on a ledger
- // showing dozens of same-description rows, since almost all of those are with OTHER counterparties
- // and were never part of the comparison.
+ // Wording for a commission flag. The message has to describe the evidence the engine actually
+ // used, which is whichever rung of the scope ladder answered (see CommissionScope): naming the
+ // counterparty when the comparison was really the whole ledger would send the user looking at
+ // rows that were never part of it, and a bare "5 of 5 previous transactions" is meaningless
+ // without saying which five.
+ const COMMISSION_ANOMALY_KEYS: Record<CommissionAnomaly['scope'], { hint: string; reason: string }> = {
+  // Narrowed to this counterparty AND this label, so both are named.
+  description: { hint: 'ledger_anomaly_commission_badge_hint_described', reason: 'ledger_anomaly_commission_reason_described' },
+  // This counterparty in this direction, any label.
+  counterparty: { hint: 'ledger_anomaly_commission_badge_hint', reason: 'ledger_anomaly_commission_reason' },
+  // The ledger's own habit in this direction, against everyone — no counterparty to name.
+  direction: { hint: 'ledger_anomaly_commission_badge_hint_ledger', reason: 'ledger_anomaly_commission_reason_ledger' },
+ };
  const commissionAnomalyText = (entry: ClientLedgerEntry, anomaly: CommissionAnomaly) => {
   const description = entry.description?.trim() ?? '';
   const vars = {
@@ -437,9 +447,22 @@ export default function LedgerSection(props: LedgerSectionProps) {
    counterparty: entry.counterpartyName,
    description,
   };
+  // An 'implausible' flag has no history behind it at all (see CEILING_PERCENTILE) — every
+  // framing below would be a lie there, so it gets its own wording that talks about the number
+  // itself and names the likeliest cause: a rate typed into this field.
+  if (anomaly.reason === 'implausible') {
+   return {
+    hint: `${t('ledger_anomaly_commission_implausible_hint', vars)} — ${t('ignore_anomaly_hint')}`,
+    reason: t('ledger_anomaly_commission_implausible_reason', vars),
+   };
+  }
+  // The description-scoped wording quotes the label, so it needs one to quote; a row flagged at
+  // that scope with a blank description falls back to the counterparty wording.
+  const scope = anomaly.scope === 'description' && !description ? 'counterparty' : anomaly.scope;
+  const keys = COMMISSION_ANOMALY_KEYS[scope];
   return {
-   hint: `${t(description ? 'ledger_anomaly_commission_badge_hint_described' : 'ledger_anomaly_commission_badge_hint', vars)} — ${t('ignore_anomaly_hint')}`,
-   reason: t(description ? 'ledger_anomaly_commission_reason_described' : 'ledger_anomaly_commission_reason', vars),
+   hint: `${t(keys.hint, vars)} — ${t('ignore_anomaly_hint')}`,
+   reason: t(keys.reason, vars),
   };
  };
 

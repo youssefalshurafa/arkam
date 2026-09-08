@@ -95,6 +95,8 @@ const writeActions = new Set([
  'saveWorkspacePastEditLock',
  // Treasury & Cashbox nav visibility toggle: owner OR admin (gated further below).
  'saveTreasuryEnabled',
+ // Second Accountant (entry-review engine) configuration: owner OR admin (gated further below).
+ 'saveReviewEngineSettings',
 ]);
 
 type Body = {
@@ -237,6 +239,12 @@ export async function POST(request: NextRequest) {
   // db.js's updateClientAccountStartingBalance itself (it needs to look up whether the target
   // account is a Treasury/Cashbox account, which this route can't cheaply check up front).
   if (action === 'saveTreasuryEnabled' && role !== 'owner' && role !== 'admin') {
+   return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
+  }
+
+  // The Second Accountant configuration decides what every member is warned about, so it is
+  // owner/admin business like the other workspace-wide toggles above.
+  if (action === 'saveReviewEngineSettings' && role !== 'owner' && role !== 'admin') {
    return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
   }
 
@@ -451,6 +459,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.saveWorkspacePastEditLock(appLike, payload));
    case 'saveTreasuryEnabled':
     return NextResponse.json(await db.saveTreasuryEnabled(appLike, payload));
+   case 'saveReviewEngineSettings':
+    return NextResponse.json(await db.saveReviewEngineSettings(appLike, payload));
    case 'getUserTableSettings':
     return NextResponse.json(await db.getUserTableSettings(appLike, userId));
    case 'saveUserTableSettings':

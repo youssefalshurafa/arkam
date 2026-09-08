@@ -73,7 +73,12 @@ export type CommissionModalState = {
 export type FlashLedgerEntryTarget = {
  transactionId: number;
  accountId: number;
- kind: 'rate' | 'commission';
+ // Which "look here" the destination should use. 'rate'/'commission' flash that row's warning
+ // badge, and so are only correct when the row is actually flagged. 'row' rings the row itself,
+ // for a deep link to an ordinary row that has no badge to flash — the Second Accountant
+ // settings screen links to the largest recorded commissions, most of which are perfectly
+ // normal and carry no warning.
+ kind: 'rate' | 'commission' | 'row';
  // Date.now() at click time. Makes each request distinct (so re-clicking the same entry re-fires
  // the effect), and doubles as the deadline for giving up — the request is retried as ledger data
  // arrives rather than being dropped on the first miss, so it needs an expiry. See LedgerSection.

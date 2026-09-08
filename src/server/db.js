@@ -1806,12 +1806,12 @@ async function bulkImportTransactions(app, { transactions = [] } = {}) {
 async function getWorkspaceSettings(app) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(
-        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits", treasury_enabled AS "treasuryEnabled"
+        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits", treasury_enabled AS "treasuryEnabled", review_engine AS "reviewEngine"
          FROM ${schema}.workspace_settings WHERE id = 1`,
     );
     const row = result.rows[0];
     if (!row) {
-        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false, treasuryEnabled: false };
+        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false, treasuryEnabled: false, reviewEngine: {} };
     }
     return {
         sharedEnabled: Boolean(row.sharedEnabled),
@@ -1819,6 +1819,8 @@ async function getWorkspaceSettings(app) {
         version: Number(row.version) || 0,
         lockPastEditsEnabled: Boolean(row.lockPastEdits),
         treasuryEnabled: Boolean(row.treasuryEnabled),
+        // Passed through as stored; resolveReviewSettings on the client fills in and clamps it.
+        reviewEngine: row.reviewEngine && typeof row.reviewEngine === 'object' ? row.reviewEngine : {},
     };
 }
 
@@ -1847,6 +1849,23 @@ async function saveTreasuryEnabled(app, enabled) {
         [Boolean(enabled)],
     );
     return { treasuryEnabled: Boolean(enabled) };
+}
+
+// Saves the Second Accountant configuration (Settings > Second Accountant) — settable by owner
+// OR admin, same gate as the past-edit lock and the Treasury toggle (see route.ts). Stored as an
+// opaque JSON object: the shape lives in reviewSettings.ts on the client, which validates and
+// clamps every field on read, so the server deliberately does not duplicate that schema here.
+// It only refuses what would break the reader outright — anything that is not a plain object.
+async function saveReviewEngineSettings(app, settings) {
+    const { schema } = await getSchemaInfo(app);
+    const payload = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};
+    await query(
+        `INSERT INTO ${schema}.workspace_settings (id, review_engine, updated_at)
+         VALUES (1, $1::jsonb, NOW())
+         ON CONFLICT (id) DO UPDATE SET review_engine = $1::jsonb, updated_at = NOW()`,
+        [JSON.stringify(payload)],
+    );
+    return { reviewEngine: payload };
 }
 
 // Whether "lock past-dated edits" is currently on for this workspace.
@@ -2072,6 +2091,7 @@ module.exports = {
     saveWorkspaceSettings,
     saveWorkspacePastEditLock,
     saveTreasuryEnabled,
+    saveReviewEngineSettings,
     getUserTableSettings,
     saveUserTableSettings,
 };
