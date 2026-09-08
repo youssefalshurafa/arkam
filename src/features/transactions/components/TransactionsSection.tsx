@@ -12,6 +12,7 @@ import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSel
 import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { saveArchiveFilter, saveTableZoom, saveTxFilter } from '@/shared/lib/localStorage';
+import { cellCopyText, copyExcludeProps } from '@/shared/utils/cellCopy';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, highlightPenCursor, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
@@ -1544,8 +1545,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 // Skip the leading non-data columns (actions, plus the checkbox column when
                 // selection mode is on) so only real cell text is copied.
                 if (!td || (td as HTMLTableCellElement).cellIndex < (selectionMode ? 2 : 1)) return;
-                const raw = (td as HTMLElement).innerText.trim();
-                const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
+                const text = cellCopyText(td as HTMLElement);
                 if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                }}
               >
@@ -1893,11 +1893,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          }}
                          className="cursor-pointer text-left hover:text-accent hover:underline"
                         >
-                         {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                         {txn.clientFromName} <span {...copyExcludeProps} className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </a>
                        ) : txn.accountFromId ? (
                         <div>
-                         {txn.clientFromName} <span className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
+                         {txn.clientFromName} <span {...copyExcludeProps} className="text-xs font-normal text-fg-faint">{txn.accountFromCurrencySymbol || txn.accountFromCurrencyCode}</span>
                         </div>
                        ) : txn.counterParty?.trim() ? (
                         <span className="italic text-fg-faint">{txn.counterParty}</span>
@@ -1938,11 +1938,11 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          }}
                          className="cursor-pointer text-left hover:text-accent hover:underline"
                         >
-                         {txn.clientToName} <span className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                         {txn.clientToName} <span {...copyExcludeProps} className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </a>
                        ) : txn.accountToId ? (
                         <div>
-                         {txn.clientToName} <span className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
+                         {txn.clientToName} <span {...copyExcludeProps} className="text-xs font-normal text-fg-faint">{txn.accountToCurrencySymbol || txn.accountToCurrencyCode}</span>
                         </div>
                        ) : txn.counterParty?.trim() ? (
                         <span className="italic text-fg-faint">{txn.counterParty}</span>

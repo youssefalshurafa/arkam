@@ -17,6 +17,7 @@ import AccountSearchSelect from '@/features/transactions/components/AccountSearc
 import TransactionHistorySection from '@/features/transactions/components/TransactionHistorySection';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import EditableField from '@/shared/components/EditableField';
+import CustomSelect from '@/shared/components/CustomSelect';
 import type { ClientAccount, Currency, Transaction, TransactionUpdateInput } from '@/shared/types';
 
 type TransactionDetailsModalProps = {
@@ -196,6 +197,10 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
  const toNetChange = accountTo ? computeTransactionSideNetChange(tx, accountTo.currencyId, 'to') : null;
 
  const rateDisplay = (rate: number, reversed: boolean) => (rate === 0 ? '—' : formatRateValue(reversed ? 1 / rate : rate));
+ // What the click-to-edit input is pre-filled with. A reversed rate is stored inverted, and
+ // 1/x reintroduces binary-float noise (0.0952380952380952 -> "10.500000000000004"), so it's
+ // rounded back to the same 6 decimals formatRateValue displays.
+ const rateEditValue = (rate: number, reversed: boolean) => (rate === 0 ? '' : String(parseFloat((reversed ? 1 / rate : rate).toFixed(6))));
 
  // Mirrors resetSideRate in useTransactionActions.ts / the new-transaction form's effect in
  // page.tsx: when a side's account changes, force same-currency sides to 1 and clear a
@@ -274,7 +279,7 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
      </span>
      <span className="min-w-0 break-words text-right text-sm font-medium text-fg">
       <EditableField
-       editValue={opts.rate === 0 ? '' : String(opts.reversed ? 1 / opts.rate : opts.rate)}
+       editValue={rateEditValue(opts.rate, opts.reversed)}
        display={rateDisplay(opts.rate, opts.reversed)}
        decimal
        onCommit={opts.onCommitRate}
@@ -365,24 +370,22 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
          if (Number.isFinite(parsed) && parsed >= 0) update({ amount: parsed });
         }}
        />{' '}
-       <select
+       {/* Not a native <select>: its popup is a long OS-drawn list that ignores the modal's
+           direction and anchors itself off to the side of this inline trigger. */}
+       <CustomSelect
+        inline
+        align="end"
         value={tx.currencyId}
-        onChange={(e) => {
-         const newCurrencyId = Number(e.target.value);
+        options={currencyOptions.map((currency) => ({ value: currency.id, label: currency.code }))}
+        onChange={(newCurrencyId) => {
          update({
           currencyId: newCurrencyId,
           exchangeRateFrom: resetRateForCurrencyChange(tx.accountFromId, tx.exchangeRateFrom, !!tx.exchangeRateFromReversed, newCurrencyId),
           exchangeRateTo: resetRateForCurrencyChange(tx.accountToId, tx.exchangeRateTo, !!tx.exchangeRateToReversed, newCurrencyId),
          });
         }}
-        className={`${seamlessSelectClassName} inline w-auto text-sm text-fg-faint`}
-       >
-        {currencyOptions.map((currency) => (
-         <option key={currency.id} value={currency.id}>
-          {currency.code}
-         </option>
-        ))}
-       </select>
+        className="rounded px-1 text-sm font-medium text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+       />
       </>,
      )}
      {row(
@@ -413,12 +416,14 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       commissionPct: tx.commissionFrom,
       commissionAmount: fromCommissionAmount,
       onCommitRate: (raw) => {
-       if (raw.trim() === '') {
+       const parsed = parseFloat(raw);
+       // An emptied field — or an explicit 0, which is the same intent typed rather than
+       // deleted — clears the rate back to "pending" (—) instead of being ignored.
+       if (raw.trim() === '' || parsed === 0) {
         update({ exchangeRateFrom: 0 });
         return;
        }
-       const parsed = parseFloat(raw);
-       if (!Number.isFinite(parsed) || parsed <= 0) return;
+       if (!Number.isFinite(parsed) || parsed < 0) return;
        update({ exchangeRateFrom: tx.exchangeRateFromReversed ? 1 / parsed : parsed });
       },
       onCommitCommission: (raw) => {
@@ -453,12 +458,14 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
       commissionPct: tx.commissionTo,
       commissionAmount: toCommissionAmount,
       onCommitRate: (raw) => {
-       if (raw.trim() === '') {
+       const parsed = parseFloat(raw);
+       // An emptied field — or an explicit 0, which is the same intent typed rather than
+       // deleted — clears the rate back to "pending" (—) instead of being ignored.
+       if (raw.trim() === '' || parsed === 0) {
         update({ exchangeRateTo: 0 });
         return;
        }
-       const parsed = parseFloat(raw);
-       if (!Number.isFinite(parsed) || parsed <= 0) return;
+       if (!Number.isFinite(parsed) || parsed < 0) return;
        update({ exchangeRateTo: tx.exchangeRateToReversed ? 1 / parsed : parsed });
       },
       onCommitCommission: (raw) => {

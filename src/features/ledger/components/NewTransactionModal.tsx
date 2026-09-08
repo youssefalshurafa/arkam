@@ -1,9 +1,11 @@
 'use client';
 
+import { useRef } from 'react';
 import type { FormEvent } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
+import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import NewTransactionForm from '@/features/transactions/components/NewTransactionForm';
 import type { Client, ClientAccount, ClientAccountLedger, Currency, Transaction } from '@/shared/types';
 
@@ -33,7 +35,8 @@ type NewTransactionModalProps = {
 // useTransactionsStore directly, and openNewTransactionModal (useLedgerActions.ts) seeds that
 // shared draft with this account pre-picked before opening. Offers two submit buttons (via
 // `onSaveAndClose`): one keeps the modal open for another entry (same "add several in a row"
-// behavior as the Transactions page's inline form), the other closes it — plus the × button.
+// behavior as the Transactions page's inline form), the other closes it — plus a header save
+// icon (mirroring the Transactions page's) and the × button.
 export default function NewTransactionModal({
  selectedClientLedgers,
  selectedClientForLedger,
@@ -51,6 +54,12 @@ export default function NewTransactionModal({
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const accountId = useLedgerStore((s) => s.newTransactionModalAccountId);
+ const isSubmittingTransaction = useTransactionsStore((s) => s.isSubmittingTransaction);
+ // Mirrors the Transactions page's header save icon: submits the form from up here so a long
+ // form doesn't have to be scrolled to the bottom to be saved. requestSubmit() leaves the
+ // native submitter null, which NewTransactionForm reads as "save and close" — the same thing
+ // this modal's primary (blue) button does.
+ const formRef = useRef<HTMLFormElement | null>(null);
 
  if (accountId == null) return null;
 
@@ -93,6 +102,20 @@ export default function NewTransactionModal({
       ) : null}
       <button
        type="button"
+       onClick={() => formRef.current?.requestSubmit()}
+       disabled={isSubmittingTransaction}
+       title={t('save_transaction')}
+       aria-label={t('save_transaction')}
+       className="inline-flex shrink-0 items-center justify-center rounded border border-border-strong bg-surface-2 p-1.5 text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+      >
+       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+        <path d="M17 21v-8H7v8" />
+        <path d="M7 3v5h8" />
+       </svg>
+      </button>
+      <button
+       type="button"
        onClick={closeNewTransactionModal}
        title={t('cancel')}
        aria-label={t('cancel')}
@@ -114,6 +137,7 @@ export default function NewTransactionModal({
      section="client-ledger"
      lockPastEditsEnabled={lockPastEditsEnabled}
      onTransactionSubmit={onTransactionSubmit}
+     formRef={formRef}
      onSaveAndClose={closeNewTransactionModal}
     />
    </div>

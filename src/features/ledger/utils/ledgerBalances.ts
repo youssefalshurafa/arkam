@@ -1,5 +1,5 @@
 import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
-import { buildLockBoundaries, isReconciledMember } from '@/features/ledger/utils/reconciliation';
+import { buildAccountLockBoundaries, buildLockBoundaries, isReconciledMember, reconciledDepth } from '@/features/ledger/utils/reconciliation';
 import type {
  ClientAccount,
  ClientAccountLedger,
@@ -85,19 +85,26 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
   }
 
   const lockBoundaries = buildLockBoundaries(reconciliations);
+  const allLockBoundaries = buildAccountLockBoundaries(reconciliations);
 
   return clientAccounts
    .filter((account) => account.clientId === selectedClientForLedger.id)
    .map((account) => {
-    // `boundary` is the ACTIVE (newest) reconciliation for this account — the one actually
-    // enforced by the edit/delete/reorder guards (isLocked below) and, since it's a pure
-    // function of a row's own createdAt/id (see isReconciledMember), computed once per entry
-    // here rather than in a second pass, so it can also break sort ties: a not-yet-reconciled
-    // row must never render before a reconciled one on this account, regardless of what its
-    // raw createdAt happens to compare to (guards against any stray timestamp irregularity in
-    // older data). Every reconciliation on the account still gets its own ✓ badge below, though
-    // — an audit trail of every balance the client has ever agreed to, not just the latest.
+    // `boundary` is the ACTIVE (newest) reconciliation for this account — the one the
+    // edit/delete/reorder guards enforce, and what per-entry `isLocked` (the emerald left
+    // border) reports.
     const boundary = lockBoundaries.get(account.id) ?? null;
+    // Ordering, though, has to answer to EVERY reconciliation on the account, not just the
+    // newest. A not-yet-reconciled row must never render before a reconciled one whatever its
+    // raw createdAt says (stray timestamp irregularities exist in older data) — and each
+    // reconciliation froze its own version of that split. Judging by the newest alone let a
+    // later reconciliation dissolve an earlier one's split, since every row the earlier one
+    // covered is equally a member of the newer one: rows then fell back to raw timestamp order
+    // and a stray row could surface above an earlier ✓ line, changing the balance shown on it.
+    // `reconciledDepth` keeps all of the splits at once. Every reconciliation still gets its own
+    // ✓ badge below — an audit trail of every balance the client has agreed to, not just the last.
+    const accountBoundaries = allLockBoundaries.get(account.id) ?? [];
+    const depthOf = (entry: ClientLedgerEntry) => reconciledDepth(entry.createdAt, entry.transactionId, accountBoundaries);
     const entries = transactions
      .flatMap<ClientLedgerEntry>((transaction) => {
       // Archive-only records are historical and never affect a client's ledger/balance.
@@ -206,13 +213,18 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
       return [];
      })
      .sort((left, right) => {
-      if (left.isLocked !== right.isLocked) return left.isLocked ? -1 : 1;
+      // Deeper history first: a row counted into more of this account's agreed balances can
+      // never render below one counted into fewer, whatever the raw timestamps say. Rows at
+      // equal depth (the normal case — no reconciliation at all, or both on the same side of
+      // every one) fall through to plain createdAt/id order, so drag-reordering is untouched.
+      const depthDiff = depthOf(right) - depthOf(left);
+      if (depthDiff !== 0) return depthDiff;
       const dateDiff = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
       if (dateDiff !== 0) return dateDiff;
       return left.transactionId - right.transactionId;
      });
 
-    // Entries are ordered purely by createdAt/isLocked (drag-to-reorder persists the order
+    // Entries are ordered by reconciled depth then createdAt (drag-to-reorder persists the order
     // by rewriting timestamps), so a running balance accumulated in this order is durable.
     // Which row each of the account's reconciliations shows its ✓ badge on: whichever member of
     // ITS OWN frozen set currently sits LAST (highest index) in ledger order — same-day

@@ -631,7 +631,6 @@
  "ledger_scroll_to_end": "الانتقال إلى نهاية الجدول",
  "ledger_scroll_to_top": "الانتقال إلى أعلى الجدول",
  "ledger_add_menu_note": "ملاحظة",
- "ledger_add_menu_one_sided": "معاملة أحادية الطرف",
  "ledger_add_menu_new_transaction": "معاملة جديدة",
  "ledger_note_placeholder": "أضف ملاحظة لهذا الكشف…",
  "ledger_note_show_in_pdf": "إظهار في ملف PDF المُصدَّر",
@@ -662,7 +661,8 @@
  "adjustment_commission": "العمولة",
  "adjustment_commission_total_hint": "الإجمالي المحسوب",
  "adjustment_commission_invalid": "يجب أن تكون العمولة صفرًا أو أكثر.",
- "adjustment_counter_party": "دُفع إلى / استُلم من",
+ "adjustment_counter_party_paid_to": "دُفع إلى",
+ "adjustment_counter_party_received_from": "استُلم من",
  "adjustment_counter_party_placeholder": "مثال: مورد أو شخص غير موجود في قائمة عملائك",
  "adjustment_amount_required": "أدخل مبلغاً صالحاً أكبر من صفر.",
  "adjustment_delete_confirm": "هل تريد حذف هذا المصروف؟",
@@ -1394,7 +1394,8 @@
  "admin_action_reject_reset": "رفض إعادة تعيين كلمة المرور",
  "admin_action_upload_image": "حدّث صورة الصفحة الرئيسية",
  "admin_action_remove_image": "أزال صورة الصفحة الرئيسية",
- "admin_action_login": "سجّل الدخول",
+ "admin_action_login": "سجّل الدخول"
+,
  "audit_action_delete": "حذف",
  "audit_action_update": "تعديل",
  "audit_created_by": "أنشأها {{user}} بتاريخ {{date}}",

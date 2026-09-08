@@ -188,6 +188,8 @@ export function useLedgerActions({
  const copiedTransaction = useTransactionsStore((s) => s.copiedTransaction);
  const setTxSplitDescription = useTransactionsStore((s) => s.setTxSplitDescription);
  const setNewTransactionDate = useTransactionsStore((s) => s.setNewTransactionDate);
+ const setIsNewTransactionExpensesOpen = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen);
+ const setIsNewTransactionExpensesOpen2 = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen2);
 
  // Undo/redo for already-SAVED edits — a separate bounded stack from `ledgerHistory`
  // (unsaved-draft undo). Each entry re-issues the same update API call the original save
@@ -259,41 +261,14 @@ export function useLedgerActions({
   },
  };
 
-function openOneSidedTransactionModal(accountId: number) {
- const account = clientAccounts.find((a) => a.id === accountId);
- setOneSidedTransactionModal({
-  accountId,
-  direction: 'client_from',
-  date: localDateKey(),
-  type: 'transfer',
-  amount: '',
-  currencyId: account?.currencyId ?? null,
-  exchangeRate: '',
-  exchangeRateReversed: false,
-  commission: '',
-  charges: '0',
-  chargesCurrencyId: null,
-  chargesPayer: '',
-  chargesExchangeRate: '1',
-  chargesDescription: '',
-  charges2: '0',
-  charges2CurrencyId: null,
-  chargesPayer2: '',
-  charges2ExchangeRate: '1',
-  charges2Description: '',
-  description: '',
-  counterParty: '',
- });
-}
-
 // Fills the open one-sided-transaction modal from a row copied on the Transactions page
 // (useTransactionsStore's `copiedTransaction`), mirroring the Transactions page's own
 // onPasteCopiedTransaction. The modal only has one real account side — this ledger's own
 // account, fixed by whichever `direction` is currently selected — so the copied row's
 // from/to-side fields are picked based on that direction rather than copying both sides.
-// Deliberately leaves `date` untouched (stays at today, as set when the modal opened) — unlike
-// the Transactions page's own paste, this one is for logging a fresh transaction today from a
-// template, not backdating a batch of entries to match the copied row's date.
+// Deliberately leaves `date` untouched (stays at today, as set when the modal opened): a paste
+// is a template for a fresh transaction, not a way to backdate one to the copied row's date.
+// The Transactions page's own paste does the same.
 function onPasteIntoOneSidedTransaction() {
  if (!copiedTransaction) return;
  const row = copiedTransaction;
@@ -339,6 +314,11 @@ function openNewTransactionModal(accountId: number) {
  setTxToQuery('');
  setTxToOpen(false);
  setTxSplitDescription(false);
+ // Both expenses sections are shared, sticky store state (a paste or an edit of a row that
+ // carried charges leaves them expanded), so a fresh entry here must collapse them itself —
+ // same reset the Transactions page does when it clears its own form.
+ setIsNewTransactionExpensesOpen(false);
+ setIsNewTransactionExpensesOpen2(false);
  setNewTransactionDate(localDateKey());
  setNewTransactionModalAccountId(accountId);
 }
@@ -1403,7 +1383,6 @@ async function onExportLedgerExcel(
 }
 
  return {
-  openOneSidedTransactionModal,
   onSubmitOneSidedTransaction,
   onPasteIntoOneSidedTransaction,
   openNewTransactionModal,

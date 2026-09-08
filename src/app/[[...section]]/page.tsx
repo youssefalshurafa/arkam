@@ -2027,7 +2027,6 @@ function AuthenticatedHome() {
   .filter((column): column is { key: LedgerColumnKey; label: string } => Boolean(column));
 
   const {
-   openOneSidedTransactionModal,
    onSubmitOneSidedTransaction,
    onPasteIntoOneSidedTransaction,
    openNewTransactionModal,
@@ -2651,7 +2650,6 @@ function AuthenticatedHome() {
          onSaveAllEditingLedgerRows={onSaveAllEditingLedgerRows}
          onCancelAllEditingLedgerRows={onCancelAllEditingLedgerRows}
          onToggleLedgerEntrySelection={onToggleLedgerEntrySelection}
-         openOneSidedTransactionModal={openOneSidedTransactionModal}
          openNewTransactionModal={openNewTransactionModal}
          openClientLedger={openClientLedger}
          openLedgerRowForEdit={openLedgerRowForEdit}
