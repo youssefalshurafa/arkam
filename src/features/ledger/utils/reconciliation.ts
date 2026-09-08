@@ -45,6 +45,47 @@ export function buildLockBoundaries(reconciliations: Reconciliation[]): Map<numb
 }
 
 /**
+ * Every reconciliation on an account, newest first — unlike `buildLockBoundaries`, which keeps
+ * only the newest (the one the guards actually enforce). Ordering the ledger needs all of them:
+ * each reconciliation froze the split between the rows its balance was agreed over and the rows
+ * that came after, and that split has to keep holding once a newer reconciliation is taken.
+ */
+export function buildAccountLockBoundaries(reconciliations: Reconciliation[]): Map<number, LockBoundary[]> {
+ const byAccount = new Map<number, LockBoundary[]>();
+ for (const rec of reconciliations) {
+  const list = byAccount.get(rec.accountId) ?? [];
+  list.push({
+   id: rec.id,
+   anchorDate: rec.anchorDate,
+   lockedTransactionIds: new Set(rec.lockedTransactionIds),
+   balance: rec.balance,
+   note: rec.note,
+  });
+  byAccount.set(rec.accountId, list);
+ }
+ for (const list of byAccount.values()) list.sort((left, right) => right.id - left.id);
+ return byAccount;
+}
+
+/**
+ * How many of an account's reconciliations count this row as part of their agreed balance.
+ *
+ * Used as the ledger's primary sort key (highest first): a row reconciled into two balances
+ * belongs above one reconciled into just the newer of them, which in turn belongs above a row
+ * in neither. With a single reconciliation this is exactly the member/non-member split. Since
+ * every boundary is frozen and `isReconciledMember` reads only the row's own createdAt/id, a
+ * row's depth never shifts when siblings are dragged or edited around it.
+ */
+export function reconciledDepth(createdAt: string, refId: number, boundaries: LockBoundary[] | null | undefined): number {
+ if (!boundaries) return 0;
+ let depth = 0;
+ for (const boundary of boundaries) {
+  if (isReconciledMember(createdAt, refId, boundary)) depth += 1;
+ }
+ return depth;
+}
+
+/**
  * True when a row at (createdAt, refId) is part of the reconciled balance — i.e. an
  * operation touching it would move the agreed number and should warn.
  *

@@ -225,11 +225,21 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
 
  // "Adjustment" transactions are one-sided: exactly one of accountFromId/accountToId holds the
  // picked client account (the other stays null, meaning "the counterparty text field instead").
- // Direction is derived from which side is populated rather than tracked as separate state,
- // defaulting to accountFromId (creditor/دائن) until the user explicitly toggles it.
- const oneSidedDirection: 'client_from' | 'client_to' = transactionForm.accountToId != null && transactionForm.accountFromId == null ? 'client_to' : 'client_from';
+ // Direction follows whichever side is populated, so a pre-filled form (paste, AI parse) shows
+ // the right role without extra bookkeeping. While NEITHER side is set there is nothing to
+ // derive it from, so the toggle's own choice is remembered here — without it, picking
+ // مدين before choosing a client fell straight back to دائن (both ids stay null, so the
+ // derivation had no way to see the click).
+ const [oneSidedDirectionPref, setOneSidedDirectionPref] = useState<'client_from' | 'client_to'>('client_from');
+ const oneSidedDirection: 'client_from' | 'client_to' =
+  transactionForm.accountToId != null && transactionForm.accountFromId == null
+   ? 'client_to'
+   : transactionForm.accountFromId != null
+     ? 'client_from'
+     : oneSidedDirectionPref;
  const oneSidedAccountId = oneSidedDirection === 'client_to' ? transactionForm.accountToId : transactionForm.accountFromId;
  const setOneSidedDirection = (direction: 'client_from' | 'client_to') => {
+  setOneSidedDirectionPref(direction);
   setTransactionForm((current) => {
    const activeId = current.accountFromId ?? current.accountToId;
    return direction === 'client_from' ? { ...current, accountFromId: activeId, accountToId: null } : { ...current, accountFromId: null, accountToId: activeId };
@@ -459,7 +469,12 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
                />
               </div>
 
-              <label className="mt-4 block text-sm font-medium">{t('adjustment_counter_party')}</label>
+              {/* The counterparty is always the side the client is NOT: when the client is the
+                  sender the money went out to them (paid to), when the client is the receiver
+                  it came in from them (received from). */}
+              <label className="mt-4 block text-sm font-medium">
+               {oneSidedDirection === 'client_from' ? t('adjustment_counter_party_paid_to') : t('adjustment_counter_party_received_from')}
+              </label>
               <input
                type="text"
                value={transactionForm.counterParty}

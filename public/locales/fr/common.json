@@ -628,7 +628,6 @@
  "ledger_scroll_to_end": "Aller a la fin du tableau",
  "ledger_scroll_to_top": "Aller au debut du tableau",
  "ledger_add_menu_note": "Note",
- "ledger_add_menu_one_sided": "Transaction unilaterale",
  "ledger_add_menu_new_transaction": "Nouvelle transaction",
  "ledger_note_placeholder": "Ajouter une note pour ce registre…",
  "ledger_note_show_in_pdf": "Afficher dans le PDF exporté",
@@ -659,7 +658,8 @@
  "adjustment_commission": "Commission",
  "adjustment_commission_total_hint": "Total facture",
  "adjustment_commission_invalid": "La commission doit etre superieure ou egale a zero.",
- "adjustment_counter_party": "Paye a / Recu de",
+ "adjustment_counter_party_paid_to": "Payé à",
+ "adjustment_counter_party_received_from": "Reçu de",
  "adjustment_counter_party_placeholder": "ex. un fournisseur ou une personne hors de votre liste de clients",
  "adjustment_amount_required": "Saisissez un montant valide superieur a zero.",
  "adjustment_delete_confirm": "Supprimer cette depense ?",
@@ -1391,7 +1391,8 @@
  "admin_action_reject_reset": "Réinitialisation rejetée",
  "admin_action_upload_image": "Image d'accueil mise à jour",
  "admin_action_remove_image": "Image d'accueil retirée",
- "admin_action_login": "Connexion",
+ "admin_action_login": "Connexion"
+,
  "audit_action_delete": "Supprimé",
  "audit_action_update": "Modifié",
  "audit_created_by": "Créé par {{user}} le {{date}}",

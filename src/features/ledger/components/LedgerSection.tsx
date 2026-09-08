@@ -12,6 +12,7 @@ import { setSectionUrl } from '@/shared/utils/section';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { resolveHighlightBg } from '@/shared/utils/highlightColor';
+import { cellCopyText, copyExcludeProps } from '@/shared/utils/cellCopy';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
@@ -99,7 +100,6 @@ type LedgerSectionProps = {
  onSaveAllEditingLedgerRows: () => void;
  onCancelAllEditingLedgerRows: () => void;
  onToggleLedgerEntrySelection: (key: string) => void;
- openOneSidedTransactionModal: (accountId: number) => void;
  openNewTransactionModal: (accountId: number) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  openLedgerRowForEdit: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
@@ -128,7 +128,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
-  openOneSidedTransactionModal, openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
+  openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
  } = props;
  const { language, isRTL } = useLanguage();
@@ -1326,20 +1326,19 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 })()
               : null}
 
-             {/* "+" menu: Add Note / Add One-Sided Transaction / New Transaction, consolidated
-                 into one entry point next to the sticky note (see generateLedgerHtml for the
-                 note's opt-in PDF-statement toggle). Always visible regardless of whether a
-                 note exists. No separate "Add Expense" entry — a one-sided transaction already
-                 covers it (pick type "Expense" in the modal itself). "New Transaction" opens the
-                 same two-sided form the Transactions page uses (NewTransactionForm), pre-filled
-                 with this account. */}
+             {/* "+" menu: Add Note / New Transaction, next to the sticky note (see
+                 generateLedgerHtml for the note's opt-in PDF-statement toggle). Always visible
+                 regardless of whether a note exists. "New Transaction" opens the same form the
+                 Transactions page uses (NewTransactionForm), pre-filled with this account — and
+                 it already covers the one-sided cases (expense, write-off, a transfer with only
+                 one party) through its own type selector, which is why there is no separate
+                 entry for them here. */}
              <div className="mt-4 flex items-start gap-2">
               <button
                type="button"
                onClick={(e) =>
                 addMenu.open(e, [
                  { key: 'note', label: t('ledger_add_menu_note'), onSelect: () => beginEditNote(ledger) },
-                 { key: 'one-sided', label: t('ledger_add_menu_one_sided'), onSelect: () => openOneSidedTransactionModal(ledger.accountId) },
                  { key: 'new-transaction', label: t('ledger_add_menu_new_transaction'), onSelect: () => openNewTransactionModal(ledger.accountId) },
                 ])
                }
@@ -2194,8 +2193,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        // Skip the leading non-data columns (actions, plus the checkbox column
                        // when selection mode is on) so only real cell text is copied.
                        if (!td || (td as HTMLTableCellElement).cellIndex < (selectionMode ? 2 : 1)) return;
-                       const raw = (td as HTMLElement).innerText.trim();
-                       const text = raw.replace(/\s+([A-Z]{2,5}|[$€£¥₹₩₪₺₽฿₫])$/, '').trim() || raw;
+                       const text = cellCopyText(td as HTMLElement);
                        if (text) navigator.clipboard.writeText(text).then(() => showToast(t('toast_copied'), e));
                       }}
                       onContextMenu={openRowMenu}
@@ -2829,14 +2827,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                >
                                 {entry.counterpartyName}
                                 {(entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode) && (
-                                 <span className="font-normal text-accent"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
+                                 <span {...copyExcludeProps} className="font-normal text-accent"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
                                 )}
                                </a>
                               ) : (
                                <>
                                 {entry.counterpartyName}
                                 {(entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode) && (
-                                 <span className="font-normal text-fg-faint"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
+                                 <span {...copyExcludeProps} className="font-normal text-fg-faint"> ({entry.counterpartyCurrencySymbol || entry.counterpartyCurrencyCode})</span>
                                 )}
                                </>
                               )}

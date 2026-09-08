@@ -16,9 +16,13 @@ export type PdfExportModalState = {
 // this was opened from — and the other side left unset, meaning "me" personally rather than
 // another client account. Same field set as the normal Transactions-page form (type, rate,
 // commission, charges) minus the second account picker, since that side never exists. Its own
-// independent state/submit path (see openOneSidedTransactionModal/onSubmitOneSidedTransaction
-// in useLedgerActions.ts) — deliberately not sharing transactionForm/onTransactionSubmit with
-// the Transactions page, so an in-progress edit there can never collide with this modal.
+// independent state/submit path (see onSubmitOneSidedTransaction in useLedgerActions.ts) —
+// deliberately not sharing transactionForm/onTransactionSubmit with the Transactions page, so an
+// in-progress edit there can never collide with this modal.
+//
+// No longer offered from the ledger's "+" menu: the ordinary new-transaction form reaches the
+// same one-sided shapes through its own type selector, so the entry point was redundant. The
+// modal is still opened from the commission report, which prefills a settlement into it.
 export type OneSidedTransactionModalState = {
  accountId: number;
  // 'client_from': the client is the sender (accountFromId), the other side (accountToId) is

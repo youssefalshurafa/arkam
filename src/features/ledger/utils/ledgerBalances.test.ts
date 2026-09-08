@@ -122,6 +122,62 @@ describe('computeClientLedgers — reconciliation-aware sort', () => {
   expect(ledger.entries[1].isLocked).toBe(false);
  });
 
+ it('keeps an earlier reconciliation ordering intact after a newer reconciliation is added', () => {
+  // Reported bug: reconciling a row makes a transaction above it jump to the start of its day,
+  // even above an earlier reconciliation line, changing that older mark's balance. The older
+  // boundary's member/non-member split is the only thing holding a row with an out-of-order
+  // raw createdAt (id 2 below) beneath the rows it was reconciled after; once a NEWER
+  // reconciliation on a later day made every one of those rows a member of the active
+  // boundary, that split collapsed and the sort fell back to the raw timestamps.
+  const anchorTx = makeTransaction({ id: 1, createdAt: '2026-08-17T23:00:00.000Z' });
+  const strayTx = makeTransaction({ id: 2, createdAt: '2026-08-17T10:00:00.000Z' }); // earlier stamp, added after reconciling
+  const laterTx = makeTransaction({ id: 3, createdAt: '2026-08-20T09:00:00.000Z' });
+
+  const reconciliations: Reconciliation[] = [
+   {
+    id: 1,
+    accountId: account.id,
+    anchorTransactionId: anchorTx.id,
+    anchorDate: '2026-08-17',
+    lockedTransactionIds: [anchorTx.id],
+    balance: 100,
+    note: '',
+    createdAt: '2026-08-17T23:00:01.000Z',
+   },
+   {
+    id: 2,
+    accountId: account.id,
+    anchorTransactionId: laterTx.id,
+    anchorDate: '2026-08-20',
+    lockedTransactionIds: [anchorTx.id, strayTx.id, laterTx.id],
+    balance: 300,
+    note: '',
+    createdAt: '2026-08-20T09:00:01.000Z',
+   },
+  ];
+
+  const [ledger] = computeClientLedgers({
+   selectedClientForLedger: { id: account.clientId },
+   section: 'client-ledger',
+   pdfExportModal: null,
+   clientAccounts,
+   transactions: [anchorTx, strayTx, laterTx],
+   reconciliations,
+   clientAccountMap,
+   currencyMap,
+   enabled: true,
+  });
+
+  // The stray row must stay below the row the first reconciliation was taken on...
+  expect(ledger.entries.map((e) => e.transactionId)).toEqual([anchorTx.id, strayTx.id, laterTx.id]);
+  // ...so the older mark still sits on its own row, showing the balance it was agreed at.
+  const olderMarkRow = ledger.entries.find((e) => e.reconciledMark?.id === 1);
+  expect(olderMarkRow?.transactionId).toBe(anchorTx.id);
+  // Its running balance still counts only that one row — had the stray row slipped above it,
+  // the agreed number on this line would have silently doubled to -200.
+  expect(olderMarkRow?.runningBalance).toBe(-100);
+ });
+
  it('does not disturb ordering among rows that are all-member or all-non-member (normal createdAt order is preserved)', () => {
   const tx1 = makeTransaction({ id: 1, createdAt: '2026-08-10T08:00:00.000Z' });
   const tx2 = makeTransaction({ id: 2, createdAt: '2026-08-10T09:00:00.000Z' });

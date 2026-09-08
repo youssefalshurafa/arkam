@@ -593,7 +593,6 @@
  "ledger_scroll_to_end": "Scroll to end of table",
  "ledger_scroll_to_top": "Scroll to top of table",
  "ledger_add_menu_note": "Note",
- "ledger_add_menu_one_sided": "One-Sided Transaction",
  "ledger_add_menu_new_transaction": "New Transaction",
  "ledger_note_placeholder": "Add a note for this ledger…",
  "ledger_note_show_in_pdf": "Show in exported PDF",
@@ -660,7 +659,8 @@
  "adjustment_commission": "Commission",
  "adjustment_commission_total_hint": "Total charged",
  "adjustment_commission_invalid": "Commission must be zero or greater.",
- "adjustment_counter_party": "Paid to / Received from",
+ "adjustment_counter_party_paid_to": "Paid to",
+ "adjustment_counter_party_received_from": "Received from",
  "adjustment_counter_party_placeholder": "e.g. a vendor or person not in your client list",
  "adjustment_amount_required": "Enter a valid amount greater than zero.",
  "adjustment_delete_confirm": "Delete this expense entry?",
@@ -1392,7 +1392,8 @@
  "admin_action_reject_reset": "Rejected password reset",
  "admin_action_upload_image": "Updated homepage image",
  "admin_action_remove_image": "Removed homepage image",
- "admin_action_login": "Signed in",
+ "admin_action_login": "Signed in"
+,
  "audit_action_delete": "Deleted",
  "audit_action_update": "Edited",
  "audit_created_by": "Created by {{user}} on {{date}}",

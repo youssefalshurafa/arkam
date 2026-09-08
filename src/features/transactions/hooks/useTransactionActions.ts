@@ -1428,9 +1428,11 @@ function onPasteCopiedTransaction() {
  setTxToQuery('');
  setIsNewTransactionExpensesOpen(true);
  setIsNewTransactionExpensesOpen2(true);
- // Mirrors onEditTransactionInForm below: default the date to match what was copied, so a
- // batch of same-day backdated entries doesn't require retyping the date on every paste.
- setNewTransactionDate(row.createdAt.slice(0, 10));
+ // A paste is a template for a NEW entry, so it never carries the copied row's date over —
+ // today, the same as any other fresh transaction, and the user re-dates it by hand when they
+ // actually mean to backdate. (Matches onPasteIntoOneSidedTransaction, which already left the
+ // date alone; only onEditTransactionInForm below keeps a row's own date, since that edits it.)
+ setNewTransactionDate(localDateKey());
 }
 
 // Loads an existing row into the new-transaction form in "update" mode: the form is
