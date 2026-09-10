@@ -2,6 +2,7 @@ import { formatDateValue } from '@/shared/utils/date';
 import { formatRateValue } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { ledgerEntryKey } from '@/features/ledger/utils/ledgerEntries';
+import { isZeroMoney } from '@/shared/utils/money';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction, TransactionColumnVisibility } from '@/shared/types';
 
 /** Shared rendering context for the PDF/print HTML builders. */
@@ -513,7 +514,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
 </table>
 <div class="final-balance">
  <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(numLocale, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
- <span class="fb-label">${runningBal === 0 ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
+ <span class="fb-label">${isZeroMoney(runningBal) ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
 ${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>

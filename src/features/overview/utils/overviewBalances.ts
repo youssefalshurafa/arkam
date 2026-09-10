@@ -1,4 +1,5 @@
 import { computeAccountBalances, SMALL_BALANCE_THRESHOLD } from '@/shared/utils/accountBalances';
+import { isZeroMoney } from '@/shared/utils/money';
 import type {
  Client,
  ClientAccount,
@@ -104,7 +105,7 @@ export function computeOverviewBalances({ transactions, clientAccounts, clients,
   // Drop organizations (including "no organization") whose every currency group has
   // settled to zero — nothing would render for them, so their section header shouldn't either.
   for (const [orgKey, orgGroups] of byOrg) {
-   if (orgGroups.every((g) => g.total === 0)) byOrg.delete(orgKey);
+   if (orgGroups.every((g) => isZeroMoney(g.total))) byOrg.delete(orgKey);
   }
 
   return { groups, byOrg, hasAccounts: clientAccounts.length > 0 };

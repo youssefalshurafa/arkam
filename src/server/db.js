@@ -1816,11 +1816,52 @@ function txColValue(col, row, now) {
     }
 }
 
+// Every imported field that lands in a DOUBLE PRECISION column.
+//
+// Postgres accepts the literals 'NaN', 'Infinity' and '-Infinity' in a double precision column,
+// and node-postgres serializes the JS values to exactly those. One unparseable spreadsheet cell
+// is therefore enough to store a poison number, and because balances are replayed by summing
+// every row (accountBalances.ts), NaN then propagates to that account's balance, its
+// organization's total, the overview, and the harvest figure — permanently, and with no error
+// anywhere to say why the numbers stopped being numbers.
+//
+// schemas.ts deliberately validates only the envelope for this action and defers per-row checks
+// here so the message can name the offending row, which is what an accountant importing a
+// thousand-line spreadsheet actually needs. Until now there was no such check to defer to.
+const NUMERIC_IMPORT_FIELDS = [
+    'amount',
+    'exchangeRateFrom',
+    'commissionFrom',
+    'exchangeRateTo',
+    'commissionTo',
+    'charges',
+    'chargesExchangeRate',
+    'charges2',
+    'charges2ExchangeRate',
+    'exchangeActualAmount',
+];
+
+// null/undefined/'' mean "not supplied" and fall back to the defaults in txColValue; anything
+// else has to be a real, finite number.
+function assertImportRowNumbersFinite(row, index) {
+    for (const field of NUMERIC_IMPORT_FIELDS) {
+        const value = row?.[field];
+        if (value == null || value === '') continue;
+        if (!Number.isFinite(Number(value))) {
+            throw new Error(`Row ${index + 1}: "${field}" is not a valid number (${String(value)}).`);
+        }
+    }
+}
+
 // Inserts all reviewed import rows in bulk using multi-row INSERTs, reducing ~1000 HTTP
 // round-trips to a single request.
 async function bulkImportTransactions(app, { transactions = [] } = {}) {
     const { schema } = await getSchemaInfo(app);
     const now = new Date();
+
+    // Before anything is written, so a bad row aborts the whole import rather than leaving a
+    // partial one behind.
+    transactions.forEach(assertImportRowNumbersFinite);
 
     if (transactions.length > 0) {
         const cols = [

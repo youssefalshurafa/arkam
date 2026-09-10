@@ -542,14 +542,31 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
  // changes what the rate MEANS has moved, the user didn't touch it: keep the stored value.
  const originalDraft = buildLedgerTransactionDraft(transaction, ledgerAccountId);
  const originalIsOutgoing = transaction.accountFromId === ledgerAccountId;
- const rateUntouched =
-  draft.exchangeRate === originalDraft.exchangeRate &&
+ const storedRate = originalIsOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
+ // Direction, account and currency all change what the rate MEANS, so if any of them moved the
+ // rate must be re-derived from what the user left in the field. Only when all three are steady
+ // can a stored rate legitimately be carried over.
+ const rateContextUnchanged =
   draft.direction === originalDraft.direction &&
   draft.ledgerAccountId === originalDraft.ledgerAccountId &&
-  draft.currencyId === originalDraft.currencyId &&
+  draft.currencyId === originalDraft.currencyId;
+ const rateUntouched =
+  rateContextUnchanged &&
+  draft.exchangeRate === originalDraft.exchangeRate &&
   rateIsReversed === (originalIsOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed);
- const storedRate = originalIsOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
- const exchangeRate = rateUntouched ? storedRate : rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
+ // Flipping the reverse toggle rewrites the draft's rate text to the 6dp inverse (see the
+ // toggle in LedgerSection), so `rateUntouched` fails purely because the flag moved — and the
+ // save then inverts that truncated text back, nudging the stored rate every time. That is the
+ // drift the comment above describes, and a sweep of this project's production data found 16
+ // rates carrying it (e.g. 0.8809020436927414, which is 0.8809 after a round-trip).
+ //
+ // So compare against what we would DISPLAY for the stored rate under the flag now in effect:
+ // if the field still holds exactly that, the number itself has not changed, whatever the flag
+ // did. An exact string match rather than a tolerance, so a genuine edit — however small — is
+ // always honoured.
+ const storedRateAsShown = storedRate > 0 ? (rateIsReversed ? formatRateValue(1 / storedRate) : String(storedRate)) : '';
+ const rateShownUnchanged = rateContextUnchanged && storedRateAsShown !== '' && draft.exchangeRate.trim() === storedRateAsShown;
+ const exchangeRate = rateUntouched || rateShownUnchanged ? storedRate : rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
  const commission = parseFloat(draft.commission) || 0;
 
  // Senderless/receiverless transactions are a legitimate, permanent shape (no counterparty on
