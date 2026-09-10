@@ -388,6 +388,10 @@ async function createClientAccount(app, { clientId, currencyId, startingBalance 
         throw new Error('Client and currency are required.');
     }
 
+    // A member opening a new currency account on Treasury (or on another member's cashbox)
+    // would hand themselves a ledger they are not allowed to write to elsewhere.
+    await assertMemberCanWriteClient(app, clientId);
+
     const { schema } = await getSchemaInfo(app);
     await query(
         `
@@ -657,6 +661,11 @@ async function updateClientAccountNote(app, { accountId, note, noteShowInPdf }) 
         throw new Error('Account id is required.');
     }
 
+    // The note is rendered on the exported PDF statement (note_show_in_pdf), so this is not a
+    // cosmetic field: a member must not be able to write onto Treasury's or another member's
+    // cashbox statement.
+    await assertMemberCanWriteAccount(app, accountId);
+
     const { schema } = await getSchemaInfo(app);
     await query(
         `UPDATE ${schema}.client_accounts SET note = $1, note_show_in_pdf = $2 WHERE id = $3`,
@@ -669,6 +678,11 @@ async function updateClientAccount(app, { accountId, currencyId, startingBalance
         throw new Error('Account id is required.');
     }
 
+    // This writes starting_balance too, so it was a way around the owner-only rule that
+    // updateClientAccountStartingBalance enforces on Treasury/Cashbox accounts — same guard,
+    // same reasoning, applied here so the two paths can't disagree.
+    await assertOwnerCanWriteSystemStartingBalance(app, accountId);
+
     const { schema } = await getSchemaInfo(app);
     await query(
         `UPDATE ${schema}.client_accounts SET currency_id = $1, starting_balance = $2 WHERE id = $3`,
@@ -676,7 +690,12 @@ async function updateClientAccount(app, { accountId, currencyId, startingBalance
     );
 }
 
+// Deletes the account row; ON DELETE CASCADE then removes every transaction on either side of
+// it, including the counterparty's entries in other clients' ledgers. Those cascaded rows leave
+// no transaction_history trail (see recordTransactionHistory's exclusion list), which is why
+// this is gated to owner/admin in route.ts on top of the per-row guard here.
 async function deleteClientAccount(app, accountId) {
+    await assertMemberCanWriteAccount(app, accountId);
     const { schema } = await getSchemaInfo(app);
     await query(`DELETE FROM ${schema}.client_accounts WHERE id = $1`, [accountId]);
 }
@@ -955,6 +974,26 @@ async function assertMemberCanWriteAccount(app, accountId) {
     if (app?.role !== 'member' || accountId == null) return;
     const infoById = await resolveSystemAccountInfo(app, [accountId]);
     const info = infoById.get(Number(accountId));
+    if (!info?.isSystem) return;
+    const isOwnCashbox = info.systemKind === 'cashbox' && info.ownerUserId === app.userId;
+    if (!isOwnCashbox) {
+        throw new Error('You do not have permission to modify this Treasury/Cashbox entry.');
+    }
+}
+
+// Client-level twin of assertMemberCanWriteAccount, for the write paths that are handed a
+// client id rather than an account id (createClientAccount). Same rule, same reasoning: a
+// `member` may not attach anything to a system client other than their own cashbox. Kept as a
+// separate query rather than routed through resolveSystemAccountInfo because that one keys off
+// client_accounts, and the account being guarded here does not exist yet.
+async function assertMemberCanWriteClient(app, clientId) {
+    if (app?.role !== 'member' || clientId == null) return;
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(
+        `SELECT is_system AS "isSystem", system_kind AS "systemKind", owner_user_id AS "ownerUserId" FROM ${schema}.clients WHERE id = $1`,
+        [Number(clientId)],
+    );
+    const info = result.rows[0];
     if (!info?.isSystem) return;
     const isOwnCashbox = info.systemKind === 'cashbox' && info.ownerUserId === app.userId;
     if (!isOwnCashbox) {
@@ -1607,7 +1646,22 @@ async function deleteTransactionsBulk(app, payload) {
         Boolean(payload?.acknowledgeReconciliationOverride),
     );
 
-    await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds]);
+    // Snapshot then delete, in one transaction, exactly as deleteTransaction does — this path
+    // (the ledger's and the table's multi-select delete) previously issued the DELETE on its own
+    // and left no audit trail at all, so bulk deletion was the one way to remove transactions
+    // without a trace. Per-row recordTransactionHistory rather than a single INSERT..SELECT
+    // because it is the same call the single-row path uses, which keeps the stored snapshot
+    // shape identical for both; TransactionHistorySection reads those raw snake_case columns.
+    //
+    // Snapshots every requested id, not just existing.rows: that SELECT above filters to
+    // is_archived = FALSE for the guard checks, while the DELETE takes archived rows too.
+    // recordTransactionHistory no-ops on an id that isn't there.
+    await withTransaction(async (client) => {
+        for (const transactionId of transactionIds) {
+            await recordTransactionHistory(app, schema, transactionId, 'delete', client);
+        }
+        await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds], client);
+    });
 
     return { ok: true, deleted: transactionIds.length };
 }

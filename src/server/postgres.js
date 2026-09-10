@@ -237,6 +237,9 @@ async function ensurePublicSchema() {
 
                     CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
                     CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
+                    -- workspaces.owner_user_id references users ON DELETE CASCADE, so deleting a
+                    -- user sequentially scanned every workspace in the instance to find theirs.
+                    CREATE INDEX IF NOT EXISTS idx_workspaces_owner_user_id ON workspaces(owner_user_id);
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
                     CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
@@ -738,6 +741,29 @@ async function ensureWorkspaceSchema(workspaceId) {
                 CREATE INDEX IF NOT EXISTS idx_transactions_account_to ON ${schema}.transactions (account_to_id);
                 CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON ${schema}.transactions (created_at);
                 CREATE INDEX IF NOT EXISTS idx_transactions_active ON ${schema}.transactions (created_at) WHERE is_archived = FALSE;
+
+                -- The remaining foreign-key columns, for the same reason as the block above:
+                -- Postgres indexes the parent side of a reference, never the child, so each of
+                -- these was a sequential scan on every cascading parent delete. Deleting a
+                -- single currency scans transactions three times over (currency_id,
+                -- charges_currency_id, charges2_currency_id) plus client_accounts; deleting any
+                -- one transaction scans ignored_anomalies twice.
+                --
+                -- The composite UNIQUEs already on these tables do not cover it: client_accounts'
+                -- UNIQUE (client_id, currency_id) leads with client_id, and ignored_anomalies'
+                -- UNIQUE (kind, transaction_id, account_id) leads with kind, so neither can serve
+                -- a lookup on the trailing column.
+                CREATE INDEX IF NOT EXISTS idx_transactions_currency ON ${schema}.transactions (currency_id);
+                CREATE INDEX IF NOT EXISTS idx_transactions_charges_currency ON ${schema}.transactions (charges_currency_id);
+                CREATE INDEX IF NOT EXISTS idx_transactions_charges2_currency ON ${schema}.transactions (charges2_currency_id);
+                CREATE INDEX IF NOT EXISTS idx_transactions_distribution_location ON ${schema}.transactions (distribution_location_id);
+                CREATE INDEX IF NOT EXISTS idx_client_accounts_currency ON ${schema}.client_accounts (currency_id);
+                CREATE INDEX IF NOT EXISTS idx_clients_organization ON ${schema}.clients (organization_id);
+                CREATE INDEX IF NOT EXISTS idx_ignored_anomalies_transaction ON ${schema}.ignored_anomalies (transaction_id);
+                CREATE INDEX IF NOT EXISTS idx_ignored_anomalies_account ON ${schema}.ignored_anomalies (account_id);
+                CREATE INDEX IF NOT EXISTS idx_reconciliations_account ON ${schema}.reconciliations (account_id);
+                CREATE INDEX IF NOT EXISTS idx_distribution_locations_client ON ${schema}.distribution_locations (client_id);
+                CREATE INDEX IF NOT EXISTS idx_harvest_rates_organization ON ${schema}.harvest_rates (organization_id);
 
                 -- Audit trail. This workspace is shared by owner/admin/member/viewer roles, so
                 -- "who entered this number, and what did it say before?" needs an answer; until

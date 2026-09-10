@@ -99,6 +99,37 @@ const writeActions = new Set([
  'saveReviewEngineSettings',
 ]);
 
+/**
+ * The subset of writeActions that destroys or wholesale replaces financial history, restricted
+ * to owner/admin. Everything else in writeActions stays open to a `member` — that is the
+ * day-to-day entry surface and members are meant to use it.
+ *
+ * These are different in kind from the settings gates further below. Each one either removes
+ * rows that no per-row guard ever sees, or cascades far beyond the id it was handed:
+ *   * deleteAllTransactions / deleteAllClients / deleteAllCurrencies — wipe the workspace.
+ *   * importWorkspaceData — deletes all nine tables INCLUDING transaction_history, then
+ *     restores whatever the caller uploaded; both a wipe and a history-forgery surface.
+ *   * deleteCurrency — cascades currencies -> client_accounts -> transactions, so a single
+ *     statement is enough to destroy the ledger.
+ *   * deleteClient / deleteClientAccount — cascade into every transaction on either side,
+ *     including the counterparty's entries in someone else's ledger, and leave no
+ *     transaction_history trail (see recordTransactionHistory's exclusion list in db.js).
+ *   * moveAccountTransactions — re-points every transaction between two accounts at once.
+ *
+ * db.js keeps its own per-row Treasury/Cashbox guards (assertMemberCanWrite*); this gate is
+ * the coarser "a member has no business calling this at all" layer above them.
+ */
+const ownerAdminActions = new Set([
+ 'deleteAllTransactions',
+ 'deleteAllClients',
+ 'deleteAllCurrencies',
+ 'deleteCurrency',
+ 'deleteClient',
+ 'deleteClientAccount',
+ 'moveAccountTransactions',
+ 'importWorkspaceData',
+]);
+
 type Body = {
  action?: string;
  payload?: unknown;
@@ -251,6 +282,14 @@ export async function POST(request: NextRequest) {
   // Write-off margins are workspace-wide financial config, same tier as the Treasury toggle.
   if (action === 'saveWriteOffMargin' && role !== 'owner' && role !== 'admin') {
    return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
+  }
+
+  // Destroying or wholesale-replacing financial history is owner/admin business — see
+  // ownerAdminActions for what qualifies and why. Before this gate the only role check on any
+  // of them was the binary viewer block above, so a plain `member` could wipe the ledger,
+  // cascade-delete a currency, or restore an uploaded backup over the whole workspace.
+  if (ownerAdminActions.has(action) && role !== 'owner' && role !== 'admin') {
+   return NextResponse.json({ error: 'Only the workspace owner or an admin can perform this action.' }, { status: 403 });
   }
 
   // Shape-check the payload for the actions that move money or mutate in bulk. Runs AFTER
