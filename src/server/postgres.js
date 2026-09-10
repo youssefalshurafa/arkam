@@ -26,6 +26,31 @@ function shouldUseSsl() {
     return sslMode === "true" || sslMode === "1" || sslMode === "require";
 }
 
+// TLS to the database, verified by default.
+//
+// This used to be a flat `{ rejectUnauthorized: false }`, which encrypts the connection but
+// never checks who is on the other end of it — and because the option object is spread AFTER
+// connectionString, it also silently overrode the `sslmode=require&channel_binding=require`
+// already present in the URL. Encrypted-but-unauthenticated is the exact shape a
+// man-in-the-middle needs: anything able to answer on the database's address is trusted.
+//
+// Neon (this project's host) presents a certificate from a public CA, so ordinary verification
+// against Node's trust store succeeds with no extra configuration.
+//
+// POSTGRES_SSL_INSECURE exists for a self-hosted Postgres using a self-signed certificate. It
+// must be set deliberately, and it is the only route back to the old behaviour — the point is
+// that skipping verification is now a decision someone makes and can be found in an env file,
+// rather than the silent default for every deployment.
+function resolveSslOption() {
+    if (!shouldUseSsl()) return {};
+    const insecure = process.env.POSTGRES_SSL_INSECURE?.trim().toLowerCase();
+    if (insecure === "true" || insecure === "1") {
+        console.warn("[postgres] POSTGRES_SSL_INSECURE is set — the database certificate is NOT being verified.");
+        return { ssl: { rejectUnauthorized: false } };
+    }
+    return { ssl: { rejectUnauthorized: true } };
+}
+
 // SQLSTATEs that mean "the server is not ready for this right now", as opposed to "this query
 // is wrong". Every one of these is answered by waiting a moment and asking again.
 //
@@ -103,7 +128,7 @@ function getPool() {
             idleTimeoutMillis: 30000,
             connectionTimeoutMillis: 15000,
             keepAlive: true,
-            ...(shouldUseSsl() ? { ssl: { rejectUnauthorized: false } } : {}),
+            ...resolveSslOption(),
         });
 
         // Without this listener, an error on an already-idle pooled connection (e.g. the
