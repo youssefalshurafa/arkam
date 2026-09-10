@@ -1701,7 +1701,7 @@ function AuthenticatedHome() {
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
+ const { checkLockForEdit, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoint the ledger edit uses. When not reversed the rate
@@ -1753,10 +1753,11 @@ function AuthenticatedHome() {
      createdAt: tx.createdAt,
     };
     if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return false;
-    if (!(await confirmIfTransactionEditLocked(tx, payload))) {
+    const lock = await checkLockForEdit(tx, payload);
+    if (!lock.proceed) {
      return false;
     }
-    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode });
     setError('');
     await loadData();
     return true;
@@ -1765,7 +1766,7 @@ function AuthenticatedHome() {
     return false;
    }
   },
-  [transactions, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
+  [transactions, checkLockForEdit, blockedByPastEditLock, loadData, setError, t],
  );
 
  // Applies a partial field patch to a stored transaction — every field not in `patch` is
@@ -1808,18 +1809,19 @@ function AuthenticatedHome() {
     ...patch,
    };
    if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return;
-   if (!(await confirmIfTransactionEditLocked(tx, payload))) {
+   const lock = await checkLockForEdit(tx, payload);
+   if (!lock.proceed) {
     return;
    }
    try {
-    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode });
     setError('');
     await loadData();
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
    }
   },
-  [transactions, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
+  [transactions, checkLockForEdit, blockedByPastEditLock, loadData, setError, t],
  );
 
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);

@@ -108,10 +108,10 @@ export function useLedgerActions({
 
  const {
   formatLockBalance,
-  confirmIfLocked,
-  confirmIfTransactionEditLocked,
-  confirmIfBatchEditLocked,
-  confirmBatchDeleteWithLock,
+  checkLockForNewRow,
+  checkLockForEdit,
+  checkLockForBatchEdit,
+  checkLockForBatchDelete,
   transactionEditImpact,
   blockedByPastEditLock,
  } = useReconciliationLocks({
@@ -365,7 +365,8 @@ async function onSubmitOneSidedTransaction() {
  const commissionValue = parseFloat(oneSidedTransactionModal.commission) || 0;
 
  // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled history.
- if (!(await confirmIfLocked([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID))) {
+ const lock = await checkLockForNewRow([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID);
+ if (!lock.proceed) {
   return;
  }
 
@@ -404,7 +405,7 @@ async function onSubmitOneSidedTransaction() {
  };
 
  try {
-  await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: true });
+  await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: lock.overrode });
   setOneSidedTransactionModal(null);
   setError('');
   await loadData();
@@ -628,7 +629,14 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
  return { payload };
 }
 
-async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { batch = false } = {}): Promise<boolean> {
+async function onSaveLedgerTransaction(
+ transactionId: number,
+ ledgerAccountId: number,
+ // `overrideReconciliation` is only meaningful with `batch: true` — onSaveAllLedger runs the
+ // lock check once for the whole batch and passes its decision down, since each row here skips
+ // its own check. A single-row save derives it from its own guard below and ignores this.
+ { batch = false, overrideReconciliation = false }: { batch?: boolean; overrideReconciliation?: boolean } = {},
+): Promise<boolean> {
  if (!accountingApi) {
   setError(t('error_bridge'));
   return false;
@@ -668,19 +676,26 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
 
  // Single-row saves check the lock here; batch saves are checked once up-front in
  // onSaveAllLedger (which checks the whole batch at once) to avoid one dialog per row.
- if (!batch && !(await confirmIfTransactionEditLocked(transaction, payload))) {
-  return false;
+ let overrodeLock = overrideReconciliation;
+ if (!batch) {
+  const lock = await checkLockForEdit(transaction, payload);
+  if (!lock.proceed) {
+   return false;
+  }
+  overrodeLock = lock.overrode;
  }
 
  const pushUndo = () =>
   pushLedgerEditAction({
+   // Undo/redo replay an edit the user already confirmed, so they carry that same decision:
+   // if the original edit did not override a lock, neither of these may either.
    undo: async () => {
-    await accountingApi.updateTransaction({ ...previousPayload, acknowledgeReconciliationOverride: true });
+    await accountingApi.updateTransaction({ ...previousPayload, acknowledgeReconciliationOverride: overrodeLock });
     applyTransactionPatch(previousPayload);
     await loadData();
    },
    redo: async () => {
-    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock });
     applyTransactionPatch(payload);
     await loadData();
    },
@@ -690,7 +705,7 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  // row's real outcome to decide which rows may close, so it can't be handed a provisional yes.
  if (batch) {
   try {
-   await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+   await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock });
    setError('');
    applyTransactionPatch(payload);
    pushUndo();
@@ -708,7 +723,7 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  setError('');
  applyTransactionPatch(payload);
  const undoEntry = pushUndo();
- void trackPendingWrite(accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true }))
+ void trackPendingWrite(accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock }))
   // Resync rather than refetch-per-save: several quick edits (or a run of arrow-key steps)
   // collapse into one refetch once the user pauses, instead of a full workspace reload each.
   .then(() => scheduleWorkspaceResync())
@@ -803,7 +818,8 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
   if (isSameTransactionUpdate(built.payload, transactionUpdateSnapshot(tx))) continue;
   edits.push({ oldTx: tx, newPayload: built.payload });
  }
- if (!(await confirmIfBatchEditLocked(edits))) {
+ const batchLock = await checkLockForBatchEdit(edits);
+ if (!batchLock.proceed) {
   return;
  }
 
@@ -812,7 +828,7 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
  const results = await Promise.all(
   keys.map(async (key) => {
    const [txIdStr, accIdStr] = key.split(':');
-   const ok = await onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { batch: true });
+   const ok = await onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { batch: true, overrideReconciliation: batchLock.overrode });
    return [key, ok] as const;
   }),
  );
@@ -1102,12 +1118,13 @@ async function onDeleteSelectedLedgerEntries() {
 
  // One batch dialog for the whole selection, same pattern as the transactions table's own
  // bulk delete — not one dialog per locked row.
- if (!(await confirmBatchDeleteWithLock(rowsToDelete, 'transactions_delete_selected_confirm', { count: transactionIds.length }))) {
+ const deleteLock = await checkLockForBatchDelete(rowsToDelete, 'transactions_delete_selected_confirm', { count: transactionIds.length });
+ if (!deleteLock.proceed) {
   return;
  }
 
  try {
-  await accountingApi.deleteTransactionsBulk({ transactionIds, acknowledgeReconciliationOverride: true });
+  await accountingApi.deleteTransactionsBulk({ transactionIds, acknowledgeReconciliationOverride: deleteLock.overrode });
   setSelectedLedgerEntryKeys(new Set());
   setError('');
   await loadData();
@@ -1239,7 +1256,9 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
     counterParty: tx.counterParty,
     distributionLocationId: tx.distributionLocationId,
     createdAt: newCreatedAt,
-    acknowledgeReconciliationOverride: true,
+    // dragLockHit is non-null only when this drag actually moves a row across a reconciled
+    // boundary and the user confirmed it above — otherwise the server still checks.
+    acknowledgeReconciliationOverride: Boolean(dragLockHit),
    });
   }
 
@@ -1272,7 +1291,7 @@ function selectLedgerEntriesForRange(
 // exchange rates that deviate sharply from other transactions in the same currency pair
 // (most notably a ×/÷ toggle mistake, which is off by 10s-to-100s-x), plus exchange-transaction
 // commissions that break from this account's own commission history — and requires the user
-// to explicitly acknowledge before export proceeds. Mirrors the confirmIfLocked pattern.
+// to explicitly acknowledge before export proceeds. Mirrors the checkLockForNewRow pattern.
 async function confirmIfLedgerAnomalies(entries: ClientLedgerEntry[], ledgerCurrencyCode: string, accountId: number): Promise<boolean> {
  // The badges and this gate are separately switchable: a workspace can want the quiet in-page
  // hints without an interruption on the way out, or the reverse. The checks below would return
