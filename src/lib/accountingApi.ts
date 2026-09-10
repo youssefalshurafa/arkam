@@ -339,6 +339,23 @@ export const accountingApi = {
  importWorkspaceData: (backup: WorkspaceBackup) => request<{ ok: true }>({ action: 'importWorkspaceData', payload: backup }),
  bulkImportTransactions: (payload: { transactions: unknown[] }) => request<{ createdTransactions: number }>({ action: 'bulkImportTransactions', payload }),
  getBackupInfo: () => request<BackupInfo>({ action: 'getBackupInfo' }),
+ // Every collection the workspace snapshot needs, in ONE round-trip (see route.ts's
+ // getWorkspaceSnapshot case). Replaces the ten parallel POSTs useWorkspaceData used to fire,
+ // each of which independently re-decoded the session, re-resolved the workspace role and
+ // re-checked the schema before running its query.
+ getWorkspaceSnapshot: () =>
+  request<{
+   organizations: unknown[];
+   clients: unknown[];
+   currencies: unknown[];
+   transactions: unknown[];
+   clientAccounts: unknown[];
+   reconciliations: unknown[];
+   ignoredAnomalies: unknown[];
+   harvestRates: unknown[];
+   writeOffMargins: unknown[];
+   backup: BackupInfo | null;
+  }>({ action: 'getWorkspaceSnapshot' }),
  recordBackup: (device: string) => request<BackupInfo>({ action: 'recordBackup', payload: { device } }),
  getWorkspaceSettings: () => request<WorkspaceSharedSettings>({ action: 'getWorkspaceSettings' }),
  saveWorkspaceSettings: (payload: { sharedEnabled?: boolean; settings?: Record<string, string> }) =>

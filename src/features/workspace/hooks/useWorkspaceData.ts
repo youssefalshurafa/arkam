@@ -126,20 +126,23 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
  return useQuery<WorkspaceData>({
   queryKey,
   queryFn: async () => {
-   const [organizations, clients, currencyRows, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup] = (await Promise.all([
-    accountingApi.listOrganizations(),
-    accountingApi.listClients(),
-    accountingApi.listCurrencies(),
-    accountingApi.listTransactions(),
-    accountingApi.listAllClientAccounts(),
-    accountingApi.listReconciliations(),
-    accountingApi.listIgnoredAnomalies(),
-    accountingApi.listHarvestRates(),
-    accountingApi.listWriteOffMargins(),
-    accountingApi.getBackupInfo(),
-   ])) as [Organization[], Client[], Currency[], Transaction[], ClientAccount[], Reconciliation[], IgnoredAnomaly[], HarvestRate[], WriteOffMargin[], BackupInfo];
+   // One request for the whole snapshot. This was ten parallel POSTs to /api/accounting, which
+   // multiplied every piece of per-request work — session decode, workspace-role lookup,
+   // schema-ensure, pool checkout — by ten for a single page load, and on a cold database made
+   // all ten queue behind the same schema advisory lock. The collections are always needed
+   // together and always invalidated together, so there was never a reason to ask separately.
+   const snapshot = await accountingApi.getWorkspaceSnapshot();
+   const { backup } = snapshot;
+   const organizations = snapshot.organizations as Organization[];
+   const clients = snapshot.clients as Client[];
+   const transactions = snapshot.transactions as Transaction[];
+   const clientAccounts = snapshot.clientAccounts as ClientAccount[];
+   const reconciliations = snapshot.reconciliations as Reconciliation[];
+   const ignoredAnomalies = snapshot.ignoredAnomalies as IgnoredAnomaly[];
+   const harvestRates = snapshot.harvestRates as HarvestRate[];
+   const writeOffMargins = snapshot.writeOffMargins as WriteOffMargin[];
 
-   let currencies = currencyRows;
+   let currencies = snapshot.currencies as Currency[];
    // Seed (or repair) the currency catalog when it's empty or clearly under-seeded. A
    // fully-seeded catalog is the whole ISO list (160+) plus extras like USDT; anything at
    // or below a handful of rows means it never got seeded — historically a fresh workspace

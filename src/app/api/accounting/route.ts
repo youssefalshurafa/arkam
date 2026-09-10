@@ -36,6 +36,8 @@ const readOnlyActions = new Set([
  // listTransactions, which strip Treasury's own activity out of a member's view.
  'getTreasuryBalance',
  'exportWorkspaceData',
+ // The whole workspace in one round-trip — see the case in the switch below for why.
+ 'getWorkspaceSnapshot',
  // Backup marker: reads + the post-download stamp. Allowed for anyone who can
  // export (viewers included), so it stays out of the viewer-blocked writeActions.
  'getBackupInfo',
@@ -311,6 +313,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.getDbInfo(appLike));
    case 'setDbDirectory':
     return NextResponse.json(await db.setDbDirectory(appLike, payload));
+   // The entire workspace snapshot in a single round-trip.
+   //
+   // The client fetched these ten collections as ten separate POSTs to this very endpoint (see
+   // useWorkspaceData), so one page load paid for ten session decodes, ten getWorkspaceRole
+   // lookups, ten schema-ensure checks and ten pool checkouts — all of the per-request work,
+   // multiplied by ten, for data that is always needed together and always invalidated together.
+   // On a cold Neon compute it was worse than that: the ten arrived at once and serialised behind
+   // the advisory lock that ensureWorkspaceSchema holds while it runs its DDL.
+   //
+   // The queries still run in parallel here; only the request overhead collapses. They are
+   // independent reads, which is exactly what the client's own Promise.all already assumed.
+   case 'getWorkspaceSnapshot': {
+    const [organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup] = await Promise.all([
+     db.listOrganizations(appLike),
+     db.listClients(appLike),
+     db.listCurrencies(appLike),
+     db.listTransactions(appLike),
+     db.listAllClientAccounts(appLike),
+     db.listReconciliations(appLike),
+     db.listIgnoredAnomalies(appLike),
+     db.listHarvestRates(appLike),
+     db.listWriteOffMargins(appLike),
+     authDb.getWorkspaceBackupInfo(workspaceId),
+    ]);
+    return NextResponse.json({ organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup });
+   }
    case 'listOrganizations':
     return NextResponse.json(await db.listOrganizations(appLike));
    case 'createOrganization':
