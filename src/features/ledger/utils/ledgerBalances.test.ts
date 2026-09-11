@@ -16,6 +16,7 @@ function makeAccount(overrides: Partial<ClientAccount> = {}): ClientAccount {
   isSystem: false,
   systemKind: null,
   ownerUserId: null,
+  isDormant: false,
   createdAt: '2026-01-01T00:00:00.000Z',
   ...overrides,
  };

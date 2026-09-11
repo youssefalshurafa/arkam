@@ -31,6 +31,7 @@ import AccountSearchSelect from '@/features/transactions/components/AccountSearc
 import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import NewTransactionForm from '@/features/transactions/components/NewTransactionForm';
 import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
+import { filterActiveClientAccounts } from '@/shared/utils/dormantAccounts';
 import { anomalyKey, type FlaggedAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import type {
@@ -375,6 +376,12 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // (Also used by the table row-edit AccountSearchSelect calls below — the create-form's own copy
  // of this, and the pickers/options that depend on it, now live in NewTransactionForm.)
  const realClientAccounts = useMemo(() => filterRealClientAccounts(clientAccounts), [clientAccounts]);
+ // Dormant accounts ("حساب راكد") are out of circulation, so they are not offered as a party
+ // in the archive-entry form either; whatever the form already points at stays listed.
+ const archiveEntrySelectableAccounts = useMemo(
+  () => filterActiveClientAccounts(clientAccounts, [archiveEntryForm.accountFromId, archiveEntryForm.accountToId]),
+  [clientAccounts, archiveEntryForm.accountFromId, archiveEntryForm.accountToId],
+ );
 
  const { suggestions: archiveDescriptionSuggestions, excludeSuggestion: excludeArchiveDescriptionSuggestion } = useDescriptionSuggestions({
   transactions,
@@ -560,7 +567,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <label className="mt-4 block text-sm font-medium">{t('transaction_account_from')}</label>
              <div className="mt-2">
               <AccountSearchSelect
-               accounts={clientAccounts}
+               accounts={archiveEntrySelectableAccounts}
                value={archiveEntryForm.accountFromId}
                onChange={(id) => setArchiveEntryForm((current) => ({ ...current, accountFromId: id }))}
                placeholder={t('transaction_account_placeholder')}
@@ -572,7 +579,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <label className="mt-4 block text-sm font-medium">{t('transaction_account_to')}</label>
              <div className="mt-2">
               <AccountSearchSelect
-               accounts={clientAccounts}
+               accounts={archiveEntrySelectableAccounts}
                value={archiveEntryForm.accountToId}
                onChange={(id) => setArchiveEntryForm((current) => ({ ...current, accountToId: id }))}
                placeholder={t('transaction_account_placeholder')}
@@ -1860,7 +1867,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <AccountSearchSelect
-                       accounts={realClientAccounts}
+                       accounts={filterActiveClientAccounts(realClientAccounts, [draft.accountFromId, draft.accountToId])}
                        value={draft.accountFromId}
                        onChange={(id) => updateTransactionTableDraft(txn.id, { accountFromId: id })}
                        placeholder={t('transaction_account_placeholder')}
@@ -1914,7 +1921,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                     {isEditingRow && draft ? (
                      <div className="space-y-2">
                       <AccountSearchSelect
-                       accounts={realClientAccounts}
+                       accounts={filterActiveClientAccounts(realClientAccounts, [draft.accountFromId, draft.accountToId])}
                        value={draft.accountToId}
                        onChange={(id) => updateTransactionTableDraft(txn.id, { accountToId: id })}
                        placeholder={t('transaction_account_placeholder')}

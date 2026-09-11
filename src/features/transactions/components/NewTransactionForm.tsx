@@ -21,6 +21,7 @@ import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestF
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
 import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
 import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
+import { filterActiveClientAccounts } from '@/shared/utils/dormantAccounts';
 import type { ClientAccount, Currency, Section, Transaction } from '@/shared/types';
 
 type NewTransactionFormProps = {
@@ -162,8 +163,16 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
  // Treasury/Cashbox accounts are ordinary client_accounts rows (see ClientAccount.isSystem) and
  // must never appear as a selectable "real client" in this ordinary transaction form's pickers.
  const realClientAccounts = useMemo(() => filterRealClientAccounts(clientAccounts), [clientAccounts]);
- const txFromOptions = useMemo(() => buildAccountOptions(realClientAccounts, txFromQuery, txFromExpandedClient), [realClientAccounts, txFromQuery, txFromExpandedClient]);
- const txToOptions = useMemo(() => buildAccountOptions(realClientAccounts, txToQuery, txToExpandedClient), [realClientAccounts, txToQuery, txToExpandedClient]);
+ // Dormant accounts ("حساب راكد") are out of circulation and must not be offered as a party
+ // here; a client all of whose accounts are dormant therefore drops out of the pickers too.
+ // Whatever is already selected stays listed so the picker can still render its label (the AI
+ // fill, the party swap and "save & new" can all carry a selection into a fresh form).
+ const selectableClientAccounts = useMemo(
+  () => filterActiveClientAccounts(realClientAccounts, [transactionForm.accountFromId, transactionForm.accountToId]),
+  [realClientAccounts, transactionForm.accountFromId, transactionForm.accountToId],
+ );
+ const txFromOptions = useMemo(() => buildAccountOptions(selectableClientAccounts, txFromQuery, txFromExpandedClient), [selectableClientAccounts, txFromQuery, txFromExpandedClient]);
+ const txToOptions = useMemo(() => buildAccountOptions(selectableClientAccounts, txToQuery, txToExpandedClient), [selectableClientAccounts, txToQuery, txToExpandedClient]);
 
  const { suggestions: descriptionSuggestions, excludeSuggestion: excludeDescriptionSuggestion } = useDescriptionSuggestions({
   transactions,
@@ -460,7 +469,7 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
               <label className="mt-4 block text-sm font-medium">{oneSidedDirection === 'client_from' ? t('transaction_account_from') : t('transaction_account_to')}</label>
               <div className="mt-2">
                <AccountSearchSelect
-                accounts={realClientAccounts}
+                accounts={selectableClientAccounts}
                 value={oneSidedAccountId}
                 onChange={selectOneSidedAccount}
                 placeholder={t('transaction_account_placeholder')}

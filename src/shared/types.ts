@@ -79,6 +79,10 @@ export type ClientAccount = {
  isSystem: boolean;
  systemKind: 'treasury' | 'cashbox' | null;
  ownerUserId: string | null;
+ // "Dormant" (حساب راكد): the account is kept in full — ledger, balances, history, exports —
+ // but is hidden from the transaction form's from/to pickers via filterActiveClientAccounts,
+ // which also drops a client entirely once every one of their accounts is dormant.
+ isDormant: boolean;
  createdAt: string;
 };
 

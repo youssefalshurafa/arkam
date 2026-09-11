@@ -26,6 +26,7 @@ type ClientsSectionProps = {
  onDeleteClient: (id: number) => void;
  onAddClientAccount: (clientId: number) => void;
  onDeleteClientAccount: (accountId: number) => void;
+ onToggleAccountDormant: (accountId: number, isDormant: boolean) => void;
  onMoveAccountTransactions: (fromAccountId: number) => void;
  onSaveEditAccount: () => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
@@ -36,7 +37,7 @@ type ClientsSectionProps = {
 export default function ClientsSection({
  clients, organizations, clientAccounts, enabledCurrencies, sortedClients, paginatedClients,
  clampedClientsPage, totalClientPages, accountsClient, clientSortHeader,
- onClientSubmit, isSubmittingClient, onDeleteClient, onAddClientAccount, onDeleteClientAccount, onMoveAccountTransactions,
+ onClientSubmit, isSubmittingClient, onDeleteClient, onAddClientAccount, onDeleteClientAccount, onToggleAccountDormant, onMoveAccountTransactions,
  onSaveEditAccount, openClientLedger, setShowCreateOrgDialog, setOrganizationForm,
 }: ClientsSectionProps) {
  const { language, isRTL } = useLanguage();
@@ -309,8 +310,13 @@ export default function ClientsSection({
             }}
            >
             <div className="flex items-center gap-3">
-             <span className="font-mono font-semibold text-fg">{account.currencyCode}</span>
+             <span className={`font-mono font-semibold ${account.isDormant ? 'text-fg-faint' : 'text-fg'}`}>{account.currencyCode}</span>
              <span className="text-sm text-fg-faint">{account.currencySymbol || ''}</span>
+             {account.isDormant ? (
+              <span className="rounded-full border border-border-strong px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
+               {t('client_account_dormant_badge')}
+              </span>
+             ) : null}
             </div>
             <div className="flex items-center gap-3">
              <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-good-text' : 'text-bad-text'}`}>
@@ -384,6 +390,23 @@ export default function ClientsSection({
                 />
                </div>
                <p className="mt-1 text-xs text-fg-faint">{t('balance_type_hint')}</p>
+              </div>
+              {/* Dormant ("حساب راكد"): keeps the account and its whole ledger, but takes it out
+                  of the transaction form's client/account pickers. A client every one of whose
+                  accounts is dormant stops appearing there at all. */}
+              <div className="rounded border border-border bg-surface px-3 py-2">
+               <label className="flex items-start gap-2 text-sm">
+                <input
+                 type="checkbox"
+                 checked={Boolean(account.isDormant)}
+                 onChange={(event) => onToggleAccountDormant(account.id, event.target.checked)}
+                 className="mt-0.5 h-4 w-4 accent-blue-700"
+                />
+                <span>
+                 <span className="font-medium text-fg">{t('client_account_dormant')}</span>
+                 <span className="mt-0.5 block text-xs text-fg-faint">{t('client_account_dormant_hint')}</span>
+                </span>
+               </label>
               </div>
               <div className="flex gap-2">
                <button
