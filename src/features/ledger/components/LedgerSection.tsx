@@ -179,16 +179,41 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // and the row-move actions below resolve a row's neighbours from it — so it lives in one place
  // rather than being re-inlined at each of those sites (where it silently drifted out of sync
  // before). ledger.entries is already in the user's manual order (applied in the memo).
+ // Memoised per entries-array identity. This is called seven times in a single render of this
+ // component (pagination, the pager's count, the clipboard-paste handlers, the row-move
+ // neighbour lookups, and two count readouts), and each call re-filtered and re-searched every
+ // entry on the account. Because the row editor renders its input values from the draft, this
+ // component necessarily re-renders on every keystroke — so that was seven full passes over the
+ // account's whole history per character typed.
+ //
+ // A WeakMap keyed on the array itself rather than a Map keyed on accountId: callers pass
+ // `ledger.entries` directly, the array identity is stable between renders while the data is
+ // unchanged, and nothing has to be kept in sync with the ledger list. Rebuilding the WeakMap
+ // when a filter changes is what invalidates it — the cache cannot outlive the inputs it was
+ // computed from.
+ const visibleEntriesCache = useMemo(
+  () => new WeakMap<ClientAccountLedger['entries'], ClientAccountLedger['entries']>(),
+  // These are the invalidation trigger, not inputs the factory reads, so eslint calls them
+  // unnecessary. Dropping them would leave the cache serving results computed under the
+  // previous filter.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [ledgerFilterDateFrom, ledgerFilterDateTo, ledgerFilterCounterparty, ledgerFilterSearch, ledgerFilterWholeWord],
+ );
  const visibleLedgerEntries = useCallback(
-  (entries: ClientAccountLedger['entries']) =>
-   entries.filter((e) => {
+  (entries: ClientAccountLedger['entries']) => {
+   const cached = visibleEntriesCache.get(entries);
+   if (cached) return cached;
+   const filtered = entries.filter((e) => {
     if (ledgerFilterDateFrom && e.createdAt.slice(0, 10) < ledgerFilterDateFrom) return false;
     if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
     if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
     if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
     return true;
-   }),
-  [ledgerFilterDateFrom, ledgerFilterDateTo, ledgerFilterCounterparty, ledgerFilterSearch, ledgerFilterWholeWord],
+   });
+   visibleEntriesCache.set(entries, filtered);
+   return filtered;
+  },
+  [visibleEntriesCache, ledgerFilterDateFrom, ledgerFilterDateTo, ledgerFilterCounterparty, ledgerFilterSearch, ledgerFilterWholeWord],
  );
 
  // Right-click row actions (Edit/Reconcile/Write off/Delete) — replaces a cluster of

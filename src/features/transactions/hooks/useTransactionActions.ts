@@ -177,7 +177,9 @@ export function useTransactionActions({
  const setImportRowOverrides = useTransactionsStore((s) => s.setImportRowOverrides);
  const setIsImportingTransactions = useTransactionsStore((s) => s.setIsImportingTransactions);
 
- const transactionTableDrafts = useTransactionsStore((s) => s.transactionTableDrafts);
+ // Read on demand rather than subscribing — same reasoning as useLedgerActions: this hook runs
+ // inside the page component and these drafts change on every keystroke in a table cell.
+ const getTransactionTableDrafts = () => useTransactionsStore.getState().transactionTableDrafts;
  const setTransactionTableDrafts = useTransactionsStore((s) => s.setTransactionTableDrafts);
  const setSelectedTransactionIds = useTransactionsStore((s) => s.setSelectedTransactionIds);
  const selectedTransactionIds = useTransactionsStore((s) => s.selectedTransactionIds);
@@ -316,7 +318,7 @@ function updateTransactionTableDraft(transactionId: number, nextValues: Partial<
 }
 
 function getTransactionTableDraft(transactionId: number) {
- const existingDraft = transactionTableDrafts[transactionId];
+ const existingDraft = getTransactionTableDrafts()[transactionId];
  if (existingDraft) {
   return existingDraft;
  }
@@ -1946,7 +1948,7 @@ async function onSaveTransactionTableRow(
   return;
  }
 
- const draft = transactionTableDrafts[transactionId];
+ const draft = getTransactionTableDrafts()[transactionId];
  const transaction = transactionTableRowMap.get(transactionId);
 
  if (!transaction) {
@@ -2034,7 +2036,7 @@ async function onSaveAllTransactions() {
  // skipReload saves, so nothing ever checked a batch save against a reconciliation lock).
  const edits: Array<{ oldTx: Transaction; newPayload: TransactionUpdateInput }> = [];
  for (const id of ids) {
-  const draft = transactionTableDrafts[id];
+  const draft = getTransactionTableDrafts()[id];
   const transaction = transactionTableRowMap.get(id);
   if (!draft || !transaction) continue;
   const built = buildTableTransactionUpdate(id, draft, transaction);

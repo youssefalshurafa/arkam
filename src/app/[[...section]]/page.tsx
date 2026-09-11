@@ -388,23 +388,35 @@ function AuthenticatedHome() {
  const ledgerColumnOrder = useLedgerStore((s) => s.ledgerColumnOrder);
  const setLedgerColumnOrder = useLedgerStore((s) => s.setLedgerColumnOrder);
  const setLedgerColumnVisibility = useLedgerStore((s) => s.setLedgerColumnVisibility);
- const ledgerTransactionDrafts = useLedgerStore((s) => s.ledgerTransactionDrafts);
+ // Deliberately NOT `useLedgerStore((s) => s.ledgerTransactionDrafts)`. Drafts change on every
+ // keystroke in a ledger cell, so subscribing here re-rendered this whole component — and with
+ // it every mounted section, LedgerSection included — once per character typed. Nothing on this
+ // page renders from the drafts; they were only feeding useDraftHistory's ref and the
+ // emptiness check below, both of which can read on demand.
+ const getLedgerTransactionDrafts = useCallback(() => useLedgerStore.getState().ledgerTransactionDrafts, []);
+ // A boolean, not the map: re-renders only when an edit session starts or ends.
+ const hasLedgerDrafts = useLedgerStore((s) => Object.keys(s.ledgerTransactionDrafts).length > 0);
  const setLedgerTransactionDrafts = useLedgerStore((s) => s.setLedgerTransactionDrafts);
  const setLedgerSumMode = useLedgerStore((s) => s.setLedgerSumMode);
  const setLedgerSumSelection = useLedgerStore((s) => s.setLedgerSumSelection);
- const transactionTableDrafts = useTransactionsStore((s) => s.transactionTableDrafts);
+ // Same reasoning as getLedgerTransactionDrafts above, for the transactions table's own drafts.
+ const getTransactionTableDrafts = useCallback(() => useTransactionsStore.getState().transactionTableDrafts, []);
+ const hasTransactionTableDrafts = useTransactionsStore((s) => Object.keys(s.transactionTableDrafts).length > 0);
  const setTransactionTableDrafts = useTransactionsStore((s) => s.setTransactionTableDrafts);
- const ledgerHistory = useDraftHistory(ledgerTransactionDrafts, setLedgerTransactionDrafts);
- const txTableHistory = useDraftHistory(transactionTableDrafts, setTransactionTableDrafts);
+ const ledgerHistory = useDraftHistory(getLedgerTransactionDrafts, setLedgerTransactionDrafts);
+ const txTableHistory = useDraftHistory(getTransactionTableDrafts, setTransactionTableDrafts);
  const resetLedgerHistory = ledgerHistory.reset;
  const resetTxTableHistory = txTableHistory.reset;
  // Clear undo/redo history once an edit session ends (all drafts discarded/saved).
+ //
+ // Subscribes to whether ANY draft exists rather than to the drafts themselves, so this
+ // re-renders twice per edit session (open, close) instead of once per keystroke.
  useEffect(() => {
-  if (Object.keys(ledgerTransactionDrafts).length === 0) resetLedgerHistory();
- }, [ledgerTransactionDrafts, resetLedgerHistory]);
+  if (!hasLedgerDrafts) resetLedgerHistory();
+ }, [hasLedgerDrafts, resetLedgerHistory]);
  useEffect(() => {
-  if (Object.keys(transactionTableDrafts).length === 0) resetTxTableHistory();
- }, [transactionTableDrafts, resetTxTableHistory]);
+  if (!hasTransactionTableDrafts) resetTxTableHistory();
+ }, [hasTransactionTableDrafts, resetTxTableHistory]);
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
 
  // Shows the open client/organisation next to the favicon in the browser tab, so a user

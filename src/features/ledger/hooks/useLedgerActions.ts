@@ -166,7 +166,11 @@ export function useLedgerActions({
  const setDraggedLedgerColumn = useLedgerStore((s) => s.setDraggedLedgerColumn);
  const setLedgerColumnOrder = useLedgerStore((s) => s.setLedgerColumnOrder);
  const ledgerColumnOrder = useLedgerStore((s) => s.ledgerColumnOrder);
- const ledgerTransactionDrafts = useLedgerStore((s) => s.ledgerTransactionDrafts);
+ // Read on demand rather than subscribing. This hook runs inside the page component, and a
+ // ledger draft changes on every keystroke, so subscribing here re-rendered the whole page —
+ // and every section mounted under it — once per character typed. Every read below happens
+ // inside an event handler, never during render, so there is nothing to subscribe for.
+ const getLedgerTransactionDrafts = () => useLedgerStore.getState().ledgerTransactionDrafts;
  const setLedgerTransactionDrafts = useLedgerStore((s) => s.setLedgerTransactionDrafts);
  const ledgerRateReversed = useLedgerStore((s) => s.ledgerRateReversed);
  const setLedgerRateReversed = useLedgerStore((s) => s.setLedgerRateReversed);
@@ -508,7 +512,7 @@ function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: nu
 
 function getClientLedgerDraft(transactionId: number, ledgerAccountId: number) {
  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
- const existingDraft = ledgerTransactionDrafts[draftKey];
+ const existingDraft = getLedgerTransactionDrafts()[draftKey];
  if (existingDraft) {
   return existingDraft;
  }
@@ -659,7 +663,7 @@ async function onSaveLedgerTransaction(
   return false;
  }
 
- const draft = ledgerTransactionDrafts[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
+ const draft = getLedgerTransactionDrafts()[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
 
  if (!draft || !transaction) {
@@ -778,7 +782,7 @@ function onEditAllLedger(ledger: ClientAccountLedger) {
   const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
   const tx = transactions.find((t) => t.id === entry.transactionId);
   if (!tx) continue;
-  if (!ledgerTransactionDrafts[draftKey]) {
+  if (!getLedgerTransactionDrafts()[draftKey]) {
    newDrafts[draftKey] = buildLedgerTransactionDraft(tx, ledger.accountId);
    const isOutgoing = tx.accountFromId === ledger.accountId;
    if (isOutgoing ? tx.exchangeRateFromReversed : tx.exchangeRateToReversed) {
@@ -824,7 +828,7 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
   const [txIdStr, accIdStr] = key.split(':');
   const transactionId = parseInt(txIdStr, 10);
   const accId = parseInt(accIdStr, 10);
-  const draft = ledgerTransactionDrafts[key];
+  const draft = getLedgerTransactionDrafts()[key];
   if (!draft) continue;
   const tx = transactions.find((t) => t.id === transactionId);
   if (!tx) continue;
@@ -875,7 +879,7 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
 
 async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
- if (!ledgerTransactionDrafts[draftKey]) {
+ if (!getLedgerTransactionDrafts()[draftKey]) {
   setEditingLedgerRowKeys((prev) => {
    const n = new Set(prev);
    n.delete(draftKey);
@@ -915,7 +919,7 @@ function onCancelAllEditingLedgerRows() {
 function openLedgerRowForEdit(entry: ClientLedgerEntry, ledgerAccountId: number) {
  const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
  const transaction = transactions.find((tx) => tx.id === entry.transactionId);
- if (transaction && !ledgerTransactionDrafts[rowKey]) {
+ if (transaction && !getLedgerTransactionDrafts()[rowKey]) {
   const isOutgoing = transaction.accountFromId === ledgerAccountId;
   setLedgerRateReversed((prev) => ({
    ...prev,
