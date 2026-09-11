@@ -191,6 +191,22 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // unchanged, and nothing has to be kept in sync with the ledger list. Rebuilding the WeakMap
  // when a filter changes is what invalidates it — the cache cannot outlive the inputs it was
  // computed from.
+ // Counterparty names for the filter dropdown, one list per account. Built here rather than in
+ // the filter bar's IIFE, where it ran on every render of this component — a Set build, a map
+ // over every entry on the account and a localeCompare sort. That is fine on a small ledger and
+ // not fine on one with thousands of rows, and this component re-renders on every keystroke
+ // while a row is being edited (it renders the editing row's input values from the draft).
+ const counterpartyOptionsByAccount = useMemo(() => {
+  const byAccount = new Map<number, string[]>();
+  for (const ledger of selectedClientLedgers) {
+   byAccount.set(
+    ledger.accountId,
+    [...new Set(ledger.entries.map((entry) => entry.counterpartyName).filter(Boolean))].sort((a, b) => a.localeCompare(b, language)),
+   );
+  }
+  return byAccount;
+ }, [selectedClientLedgers, language]);
+
  const visibleEntriesCache = useMemo(
   () => new WeakMap<ClientAccountLedger['entries'], ClientAccountLedger['entries']>(),
   // These are the invalidation trigger, not inputs the factory reads, so eslint calls them
@@ -1490,7 +1506,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
               <>
                {/* Filter bar */}
                {(() => {
-                const counterpartyOptions = [...new Set(ledger.entries.map((e) => e.counterpartyName).filter(Boolean))].sort((a, b) => a.localeCompare(b, language));
+                const counterpartyOptions = counterpartyOptionsByAccount.get(ledger.accountId) ?? [];
                 const hasFilter = !!(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo);
                 const activeCount = [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo].filter(Boolean).length;
                 return (
