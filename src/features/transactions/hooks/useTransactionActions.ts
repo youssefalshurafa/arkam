@@ -123,11 +123,11 @@ export function useTransactionActions({
 
  const {
   formatLockBalance,
-  confirmIfLocked,
-  confirmDeleteWithLock,
-  confirmIfTransactionEditLocked,
-  confirmIfBatchEditLocked,
-  confirmBatchDeleteWithLock,
+  checkLockForNewRow,
+  checkLockForDelete,
+  checkLockForEdit,
+  checkLockForBatchEdit,
+  checkLockForBatchDelete,
   transactionEditImpact,
   blockedByPastEditLock,
  } = useReconciliationLocks({
@@ -177,7 +177,9 @@ export function useTransactionActions({
  const setImportRowOverrides = useTransactionsStore((s) => s.setImportRowOverrides);
  const setIsImportingTransactions = useTransactionsStore((s) => s.setIsImportingTransactions);
 
- const transactionTableDrafts = useTransactionsStore((s) => s.transactionTableDrafts);
+ // Read on demand rather than subscribing — same reasoning as useLedgerActions: this hook runs
+ // inside the page component and these drafts change on every keystroke in a table cell.
+ const getTransactionTableDrafts = () => useTransactionsStore.getState().transactionTableDrafts;
  const setTransactionTableDrafts = useTransactionsStore((s) => s.setTransactionTableDrafts);
  const setSelectedTransactionIds = useTransactionsStore((s) => s.setSelectedTransactionIds);
  const selectedTransactionIds = useTransactionsStore((s) => s.selectedTransactionIds);
@@ -316,7 +318,7 @@ function updateTransactionTableDraft(transactionId: number, nextValues: Partial<
 }
 
 function getTransactionTableDraft(transactionId: number) {
- const existingDraft = transactionTableDrafts[transactionId];
+ const existingDraft = getTransactionTableDrafts()[transactionId];
  if (existingDraft) {
   return existingDraft;
  }
@@ -508,13 +510,15 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
    counterParty: txPayload.counterParty,
    createdAt: txPayload.createdAt,
   };
-  if (original && !(await confirmIfTransactionEditLocked(original, updatePayload))) {
+  // No `original` means there is nothing to diff against, so no lock can have been overridden.
+  const editLock = original ? await checkLockForEdit(original, updatePayload) : { proceed: true, overrode: false };
+  if (!editLock.proceed) {
    return;
   }
   transactionSubmitLock.current = true;
   setIsSubmittingTransaction(true);
   try {
-   await accountingApi.updateTransaction({ ...updatePayload, acknowledgeReconciliationOverride: true });
+   await accountingApi.updateTransaction({ ...updatePayload, acknowledgeReconciliationOverride: editLock.overrode });
    applyTransactionPatch(updatePayload);
    onCancelEditTransaction();
    showToast(t('toast_transaction_updated'));
@@ -529,14 +533,15 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
  }
 
  // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled history.
- if (!(await confirmIfLocked([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID))) {
+ const createLock = await checkLockForNewRow([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID);
+ if (!createLock.proceed) {
   return;
  }
 
  transactionSubmitLock.current = true;
  setIsSubmittingTransaction(true);
  try {
-  const created = await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: true });
+  const created = await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: createLock.overrode });
 
   // Optimistically add the new row (with its real, server-assigned id — NOT a placeholder;
   // a placeholder id here would be sent back to the server if the user immediately edits
@@ -1234,12 +1239,13 @@ async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {
  if (blockedByPastEditLock([tx?.createdAt], Boolean(tx?.isArchived))) {
   return;
  }
- if (!(await confirmDeleteWithLock(tx ? [tx.accountFromId, tx.accountToId] : [], tx?.createdAt ?? '', id, 'transaction_delete_confirm'))) {
+ const deleteLock = await checkLockForDelete(tx ? [tx.accountFromId, tx.accountToId] : [], tx?.createdAt ?? '', id, 'transaction_delete_confirm');
+ if (!deleteLock.proceed) {
   return;
  }
 
  try {
-  await accountingApi.deleteTransaction(id, { acknowledgeReconciliationOverride: true });
+  await accountingApi.deleteTransaction(id, { acknowledgeReconciliationOverride: deleteLock.overrode });
   setSelectedTransactionIds((current) => {
    const next = new Set(current);
    next.delete(id);
@@ -1248,14 +1254,18 @@ async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {
   setError('');
   await loadData();
   if (offerUndo && tx) {
-   showUndo(t('toast_transaction_deleted'), () => void onUndoDeleteTransaction(tx));
+   showUndo(t('toast_transaction_deleted'), () => void onUndoDeleteTransaction(tx, deleteLock.overrode));
   }
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }
 }
 
-async function onUndoDeleteTransaction(tx: Transaction) {
+// `overrodeLock` carries the decision from the delete this undoes: re-inserting the row puts it
+// back exactly where it was, so it needs the same permission the removal did — and no more. It
+// used to hardcode true, which meant an undo could write into reconciled history even when the
+// delete itself never touched any.
+async function onUndoDeleteTransaction(tx: Transaction, overrodeLock = false) {
  if (!accountingApi) {
   setError(t('error_bridge'));
   return;
@@ -1263,8 +1273,8 @@ async function onUndoDeleteTransaction(tx: Transaction) {
  try {
   // Undoing a delete re-inserts the exact row that was just removed — the delete itself
   // already passed (or wasn't subject to) the reconciliation guard, so this recreate doesn't
-  // need to reconfirm it.
-  await accountingApi.createTransaction({ ...buildTransactionCreatePayload(tx, tx.createdAt), acknowledgeReconciliationOverride: true });
+  // need to reconfirm it; it just reuses that same decision.
+  await accountingApi.createTransaction({ ...buildTransactionCreatePayload(tx, tx.createdAt), acknowledgeReconciliationOverride: overrodeLock });
   setError('');
   await loadData();
  } catch (e) {
@@ -1716,12 +1726,13 @@ async function onDeleteSelectedTransactions() {
   .map((id) => transactions.find((t) => t.id === id))
   .filter((tx): tx is Transaction => !!tx)
   .map((tx) => ({ accountFromId: tx.accountFromId, accountToId: tx.accountToId, createdAt: tx.createdAt, id: tx.id }));
- if (!(await confirmBatchDeleteWithLock(rowsToDelete, 'transactions_delete_selected_confirm', { count: idsToDelete.length }))) {
+ const bulkDeleteLock = await checkLockForBatchDelete(rowsToDelete, 'transactions_delete_selected_confirm', { count: idsToDelete.length });
+ if (!bulkDeleteLock.proceed) {
   return;
  }
 
  try {
-  await accountingApi.deleteTransactionsBulk({ transactionIds: idsToDelete, acknowledgeReconciliationOverride: true });
+  await accountingApi.deleteTransactionsBulk({ transactionIds: idsToDelete, acknowledgeReconciliationOverride: bulkDeleteLock.overrode });
   setSelectedTransactionIds(new Set());
   setError('');
   await loadData();
@@ -1851,7 +1862,9 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
     counterParty: draggedRow.counterParty,
     distributionLocationId: draggedRow.distributionLocationId,
     createdAt: newCreatedAt,
-    acknowledgeReconciliationOverride: true,
+    // dropImpactHit is non-null only when this drag actually moves a row across a reconciled
+    // boundary and the user confirmed it above — otherwise the server still checks.
+    acknowledgeReconciliationOverride: Boolean(dropImpactHit),
    });
   }
   setError('');
@@ -1922,13 +1935,20 @@ function buildTableTransactionUpdate(transactionId: number, draft: TransactionTa
  return { transactionPayload };
 }
 
-async function onSaveTransactionTableRow(transactionId: number, { skipReload = false } = {}) {
+// `overrideReconciliation` is only meaningful with `skipReload: true` (the batch path):
+// onSaveAllTransactions runs the lock check once for the whole batch and passes its decision
+// down, since each row here skips its own check. A single-row save derives it from its own
+// guard below and ignores this.
+async function onSaveTransactionTableRow(
+ transactionId: number,
+ { skipReload = false, overrideReconciliation = false }: { skipReload?: boolean; overrideReconciliation?: boolean } = {},
+) {
  if (!accountingApi) {
   setError(t('error_bridge'));
   return;
  }
 
- const draft = transactionTableDrafts[transactionId];
+ const draft = getTransactionTableDrafts()[transactionId];
  const transaction = transactionTableRowMap.get(transactionId);
 
  if (!transaction) {
@@ -1959,12 +1979,17 @@ async function onSaveTransactionTableRow(transactionId: number, { skipReload = f
  const { transactionPayload } = built;
 
  // Single-row saves check the lock here; batch saves (skipReload) are checked up-front.
- if (!skipReload && !(await confirmIfTransactionEditLocked(transaction, transactionPayload))) {
-  return;
+ let overrodeLock = overrideReconciliation;
+ if (!skipReload) {
+  const lock = await checkLockForEdit(transaction, transactionPayload);
+  if (!lock.proceed) {
+   return;
+  }
+  overrodeLock = lock.overrode;
  }
 
  try {
-  await accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: true });
+  await accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: overrodeLock });
   setError('');
   applyTransactionPatch(transactionPayload);
   if (!skipReload) {
@@ -2011,19 +2036,20 @@ async function onSaveAllTransactions() {
  // skipReload saves, so nothing ever checked a batch save against a reconciliation lock).
  const edits: Array<{ oldTx: Transaction; newPayload: TransactionUpdateInput }> = [];
  for (const id of ids) {
-  const draft = transactionTableDrafts[id];
+  const draft = getTransactionTableDrafts()[id];
   const transaction = transactionTableRowMap.get(id);
   if (!draft || !transaction) continue;
   const built = buildTableTransactionUpdate(id, draft, transaction);
   if ('error' in built) continue;
   edits.push({ oldTx: transaction, newPayload: built.transactionPayload });
  }
- if (!(await confirmIfBatchEditLocked(edits))) {
+ const batchLock = await checkLockForBatchEdit(edits);
+ if (!batchLock.proceed) {
   return;
  }
 
  // Each row save applies its optimistic patch; exit edit mode immediately and reconcile in the background.
- await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true })));
+ await Promise.all(ids.map((id) => onSaveTransactionTableRow(id, { skipReload: true, overrideReconciliation: batchLock.overrode })));
  setEditingRowIds((prev) => {
   const n = new Set(prev);
   ids.forEach((id) => n.delete(id));

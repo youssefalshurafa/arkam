@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildAcceptedRates, buildRateSamples, checkRate, referenceRateFor } from './ledgerAnomalies';
+import { buildAcceptedRates, buildCommissionSamples, buildRateSamples, buildWorkspaceAnomalies, checkCommission, checkRate, describeCommissionCeiling, referenceRateFor } from './ledgerAnomalies';
+import { DEFAULT_REVIEW_SETTINGS, type ReviewEngineSettings } from './reviewSettings';
 import type { IgnoredAnomaly, Transaction } from '@/shared/types';
 
 let nextId = 1;
@@ -198,5 +199,335 @@ describe('exchange-rate anomaly detection', () => {
    const rowScoped: IgnoredAnomaly = { ...acceptedFor(small[0]), scope: 'row' };
    expect(buildAcceptedRates(rows, [rowScoped]).size).toBe(0);
   });
+ });
+});
+
+
+// A two-sided leg between two client accounts, the shape buildCommissionSamples reads. `commission`
+// is what the 'from' account charged, which is the side these tests interrogate; the 'to' side is
+// left at zero. Account 10 is the ledger under test throughout.
+let commissionClock = 0;
+function commissionTx(commission: number, counterpartyAccountId = 20, description = ''): Transaction {
+ return {
+  id: nextId++,
+  isArchived: 0,
+  type: 'transfer',
+  currencyCode: 'MAD',
+  accountFromId: 10,
+  accountFromCurrencyCode: 'MAD',
+  accountToId: counterpartyAccountId,
+  accountToCurrencyCode: 'MAD',
+  exchangeRateFrom: 1,
+  exchangeRateTo: 1,
+  commissionFrom: commission,
+  commissionTo: 0,
+  description,
+  descriptionFrom: description,
+  descriptionTo: description,
+  // Strictly increasing, so "recorded before this one" is well defined and every row built here
+  // precedes the transaction id 999 the checks are run for.
+  createdAt: new Date(Date.UTC(2026, 0, 1) + commissionClock++ * 86400000).toISOString(),
+ } as unknown as Transaction;
+}
+
+// The same leg the other way round: account 10 is the 'to' side, i.e. it received.
+function incomingTx(commission: number, counterpartyAccountId = 20, description = ''): Transaction {
+ const row = commissionTx(0, counterpartyAccountId, description) as unknown as Record<string, unknown>;
+ return { ...row, accountFromId: counterpartyAccountId, accountToId: 10, commissionFrom: 0, commissionTo: commission } as unknown as Transaction;
+}
+
+const outgoingTx = commissionTx;
+
+// The check as the ledger runs it: account 10 charging counterparty 20 on an outgoing row.
+function checkFor(commission: number, history: Transaction[], counterpartyAccountId: number | null = 20, description = '') {
+ return checkCommission(commission, 10, counterpartyAccountId, 'from', description, 999, buildCommissionSamples(history));
+}
+
+describe('commission anomaly detection', () => {
+ describe('scope ladder', () => {
+  // The reported miss, in miniature: a client with a long, unbroken habit of charging nothing,
+  // and a 5% typo on a counterparty they have only dealt with three times. The narrow bucket has
+  // too little history to speak, so before the ladder existed nothing was flagged at all.
+  it('falls back to the ledger-wide habit when this counterparty is too new', () => {
+   const history = [
+    ...Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i)),
+    ...[0, 0, 0].map(() => commissionTx(0, 20)),
+   ];
+   const anomaly = checkFor(5, history);
+   expect(anomaly?.reason).toBe('convention');
+   expect(anomaly?.scope).toBe('direction');
+   expect(anomaly?.referenceCommission).toBe(0);
+  });
+
+  it('prefers the counterparty pair once it has enough history of its own', () => {
+   const history = [
+    ...Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i)),
+    ...Array.from({ length: 6 }, () => commissionTx(2, 20, 'alpha')),
+   ];
+   // A label with no history of its own drops to the pair, which always charges 2% — so 2% is
+   // right here even though the wider ledger is at 0%, and 0% is the value that looks wrong.
+   expect(checkFor(2, history, 20, 'beta')).toBeNull();
+   expect(checkFor(0, history, 20, 'beta')?.scope).toBe('counterparty');
+  });
+
+  it('lets a label with its own history speak before the pair does', () => {
+   const history = [
+    ...Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i)),
+    ...Array.from({ length: 6 }, () => commissionTx(2, 20, 'alpha')),
+   ];
+   expect(checkFor(0, history, 20, 'alpha')?.scope).toBe('description');
+  });
+
+  // The behaviour the narrow buckets were introduced for, which the ladder must not undo: one
+  // client charging ~0.9% on one kind of business and nothing on another.
+  it('still judges a description group against itself alone', () => {
+   const history = [
+    ...Array.from({ length: 46 }, () => commissionTx(0, 20, 'factura')),
+    ...Array.from({ length: 6 }, () => commissionTx(0.9, 20, 'turk euro')),
+   ];
+   expect(checkFor(0.9, history, 20, 'turk euro')).toBeNull();
+   expect(checkFor(0, history, 20, 'factura')).toBeNull();
+  });
+
+  // Widening can only ever mix more practices in, and a mixed pool fails the near-unanimity test.
+  it('stays silent when the wider scope has no single convention', () => {
+   const history = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4].map((c, i) => commissionTx(c, 100 + i));
+   expect(checkFor(5, history)).toBeNull();
+  });
+
+  // A rung that answers is the final word — no shopping further out for a pool that agrees.
+  it('does not widen past a scope that answered but found no convention', () => {
+   const history = [
+    ...Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i)),
+    ...[0, 1, 0, 1, 2, 3].map((c) => commissionTx(c, 20)),
+   ];
+   expect(checkFor(5, history)).toBeNull();
+  });
+
+  it('judges against prior transactions only, never a convention formed later', () => {
+   // The whole habit forms after the row under test, so at its own moment there was no habit.
+   const subject = commissionTx(5, 20);
+   const history = Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i));
+   expect(checkCommission(5, 10, 20, 'from', '', subject.id, buildCommissionSamples([subject, ...history]))).toBeNull();
+  });
+
+  // Direction is never merged away, because commission practice in this business routinely
+  // differs between the two: the reported case was a client who charges 0.5% on everything he
+  // receives and nothing on what he sends, flagged on his second-ever outgoing transfer.
+  it('never judges one direction against the other direction habit', () => {
+   const history = [
+    // Eleven incoming rows at 0.5%, and one prior outgoing row — at 0.2%, deliberately unlike
+    // the 0% entered here, so this tests the direction rule alone and not the precedent guard.
+    ...Array.from({ length: 11 }, (_, i) => incomingTx(0.5, 100 + i)),
+    outgoingTx(0.2, 20),
+   ];
+   expect(checkFor(0, history, 20)).toBeNull();
+  });
+
+  it('does not judge the first transaction in a new direction at all', () => {
+   const history = Array.from({ length: 20 }, (_, i) => incomingTx(0.5, 100 + i));
+   expect(checkFor(0, history, 20)).toBeNull();
+  });
+
+  // The direction rung still speaks when the direction being judged has its own history — this is
+  // the miss the ladder was built for, and removing the merged rung must not take it away.
+  it('still flags against the same direction own habit', () => {
+   const history = Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i));
+   expect(checkFor(5, history, 20)?.scope).toBe('direction');
+  });
+ });
+
+ describe('precedent in the row own group', () => {
+  // A standing exception must not be flagged every time it is exercised. One prior row in the
+  // row's own group carrying exactly this value is precedent, even though it is far too little
+  // to establish a convention of its own.
+  it('accepts a value this exact pair has settled at before', () => {
+   const history = [
+    ...Array.from({ length: 30 }, (_, i) => commissionTx(0.5, 100 + i)),
+    ...[0, 0].map(() => commissionTx(0, 20)),
+   ];
+   expect(checkFor(0, history, 20)).toBeNull();
+  });
+
+  it('accepts on a single prior row of precedent', () => {
+   const history = [
+    ...Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i)),
+    commissionTx(0.9, 20),
+   ];
+   expect(checkFor(0.9, history, 20)).toBeNull();
+  });
+
+  // Precedent is for the value actually set before, not for "anything unlike the norm".
+  it('keeps flagging a value the group has no precedent for', () => {
+   const history = [
+    ...Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i)),
+    commissionTx(0.9, 20),
+   ];
+   expect(checkFor(3, history, 20)?.reason).toBe('convention');
+  });
+
+  it('does not let precedent leak in from a different counterparty', () => {
+   const history = [
+    ...Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i)),
+    commissionTx(0.9, 77),
+   ];
+   expect(checkFor(0.9, history, 20)?.reason).toBe('convention');
+  });
+
+  // Repeating a value does not make it possible: the ceiling is about the number itself.
+  it('does not let precedent excuse an impossible commission', () => {
+   const history = [
+    ...Array.from({ length: 40 }, (_, i) => commissionTx([0.5, 1, 2, 3, 4][i % 5], 100 + i)),
+    commissionTx(10.7, 20),
+   ];
+   expect(checkFor(10.7, history, 20)?.reason).toBe('implausible');
+  });
+ });
+
+ describe('implausibility ceiling', () => {
+  // Enough recorded commissions for the workspace to have said what its own practice looks like.
+  const workspaceHistory = () => Array.from({ length: 40 }, (_, i) => commissionTx([0.5, 1, 2, 3, 4][i % 5], 100 + i));
+
+  // The first report: an exchange rate of 10.70 typed into the commission field, on a pairing with
+  // no history behind it. The ladder has nothing to say; the ceiling does.
+  it('flags a rate typed into the commission field with no relevant history', () => {
+   const anomaly = checkFor(10.7, workspaceHistory(), 999);
+   expect(anomaly?.reason).toBe('implausible');
+   expect(anomaly?.enteredCommission).toBe(10.7);
+  });
+
+  it('measures the ceiling from the workspace, not from a number in the code', () => {
+   // A workspace that genuinely deals in large commissions must not be flagged for its own norm.
+   const large = Array.from({ length: 40 }, (_, i) => commissionTx([9, 10, 11, 12][i % 4], 100 + i));
+   expect(checkFor(10.7, large, 999)?.reason).not.toBe('implausible');
+   // Whereas the same value against a workspace of small commissions is out of the question.
+   expect(checkFor(10.7, workspaceHistory(), 999)?.reason).toBe('implausible');
+  });
+
+  it('says nothing at all until the workspace has recorded enough commissions', () => {
+   const barely = Array.from({ length: 4 }, (_, i) => commissionTx(1, 100 + i));
+   expect(checkFor(10.7, barely, 999)).toBeNull();
+  });
+
+  it('flags a one-sided transaction, which has no counterparty to compare against', () => {
+   expect(checkFor(10.7, workspaceHistory(), null)?.reason).toBe('implausible');
+  });
+
+  it('flags a negative commission of the same magnitude', () => {
+   // The sign is direction (charged to / by the client), so implausibility is about magnitude.
+   expect(checkFor(-10.7, workspaceHistory(), 999)?.reason).toBe('implausible');
+  });
+
+  it('leaves ordinary commissions alone', () => {
+   for (const commission of [0, 0.5, 1, 2.4, 4]) {
+    expect(checkFor(commission, workspaceHistory(), 999), `commission ${commission}`).toBeNull();
+   }
+  });
+ });
+
+ // The pre-existing behaviour, which the ladder widens rather than replaces.
+ describe('established convention', () => {
+  const history = () => Array.from({ length: 6 }, () => commissionTx(2.4, 20));
+
+  it('flags a break from the convention', () => {
+   const anomaly = checkFor(0.8, history());
+   expect(anomaly?.reason).toBe('convention');
+   expect(anomaly?.referenceCommission).toBe(2.4);
+   expect(anomaly?.matchCount).toBe(6);
+  });
+
+  it('accepts a commission that matches the convention', () => {
+   expect(checkFor(2.4, history())).toBeNull();
+  });
+
+  it('flags a fee turned into a rebate regardless of magnitude', () => {
+   expect(checkFor(-2.4, history())?.reason).toBe('convention');
+  });
+ });
+});
+
+describe('honouring the workspace configuration', () => {
+ // Enough history for both checks to have a firm opinion, so every test below turns on whether
+ // the setting was honoured rather than on whether there was evidence.
+ const commissionHistory = () => Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i));
+ const rateHistory = () => [10.9, 10.73, 10.6, 10.5, 10.45, 10.4].map((r) => tx('EUR', r));
+ const withSettings = (patch: Partial<ReviewEngineSettings>): ReviewEngineSettings => ({ ...DEFAULT_REVIEW_SETTINGS, ...patch });
+
+ it('says nothing at all when the engine is switched off', () => {
+  const off = withSettings({ enabled: false });
+  expect(checkRate(9.67, 'EUR', 'MAD', 999, buildRateSamples(rateHistory(), off))).toBeNull();
+  expect(checkCommission(5, 10, 20, 'from', '', 999, buildCommissionSamples(commissionHistory(), off))).toBeNull();
+  expect(buildWorkspaceAnomalies(rateHistory(), new Set(), [], off)).toEqual([]);
+ });
+
+ it('switches the two checks independently', () => {
+  const ratesOnly = withSettings({ commission: { ...DEFAULT_REVIEW_SETTINGS.commission, enabled: false } });
+  expect(checkRate(9.67, 'EUR', 'MAD', 999, buildRateSamples(rateHistory(), ratesOnly))).not.toBeNull();
+  expect(checkCommission(5, 10, 20, 'from', '', 999, buildCommissionSamples(commissionHistory(), ratesOnly))).toBeNull();
+
+  const commissionOnly = withSettings({ rate: { ...DEFAULT_REVIEW_SETTINGS.rate, enabled: false } });
+  expect(checkRate(9.67, 'EUR', 'MAD', 999, buildRateSamples(rateHistory(), commissionOnly))).toBeNull();
+  expect(checkCommission(5, 10, 20, 'from', '', 999, buildCommissionSamples(commissionHistory(), commissionOnly))).not.toBeNull();
+ });
+
+ it('widens and narrows the rate band with the sensitivity setting', () => {
+  // A rate just outside the pair's observed range: relaxed lets it pass, strict does not.
+  const at = (sensitivity: ReviewEngineSettings['rate']['sensitivity']) =>
+   checkRate(11.2, 'EUR', 'MAD', 999, buildRateSamples(rateHistory(), withSettings({ rate: { ...DEFAULT_REVIEW_SETTINGS.rate, sensitivity } })));
+  expect(at('strict')).not.toBeNull();
+  expect(at('relaxed')).toBeNull();
+ });
+
+ it('waits for more history when the minimum sample size is raised', () => {
+  const history = commissionHistory();
+  expect(checkCommission(5, 10, 20, 'from', '', 999, buildCommissionSamples(history, DEFAULT_REVIEW_SETTINGS))).not.toBeNull();
+  const patient = withSettings({ commission: { ...DEFAULT_REVIEW_SETTINGS.commission, minSamples: 50 } });
+  expect(checkCommission(5, 10, 20, 'from', '', 999, buildCommissionSamples(history, patient))).toBeNull();
+ });
+
+ it('calls a looser habit a rule when the agreement threshold is lowered', () => {
+  // Seven of ten prior rows at 0% — a 70% habit, short of the default 90%.
+  const history = [
+   ...Array.from({ length: 7 }, (_, i) => commissionTx(0, 100 + i)),
+   ...Array.from({ length: 3 }, (_, i) => commissionTx(2, 200 + i)),
+  ];
+  expect(checkCommission(5, 10, 20, 'from', '', 999, buildCommissionSamples(history, DEFAULT_REVIEW_SETTINGS))).toBeNull();
+  const eager = withSettings({ commission: { ...DEFAULT_REVIEW_SETTINGS.commission, agreement: 0.6 } });
+  expect(checkCommission(5, 10, 20, 'from', '', 999, buildCommissionSamples(history, eager))?.referenceCommission).toBe(0);
+ });
+
+ it('uses a pinned ceiling instead of the measured one', () => {
+  // Books full of small commissions would measure a ceiling well under 10.
+  const history = Array.from({ length: 40 }, (_, i) => commissionTx([0.5, 1, 2, 3, 4][i % 5], 100 + i));
+  const pinned = withSettings({ commission: { ...DEFAULT_REVIEW_SETTINGS.commission, ceiling: { mode: 'fixed', value: 20 } } });
+  expect(buildCommissionSamples(history, pinned).ceiling).toBe(20);
+  expect(checkCommission(10.7, 10, 999, 'from', '', 999, buildCommissionSamples(history, pinned))).toBeNull();
+ });
+
+ it('reports the measured ceiling regardless of what is pinned', () => {
+  const history = Array.from({ length: 40 }, (_, i) => commissionTx([0.5, 1, 2, 3, 4][i % 5], 100 + i));
+  const pinned = withSettings({ commission: { ...DEFAULT_REVIEW_SETTINGS.commission, ceiling: { mode: 'fixed', value: 20 } } });
+  // The settings screen shows this next to the 'auto' option, so it must not follow the override.
+  expect(buildCommissionSamples(history, pinned).ceiling).toBe(20);
+  expect(describeCommissionCeiling(history).ceiling).toBe(buildCommissionSamples(history, DEFAULT_REVIEW_SETTINGS).ceiling);
+ });
+
+ it('traces the measured ceiling back to the rows it was taken from', () => {
+  const history = Array.from({ length: 40 }, (_, i) => commissionTx([0.5, 1, 2, 3, 4][i % 5], 100 + i));
+  const described = describeCommissionCeiling(history);
+  expect(described.sampleSize).toBe(40);
+  // Highest first, and every listed sample points at a row that can actually be opened.
+  expect(described.samples[0].commission).toBe(4);
+  expect(described.samples.map((s) => Math.abs(s.commission))).toEqual([...described.samples.map((s) => Math.abs(s.commission))].sort((a, b) => b - a));
+  expect(history.some((tx) => tx.id === described.samples[0].transactionId)).toBe(true);
+  // Exactly one anchor, and the ceiling is the headroom multiple of the percentile it sits at.
+  expect(described.samples.filter((s) => s.isAnchor)).toHaveLength(1);
+  expect(described.ceiling).toBeCloseTo((described.percentileValue ?? 0) * 2, 10);
+ });
+
+ it('reports no ceiling, and nothing to show, until the books say enough', () => {
+  const described = describeCommissionCeiling(Array.from({ length: 4 }, (_, i) => commissionTx(1, 100 + i)));
+  expect(described.ceiling).toBeNull();
+  expect(described.samples).toEqual([]);
  });
 });

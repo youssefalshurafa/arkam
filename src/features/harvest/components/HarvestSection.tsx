@@ -20,6 +20,7 @@ import { computeHarvestAwaitingPricingByClient } from '../utils/harvestAwaitingP
 import { resolveHarvestRate } from '../utils/harvestRateResolver';
 import HarvestRatesModal, { type HarvestPriceGroup } from './HarvestRatesModal';
 import HarvestAwaitingPricingModal from './HarvestAwaitingPricingModal';
+import { isZeroMoney } from '@/shared/utils/money';
 
 type HarvestSectionProps = {
   clientAccounts: ClientAccount[];
@@ -127,7 +128,7 @@ export default function HarvestSection({ clientAccounts, clients, currencies, tr
     const currencyById = new Map(currencies.map((c) => [c.id, c]));
     const groups = new Map<string, HarvestPriceGroup>();
     for (const g of todayBalance.groups) {
-      if (g.isMain || g.total === 0 || !enabledNonMainIds.has(g.currencyId)) continue;
+      if (g.isMain || isZeroMoney(g.total) || !enabledNonMainIds.has(g.currencyId)) continue;
       const currency = currencyById.get(g.currencyId);
       if (!currency) continue;
       const key = orgGroupKey(g.organizationId);

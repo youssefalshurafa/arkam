@@ -36,6 +36,8 @@ const readOnlyActions = new Set([
  // listTransactions, which strip Treasury's own activity out of a member's view.
  'getTreasuryBalance',
  'exportWorkspaceData',
+ // The whole workspace in one round-trip — see the case in the switch below for why.
+ 'getWorkspaceSnapshot',
  // Backup marker: reads + the post-download stamp. Allowed for anyone who can
  // export (viewers included), so it stays out of the viewer-blocked writeActions.
  'getBackupInfo',
@@ -95,6 +97,39 @@ const writeActions = new Set([
  'saveWorkspacePastEditLock',
  // Treasury & Cashbox nav visibility toggle: owner OR admin (gated further below).
  'saveTreasuryEnabled',
+ // Second Accountant (entry-review engine) configuration: owner OR admin (gated further below).
+ 'saveReviewEngineSettings',
+]);
+
+/**
+ * The subset of writeActions that destroys or wholesale replaces financial history, restricted
+ * to owner/admin. Everything else in writeActions stays open to a `member` — that is the
+ * day-to-day entry surface and members are meant to use it.
+ *
+ * These are different in kind from the settings gates further below. Each one either removes
+ * rows that no per-row guard ever sees, or cascades far beyond the id it was handed:
+ *   * deleteAllTransactions / deleteAllClients / deleteAllCurrencies — wipe the workspace.
+ *   * importWorkspaceData — deletes all nine tables INCLUDING transaction_history, then
+ *     restores whatever the caller uploaded; both a wipe and a history-forgery surface.
+ *   * deleteCurrency — cascades currencies -> client_accounts -> transactions, so a single
+ *     statement is enough to destroy the ledger.
+ *   * deleteClient / deleteClientAccount — cascade into every transaction on either side,
+ *     including the counterparty's entries in someone else's ledger, and leave no
+ *     transaction_history trail (see recordTransactionHistory's exclusion list in db.js).
+ *   * moveAccountTransactions — re-points every transaction between two accounts at once.
+ *
+ * db.js keeps its own per-row Treasury/Cashbox guards (assertMemberCanWrite*); this gate is
+ * the coarser "a member has no business calling this at all" layer above them.
+ */
+const ownerAdminActions = new Set([
+ 'deleteAllTransactions',
+ 'deleteAllClients',
+ 'deleteAllCurrencies',
+ 'deleteCurrency',
+ 'deleteClient',
+ 'deleteClientAccount',
+ 'moveAccountTransactions',
+ 'importWorkspaceData',
 ]);
 
 type Body = {
@@ -240,9 +275,23 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
   }
 
+  // The Second Accountant configuration decides what every member is warned about, so it is
+  // owner/admin business like the other workspace-wide toggles above.
+  if (action === 'saveReviewEngineSettings' && role !== 'owner' && role !== 'admin') {
+   return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
+  }
+
   // Write-off margins are workspace-wide financial config, same tier as the Treasury toggle.
   if (action === 'saveWriteOffMargin' && role !== 'owner' && role !== 'admin') {
    return NextResponse.json({ error: 'Only the workspace owner or an admin can change this setting.' }, { status: 403 });
+  }
+
+  // Destroying or wholesale-replacing financial history is owner/admin business — see
+  // ownerAdminActions for what qualifies and why. Before this gate the only role check on any
+  // of them was the binary viewer block above, so a plain `member` could wipe the ledger,
+  // cascade-delete a currency, or restore an uploaded backup over the whole workspace.
+  if (ownerAdminActions.has(action) && role !== 'owner' && role !== 'admin') {
+   return NextResponse.json({ error: 'Only the workspace owner or an admin can perform this action.' }, { status: 403 });
   }
 
   // Shape-check the payload for the actions that move money or mutate in bulk. Runs AFTER
@@ -264,6 +313,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.getDbInfo(appLike));
    case 'setDbDirectory':
     return NextResponse.json(await db.setDbDirectory(appLike, payload));
+   // The entire workspace snapshot in a single round-trip.
+   //
+   // The client fetched these ten collections as ten separate POSTs to this very endpoint (see
+   // useWorkspaceData), so one page load paid for ten session decodes, ten getWorkspaceRole
+   // lookups, ten schema-ensure checks and ten pool checkouts — all of the per-request work,
+   // multiplied by ten, for data that is always needed together and always invalidated together.
+   // On a cold Neon compute it was worse than that: the ten arrived at once and serialised behind
+   // the advisory lock that ensureWorkspaceSchema holds while it runs its DDL.
+   //
+   // The queries still run in parallel here; only the request overhead collapses. They are
+   // independent reads, which is exactly what the client's own Promise.all already assumed.
+   case 'getWorkspaceSnapshot': {
+    const [organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup] = await Promise.all([
+     db.listOrganizations(appLike),
+     db.listClients(appLike),
+     db.listCurrencies(appLike),
+     db.listTransactions(appLike),
+     db.listAllClientAccounts(appLike),
+     db.listReconciliations(appLike),
+     db.listIgnoredAnomalies(appLike),
+     db.listHarvestRates(appLike),
+     db.listWriteOffMargins(appLike),
+     authDb.getWorkspaceBackupInfo(workspaceId),
+    ]);
+    return NextResponse.json({ organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup });
+   }
    case 'listOrganizations':
     return NextResponse.json(await db.listOrganizations(appLike));
    case 'createOrganization':
@@ -451,6 +526,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.saveWorkspacePastEditLock(appLike, payload));
    case 'saveTreasuryEnabled':
     return NextResponse.json(await db.saveTreasuryEnabled(appLike, payload));
+   case 'saveReviewEngineSettings':
+    return NextResponse.json(await db.saveReviewEngineSettings(appLike, payload));
    case 'getUserTableSettings':
     return NextResponse.json(await db.getUserTableSettings(appLike, userId));
    case 'saveUserTableSettings':

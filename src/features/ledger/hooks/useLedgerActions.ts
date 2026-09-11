@@ -10,6 +10,7 @@ import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { NEW_ROW_REF_ID, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
+import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import { isSameTransactionUpdate, transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
 import { formatRateValue } from '@/shared/utils/format';
@@ -54,6 +55,7 @@ type UseLedgerActionsParams = {
  transactions: Transaction[];
  reconciliations: Reconciliation[];
  ignoredAnomalies: IgnoredAnomaly[];
+ reviewSettings: ReviewEngineSettings;
  currencyMap: Map<number, Currency>;
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
  selectedClientForLedger: Client | null;
@@ -82,6 +84,7 @@ export function useLedgerActions({
  transactions,
  reconciliations,
  ignoredAnomalies,
+ reviewSettings,
  currencyMap,
  clientAccountMap,
  selectedClientForLedger,
@@ -105,10 +108,10 @@ export function useLedgerActions({
 
  const {
   formatLockBalance,
-  confirmIfLocked,
-  confirmIfTransactionEditLocked,
-  confirmIfBatchEditLocked,
-  confirmBatchDeleteWithLock,
+  checkLockForNewRow,
+  checkLockForEdit,
+  checkLockForBatchEdit,
+  checkLockForBatchDelete,
   transactionEditImpact,
   blockedByPastEditLock,
  } = useReconciliationLocks({
@@ -163,7 +166,11 @@ export function useLedgerActions({
  const setDraggedLedgerColumn = useLedgerStore((s) => s.setDraggedLedgerColumn);
  const setLedgerColumnOrder = useLedgerStore((s) => s.setLedgerColumnOrder);
  const ledgerColumnOrder = useLedgerStore((s) => s.ledgerColumnOrder);
- const ledgerTransactionDrafts = useLedgerStore((s) => s.ledgerTransactionDrafts);
+ // Read on demand rather than subscribing. This hook runs inside the page component, and a
+ // ledger draft changes on every keystroke, so subscribing here re-rendered the whole page —
+ // and every section mounted under it — once per character typed. Every read below happens
+ // inside an event handler, never during render, so there is nothing to subscribe for.
+ const getLedgerTransactionDrafts = () => useLedgerStore.getState().ledgerTransactionDrafts;
  const setLedgerTransactionDrafts = useLedgerStore((s) => s.setLedgerTransactionDrafts);
  const ledgerRateReversed = useLedgerStore((s) => s.ledgerRateReversed);
  const setLedgerRateReversed = useLedgerStore((s) => s.setLedgerRateReversed);
@@ -362,7 +369,8 @@ async function onSubmitOneSidedTransaction() {
  const commissionValue = parseFloat(oneSidedTransactionModal.commission) || 0;
 
  // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled history.
- if (!(await confirmIfLocked([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID))) {
+ const lock = await checkLockForNewRow([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID);
+ if (!lock.proceed) {
   return;
  }
 
@@ -401,7 +409,7 @@ async function onSubmitOneSidedTransaction() {
  };
 
  try {
-  await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: true });
+  await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: lock.overrode });
   setOneSidedTransactionModal(null);
   setError('');
   await loadData();
@@ -504,7 +512,7 @@ function updateLedgerTransactionDraft(transactionId: number, ledgerAccountId: nu
 
 function getClientLedgerDraft(transactionId: number, ledgerAccountId: number) {
  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
- const existingDraft = ledgerTransactionDrafts[draftKey];
+ const existingDraft = getLedgerTransactionDrafts()[draftKey];
  if (existingDraft) {
   return existingDraft;
  }
@@ -538,14 +546,31 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
  // changes what the rate MEANS has moved, the user didn't touch it: keep the stored value.
  const originalDraft = buildLedgerTransactionDraft(transaction, ledgerAccountId);
  const originalIsOutgoing = transaction.accountFromId === ledgerAccountId;
- const rateUntouched =
-  draft.exchangeRate === originalDraft.exchangeRate &&
+ const storedRate = originalIsOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
+ // Direction, account and currency all change what the rate MEANS, so if any of them moved the
+ // rate must be re-derived from what the user left in the field. Only when all three are steady
+ // can a stored rate legitimately be carried over.
+ const rateContextUnchanged =
   draft.direction === originalDraft.direction &&
   draft.ledgerAccountId === originalDraft.ledgerAccountId &&
-  draft.currencyId === originalDraft.currencyId &&
+  draft.currencyId === originalDraft.currencyId;
+ const rateUntouched =
+  rateContextUnchanged &&
+  draft.exchangeRate === originalDraft.exchangeRate &&
   rateIsReversed === (originalIsOutgoing ? !!transaction.exchangeRateFromReversed : !!transaction.exchangeRateToReversed);
- const storedRate = originalIsOutgoing ? transaction.exchangeRateFrom : transaction.exchangeRateTo;
- const exchangeRate = rateUntouched ? storedRate : rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
+ // Flipping the reverse toggle rewrites the draft's rate text to the 6dp inverse (see the
+ // toggle in LedgerSection), so `rateUntouched` fails purely because the flag moved — and the
+ // save then inverts that truncated text back, nudging the stored rate every time. That is the
+ // drift the comment above describes, and a sweep of this project's production data found 16
+ // rates carrying it (e.g. 0.8809020436927414, which is 0.8809 after a round-trip).
+ //
+ // So compare against what we would DISPLAY for the stored rate under the flag now in effect:
+ // if the field still holds exactly that, the number itself has not changed, whatever the flag
+ // did. An exact string match rather than a tolerance, so a genuine edit — however small — is
+ // always honoured.
+ const storedRateAsShown = storedRate > 0 ? (rateIsReversed ? formatRateValue(1 / storedRate) : String(storedRate)) : '';
+ const rateShownUnchanged = rateContextUnchanged && storedRateAsShown !== '' && draft.exchangeRate.trim() === storedRateAsShown;
+ const exchangeRate = rateUntouched || rateShownUnchanged ? storedRate : rateIsReversed ? 1 / rawLedgerRate : rawLedgerRate;
  const commission = parseFloat(draft.commission) || 0;
 
  // Senderless/receiverless transactions are a legitimate, permanent shape (no counterparty on
@@ -625,13 +650,20 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
  return { payload };
 }
 
-async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: number, { batch = false } = {}): Promise<boolean> {
+async function onSaveLedgerTransaction(
+ transactionId: number,
+ ledgerAccountId: number,
+ // `overrideReconciliation` is only meaningful with `batch: true` — onSaveAllLedger runs the
+ // lock check once for the whole batch and passes its decision down, since each row here skips
+ // its own check. A single-row save derives it from its own guard below and ignores this.
+ { batch = false, overrideReconciliation = false }: { batch?: boolean; overrideReconciliation?: boolean } = {},
+): Promise<boolean> {
  if (!accountingApi) {
   setError(t('error_bridge'));
   return false;
  }
 
- const draft = ledgerTransactionDrafts[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
+ const draft = getLedgerTransactionDrafts()[getLedgerTransactionDraftKey(transactionId, ledgerAccountId)];
  const transaction = transactions.find((currentTransaction) => currentTransaction.id === transactionId);
 
  if (!draft || !transaction) {
@@ -665,19 +697,26 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
 
  // Single-row saves check the lock here; batch saves are checked once up-front in
  // onSaveAllLedger (which checks the whole batch at once) to avoid one dialog per row.
- if (!batch && !(await confirmIfTransactionEditLocked(transaction, payload))) {
-  return false;
+ let overrodeLock = overrideReconciliation;
+ if (!batch) {
+  const lock = await checkLockForEdit(transaction, payload);
+  if (!lock.proceed) {
+   return false;
+  }
+  overrodeLock = lock.overrode;
  }
 
  const pushUndo = () =>
   pushLedgerEditAction({
+   // Undo/redo replay an edit the user already confirmed, so they carry that same decision:
+   // if the original edit did not override a lock, neither of these may either.
    undo: async () => {
-    await accountingApi.updateTransaction({ ...previousPayload, acknowledgeReconciliationOverride: true });
+    await accountingApi.updateTransaction({ ...previousPayload, acknowledgeReconciliationOverride: overrodeLock });
     applyTransactionPatch(previousPayload);
     await loadData();
    },
    redo: async () => {
-    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock });
     applyTransactionPatch(payload);
     await loadData();
    },
@@ -687,7 +726,7 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  // row's real outcome to decide which rows may close, so it can't be handed a provisional yes.
  if (batch) {
   try {
-   await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+   await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock });
    setError('');
    applyTransactionPatch(payload);
    pushUndo();
@@ -705,7 +744,7 @@ async function onSaveLedgerTransaction(transactionId: number, ledgerAccountId: n
  setError('');
  applyTransactionPatch(payload);
  const undoEntry = pushUndo();
- void trackPendingWrite(accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true }))
+ void trackPendingWrite(accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock }))
   // Resync rather than refetch-per-save: several quick edits (or a run of arrow-key steps)
   // collapse into one refetch once the user pauses, instead of a full workspace reload each.
   .then(() => scheduleWorkspaceResync())
@@ -743,7 +782,7 @@ function onEditAllLedger(ledger: ClientAccountLedger) {
   const draftKey = getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId);
   const tx = transactions.find((t) => t.id === entry.transactionId);
   if (!tx) continue;
-  if (!ledgerTransactionDrafts[draftKey]) {
+  if (!getLedgerTransactionDrafts()[draftKey]) {
    newDrafts[draftKey] = buildLedgerTransactionDraft(tx, ledger.accountId);
    const isOutgoing = tx.accountFromId === ledger.accountId;
    if (isOutgoing ? tx.exchangeRateFromReversed : tx.exchangeRateToReversed) {
@@ -789,7 +828,7 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
   const [txIdStr, accIdStr] = key.split(':');
   const transactionId = parseInt(txIdStr, 10);
   const accId = parseInt(accIdStr, 10);
-  const draft = ledgerTransactionDrafts[key];
+  const draft = getLedgerTransactionDrafts()[key];
   if (!draft) continue;
   const tx = transactions.find((t) => t.id === transactionId);
   if (!tx) continue;
@@ -800,7 +839,8 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
   if (isSameTransactionUpdate(built.payload, transactionUpdateSnapshot(tx))) continue;
   edits.push({ oldTx: tx, newPayload: built.payload });
  }
- if (!(await confirmIfBatchEditLocked(edits))) {
+ const batchLock = await checkLockForBatchEdit(edits);
+ if (!batchLock.proceed) {
   return;
  }
 
@@ -809,7 +849,7 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
  const results = await Promise.all(
   keys.map(async (key) => {
    const [txIdStr, accIdStr] = key.split(':');
-   const ok = await onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { batch: true });
+   const ok = await onSaveLedgerTransaction(parseInt(txIdStr, 10), parseInt(accIdStr, 10), { batch: true, overrideReconciliation: batchLock.overrode });
    return [key, ok] as const;
   }),
  );
@@ -839,7 +879,7 @@ async function onSaveAllLedger(ledger: ClientAccountLedger) {
 
 async function onSaveLedgerRow(transactionId: number, ledgerAccountId: number) {
  const draftKey = getLedgerTransactionDraftKey(transactionId, ledgerAccountId);
- if (!ledgerTransactionDrafts[draftKey]) {
+ if (!getLedgerTransactionDrafts()[draftKey]) {
   setEditingLedgerRowKeys((prev) => {
    const n = new Set(prev);
    n.delete(draftKey);
@@ -879,7 +919,7 @@ function onCancelAllEditingLedgerRows() {
 function openLedgerRowForEdit(entry: ClientLedgerEntry, ledgerAccountId: number) {
  const rowKey = getLedgerTransactionDraftKey(entry.transactionId, ledgerAccountId);
  const transaction = transactions.find((tx) => tx.id === entry.transactionId);
- if (transaction && !ledgerTransactionDrafts[rowKey]) {
+ if (transaction && !getLedgerTransactionDrafts()[rowKey]) {
   const isOutgoing = transaction.accountFromId === ledgerAccountId;
   setLedgerRateReversed((prev) => ({
    ...prev,
@@ -1099,12 +1139,13 @@ async function onDeleteSelectedLedgerEntries() {
 
  // One batch dialog for the whole selection, same pattern as the transactions table's own
  // bulk delete — not one dialog per locked row.
- if (!(await confirmBatchDeleteWithLock(rowsToDelete, 'transactions_delete_selected_confirm', { count: transactionIds.length }))) {
+ const deleteLock = await checkLockForBatchDelete(rowsToDelete, 'transactions_delete_selected_confirm', { count: transactionIds.length });
+ if (!deleteLock.proceed) {
   return;
  }
 
  try {
-  await accountingApi.deleteTransactionsBulk({ transactionIds, acknowledgeReconciliationOverride: true });
+  await accountingApi.deleteTransactionsBulk({ transactionIds, acknowledgeReconciliationOverride: deleteLock.overrode });
   setSelectedLedgerEntryKeys(new Set());
   setError('');
   await loadData();
@@ -1236,7 +1277,9 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
     counterParty: tx.counterParty,
     distributionLocationId: tx.distributionLocationId,
     createdAt: newCreatedAt,
-    acknowledgeReconciliationOverride: true,
+    // dragLockHit is non-null only when this drag actually moves a row across a reconciled
+    // boundary and the user confirmed it above — otherwise the server still checks.
+    acknowledgeReconciliationOverride: Boolean(dragLockHit),
    });
   }
 
@@ -1269,10 +1312,14 @@ function selectLedgerEntriesForRange(
 // exchange rates that deviate sharply from other transactions in the same currency pair
 // (most notably a ×/÷ toggle mistake, which is off by 10s-to-100s-x), plus exchange-transaction
 // commissions that break from this account's own commission history — and requires the user
-// to explicitly acknowledge before export proceeds. Mirrors the confirmIfLocked pattern.
+// to explicitly acknowledge before export proceeds. Mirrors the checkLockForNewRow pattern.
 async function confirmIfLedgerAnomalies(entries: ClientLedgerEntry[], ledgerCurrencyCode: string, accountId: number): Promise<boolean> {
- const rateSamples = buildRateSamples(transactions);
- const commissionSamples = buildCommissionSamples(transactions);
+ // The badges and this gate are separately switchable: a workspace can want the quiet in-page
+ // hints without an interruption on the way out, or the reverse. The checks below would return
+ // nothing anyway when the engine is off, but returning early keeps the intent explicit.
+ if (!reviewSettings.enabled || !reviewSettings.warnOnExport) return true;
+ const rateSamples = buildRateSamples(transactions, reviewSettings);
+ const commissionSamples = buildCommissionSamples(transactions, reviewSettings);
  const flaggedRates = entries
   .map((entry) => ({ entry, anomaly: checkLedgerEntry(entry, ledgerCurrencyCode, rateSamples) }))
   .filter((x): x is { entry: ClientLedgerEntry; anomaly: NonNullable<typeof x.anomaly> } => x.anomaly != null)
@@ -1280,7 +1327,15 @@ async function confirmIfLedgerAnomalies(entries: ClientLedgerEntry[], ledgerCurr
  const flaggedCommissions = entries
   .map((entry) => ({ entry, anomaly: checkLedgerEntryCommission(entry, accountId, commissionSamples) }))
   .filter((x): x is { entry: ClientLedgerEntry; anomaly: NonNullable<typeof x.anomaly> } => x.anomaly != null)
-  .map(({ entry, anomaly }) => `${formatDateValue(entry.createdAt, pdfSettings.dateFormat)} · ${entry.description || entry.counterpartyName} — ${t('ledger_anomaly_entered')}: ${anomaly.enteredCommission}%, ${t('ledger_anomaly_expected')}: ~${formatRateValue(anomaly.referenceCommission)}%`);
+  .map(({ entry, anomaly }) => {
+   const head = `${formatDateValue(entry.createdAt, pdfSettings.dateFormat)} · ${entry.description || entry.counterpartyName} — ${t('ledger_anomaly_entered')}: ${anomaly.enteredCommission}%`;
+   // 'implausible' has no reference history to quote (see CEILING_PERCENTILE), so the line states
+   // the ceiling it broke rather than an "expected" value that was never observed. The other
+   // reasons all quote a real prior value, whichever scope it came from, so one line serves them.
+   return anomaly.reason === 'implausible'
+    ? `${head}, ${t('ledger_anomaly_commission_implausible_export', { expected: formatRateValue(anomaly.referenceCommission) })}`
+    : `${head}, ${t('ledger_anomaly_expected')}: ~${formatRateValue(anomaly.referenceCommission)}%`;
+  });
  const allLines = [...flaggedRates, ...flaggedCommissions];
  if (allLines.length === 0) return true;
  const shown = allLines.slice(0, 8);

@@ -26,6 +26,31 @@ function shouldUseSsl() {
     return sslMode === "true" || sslMode === "1" || sslMode === "require";
 }
 
+// TLS to the database, verified by default.
+//
+// This used to be a flat `{ rejectUnauthorized: false }`, which encrypts the connection but
+// never checks who is on the other end of it — and because the option object is spread AFTER
+// connectionString, it also silently overrode the `sslmode=require&channel_binding=require`
+// already present in the URL. Encrypted-but-unauthenticated is the exact shape a
+// man-in-the-middle needs: anything able to answer on the database's address is trusted.
+//
+// Neon (this project's host) presents a certificate from a public CA, so ordinary verification
+// against Node's trust store succeeds with no extra configuration.
+//
+// POSTGRES_SSL_INSECURE exists for a self-hosted Postgres using a self-signed certificate. It
+// must be set deliberately, and it is the only route back to the old behaviour — the point is
+// that skipping verification is now a decision someone makes and can be found in an env file,
+// rather than the silent default for every deployment.
+function resolveSslOption() {
+    if (!shouldUseSsl()) return {};
+    const insecure = process.env.POSTGRES_SSL_INSECURE?.trim().toLowerCase();
+    if (insecure === "true" || insecure === "1") {
+        console.warn("[postgres] POSTGRES_SSL_INSECURE is set — the database certificate is NOT being verified.");
+        return { ssl: { rejectUnauthorized: false } };
+    }
+    return { ssl: { rejectUnauthorized: true } };
+}
+
 // SQLSTATEs that mean "the server is not ready for this right now", as opposed to "this query
 // is wrong". Every one of these is answered by waiting a moment and asking again.
 //
@@ -103,7 +128,7 @@ function getPool() {
             idleTimeoutMillis: 30000,
             connectionTimeoutMillis: 15000,
             keepAlive: true,
-            ...(shouldUseSsl() ? { ssl: { rejectUnauthorized: false } } : {}),
+            ...resolveSslOption(),
         });
 
         // Without this listener, an error on an already-idle pooled connection (e.g. the
@@ -237,6 +262,9 @@ async function ensurePublicSchema() {
 
                     CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
                     CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
+                    -- workspaces.owner_user_id references users ON DELETE CASCADE, so deleting a
+                    -- user sequentially scanned every workspace in the instance to find theirs.
+                    CREATE INDEX IF NOT EXISTS idx_workspaces_owner_user_id ON workspaces(owner_user_id);
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
                     CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
                     CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
@@ -556,6 +584,14 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- it only controls visibility of the nav item and page (see page.tsx).
                 ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS treasury_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
+                -- Second Accountant configuration (owner/admin toggle, Settings > Second Accountant):
+                -- whether the entry-review engine runs at all, which of its checks are on, and how strict
+                -- each one is. One JSONB object rather than a column per knob, so a new setting needs no
+                -- migration; the client parses it through resolveReviewSettings, which fills in and clamps
+                -- anything missing or out of range. An empty object therefore means "all defaults", which
+                -- is what a workspace that has never opened the screen gets.
+                ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS review_engine JSONB NOT NULL DEFAULT '{}'::jsonb;
+
                 -- Per-user table layout settings (ledger column visibility/order, transaction
                 -- table settings, etc. — the same snapshot shape as the owner-shared settings
                 -- above). Persisted server-side per (user, workspace) so a user's layout choices
@@ -730,6 +766,29 @@ async function ensureWorkspaceSchema(workspaceId) {
                 CREATE INDEX IF NOT EXISTS idx_transactions_account_to ON ${schema}.transactions (account_to_id);
                 CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON ${schema}.transactions (created_at);
                 CREATE INDEX IF NOT EXISTS idx_transactions_active ON ${schema}.transactions (created_at) WHERE is_archived = FALSE;
+
+                -- The remaining foreign-key columns, for the same reason as the block above:
+                -- Postgres indexes the parent side of a reference, never the child, so each of
+                -- these was a sequential scan on every cascading parent delete. Deleting a
+                -- single currency scans transactions three times over (currency_id,
+                -- charges_currency_id, charges2_currency_id) plus client_accounts; deleting any
+                -- one transaction scans ignored_anomalies twice.
+                --
+                -- The composite UNIQUEs already on these tables do not cover it: client_accounts'
+                -- UNIQUE (client_id, currency_id) leads with client_id, and ignored_anomalies'
+                -- UNIQUE (kind, transaction_id, account_id) leads with kind, so neither can serve
+                -- a lookup on the trailing column.
+                CREATE INDEX IF NOT EXISTS idx_transactions_currency ON ${schema}.transactions (currency_id);
+                CREATE INDEX IF NOT EXISTS idx_transactions_charges_currency ON ${schema}.transactions (charges_currency_id);
+                CREATE INDEX IF NOT EXISTS idx_transactions_charges2_currency ON ${schema}.transactions (charges2_currency_id);
+                CREATE INDEX IF NOT EXISTS idx_transactions_distribution_location ON ${schema}.transactions (distribution_location_id);
+                CREATE INDEX IF NOT EXISTS idx_client_accounts_currency ON ${schema}.client_accounts (currency_id);
+                CREATE INDEX IF NOT EXISTS idx_clients_organization ON ${schema}.clients (organization_id);
+                CREATE INDEX IF NOT EXISTS idx_ignored_anomalies_transaction ON ${schema}.ignored_anomalies (transaction_id);
+                CREATE INDEX IF NOT EXISTS idx_ignored_anomalies_account ON ${schema}.ignored_anomalies (account_id);
+                CREATE INDEX IF NOT EXISTS idx_reconciliations_account ON ${schema}.reconciliations (account_id);
+                CREATE INDEX IF NOT EXISTS idx_distribution_locations_client ON ${schema}.distribution_locations (client_id);
+                CREATE INDEX IF NOT EXISTS idx_harvest_rates_organization ON ${schema}.harvest_rates (organization_id);
 
                 -- Audit trail. This workspace is shared by owner/admin/member/viewer roles, so
                 -- "who entered this number, and what did it say before?" needs an answer; until

@@ -28,6 +28,7 @@ import type { OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { useOverviewStore } from '../store/overviewStore';
 import { computeOverviewBalances } from '../utils/overviewBalances';
 import { resolveHarvestRate } from '@/features/harvest/utils/harvestRateResolver';
+import { isZeroMoney } from '@/shared/utils/money';
 
 type OverviewSectionProps = {
  organizations: Organization[];
@@ -370,18 +371,18 @@ export default function OverviewSection({
             <path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z" />
            </svg>
           );
-          // Collect the ticked cards across every org (only those still shown, i.e. total !== 0).
+          // Collect the ticked cards across every org (only those still shown, i.e. a non-zero total).
           const printSelected = () => {
            const cards: OverviewPdfCard[] = [];
            for (const [, orgGroups] of overviewOrgBalances.byOrg) {
             const orgName = orgGroups[0].organizationName ?? t('overview_no_organization');
             for (const group of orgGroups) {
-             if (group.total !== 0 && selectedCardKeys.has(group.key)) cards.push(cardFromGroup(group, orgName, isFlipped(group) && !Number.isNaN(rateOf(group))));
+             if (!isZeroMoney(group.total) && selectedCardKeys.has(group.key)) cards.push(cardFromGroup(group, orgName, isFlipped(group) && !Number.isNaN(rateOf(group))));
             }
            }
            printCards(cards);
           };
-          const selectedShownCount = overviewOrgBalances.groups.filter((g) => g.total !== 0 && selectedCardKeys.has(g.key)).length;
+          const selectedShownCount = overviewOrgBalances.groups.filter((g) => !isZeroMoney(g.total) && selectedCardKeys.has(g.key)).length;
 
           // Grand total across every group, always in the main currency.
           let grandTotal = 0;
@@ -495,7 +496,7 @@ export default function OverviewSection({
                 }
                }
                const mergedClients = Array.from(mergedClientMap.values())
-                .filter((c) => c.balance !== 0)
+                .filter((c) => !isZeroMoney(c.balance))
                 .sort((a, b) => a.clientName.localeCompare(b.clientName, language, { sensitivity: 'base' }));
 
                return (
@@ -507,7 +508,7 @@ export default function OverviewSection({
                  <h3 className="mb-3 text-lg font-bold uppercase tracking-wide text-fg-muted">{orgName}</h3>
                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {orgGroups
-                   .filter((group) => group.total !== 0)
+                   .filter((group) => !isZeroMoney(group.total))
                    .map((group) => {
                     const rate = rateOf(group);
                     const rateValid = !Number.isNaN(rate);

@@ -111,6 +111,7 @@ import {
  buildWorkspaceAnomalies,
  anomalyKey,
 } from '@/features/ledger/utils/ledgerAnomalies';
+import { resolveReviewSettings, type ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import { buildTransactionTableRows, countHiddenArchiveRows, filterDisplayedTransactionRows } from '@/features/transactions/utils/transactionRows';
 import { computeClientPageBalances, computeClientPendingPricingCounts, computeClientPendingPricingEntries, computeClientReconciledStatus, type PendingPricingEntry } from '@/features/clients/utils/clientBalances';
 import { sortAndFilterClients, groupClientsByOrganization } from '@/features/clients/utils/clientsView';
@@ -387,23 +388,35 @@ function AuthenticatedHome() {
  const ledgerColumnOrder = useLedgerStore((s) => s.ledgerColumnOrder);
  const setLedgerColumnOrder = useLedgerStore((s) => s.setLedgerColumnOrder);
  const setLedgerColumnVisibility = useLedgerStore((s) => s.setLedgerColumnVisibility);
- const ledgerTransactionDrafts = useLedgerStore((s) => s.ledgerTransactionDrafts);
+ // Deliberately NOT `useLedgerStore((s) => s.ledgerTransactionDrafts)`. Drafts change on every
+ // keystroke in a ledger cell, so subscribing here re-rendered this whole component — and with
+ // it every mounted section, LedgerSection included — once per character typed. Nothing on this
+ // page renders from the drafts; they were only feeding useDraftHistory's ref and the
+ // emptiness check below, both of which can read on demand.
+ const getLedgerTransactionDrafts = useCallback(() => useLedgerStore.getState().ledgerTransactionDrafts, []);
+ // A boolean, not the map: re-renders only when an edit session starts or ends.
+ const hasLedgerDrafts = useLedgerStore((s) => Object.keys(s.ledgerTransactionDrafts).length > 0);
  const setLedgerTransactionDrafts = useLedgerStore((s) => s.setLedgerTransactionDrafts);
  const setLedgerSumMode = useLedgerStore((s) => s.setLedgerSumMode);
  const setLedgerSumSelection = useLedgerStore((s) => s.setLedgerSumSelection);
- const transactionTableDrafts = useTransactionsStore((s) => s.transactionTableDrafts);
+ // Same reasoning as getLedgerTransactionDrafts above, for the transactions table's own drafts.
+ const getTransactionTableDrafts = useCallback(() => useTransactionsStore.getState().transactionTableDrafts, []);
+ const hasTransactionTableDrafts = useTransactionsStore((s) => Object.keys(s.transactionTableDrafts).length > 0);
  const setTransactionTableDrafts = useTransactionsStore((s) => s.setTransactionTableDrafts);
- const ledgerHistory = useDraftHistory(ledgerTransactionDrafts, setLedgerTransactionDrafts);
- const txTableHistory = useDraftHistory(transactionTableDrafts, setTransactionTableDrafts);
+ const ledgerHistory = useDraftHistory(getLedgerTransactionDrafts, setLedgerTransactionDrafts);
+ const txTableHistory = useDraftHistory(getTransactionTableDrafts, setTransactionTableDrafts);
  const resetLedgerHistory = ledgerHistory.reset;
  const resetTxTableHistory = txTableHistory.reset;
  // Clear undo/redo history once an edit session ends (all drafts discarded/saved).
+ //
+ // Subscribes to whether ANY draft exists rather than to the drafts themselves, so this
+ // re-renders twice per edit session (open, close) instead of once per keystroke.
  useEffect(() => {
-  if (Object.keys(ledgerTransactionDrafts).length === 0) resetLedgerHistory();
- }, [ledgerTransactionDrafts, resetLedgerHistory]);
+  if (!hasLedgerDrafts) resetLedgerHistory();
+ }, [hasLedgerDrafts, resetLedgerHistory]);
  useEffect(() => {
-  if (Object.keys(transactionTableDrafts).length === 0) resetTxTableHistory();
- }, [transactionTableDrafts, resetTxTableHistory]);
+  if (!hasTransactionTableDrafts) resetTxTableHistory();
+ }, [hasTransactionTableDrafts, resetTxTableHistory]);
  const [selectedOrganizationForClients, setSelectedOrganizationForClients] = useState<Organization | null>(null);
 
  // Shows the open client/organisation next to the favicon in the browser tab, so a user
@@ -756,6 +769,25 @@ function AuthenticatedHome() {
    const result = await accountingApi.saveWorkspacePastEditLock(enabled);
    queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), (current: typeof workspaceSettingsQuery.data) =>
     current ? { ...current, lockPastEditsEnabled: result.lockPastEditsEnabled } : current,
+   );
+   void workspaceSettingsQuery.refetch();
+  } catch (error) {
+   setError(error instanceof Error ? error.message : t('error_failed_save'));
+  }
+ }
+
+ // --- Second Accountant (entry-review engine) ------------------------------
+ // The workspace's configuration for the engine that checks entries against their own history
+ // (ledgerAnomalies.ts). Resolved through resolveReviewSettings so a workspace that has never
+ // opened the settings screen — or one saved by a version with fewer knobs — still gets a
+ // complete, in-range object rather than undefined holes.
+ const reviewSettings = useMemo(() => resolveReviewSettings(workspaceSettingsQuery.data?.reviewEngine), [workspaceSettingsQuery.data?.reviewEngine]);
+
+ async function saveReviewSettings(next: ReviewEngineSettings) {
+  try {
+   const result = await accountingApi.saveReviewEngineSettings(next);
+   queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), (current: typeof workspaceSettingsQuery.data) =>
+    current ? { ...current, reviewEngine: result.reviewEngine } : current,
    );
    void workspaceSettingsQuery.refetch();
   } catch (error) {
@@ -1560,6 +1592,9 @@ function AuthenticatedHome() {
   ...(isWorkspaceOwnerOrAdmin ? [{ key: 'treasury' as const, label: t('settings_treasury_title'), icon: 'treasury' as IconName }] : []),
   // Write-off margins are workspace-wide financial config, same tier as Treasury settings.
   ...(isWorkspaceOwnerOrAdmin ? [{ key: 'writeoff' as const, label: t('settings_writeoff_title'), icon: 'settings' as IconName }] : []),
+  // The Second Accountant decides what warnings every member sees, so it is owner/admin config
+  // like the two above.
+  ...(isWorkspaceOwnerOrAdmin ? [{ key: 'review' as const, label: t('settings_review_title'), icon: 'settings' as IconName }] : []),
   ...(isEditorRole ? [] : [{ key: 'danger' as const, label: t('settings_danger_title'), icon: 'settings' as IconName }]),
  ];
 
@@ -1678,7 +1713,7 @@ function AuthenticatedHome() {
  // Lock guards for pricing a pending row from the org-page popup — pricing shifts the
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
- const { confirmIfTransactionEditLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
+ const { checkLockForEdit, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoint the ledger edit uses. When not reversed the rate
@@ -1730,10 +1765,11 @@ function AuthenticatedHome() {
      createdAt: tx.createdAt,
     };
     if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return false;
-    if (!(await confirmIfTransactionEditLocked(tx, payload))) {
+    const lock = await checkLockForEdit(tx, payload);
+    if (!lock.proceed) {
      return false;
     }
-    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode });
     setError('');
     await loadData();
     return true;
@@ -1742,7 +1778,7 @@ function AuthenticatedHome() {
     return false;
    }
   },
-  [transactions, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
+  [transactions, checkLockForEdit, blockedByPastEditLock, loadData, setError, t],
  );
 
  // Applies a partial field patch to a stored transaction — every field not in `patch` is
@@ -1785,18 +1821,19 @@ function AuthenticatedHome() {
     ...patch,
    };
    if (blockedByPastEditLock([tx.createdAt], Boolean(tx.isArchived))) return;
-   if (!(await confirmIfTransactionEditLocked(tx, payload))) {
+   const lock = await checkLockForEdit(tx, payload);
+   if (!lock.proceed) {
     return;
    }
    try {
-    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: true });
+    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode });
     setError('');
     await loadData();
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
    }
   },
-  [transactions, confirmIfTransactionEditLocked, blockedByPastEditLock, loadData, setError, t],
+  [transactions, checkLockForEdit, blockedByPastEditLock, loadData, setError, t],
  );
 
  const transactionMap = useMemo(() => new Map(transactions.map((transaction) => [transaction.id, transaction])), [transactions]);
@@ -1958,8 +1995,8 @@ function AuthenticatedHome() {
  // would still fire. That last set is what makes an ignore reversible — without it a dismissed
  // warning leaves no trace anywhere, so there is no row to go back to and nothing to click.
  const ledgerAnomalyState = useMemo(() => {
-  const rateSamples = buildRateSamples(transactions);
-  const commissionSamples = buildCommissionSamples(transactions);
+  const rateSamples = buildRateSamples(transactions, reviewSettings);
+  const commissionSamples = buildCommissionSamples(transactions, reviewSettings);
   const acceptedRates = buildAcceptedRates(transactions, ignoredAnomalies);
   const rate = new Map<number, RateAnomaly>();
   const commission = new Map<number, CommissionAnomaly>();
@@ -1989,7 +2026,7 @@ function AuthenticatedHome() {
    }
   }
   return { rate, commission, ignoredKeys };
- }, [selectedClientLedgers, transactions, ignoredAnomalySet, ignoredAnomalies]);
+ }, [selectedClientLedgers, transactions, ignoredAnomalySet, ignoredAnomalies, reviewSettings]);
  const ledgerRateAnomalies = ledgerAnomalyState.rate;
  const ledgerCommissionAnomalies = ledgerAnomalyState.commission;
  const ledgerIgnoredAnomalyKeys = ledgerAnomalyState.ignoredKeys;
@@ -1997,7 +2034,10 @@ function AuthenticatedHome() {
  // Workspace-wide flagged entries (every client, every account) for the "needs review"
  // indicator on the Transactions and Overview pages — unlike the two maps above, not scoped
  // to whichever client's ledger happens to be open right now.
- const workspaceAnomalies = useMemo(() => buildWorkspaceAnomalies(transactions, ignoredAnomalySet, ignoredAnomalies), [transactions, ignoredAnomalySet, ignoredAnomalies]);
+ const workspaceAnomalies = useMemo(
+  () => buildWorkspaceAnomalies(transactions, ignoredAnomalySet, ignoredAnomalies, reviewSettings),
+  [transactions, ignoredAnomalySet, ignoredAnomalies, reviewSettings],
+ );
 
  const renderLedgerCurrencySuffix = (currencySymbol: string, currencyCode: string) => {
   if (!showLedgerCurrencySymbol) {
@@ -2059,6 +2099,7 @@ function AuthenticatedHome() {
    transactions,
    reconciliations,
    ignoredAnomalies,
+   reviewSettings,
    currencyMap,
    clientAccountMap,
    selectedClientForLedger,
@@ -2347,6 +2388,8 @@ function AuthenticatedHome() {
    openOrganizationClientsPage={openOrganizationClientsPage}
    localizedCurrencies={localizedCurrencies}
    writeOffMargins={writeOffMargins}
+   reviewSettings={reviewSettings}
+   onSaveReviewSettings={(next) => void saveReviewSettings(next)}
   />
  );
 

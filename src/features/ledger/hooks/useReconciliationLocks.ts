@@ -13,6 +13,27 @@ import type { ClientAccount, Reconciliation, Transaction, TransactionUpdateInput
 // The account+boundary a change would violate, or null if it touches no locked history.
 type LockHit = { accountId: number; boundary: LockBoundary } | null;
 
+/**
+ * The outcome of a lock guard. Two separate facts, deliberately not collapsed into one boolean:
+ *
+ *   proceed  — may the caller go ahead? False only when the user cancelled a warning.
+ *   overrode — did this actually override a reconciliation lock? True ONLY when a lock was hit
+ *              AND the user confirmed writing through it.
+ *
+ * The distinction is the whole point. These guards used to return a bare `true` for both "there
+ * was nothing locked here" and "the user confirmed an override", and every call site then sent
+ * `acknowledgeReconciliationOverride: true` to the API. Since db.js's
+ * assertReconciliationNotViolated begins `if (override) return;`, that meant the server-side
+ * backstop was skipped on EVERY write in the app, not just deliberate overrides — leaving the
+ * lock enforced solely by this browser code. Anything not going through this UI (a crafted
+ * request, or a future code path that forgets to call a guard) wrote through reconciled history
+ * silently. Passing `overrode` through instead means the server re-checks the ordinary case,
+ * which is nearly all of them.
+ */
+export type LockDecision = { proceed: boolean; overrode: boolean };
+
+const PROCEED_UNLOCKED: LockDecision = { proceed: true, overrode: false };
+
 type UseReconciliationLocksParams = {
  reconciliations: Reconciliation[];
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
@@ -27,9 +48,11 @@ type UseReconciliationLocksParams = {
  * delete/reorder flows — both can touch history at or before an account's
  * lock line (its newest reconciliation), so both need the same "warn once,
  * proceed if confirmed" behavior. Every write path that passes one of these
- * guards must also set `acknowledgeReconciliationOverride: true` on the actual
- * API call, so the server-side backstop (assertReconciliationNotViolated in
- * db.js) doesn't independently re-reject a write the user already confirmed.
+ * guards returns a LockDecision; pass its `overrode` field straight through as
+ * `acknowledgeReconciliationOverride` on the API call. Do NOT hardcode `true`
+ * there — that skips db.js's assertReconciliationNotViolated backstop on every
+ * write, which is what made the lock browser-only. `overrode` is true only for a
+ * genuine, user-confirmed override, so the server still checks everything else.
  */
 export function useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled }: UseReconciliationLocksParams) {
  const { language } = useLanguage();
@@ -48,37 +71,38 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
   return `${symbol}${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
  }
 
- // Shared dialog for any lock hit, whatever guard found it.
- function warnLockHit(hit: LockHit): Promise<boolean> {
-  if (!hit) return Promise.resolve(true);
-  return confirmDialog({
+ // Shared dialog for any lock hit, whatever guard found it. No hit means nothing was locked,
+ // which is emphatically not an override — see LockDecision.
+ async function warnLockHit(hit: LockHit): Promise<LockDecision> {
+  if (!hit) return PROCEED_UNLOCKED;
+  const confirmed = await confirmDialog({
    title: t('reconcile_warn_title'),
    message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
    confirmText: t('reconcile_warn_confirm'),
    tone: 'danger',
   });
+  return { proceed: confirmed, overrode: confirmed };
  }
 
  /**
   * Guard shared by create/delete/reorder operations, which have no "old vs new net" to diff
   * — the whole row is appearing/disappearing/moving at that position. `accountIds` are the
   * accounts a change touches (a transaction hits both from & to); `createdAt`/`refId` locate
-  * the affected row (pass NEW_ROW_REF_ID for a not-yet-created transaction). Returns true to
-  * proceed — either nothing is locked, or the user confirmed the warning.
+  * the affected row (pass NEW_ROW_REF_ID for a not-yet-created transaction).
   */
- async function confirmIfLocked(accountIds: Array<number | null | undefined>, createdAt: string, refId: number): Promise<boolean> {
+ async function checkLockForNewRow(accountIds: Array<number | null | undefined>, createdAt: string, refId: number): Promise<LockDecision> {
   return warnLockHit(violatedLock(accountIds, createdAt, refId, lockBoundaries));
  }
 
  /**
   * Delete confirmation that folds in the reconciliation guard: if the row is at or
   * before a lock line it shows the lock warning, otherwise the normal delete prompt —
-  * one dialog either way. Returns true to proceed.
+  * one dialog either way. Confirming the ordinary delete prompt is not an override.
   */
- async function confirmDeleteWithLock(accountIds: Array<number | null | undefined>, createdAt: string, refId: number, fallbackMessageKey: string): Promise<boolean> {
+ async function checkLockForDelete(accountIds: Array<number | null | undefined>, createdAt: string, refId: number, fallbackMessageKey: string): Promise<LockDecision> {
   const hit = violatedLock(accountIds, createdAt, refId, lockBoundaries);
   if (hit) return warnLockHit(hit);
-  return confirmDialog({ message: t(fallbackMessageKey), confirmText: t('delete'), tone: 'danger' });
+  return { proceed: await confirmDialog({ message: t(fallbackMessageKey), confirmText: t('delete'), tone: 'danger' }), overrode: false };
  }
 
  /**
@@ -114,50 +138,77 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
 
  // Pure (no dialog) impact check for one transaction edit — used directly by batch-save and
  // drag pre-checks (which must evaluate many rows before showing at most one dialog) and
- // wrapped by `confirmIfTransactionEditLocked` for single-row saves.
+ // wrapped by `checkLockForEdit` for single-row saves.
  function transactionEditImpact(oldTx: Transaction, newPayload: TransactionUpdateInput): LockHit {
   return reconciledImpact(transactionEditChanges(oldTx, newPayload), lockBoundaries);
  }
 
  /**
-  * Two-sided edit guard for a transaction (the ledger-row/table-row edit save paths, and a
-  * single dragged row). Warns only when the edit actually moves a reconciled balance (see
-  * `transactionEditImpact`). Returns true to proceed.
+  * Does this edit touch a row the SERVER would refuse without the override flag?
+  *
+  * db.js's assertReconciliationNotViolated is a coarser, POSITION-only check than the
+  * balance-delta math `transactionEditImpact` uses: it rejects any write whose row sits at or
+  * before a lock line, "regardless of whether that specific write actually moves the reconciled
+  * number" (its own words). So a dialog having been shown is NOT the only case where the server
+  * has to be told to stand down — editing just the description of a locked row moves nothing,
+  * correctly shows no dialog, and would still be refused server-side.
+  *
+  * Both positions are checked because an edit can re-date a row into, or out of, locked history.
   */
- async function confirmIfTransactionEditLocked(oldTx: Transaction, newPayload: TransactionUpdateInput): Promise<boolean> {
-  return warnLockHit(transactionEditImpact(oldTx, newPayload));
+ function editTouchesLockedPosition(oldTx: Transaction, newPayload: TransactionUpdateInput): boolean {
+  const fromOld = violatedLock([oldTx.accountFromId, oldTx.accountToId], oldTx.createdAt, oldTx.id, lockBoundaries);
+  const fromNew = violatedLock([newPayload.accountFromId, newPayload.accountToId], newPayload.createdAt, oldTx.id, lockBoundaries);
+  return Boolean(fromOld || fromNew);
  }
 
  /**
-  * Batch version of `confirmIfTransactionEditLocked`: checks every planned edit and shows at
-  * most ONE dialog for the whole batch (the first row that actually moves a reconciled
-  * balance), instead of one dialog per locked row. Returns true to proceed with all of them.
+  * Two-sided edit guard for a transaction (the ledger-row/table-row edit save paths, and a
+  * single dragged row). Warns only when the edit actually moves a reconciled balance (see
+  * `transactionEditImpact`), but reports `overrode` on the server's broader position rule so a
+  * balance-neutral edit to locked history isn't refused (see `editTouchesLockedPosition`).
   */
- async function confirmIfBatchEditLocked(edits: Array<{ oldTx: Transaction; newPayload: TransactionUpdateInput }>): Promise<boolean> {
+ async function checkLockForEdit(oldTx: Transaction, newPayload: TransactionUpdateInput): Promise<LockDecision> {
+  const decision = await warnLockHit(transactionEditImpact(oldTx, newPayload));
+  if (!decision.proceed) return decision;
+  return { proceed: true, overrode: decision.overrode || editTouchesLockedPosition(oldTx, newPayload) };
+ }
+
+ /**
+  * Batch version of `checkLockForEdit`: checks every planned edit and shows at
+  * most ONE dialog for the whole batch (the first row that actually moves a reconciled
+  * balance), instead of one dialog per locked row. A single decision covers the whole batch,
+  * so `overrode` applies to every row in it.
+  */
+ async function checkLockForBatchEdit(edits: Array<{ oldTx: Transaction; newPayload: TransactionUpdateInput }>): Promise<LockDecision> {
   let hit: LockHit = null;
   for (const edit of edits) {
    hit = transactionEditImpact(edit.oldTx, edit.newPayload);
    if (hit) break;
   }
-  return warnLockHit(hit);
+  const decision = await warnLockHit(hit);
+  if (!decision.proceed) return decision;
+  // One decision covers the batch, so if ANY row in it sits in locked history the whole batch
+  // needs the flag — the rows are saved individually and the server checks each one.
+  const touchesLocked = edits.some((edit) => editTouchesLockedPosition(edit.oldTx, edit.newPayload));
+  return { proceed: true, overrode: decision.overrode || touchesLocked };
  }
 
  /**
-  * Batch version of `confirmDeleteWithLock`: checks every row about to be deleted and shows
-  * at most ONE dialog for the whole batch. Returns true to proceed with all of them.
+  * Batch version of `checkLockForDelete`: checks every row about to be deleted and shows
+  * at most ONE dialog for the whole batch. A single decision covers every row in it.
   */
- async function confirmBatchDeleteWithLock(
+ async function checkLockForBatchDelete(
   rows: Array<{ accountFromId: number | null; accountToId: number | null; createdAt: string; id: number }>,
   fallbackMessageKey: string,
   fallbackMessageParams?: Record<string, string | number>,
- ): Promise<boolean> {
+ ): Promise<LockDecision> {
   let hit: LockHit = null;
   for (const row of rows) {
    hit = violatedLock([row.accountFromId, row.accountToId], row.createdAt, row.id, lockBoundaries);
    if (hit) break;
   }
   if (hit) return warnLockHit(hit);
-  return confirmDialog({ message: t(fallbackMessageKey, fallbackMessageParams), confirmText: t('delete'), tone: 'danger' });
+  return { proceed: await confirmDialog({ message: t(fallbackMessageKey, fallbackMessageParams), confirmText: t('delete'), tone: 'danger' }), overrode: false };
  }
 
  /**
@@ -181,11 +232,11 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
  return {
   lockBoundaries,
   formatLockBalance,
-  confirmIfLocked,
-  confirmDeleteWithLock,
-  confirmIfTransactionEditLocked,
-  confirmIfBatchEditLocked,
-  confirmBatchDeleteWithLock,
+  checkLockForNewRow,
+  checkLockForDelete,
+  checkLockForEdit,
+  checkLockForBatchEdit,
+  checkLockForBatchDelete,
   transactionEditImpact,
   blockedByPastEditLock,
  };

@@ -1,5 +1,6 @@
 import { localDateKey } from '@/shared/utils/date';
 import type { SystemClient, TreasuryBalanceEntry, WriteOffMargin } from '@/shared/types';
+import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 
 const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
 
@@ -338,12 +339,30 @@ export const accountingApi = {
  importWorkspaceData: (backup: WorkspaceBackup) => request<{ ok: true }>({ action: 'importWorkspaceData', payload: backup }),
  bulkImportTransactions: (payload: { transactions: unknown[] }) => request<{ createdTransactions: number }>({ action: 'bulkImportTransactions', payload }),
  getBackupInfo: () => request<BackupInfo>({ action: 'getBackupInfo' }),
+ // Every collection the workspace snapshot needs, in ONE round-trip (see route.ts's
+ // getWorkspaceSnapshot case). Replaces the ten parallel POSTs useWorkspaceData used to fire,
+ // each of which independently re-decoded the session, re-resolved the workspace role and
+ // re-checked the schema before running its query.
+ getWorkspaceSnapshot: () =>
+  request<{
+   organizations: unknown[];
+   clients: unknown[];
+   currencies: unknown[];
+   transactions: unknown[];
+   clientAccounts: unknown[];
+   reconciliations: unknown[];
+   ignoredAnomalies: unknown[];
+   harvestRates: unknown[];
+   writeOffMargins: unknown[];
+   backup: BackupInfo | null;
+  }>({ action: 'getWorkspaceSnapshot' }),
  recordBackup: (device: string) => request<BackupInfo>({ action: 'recordBackup', payload: { device } }),
  getWorkspaceSettings: () => request<WorkspaceSharedSettings>({ action: 'getWorkspaceSettings' }),
  saveWorkspaceSettings: (payload: { sharedEnabled?: boolean; settings?: Record<string, string> }) =>
   request<WorkspaceSharedSettings>({ action: 'saveWorkspaceSettings', payload }),
  saveWorkspacePastEditLock: (enabled: boolean) => request<{ lockPastEditsEnabled: boolean }>({ action: 'saveWorkspacePastEditLock', payload: enabled }),
  saveTreasuryEnabled: (enabled: boolean) => request<{ treasuryEnabled: boolean }>({ action: 'saveTreasuryEnabled', payload: enabled }),
+ saveReviewEngineSettings: (settings: ReviewEngineSettings) => request<{ reviewEngine: unknown }>({ action: 'saveReviewEngineSettings', payload: settings }),
  getUserTableSettings: () => request<Record<string, string>>({ action: 'getUserTableSettings' }),
  saveUserTableSettings: (settings: Record<string, string>) => request<{ ok: true }>({ action: 'saveUserTableSettings', payload: settings }),
 };
@@ -356,6 +375,10 @@ export type WorkspaceSharedSettings = {
  version: number;
  lockPastEditsEnabled: boolean;
  treasuryEnabled: boolean;
+ // Raw Second Accountant configuration as stored. Deliberately untyped here: the server keeps
+ // it opaque, and resolveReviewSettings is the single place that gives it a shape, filling in
+ // and clamping whatever an older version (or a hand-edited row) left behind.
+ reviewEngine: unknown;
 };
 
 export type BackupInfo = {

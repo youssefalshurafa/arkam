@@ -388,6 +388,10 @@ async function createClientAccount(app, { clientId, currencyId, startingBalance 
         throw new Error('Client and currency are required.');
     }
 
+    // A member opening a new currency account on Treasury (or on another member's cashbox)
+    // would hand themselves a ledger they are not allowed to write to elsewhere.
+    await assertMemberCanWriteClient(app, clientId);
+
     const { schema } = await getSchemaInfo(app);
     await query(
         `
@@ -657,6 +661,11 @@ async function updateClientAccountNote(app, { accountId, note, noteShowInPdf }) 
         throw new Error('Account id is required.');
     }
 
+    // The note is rendered on the exported PDF statement (note_show_in_pdf), so this is not a
+    // cosmetic field: a member must not be able to write onto Treasury's or another member's
+    // cashbox statement.
+    await assertMemberCanWriteAccount(app, accountId);
+
     const { schema } = await getSchemaInfo(app);
     await query(
         `UPDATE ${schema}.client_accounts SET note = $1, note_show_in_pdf = $2 WHERE id = $3`,
@@ -669,6 +678,11 @@ async function updateClientAccount(app, { accountId, currencyId, startingBalance
         throw new Error('Account id is required.');
     }
 
+    // This writes starting_balance too, so it was a way around the owner-only rule that
+    // updateClientAccountStartingBalance enforces on Treasury/Cashbox accounts — same guard,
+    // same reasoning, applied here so the two paths can't disagree.
+    await assertOwnerCanWriteSystemStartingBalance(app, accountId);
+
     const { schema } = await getSchemaInfo(app);
     await query(
         `UPDATE ${schema}.client_accounts SET currency_id = $1, starting_balance = $2 WHERE id = $3`,
@@ -676,7 +690,12 @@ async function updateClientAccount(app, { accountId, currencyId, startingBalance
     );
 }
 
+// Deletes the account row; ON DELETE CASCADE then removes every transaction on either side of
+// it, including the counterparty's entries in other clients' ledgers. Those cascaded rows leave
+// no transaction_history trail (see recordTransactionHistory's exclusion list), which is why
+// this is gated to owner/admin in route.ts on top of the per-row guard here.
 async function deleteClientAccount(app, accountId) {
+    await assertMemberCanWriteAccount(app, accountId);
     const { schema } = await getSchemaInfo(app);
     await query(`DELETE FROM ${schema}.client_accounts WHERE id = $1`, [accountId]);
 }
@@ -955,6 +974,26 @@ async function assertMemberCanWriteAccount(app, accountId) {
     if (app?.role !== 'member' || accountId == null) return;
     const infoById = await resolveSystemAccountInfo(app, [accountId]);
     const info = infoById.get(Number(accountId));
+    if (!info?.isSystem) return;
+    const isOwnCashbox = info.systemKind === 'cashbox' && info.ownerUserId === app.userId;
+    if (!isOwnCashbox) {
+        throw new Error('You do not have permission to modify this Treasury/Cashbox entry.');
+    }
+}
+
+// Client-level twin of assertMemberCanWriteAccount, for the write paths that are handed a
+// client id rather than an account id (createClientAccount). Same rule, same reasoning: a
+// `member` may not attach anything to a system client other than their own cashbox. Kept as a
+// separate query rather than routed through resolveSystemAccountInfo because that one keys off
+// client_accounts, and the account being guarded here does not exist yet.
+async function assertMemberCanWriteClient(app, clientId) {
+    if (app?.role !== 'member' || clientId == null) return;
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(
+        `SELECT is_system AS "isSystem", system_kind AS "systemKind", owner_user_id AS "ownerUserId" FROM ${schema}.clients WHERE id = $1`,
+        [Number(clientId)],
+    );
+    const info = result.rows[0];
     if (!info?.isSystem) return;
     const isOwnCashbox = info.systemKind === 'cashbox' && info.ownerUserId === app.userId;
     if (!isOwnCashbox) {
@@ -1607,7 +1646,22 @@ async function deleteTransactionsBulk(app, payload) {
         Boolean(payload?.acknowledgeReconciliationOverride),
     );
 
-    await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds]);
+    // Snapshot then delete, in one transaction, exactly as deleteTransaction does — this path
+    // (the ledger's and the table's multi-select delete) previously issued the DELETE on its own
+    // and left no audit trail at all, so bulk deletion was the one way to remove transactions
+    // without a trace. Per-row recordTransactionHistory rather than a single INSERT..SELECT
+    // because it is the same call the single-row path uses, which keeps the stored snapshot
+    // shape identical for both; TransactionHistorySection reads those raw snake_case columns.
+    //
+    // Snapshots every requested id, not just existing.rows: that SELECT above filters to
+    // is_archived = FALSE for the guard checks, while the DELETE takes archived rows too.
+    // recordTransactionHistory no-ops on an id that isn't there.
+    await withTransaction(async (client) => {
+        for (const transactionId of transactionIds) {
+            await recordTransactionHistory(app, schema, transactionId, 'delete', client);
+        }
+        await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds], client);
+    });
 
     return { ok: true, deleted: transactionIds.length };
 }
@@ -1762,11 +1816,52 @@ function txColValue(col, row, now) {
     }
 }
 
+// Every imported field that lands in a DOUBLE PRECISION column.
+//
+// Postgres accepts the literals 'NaN', 'Infinity' and '-Infinity' in a double precision column,
+// and node-postgres serializes the JS values to exactly those. One unparseable spreadsheet cell
+// is therefore enough to store a poison number, and because balances are replayed by summing
+// every row (accountBalances.ts), NaN then propagates to that account's balance, its
+// organization's total, the overview, and the harvest figure — permanently, and with no error
+// anywhere to say why the numbers stopped being numbers.
+//
+// schemas.ts deliberately validates only the envelope for this action and defers per-row checks
+// here so the message can name the offending row, which is what an accountant importing a
+// thousand-line spreadsheet actually needs. Until now there was no such check to defer to.
+const NUMERIC_IMPORT_FIELDS = [
+    'amount',
+    'exchangeRateFrom',
+    'commissionFrom',
+    'exchangeRateTo',
+    'commissionTo',
+    'charges',
+    'chargesExchangeRate',
+    'charges2',
+    'charges2ExchangeRate',
+    'exchangeActualAmount',
+];
+
+// null/undefined/'' mean "not supplied" and fall back to the defaults in txColValue; anything
+// else has to be a real, finite number.
+function assertImportRowNumbersFinite(row, index) {
+    for (const field of NUMERIC_IMPORT_FIELDS) {
+        const value = row?.[field];
+        if (value == null || value === '') continue;
+        if (!Number.isFinite(Number(value))) {
+            throw new Error(`Row ${index + 1}: "${field}" is not a valid number (${String(value)}).`);
+        }
+    }
+}
+
 // Inserts all reviewed import rows in bulk using multi-row INSERTs, reducing ~1000 HTTP
 // round-trips to a single request.
 async function bulkImportTransactions(app, { transactions = [] } = {}) {
     const { schema } = await getSchemaInfo(app);
     const now = new Date();
+
+    // Before anything is written, so a bad row aborts the whole import rather than leaving a
+    // partial one behind.
+    transactions.forEach(assertImportRowNumbersFinite);
 
     if (transactions.length > 0) {
         const cols = [
@@ -1806,12 +1901,12 @@ async function bulkImportTransactions(app, { transactions = [] } = {}) {
 async function getWorkspaceSettings(app) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(
-        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits", treasury_enabled AS "treasuryEnabled"
+        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits", treasury_enabled AS "treasuryEnabled", review_engine AS "reviewEngine"
          FROM ${schema}.workspace_settings WHERE id = 1`,
     );
     const row = result.rows[0];
     if (!row) {
-        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false, treasuryEnabled: false };
+        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false, treasuryEnabled: false, reviewEngine: {} };
     }
     return {
         sharedEnabled: Boolean(row.sharedEnabled),
@@ -1819,6 +1914,8 @@ async function getWorkspaceSettings(app) {
         version: Number(row.version) || 0,
         lockPastEditsEnabled: Boolean(row.lockPastEdits),
         treasuryEnabled: Boolean(row.treasuryEnabled),
+        // Passed through as stored; resolveReviewSettings on the client fills in and clamps it.
+        reviewEngine: row.reviewEngine && typeof row.reviewEngine === 'object' ? row.reviewEngine : {},
     };
 }
 
@@ -1847,6 +1944,23 @@ async function saveTreasuryEnabled(app, enabled) {
         [Boolean(enabled)],
     );
     return { treasuryEnabled: Boolean(enabled) };
+}
+
+// Saves the Second Accountant configuration (Settings > Second Accountant) — settable by owner
+// OR admin, same gate as the past-edit lock and the Treasury toggle (see route.ts). Stored as an
+// opaque JSON object: the shape lives in reviewSettings.ts on the client, which validates and
+// clamps every field on read, so the server deliberately does not duplicate that schema here.
+// It only refuses what would break the reader outright — anything that is not a plain object.
+async function saveReviewEngineSettings(app, settings) {
+    const { schema } = await getSchemaInfo(app);
+    const payload = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};
+    await query(
+        `INSERT INTO ${schema}.workspace_settings (id, review_engine, updated_at)
+         VALUES (1, $1::jsonb, NOW())
+         ON CONFLICT (id) DO UPDATE SET review_engine = $1::jsonb, updated_at = NOW()`,
+        [JSON.stringify(payload)],
+    );
+    return { reviewEngine: payload };
 }
 
 // Whether "lock past-dated edits" is currently on for this workspace.
@@ -2072,6 +2186,7 @@ module.exports = {
     saveWorkspaceSettings,
     saveWorkspacePastEditLock,
     saveTreasuryEnabled,
+    saveReviewEngineSettings,
     getUserTableSettings,
     saveUserTableSettings,
 };

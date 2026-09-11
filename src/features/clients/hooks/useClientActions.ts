@@ -66,7 +66,7 @@ export function useClientActions({
  const setClientAccounts = setters.setClientAccounts as Dispatch<SetStateAction<ClientAccount[]>>;
  const showToast = useAppStatusStore((s) => s.showToast);
  const clientSubmitLock = useRef(false);
- const { confirmIfLocked, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
+ const { checkLockForNewRow, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
 
  const clientForm = useClientsStore((s) => s.clientForm);
  const setClientForm = useClientsStore((s) => s.setClientForm);
@@ -280,13 +280,14 @@ async function onWriteOffBalance(accountId: number, balance: number, dateKey: st
  // Reconciliation guard: a write-off creates a new row, same as any other create path — one
  // dated at or before a lock line rewrites reconciled history. This was previously the one
  // create path in the app with no lock-aware warning at all.
- if (!(await confirmIfLocked([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID))) return;
+ const lock = await checkLockForNewRow([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID);
+ if (!lock.proceed) return;
 
  try {
   await accountingApi.createTransaction({
    accountFromId,
    accountToId,
-   acknowledgeReconciliationOverride: true,
+   acknowledgeReconciliationOverride: lock.overrode,
    currencyId: account.currencyId,
    amount,
    type: 'adjustment',

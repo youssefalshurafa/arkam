@@ -273,3 +273,41 @@ describe('regression: migrated/backfilled boundary data (non-contiguous locked i
   expect(isReconciledMember('2026-08-10T00:00:00.000Z', 5, boundary)).toBe(false);
  });
 });
+
+// Regression guard for the override-flag contract between this module and db.js.
+//
+// db.js's assertReconciliationNotViolated is POSITION-only: it refuses any write whose row sits
+// at or before a lock line, "regardless of whether that specific write actually moves the
+// reconciled number". reconciledImpact, which drives the confirm dialog, is deliberately finer —
+// it stays quiet when the numbers do not move.
+//
+// The two therefore disagree for a balance-neutral edit to locked history (renaming a
+// description, say). useReconciliationLocks.checkLockForEdit must derive the
+// acknowledgeReconciliationOverride it sends from the POSITION rule (violatedLock), not from
+// whether a dialog appeared — otherwise the server rejects an edit the UI never warned about,
+// and the user sees "affects a reconciled balance" for changing a word.
+describe('override flag must follow the server position rule, not the dialog', () => {
+ const boundary = makeBoundary();
+ const boundaries = new Map<number, LockBoundary>([[10, boundary]]);
+ // A row inside the reconciled set, being edited without changing what it contributes.
+ const lockedRow = { createdAt: '2026-08-08T10:00:00', refId: 1, net: 500, present: true };
+
+ it('reports no balance impact for a balance-neutral edit to a locked row', () => {
+  const impact = reconciledImpact([{ accountId: 10, old: lockedRow, next: { ...lockedRow } }], boundaries);
+  expect(impact).toBeNull();
+ });
+
+ it('still reports a position violation for that same edit', () => {
+  expect(violatedLock([10], lockedRow.createdAt, lockedRow.refId, boundaries)).not.toBeNull();
+ });
+
+ it('reports no position violation for a row after the lock line', () => {
+  expect(violatedLock([10], '2026-08-11T10:00:00', 5, boundaries)).toBeNull();
+ });
+
+ it('catches a re-date that moves a free row back into locked history', () => {
+  // Old position is clear, new position is not — checkLockForEdit tests both for this reason.
+  expect(violatedLock([10], '2026-08-11T10:00:00', 5, boundaries)).toBeNull();
+  expect(violatedLock([10], '2026-08-09T10:00:00', 5, boundaries)).not.toBeNull();
+ });
+});
