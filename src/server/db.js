@@ -348,6 +348,7 @@ async function listAllClientAccounts(app) {
                 c.is_system AS "isSystem",
                 c.system_kind AS "systemKind",
                 c.owner_user_id AS "ownerUserId",
+                ca.is_dormant AS "isDormant",
                 ca.created_at AS "createdAt"
             FROM ${schema}.client_accounts ca
             JOIN ${schema}.clients c ON c.id = ca.client_id
@@ -373,6 +374,7 @@ async function listClientAccounts(app, clientId) {
             ca.starting_balance AS "startingBalance",
             ca.note AS "note",
             ca.note_show_in_pdf AS "noteShowInPdf",
+            ca.is_dormant AS "isDormant",
             ca.created_at AS "createdAt"
         FROM ${schema}.client_accounts ca
         JOIN ${schema}.clients c ON c.id = ca.client_id
@@ -455,6 +457,7 @@ async function getTreasuryLedgerData(app) {
             c.is_system AS "isSystem",
             c.system_kind AS "systemKind",
             c.owner_user_id AS "ownerUserId",
+            ca.is_dormant AS "isDormant",
             ca.created_at AS "createdAt"
         FROM ${schema}.client_accounts ca
         JOIN ${schema}.clients c ON c.id = ca.client_id
@@ -670,6 +673,25 @@ async function updateClientAccountNote(app, { accountId, note, noteShowInPdf }) 
     await query(
         `UPDATE ${schema}.client_accounts SET note = $1, note_show_in_pdf = $2 WHERE id = $3`,
         [note ?? '', Boolean(noteShowInPdf), accountId],
+    );
+}
+
+// Flips a single account between active and dormant ("حساب راكد"). Purely a visibility flag:
+// nothing about the account's ledger, balance or history changes — it just stops being offered
+// in the transaction form's account pickers (see filterActiveClientAccounts on the client).
+async function updateClientAccountDormant(app, { accountId, isDormant }) {
+    if (!accountId) {
+        throw new Error('Account id is required.');
+    }
+
+    // Same write-scope rule as the note: a member must not be able to hide Treasury's or
+    // another member's cashbox account from everyone else's pickers.
+    await assertMemberCanWriteAccount(app, accountId);
+
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `UPDATE ${schema}.client_accounts SET is_dormant = $1 WHERE id = $2`,
+        [Boolean(isDormant), accountId],
     );
 }
 
@@ -2149,6 +2171,7 @@ module.exports = {
     ensureSystemAccount,
     updateClientAccountStartingBalance,
     updateClientAccountNote,
+    updateClientAccountDormant,
     updateClientAccount,
     deleteClientAccount,
     moveAccountTransactions,

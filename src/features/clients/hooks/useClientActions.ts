@@ -361,6 +361,21 @@ async function onSaveEditAccount() {
  }
 }
 
+// Marks one account dormant ("حساب راكد") or brings it back. Nothing about the account's
+// ledger or balance changes — it just stops being offered in the transaction pickers — so the
+// local list is patched optimistically and the refetch left to catch up in the background.
+async function onToggleAccountDormant(accountId: number, isDormant: boolean) {
+ if (!accountingApi) return;
+ setClientAccounts((prev) => prev.map((account) => (account.id === accountId ? { ...account, isDormant } : account)));
+ try {
+  await accountingApi.updateClientAccountDormant({ accountId, isDormant });
+  void loadData();
+ } catch (e) {
+  setClientAccounts((prev) => prev.map((account) => (account.id === accountId ? { ...account, isDormant: !isDormant } : account)));
+  setError(e instanceof Error ? e.message : t('error_failed_save'));
+ }
+}
+
 async function onDeleteClientAccount(accountId: number) {
  if (!accountingApi) return;
  if (!(await confirmDialog({ message: t('client_account_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) return;
@@ -429,6 +444,7 @@ function onClientsOrgDrop(targetKey: string) {
   onAddClientAccount,
   onSaveEditAccount,
   onDeleteClientAccount,
+  onToggleAccountDormant,
   onMoveAccountTransactions,
   onUpdateAccountStartingBalance,
   onClientsOrgDrop,

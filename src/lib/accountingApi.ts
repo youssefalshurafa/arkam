@@ -203,6 +203,10 @@ export const accountingApi = {
  updateClientAccountStartingBalance: (payload: unknown) => request<{ ok: true }>({ action: 'updateClientAccountStartingBalance', payload }),
  updateClientAccountNote: (payload: { accountId: number; note: string; noteShowInPdf: boolean }) =>
   request<{ ok: true }>({ action: 'updateClientAccountNote', payload }),
+ // Marks one account dormant ("حساب راكد") or active again — a picker-visibility flag only,
+ // it changes nothing about the account's ledger or balances.
+ updateClientAccountDormant: (payload: { accountId: number; isDormant: boolean }) =>
+  request<{ ok: true }>({ action: 'updateClientAccountDormant', payload }),
  updateClientAccount: (payload: unknown) => request<{ ok: true }>({ action: 'updateClientAccount', payload }),
  deleteClientAccount: (accountId: number) => request<{ ok: true }>({ action: 'deleteClientAccount', payload: accountId }),
  moveAccountTransactions: (payload: { fromAccountId: number; toAccountId: number }) =>

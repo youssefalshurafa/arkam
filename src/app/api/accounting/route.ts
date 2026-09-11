@@ -65,6 +65,7 @@ const writeActions = new Set([
  'ensureSystemAccount',
  'updateClientAccountStartingBalance',
  'updateClientAccountNote',
+ 'updateClientAccountDormant',
  'updateClientAccount',
  'deleteClientAccount',
  'moveAccountTransactions',
@@ -420,6 +421,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
    case 'updateClientAccountNote':
     await db.updateClientAccountNote(appLike, payload);
+    return NextResponse.json({ ok: true });
+   case 'updateClientAccountDormant':
+    await db.updateClientAccountDormant(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'updateClientAccount':
     await db.updateClientAccount(appLike, payload);

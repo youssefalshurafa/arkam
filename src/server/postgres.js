@@ -494,6 +494,13 @@ async function ensureWorkspaceSchema(workspaceId) {
                 ALTER TABLE ${schema}.client_accounts ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
                 ALTER TABLE ${schema}.client_accounts ADD COLUMN IF NOT EXISTS note_show_in_pdf BOOLEAN NOT NULL DEFAULT FALSE;
 
+                -- "Dormant" (حساب راكد) accounts keep everything — ledger, history, balances, PDF
+                -- exports — but drop out of the transaction form's account pickers, so long-idle
+                -- accounts stop cluttering them. A client every one of whose accounts is dormant
+                -- disappears from those pickers too, because the pickers group by whichever
+                -- accounts survive the filter (see filterActiveClientAccounts).
+                ALTER TABLE ${schema}.client_accounts ADD COLUMN IF NOT EXISTS is_dormant BOOLEAN NOT NULL DEFAULT FALSE;
+
                 -- A transaction may be missing one party (e.g. money received from an unknown sender);
                 -- such incomplete transactions surface in the Archive until both parties are filled in.
                 ALTER TABLE ${schema}.transactions ALTER COLUMN account_from_id DROP NOT NULL;

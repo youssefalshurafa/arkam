@@ -14,6 +14,7 @@ import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerB
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
+import { filterActiveClientAccounts } from '@/shared/utils/dormantAccounts';
 import TransactionHistorySection from '@/features/transactions/components/TransactionHistorySection';
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import EditableField from '@/shared/components/EditableField';
@@ -223,6 +224,11 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
   return currentRate === 1 && !reversed ? 0 : currentRate;
  };
 
+ // Dormant accounts ("حساب راكد") are out of circulation and aren't offered when re-pointing a
+ // side at another client — except the two this transaction already uses, which stay listed so
+ // an account that went dormant after the fact still renders its name here.
+ const selectableAccounts = filterActiveClientAccounts(clientAccounts, [tx.accountFromId, tx.accountToId]);
+
  const sideCard = (opts: {
   title: string;
   name: string;
@@ -245,7 +251,7 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
    <div className="mt-1">
     {opts.onCommitAccount ? (
      <EditableAccountField
-      accounts={clientAccounts}
+      accounts={selectableAccounts}
       value={opts.accountId}
       name={opts.name}
       currencyCode={opts.currencyCode}
