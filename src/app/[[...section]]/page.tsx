@@ -108,6 +108,7 @@ import {
  type CommissionAnomaly,
  buildIgnoredAnomalySet,
  buildAcceptedRates,
+ buildAcceptedCommissions,
  buildWorkspaceAnomalies,
  anomalyKey,
 } from '@/features/ledger/utils/ledgerAnomalies';
@@ -2000,22 +2001,32 @@ function AuthenticatedHome() {
   const rateSamples = buildRateSamples(transactions, reviewSettings);
   const commissionSamples = buildCommissionSamples(transactions, reviewSettings);
   const acceptedRates = buildAcceptedRates(transactions, ignoredAnomalies);
+  const acceptedCommissions = buildAcceptedCommissions(transactions, ignoredAnomalies);
   const rate = new Map<number, RateAnomaly>();
   const commission = new Map<number, CommissionAnomaly>();
   const ignoredKeys = new Set<string>();
   for (const ledger of selectedClientLedgers) {
    for (const entry of ledger.entries) {
+    // A row dismissed with "normal for this description" stops flagging outright — the acceptance
+    // is fed back into the check, so there is no warning left for the ignore to be hiding. Without
+    // the second look below it would also lose its chip, and the chip is the only way back: an
+    // acceptance made by mistake would be permanent. So a row carrying a dismissal is re-checked
+    // WITHOUT the accepted values, and keeps its chip whenever that is what is silencing it.
+    const rateKey = anomalyKey('rate', entry.transactionId, ledger.accountId);
     const rateAnomaly = checkLedgerEntry(entry, ledger.currencyCode, rateSamples, acceptedRates);
     if (rateAnomaly) {
-     const key = anomalyKey('rate', entry.transactionId, ledger.accountId);
-     if (ignoredAnomalySet.has(key)) ignoredKeys.add(key);
+     if (ignoredAnomalySet.has(rateKey)) ignoredKeys.add(rateKey);
      else rate.set(entry.transactionId, rateAnomaly);
+    } else if (ignoredAnomalySet.has(rateKey) && checkLedgerEntry(entry, ledger.currencyCode, rateSamples)) {
+     ignoredKeys.add(rateKey);
     }
-    const commissionAnomaly = checkLedgerEntryCommission(entry, ledger.accountId, commissionSamples);
+    const commissionKey = anomalyKey('commission', entry.transactionId, ledger.accountId);
+    const commissionAnomaly = checkLedgerEntryCommission(entry, ledger.accountId, commissionSamples, acceptedCommissions);
     if (commissionAnomaly) {
-     const key = anomalyKey('commission', entry.transactionId, ledger.accountId);
-     if (ignoredAnomalySet.has(key)) ignoredKeys.add(key);
+     if (ignoredAnomalySet.has(commissionKey)) ignoredKeys.add(commissionKey);
      else commission.set(entry.transactionId, commissionAnomaly);
+    } else if (ignoredAnomalySet.has(commissionKey) && checkLedgerEntryCommission(entry, ledger.accountId, commissionSamples)) {
+     ignoredKeys.add(commissionKey);
     }
     // A dismissed "needs a rate" entry has no badge here to hide — it was dropped from the
     // pending-pricing queue instead, leaving the transaction unpriced and out of every balance

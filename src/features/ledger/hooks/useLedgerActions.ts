@@ -1084,16 +1084,22 @@ async function onRemoveReconciliation(entry: ClientLedgerEntry, ledgerAccountId:
 // of the transaction this applies to.
 async function onIgnoreAnomaly(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string, description?: string) {
  const message = reason ? `${reason}\n\n${t('ignore_anomaly_confirm')}` : t('ignore_anomaly_confirm');
- // A rate flag on a described row offers a third answer: accept this rate as normal for every row
- // carrying that description. That is the only way a small group ever stops being flagged — it can
- // never reach the sample count needed to form a reference of its own. The offer is explicit
- // rather than inferred, because it changes how OTHER rows are judged, and it teaches rather than
- // exempts: a row in the group at a genuinely wrong rate still flags (see buildAcceptedRates).
- const groupLabel = kind === 'rate' ? (description ?? '').trim() : '';
+ // A rate or commission flag on a described row offers a third answer: accept this value as normal
+ // for every row carrying that description. That is the only way a small group ever stops being
+ // flagged — it can never reach the sample count needed to form a reference of its own. For a
+ // commission it is also the only way a CHANGED convention is ever heard: a client whose "Factura"
+ // work moved from 0% to 1% is judged against a history that is still overwhelmingly 0%, so
+ // row-by-row dismissals can be clicked forever without the next row being judged any differently.
+ // The offer is explicit rather than inferred, because it changes how OTHER rows are judged, and it
+ // teaches rather than exempts: a row in the group at a genuinely wrong value still flags (see
+ // buildAcceptedRates / buildAcceptedCommissions).
+ const groupLabel = kind === 'rate' || kind === 'commission' ? (description ?? '').trim() : '';
  let scope: 'row' | 'description' = 'row';
  if (groupLabel) {
+  // The rate wording asks about "this rate"; the commission flag needs its own sentence.
+  const scopeHintKey = kind === 'commission' ? 'ignore_anomaly_scope_hint_commission' : 'ignore_anomaly_scope_hint';
   const answer = await choiceDialog({
-   message: `${message}\n\n${t('ignore_anomaly_scope_hint', { description: groupLabel })}`,
+   message: `${message}\n\n${t(scopeHintKey, { description: groupLabel })}`,
    choices: [
     { key: 'row', label: t('ignore_anomaly_scope_row') },
     { key: 'description', label: t('ignore_anomaly_scope_description', { description: groupLabel }) },
@@ -1203,23 +1209,47 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
  const dateOf = (key: string) => entryMap.get(key)?.createdAt.slice(0, 10) ?? '';
 
- // A row's date is only ever changed by an explicit manual edit, never by dragging it —
- // so only rows that already share the target row's date are eligible to move; any dragged
- // row from a different date is dropped from this operation and keeps its position untouched.
  const targetDate = dateOf(targetKey);
- const dragSet = new Set(draggedKeys.filter((k) => k !== targetKey && dateOf(k) === targetDate));
+ const dragSet = new Set(draggedKeys.filter((k) => k !== targetKey && entryMap.has(k)));
  if (dragSet.size === 0) return;
+
+ // Dropping a row onto a different day is the one reorder that rewrites a DATE rather than just
+ // a position — the row genuinely becomes a transaction of the day it was dropped on. It used to
+ // be filtered out here and the drag simply did nothing, which read as a broken drag rather than
+ // a refused one. It is allowed now, but never silently: a date is a fact about the transaction,
+ // not a display detail, so the user is shown which date it is leaving and which it is joining
+ // and has to say yes. Same-day reorders are untouched by this and stay silent.
+ const crossDateKeys = [...dragSet].filter((key) => dateOf(key) !== targetDate);
+ if (crossDateKeys.length > 0) {
+  const movedFromDates = [...new Set(crossDateKeys.map(dateOf))];
+  // A move across days IS a date edit, so it answers to the workspace's past-edit lock exactly
+  // as the row's own date field would — both the day it leaves and the day it lands on.
+  if (blockedByPastEditLock([...movedFromDates, targetDate])) return;
+  const toLabel = formatDateValue(targetDate, 'full');
+  const confirmed = await confirmDialog({
+   title: t('ledger_drag_date_change_title'),
+   message:
+    crossDateKeys.length === 1
+     ? t('ledger_drag_date_change_message', { from: formatDateValue(movedFromDates[0], 'full'), to: toLabel })
+     : t('ledger_drag_date_change_message_many', { count: crossDateKeys.length, to: toLabel }),
+   note: t('ledger_drag_date_change_note'),
+   confirmText: t('ledger_drag_date_change_confirm'),
+  });
+  if (!confirmed) return;
+ }
 
  // The ledger is ordered by createdAt (ascending). Same-date rows often share an
  // identical timestamp (e.g. expenses at 00:00:00), leaving no room to insert between
  // them, so we reflow the target date's rows to distinct, evenly-spaced timestamps in
- // the new order. That makes the reorder durable without touching any row's date.
- const dateGroup = currentOrder.filter((k) => dateOf(k) === targetDate);
- const without = dateGroup.filter((k) => !dragSet.has(k));
+ // the new order. That makes the reorder durable; rows that were already on this date keep it,
+ // and a row dragged in from another day picks it up here — which is the move confirmed above.
+ const without = currentOrder.filter((k) => dateOf(k) === targetDate && !dragSet.has(k));
  const insertIdx = without.indexOf(targetKey);
  if (insertIdx === -1) return;
  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
- const orderedDragged = dateGroup.filter((k) => dragSet.has(k));
+ // Read off the ledger as a whole, not off the target day, so rows arriving from another date
+ // are included and a multi-row drag keeps the order the rows had on screen.
+ const orderedDragged = currentOrder.filter((k) => dragSet.has(k));
  const next = [...without.slice(0, insertAt), ...orderedDragged, ...without.slice(insertAt)];
 
  const newTimes = new Map<string, string>();
@@ -1270,12 +1300,15 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   );
  };
 
+ // The ledger as it will read after the drop: every row the reflow doesn't touch in its current
+ // order, with the target day's rebuilt block put back where that day belongs. The block is
+ // placed by date rather than by its old indices because it can now be LONGER than the day it
+ // replaces — a row dropped in from another date leaves a gap behind it and joins this one.
  const proposedEntries = (() => {
-  const reordered = [...currentOrder];
-  const groupPositions = currentOrder.flatMap((key, index) => (dateOf(key) === targetDate ? [index] : []));
-  groupPositions.forEach((position, i) => {
-   reordered[position] = next[i];
-  });
+  const reflowed = new Set(next);
+  const rest = currentOrder.filter((key) => !reflowed.has(key));
+  const firstLaterDay = rest.findIndex((key) => dateOf(key) > targetDate);
+  const reordered = firstLaterDay === -1 ? [...rest, ...next] : [...rest.slice(0, firstLaterDay), ...next, ...rest.slice(firstLaterDay)];
   return reordered.flatMap((key) => {
    const entry = entryMap.get(key);
    return entry ? [entry] : [];
@@ -1330,9 +1363,9 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  // reconciled. Re-time each affected transaction through the same balance-aware check a
  // direct edit uses. Under the frozen anchorDate/lockedTransactionIds model this can only
  // ever produce a hit if a row's CALENDAR DAY changes, which a same-day reflow never does —
- // so in practice a pure same-day reorder is always silent, including for the anchor's own
- // row — but every reflowed row (not just the explicitly dragged ones) is still checked as a
- // structural safety net, one dialog for the whole batch.
+ // so a pure same-day reorder is always silent, including for the anchor's own row, and it is
+ // a row dropped in from ANOTHER day (confirmed above) that can actually land here. Every
+ // reflowed row is checked, not just the explicitly dragged ones, in one dialog for the batch.
  let dragLockHit: { accountId: number; boundary: LockBoundary } | null = null;
  for (const [key, newCreatedAt] of newTimes) {
   const entry = entryMap.get(key);

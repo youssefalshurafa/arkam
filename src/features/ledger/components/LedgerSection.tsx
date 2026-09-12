@@ -675,10 +675,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
  //
  // Everything here is expressed as a drop, so it goes through the very same reorder engine as the
  // drag (onLedgerRowDrop): same same-day reflow of createdAt, same reconciliation guard, same
- // optimistic update. A move is therefore only ever legal WITHIN one calendar day — a row's date
- // is changed by an explicit edit, never by reordering — so each of the four moves resolves to a
- // target sharing this row's date, or to null, which renders the menu item greyed out rather than
- // letting a click do nothing at all.
+ // optimistic update. These moves are deliberately kept WITHIN one calendar day: a drag can cross
+ // days because the user aims at a specific row on a specific date and is asked to confirm the
+ // date change, whereas "move down"/"move to end of day" name no date at all and must not quietly
+ // re-date a row. So each of the four resolves to a target sharing this row's date, or to null,
+ // which renders the menu item greyed out rather than letting a click do nothing at all.
  type LedgerRowMove = { targetKey: string; half: DragHalf; newIndex: number };
  const ledgerRowMoves = (entry: ClientLedgerEntry, ledger: ClientAccountLedger) => {
   const visible = visibleLedgerEntries(ledger.entries);
@@ -3412,7 +3413,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                    <button
                                     type="button"
                                     title={commissionAnomalyText(entry, commissionAnomaly).hint}
-                                    onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId, commissionAnomalyText(entry, commissionAnomaly).reason)}
+                                    onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId, commissionAnomalyText(entry, commissionAnomaly).reason, entry.description)}
                                     onAnimationEnd={() => setFlashingLedgerBadge(null)}
                                     className={`inline-flex items-center gap-1 rounded-full bg-warn-bg px-1.5 py-0.5 text-[10px] font-semibold text-warn-text transition hover:opacity-80${
                                      flashingLedgerBadge?.kind === 'commission' && flashingLedgerBadge.rowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)
@@ -3639,7 +3640,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            <button
                             type="button"
                             title={commissionAnomalyText(entry, commissionAnomaly).hint}
-                            onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId, commissionAnomalyText(entry, commissionAnomaly).reason)}
+                            onClick={() => onIgnoreAnomaly('commission', entry.transactionId, ledger.accountId, commissionAnomalyText(entry, commissionAnomaly).reason, entry.description)}
                             onAnimationEnd={() => setFlashingLedgerBadge(null)}
                             className={badgeClassName('commission')}
                            >
