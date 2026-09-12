@@ -1651,6 +1651,7 @@ function AuthenticatedHome() {
   onSaveEditAccount,
   onDeleteClientAccount,
   onToggleAccountDormant,
+  onToggleAllAccountsDormant,
   onMoveAccountTransactions,
   onClientsOrgDrop,
  } = useClientActions({
@@ -2379,6 +2380,7 @@ function AuthenticatedHome() {
    onAddClientAccount={onAddClientAccount}
    onDeleteClientAccount={onDeleteClientAccount}
    onToggleAccountDormant={onToggleAccountDormant}
+   onToggleAllAccountsDormant={onToggleAllAccountsDormant}
    onMoveAccountTransactions={onMoveAccountTransactions}
    onSaveEditAccount={onSaveEditAccount}
    openClientLedger={openClientLedger}

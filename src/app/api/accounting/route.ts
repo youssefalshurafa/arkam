@@ -66,6 +66,7 @@ const writeActions = new Set([
  'updateClientAccountStartingBalance',
  'updateClientAccountNote',
  'updateClientAccountDormant',
+ 'updateClientAccountsDormant',
  'updateClientAccount',
  'deleteClientAccount',
  'moveAccountTransactions',
@@ -84,6 +85,7 @@ const writeActions = new Set([
  'deleteTransactionsBulk',
  'deleteAllTransactions',
  'createReconciliation',
+ 'updateReconciliation',
  'deleteReconciliation',
  'createIgnoredAnomaly',
  'deleteIgnoredAnomaly',
@@ -425,6 +427,9 @@ export async function POST(request: NextRequest) {
    case 'updateClientAccountDormant':
     await db.updateClientAccountDormant(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'updateClientAccountsDormant':
+    await db.updateClientAccountsDormant(appLike, payload);
+    return NextResponse.json({ ok: true });
    case 'updateClientAccount':
     await db.updateClientAccount(appLike, payload);
     return NextResponse.json({ ok: true });
@@ -498,6 +503,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.listReconciliations(appLike));
    case 'createReconciliation':
     return NextResponse.json(await db.createReconciliation(appLike, payload));
+   case 'updateReconciliation':
+    await db.updateReconciliation(appLike, payload);
+    return NextResponse.json({ ok: true });
    case 'deleteReconciliation':
     await db.deleteReconciliation(appLike, payload);
     return NextResponse.json({ ok: true });

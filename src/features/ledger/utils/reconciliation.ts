@@ -171,3 +171,69 @@ export function violatedLock(
  }
  return null;
 }
+
+/** One ✓ whose balance a proposed reorder would actually move. */
+export type ReorderMarkChange = { id: number; from: number; to: number; lockedTransactionIds: number[] };
+
+// The minimum of a ledger entry this needs; keeps the helper testable without a full entry.
+type OrderedEntry = {
+ transactionId: number;
+ netChange: number;
+ runningBalance: number;
+ reconciledMark?: { id: number } | null;
+};
+
+/**
+ * Which of a ledger's ✓ marks a reorder would actually change, given the entries in their
+ * current order and in the proposed one.
+ *
+ * A ✓'s balance is the sum of the rows standing above it, so a reorder can only move it by
+ * changing WHICH rows those are. Rows shuffled among themselves — all above a ✓, all below
+ * it, or between two of them — leave every set identical and every agreed balance untouched;
+ * that is the overwhelmingly common drag and it must pass in silence. So membership is
+ * compared directly rather than by re-deriving each balance and testing for equality: set
+ * identity is exact, needs no floating-point tolerance, and cannot drift from the engine that
+ * renders the ledger.
+ *
+ * Only when a set really does change is a number produced, and even then it is anchored to the
+ * engine's own displayed runningBalance at that ✓ row and moved by the net of the rows that
+ * crossed the line — never recomputed from scratch, so what the user is shown always reconciles
+ * with what is on screen.
+ */
+export function marksAffectedByReorder(current: OrderedEntry[], proposed: OrderedEntry[]): ReorderMarkChange[] {
+ const scan = (entries: OrderedEntry[]) => {
+  const byMark = new Map<number, { ids: number[]; netAbove: number; runningBalance: number }>();
+  const ids: number[] = [];
+  let netAbove = 0;
+  for (const entry of entries) {
+   ids.push(entry.transactionId);
+   netAbove += entry.netChange;
+   if (entry.reconciledMark) {
+    byMark.set(entry.reconciledMark.id, { ids: [...ids], netAbove, runningBalance: entry.runningBalance });
+   }
+  }
+  return byMark;
+ };
+
+ const before = scan(current);
+ const after = scan(proposed);
+ const changes: ReorderMarkChange[] = [];
+ for (const [markId, afterMark] of after) {
+  const beforeMark = before.get(markId);
+  if (!beforeMark) continue;
+  const unchanged =
+   beforeMark.ids.length === afterMark.ids.length && afterMark.ids.every((id, index) => id === beforeMark.ids[index]);
+  if (unchanged) continue;
+  // Order alone changing within the same set still leaves the balance alone — only a
+  // different SET of rows above the line can move it.
+  const beforeSet = new Set(beforeMark.ids);
+  if (beforeMark.ids.length === afterMark.ids.length && afterMark.ids.every((id) => beforeSet.has(id))) continue;
+  changes.push({
+   id: markId,
+   from: beforeMark.runningBalance,
+   to: beforeMark.runningBalance + (afterMark.netAbove - beforeMark.netAbove),
+   lockedTransactionIds: [...afterMark.ids],
+  });
+ }
+ return changes;
+}

@@ -695,6 +695,26 @@ async function updateClientAccountDormant(app, { accountId, isDormant }) {
     );
 }
 
+// Every account of one client at once — what the client's accounts panel offers as a single
+// "mark all dormant" / "bring all back" action, so a client that has stopped trading can be
+// taken out of the transaction pickers entirely in one click instead of account by account.
+// Deliberately one UPDATE rather than a loop of updateClientAccountDormant calls: the panel
+// treats it as a single toggle, so it should not be able to half-apply.
+async function updateClientAccountsDormant(app, { clientId, isDormant }) {
+    if (!clientId) {
+        throw new Error('Client id is required.');
+    }
+
+    // Same write-scope rule as the per-account flag, checked once for the owning client.
+    await assertMemberCanWriteClient(app, clientId);
+
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `UPDATE ${schema}.client_accounts SET is_dormant = $1 WHERE client_id = $2`,
+        [Boolean(isDormant), clientId],
+    );
+}
+
 async function updateClientAccount(app, { accountId, currencyId, startingBalance }) {
     if (!accountId) {
         throw new Error('Account id is required.');
@@ -1276,7 +1296,17 @@ async function updateTransaction(app, txn) {
     const { schema } = await getSchemaInfo(app);
 
     const existing = await query(
-        `SELECT created_at AS "createdAt", is_archived AS "isArchived", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1`,
+        // Everything isSameDayRetime compares comes along here, so a pure reorder can be told
+        // apart from an edit without a second round-trip.
+        `SELECT created_at AS "createdAt", is_archived AS "isArchived", account_from_id AS "accountFromId", account_to_id AS "accountToId",
+                currency_id AS "currencyId", amount, type,
+                exchange_rate_from AS "exchangeRateFrom", commission_from AS "commissionFrom",
+                exchange_rate_to AS "exchangeRateTo", commission_to AS "commissionTo",
+                exchange_rate_from_reversed AS "exchangeRateFromReversed", exchange_rate_to_reversed AS "exchangeRateToReversed",
+                charges, charges_currency_id AS "chargesCurrencyId", charges_payer AS "chargesPayer", charges_exchange_rate AS "chargesExchangeRate",
+                charges2, charges2_currency_id AS "charges2CurrencyId", charges2_payer AS "chargesPayer2", charges2_exchange_rate AS "charges2ExchangeRate",
+                exchange_actual_amount AS "exchangeActualAmount"
+         FROM ${schema}.transactions WHERE id = $1`,
         [txn.id],
     );
     const existingRow = existing.rows[0];
@@ -1290,7 +1320,10 @@ async function updateTransaction(app, txn) {
                 { accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId, createdAt: existingRow.createdAt, refId: txn.id, isArchived: existingRow.isArchived },
                 { accountFromId: txn.accountFromId, accountToId: txn.accountToId, createdAt: txn.createdAt, refId: txn.id, isArchived: existingRow.isArchived },
             ],
-            Boolean(txn.acknowledgeReconciliationOverride),
+            // A same-day reorder is exempt on its own merits (see isSameDayRetime) — it is the
+            // one write the client's precise guard correctly stays silent about, so requiring an
+            // override for it only ever produced a drag that snapped back.
+            Boolean(txn.acknowledgeReconciliationOverride) || isSameDayRetime(existingRow, txn),
         );
     }
 
@@ -1504,6 +1537,26 @@ async function createReconciliation(app, { accountId, anchorTransactionId, ancho
         [accountId, anchorTransactionId, anchorDate, balance ?? 0, note?.trim() || '', lockedTransactionIds],
     );
     return result.rows[0];
+}
+
+// Re-points an existing reconciliation at the balance that now stands above its ✓ row, with
+// the membership snapshot that produces it. Reordering rows inside the set never needs this —
+// membership is frozen precisely so it doesn't — but a drag that moves a row ACROSS the ✓ line
+// genuinely changes what the agreed number is a sum of, and the ledger warns with the old and
+// new figure and calls this once the user accepts (see onLedgerRowDrop). anchor_date is left
+// alone: the day the balance was agreed on does not move.
+async function updateReconciliation(app, { id, balance, lockedTransactionIds }) {
+    if (!id) throw new Error('Reconciliation id is required.');
+    if (!Array.isArray(lockedTransactionIds) || lockedTransactionIds.length === 0) {
+        throw new Error('The reconciled row set is required.');
+    }
+    const { schema } = await getSchemaInfo(app);
+    const existing = await query(`SELECT account_id AS "accountId" FROM ${schema}.reconciliations WHERE id = $1`, [id]);
+    await assertMemberCanWriteAccount(app, existing.rows[0]?.accountId);
+    await query(
+        `UPDATE ${schema}.reconciliations SET balance = $1, locked_transaction_ids = $2 WHERE id = $3`,
+        [balance ?? 0, lockedTransactionIds, id],
+    );
 }
 
 async function deleteReconciliation(app, id) {
@@ -2064,6 +2117,78 @@ async function getActiveReconciliationBoundaries(schema) {
     return byAccount;
 }
 
+// The fields a reconciled balance is computed from — the server-side mirror of what
+// computeTransactionSideNetChange consumes. An allowlist on purpose: a new field that feeds
+// the balance math but is missing here would silently widen the same-day-retime exemption
+// below, so the two must be kept in step. Both arguments are normalized to the values the
+// UPDATE actually writes, so they are directly comparable.
+function reconciliationBalanceFields(row) {
+    return [
+        row.accountFromId,
+        row.accountToId,
+        row.currencyId,
+        row.amount,
+        row.type,
+        row.exchangeRateFrom,
+        row.commissionFrom,
+        row.exchangeRateTo,
+        row.commissionTo,
+        Boolean(row.exchangeRateFromReversed),
+        Boolean(row.exchangeRateToReversed),
+        row.charges,
+        row.chargesCurrencyId,
+        row.chargesPayer,
+        row.chargesExchangeRate,
+        row.charges2,
+        row.charges2CurrencyId,
+        row.chargesPayer2,
+        row.charges2ExchangeRate,
+        row.exchangeActualAmount,
+    ];
+}
+
+// True when an update does nothing but move a row WITHIN its own calendar day — which is
+// exactly what a ledger drag does (onLedgerRowDrop reflows a day's rows to evenly spaced
+// timestamps to make the new order durable).
+//
+// Such a write cannot touch a reconciliation. Membership is frozen by calendar DAY, with the
+// frozen locked-transaction-ids set breaking same-day ties (isReconciledMemberServer), and a
+// same-day reflow changes neither. The reconciled balance is the sum over that unchanged set,
+// and reordering rows inside it does not change a sum. The client's precise guard knows this
+// and stays silent, so it sends no override — while the coarse position-only check below
+// rejected the write anyway, and the drag visibly snapped back to where it started. Hence the
+// exemption. Any write that also EDITS the row still has to answer to the check: every
+// balance-affecting field must be identical for this to return true.
+function isSameDayRetime(existingRow, txn) {
+    if (!existingRow) return false;
+    if (createdAtDateKey(existingRow.createdAt) !== createdAtDateKey(txn.createdAt)) return false;
+    const existingFields = reconciliationBalanceFields(existingRow);
+    const incomingFields = reconciliationBalanceFields({
+        accountFromId: txn.accountFromId || null,
+        accountToId: txn.accountToId || null,
+        currencyId: txn.currencyId,
+        amount: txn.amount || 0,
+        type: txn.type || 'exchange',
+        exchangeRateFrom: txn.exchangeRateFrom != null ? txn.exchangeRateFrom : 1,
+        commissionFrom: txn.commissionFrom || 0,
+        exchangeRateTo: txn.exchangeRateTo != null ? txn.exchangeRateTo : 1,
+        commissionTo: txn.commissionTo || 0,
+        exchangeRateFromReversed: txn.exchangeRateFromReversed,
+        exchangeRateToReversed: txn.exchangeRateToReversed,
+        charges: txn.charges || 0,
+        chargesCurrencyId: txn.chargesCurrencyId || null,
+        chargesPayer: txn.chargesPayer || '',
+        chargesExchangeRate: txn.chargesExchangeRate != null ? txn.chargesExchangeRate : 1,
+        charges2: txn.charges2 || 0,
+        charges2CurrencyId: txn.charges2CurrencyId || null,
+        chargesPayer2: txn.chargesPayer2 || '',
+        charges2ExchangeRate: txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
+        // COALESCEd in the UPDATE: `undefined` means "leave as it is", so it cannot differ.
+        exchangeActualAmount: txn.exchangeActualAmount === undefined ? existingRow.exchangeActualAmount : txn.exchangeActualAmount,
+    });
+    return existingFields.every((value, index) => value === incomingFields[index]);
+}
+
 // Server-side backstop for the reconciliation lock. This is deliberately a coarser,
 // POSITION-only check — not the full balance-delta math the client's confirm dialog uses —
 // so it stays small and low-risk as a pure backstop: it requires the caller to already have
@@ -2172,6 +2297,7 @@ module.exports = {
     updateClientAccountStartingBalance,
     updateClientAccountNote,
     updateClientAccountDormant,
+    updateClientAccountsDormant,
     updateClientAccount,
     deleteClientAccount,
     moveAccountTransactions,
@@ -2194,6 +2320,7 @@ module.exports = {
     deleteAllTransactions,
     listReconciliations,
     createReconciliation,
+    updateReconciliation,
     deleteReconciliation,
     listIgnoredAnomalies,
     createIgnoredAnomaly,

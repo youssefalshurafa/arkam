@@ -27,6 +27,7 @@ type ClientsSectionProps = {
  onAddClientAccount: (clientId: number) => void;
  onDeleteClientAccount: (accountId: number) => void;
  onToggleAccountDormant: (accountId: number, isDormant: boolean) => void;
+ onToggleAllAccountsDormant: (clientId: number, isDormant: boolean) => void;
  onMoveAccountTransactions: (fromAccountId: number) => void;
  onSaveEditAccount: () => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
@@ -37,7 +38,7 @@ type ClientsSectionProps = {
 export default function ClientsSection({
  clients, organizations, clientAccounts, enabledCurrencies, sortedClients, paginatedClients,
  clampedClientsPage, totalClientPages, accountsClient, clientSortHeader,
- onClientSubmit, isSubmittingClient, onDeleteClient, onAddClientAccount, onDeleteClientAccount, onToggleAccountDormant, onMoveAccountTransactions,
+ onClientSubmit, isSubmittingClient, onDeleteClient, onAddClientAccount, onDeleteClientAccount, onToggleAccountDormant, onToggleAllAccountsDormant, onMoveAccountTransactions,
  onSaveEditAccount, openClientLedger, setShowCreateOrgDialog, setOrganizationForm,
 }: ClientsSectionProps) {
  const { language, isRTL } = useLanguage();
@@ -73,6 +74,39 @@ export default function ClientsSection({
        </button>
       ) : null}
      </div>
+
+     {/* Dormant ("حساب راكد") is stored per account, but "this client has stopped trading" is
+         how it is nearly always meant — so the whole set toggles here, at the top of the form
+         the user is already in, rather than further down the accounts panel. Individual
+         accounts can still be flipped one at a time on their own rows below. */}
+     {(() => {
+      const ownAccounts = clientForm.id ? clientAccounts.filter((a) => a.clientId === clientForm.id) : [];
+      if (!clientForm.id || ownAccounts.length === 0) return null;
+      const allDormant = ownAccounts.every((a) => a.isDormant);
+      const dormantCount = ownAccounts.filter((a) => a.isDormant).length;
+      return (
+       <div className={`mt-5 rounded border px-3 py-2.5 ${allDormant ? 'border-border-strong bg-surface-2' : 'border-border bg-surface-2'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+         <p className="flex items-center gap-2 text-sm font-medium text-fg">
+          {t('client_account_dormant')}
+          {dormantCount > 0 ? (
+           <span className="rounded-full border border-border-strong px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
+            {dormantCount}/{ownAccounts.length}
+           </span>
+          ) : null}
+         </p>
+         <button
+          type="button"
+          onClick={() => onToggleAllAccountsDormant(clientForm.id as number, !allDormant)}
+          className="rounded border border-border-strong px-3 py-1.5 text-xs font-semibold text-fg-muted transition hover:bg-surface-hover"
+         >
+          {allDormant ? t('client_account_dormant_unmark_all') : t('client_account_dormant_mark_all')}
+         </button>
+        </div>
+        <p className="mt-1.5 text-xs text-fg-faint">{t('client_account_dormant_hint')}</p>
+       </div>
+      );
+     })()}
 
      <label className="mt-5 block text-sm font-medium">{t('client_name')}</label>
      <input
@@ -291,52 +325,63 @@ export default function ClientsSection({
            key={account.id}
            className="rounded border border-border bg-surface"
           >
-           {/* Row · click to edit */}
-           <button
-            type="button"
-            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-surface-hover transition"
-            onClick={() => {
-             setMoveTargetAccountId(null);
-             if (isEditing) {
-              setEditingAccountId(null);
-             } else {
-              const absBalance = Math.abs(account.startingBalance ?? 0);
-              setEditingAccountId(account.id);
-              setEditingAccountCurrencyId(account.currencyId);
-              setEditingAccountBalance(String(absBalance));
-              setEditingAccountBalanceType((account.startingBalance ?? 0) >= 0 ? 'credit' : 'debit');
-              setShowAddAccountForm(false);
-             }
-            }}
-           >
-            <div className="flex items-center gap-3">
-             <span className={`font-mono font-semibold ${account.isDormant ? 'text-fg-faint' : 'text-fg'}`}>{account.currencyCode}</span>
-             <span className="text-sm text-fg-faint">{account.currencySymbol || ''}</span>
-             {account.isDormant ? (
-              <span className="rounded-full border border-border-strong px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
-               {t('client_account_dormant_badge')}
+           {/* Row · click to edit, with the dormant toggle beside it (a sibling, not a child —
+               it can't be nested inside the expand button). */}
+           <div className="flex items-stretch">
+            <button
+             type="button"
+             className="flex min-w-0 flex-1 items-center justify-between px-4 py-3 text-left hover:bg-surface-hover transition"
+             onClick={() => {
+              setMoveTargetAccountId(null);
+              if (isEditing) {
+               setEditingAccountId(null);
+              } else {
+               const absBalance = Math.abs(account.startingBalance ?? 0);
+               setEditingAccountId(account.id);
+               setEditingAccountCurrencyId(account.currencyId);
+               setEditingAccountBalance(String(absBalance));
+               setEditingAccountBalanceType((account.startingBalance ?? 0) >= 0 ? 'credit' : 'debit');
+               setShowAddAccountForm(false);
+              }
+             }}
+            >
+             <div className="flex items-center gap-3">
+              <span className={`font-mono font-semibold ${account.isDormant ? 'text-fg-faint' : 'text-fg'}`}>{account.currencyCode}</span>
+              <span className="text-sm text-fg-faint">{account.currencySymbol || ''}</span>
+              {account.isDormant ? (
+               <span className="rounded-full border border-border-strong px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
+                {t('client_account_dormant_badge')}
+               </span>
+              ) : null}
+             </div>
+             <div className="flex items-center gap-3">
+              <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-good-text' : 'text-bad-text'}`}>
+               {(account.startingBalance ?? 0).toLocaleString(numLocale, { maximumFractionDigits: 2 })}
               </span>
-             ) : null}
-            </div>
-            <div className="flex items-center gap-3">
-             <span className={`text-sm font-semibold ${(account.startingBalance ?? 0) >= 0 ? 'text-good-text' : 'text-bad-text'}`}>
-              {(account.startingBalance ?? 0).toLocaleString(numLocale, { maximumFractionDigits: 2 })}
-             </span>
-             <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`text-fg-faint transition-transform ${isEditing ? 'rotate-180' : ''}`}
-             >
-              <path d="m6 9 6 6 6-6" />
-             </svg>
-            </div>
-           </button>
+              <svg
+               width="14"
+               height="14"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="2"
+               strokeLinecap="round"
+               strokeLinejoin="round"
+               className={`text-fg-faint transition-transform ${isEditing ? 'rotate-180' : ''}`}
+              >
+               <path d="m6 9 6 6 6-6" />
+              </svg>
+             </div>
+            </button>
+            <button
+             type="button"
+             onClick={() => onToggleAccountDormant(account.id, !account.isDormant)}
+             title={account.isDormant ? t('client_account_dormant_unmark') : t('client_account_dormant_mark')}
+             className={`shrink-0 whitespace-nowrap border-s border-border px-3 text-xs font-semibold transition hover:bg-surface-hover ${account.isDormant ? 'text-accent' : 'text-fg-faint'}`}
+            >
+             {account.isDormant ? t('client_account_dormant_unmark') : t('client_account_dormant_mark')}
+            </button>
+           </div>
 
            {/* Inline edit form */}
            {isEditing && (
@@ -390,23 +435,6 @@ export default function ClientsSection({
                 />
                </div>
                <p className="mt-1 text-xs text-fg-faint">{t('balance_type_hint')}</p>
-              </div>
-              {/* Dormant ("حساب راكد"): keeps the account and its whole ledger, but takes it out
-                  of the transaction form's client/account pickers. A client every one of whose
-                  accounts is dormant stops appearing there at all. */}
-              <div className="rounded border border-border bg-surface px-3 py-2">
-               <label className="flex items-start gap-2 text-sm">
-                <input
-                 type="checkbox"
-                 checked={Boolean(account.isDormant)}
-                 onChange={(event) => onToggleAccountDormant(account.id, event.target.checked)}
-                 className="mt-0.5 h-4 w-4 accent-blue-700"
-                />
-                <span>
-                 <span className="font-medium text-fg">{t('client_account_dormant')}</span>
-                 <span className="mt-0.5 block text-xs text-fg-faint">{t('client_account_dormant_hint')}</span>
-                </span>
-               </label>
               </div>
               <div className="flex gap-2">
                <button
@@ -633,17 +661,37 @@ export default function ClientsSection({
           className={`border-t border-border align-top ${index % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} hover:bg-surface-hover`}
          >
           <td className="px-4 py-3 font-medium text-fg">
-           <a
-            href={`/clients/${client.id}`}
-            onClick={(e) => {
-             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-             e.preventDefault();
-             openClientLedger(client, 'clients');
-            }}
-            className="cursor-pointer text-left text-fg transition hover:text-accent"
-           >
-            {client.name}
-           </a>
+           {(() => {
+            // A client every one of whose accounts is dormant is out of circulation entirely —
+            // they no longer appear anywhere a transaction's parties are picked — so the row
+            // says so outright. A client with only SOME accounts dormant still trades, and is
+            // marked on the individual currency pills instead (see the accounts cell).
+            const accts = clientAccounts.filter((a) => a.clientId === client.id);
+            const allDormant = accts.length > 0 && accts.every((a) => a.isDormant);
+            return (
+             <span className="flex flex-wrap items-center gap-2">
+              <a
+               href={`/clients/${client.id}`}
+               onClick={(e) => {
+                if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                e.preventDefault();
+                openClientLedger(client, 'clients');
+               }}
+               className={`cursor-pointer text-left transition hover:text-accent ${allDormant ? 'text-fg-faint' : 'text-fg'}`}
+              >
+               {client.name}
+              </a>
+              {allDormant ? (
+               <span
+                title={t('client_account_dormant_hint')}
+                className="rounded-full border border-border-strong px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint"
+               >
+                {t('client_account_dormant_badge')}
+               </span>
+              ) : null}
+             </span>
+            );
+           })()}
           </td>
           <td className="px-4 py-3 text-fg-muted">{client.organizationName || t('unassigned')}</td>
           <td className="px-4 py-3">
@@ -653,10 +701,16 @@ export default function ClientsSection({
             return (
              <div className="flex flex-wrap items-center gap-1">
               {accts.map((a) => (
+               // A dormant account's pill is drawn hollow and struck through, so a client who
+               // still trades in some currencies but not others reads at a glance.
                <span
                 key={a.id}
-                title={a.currencyCode}
-                className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border border-border-strong bg-surface-2 px-1.5 text-xs font-semibold text-fg-muted"
+                title={a.isDormant ? `${a.currencyCode} — ${t('client_account_dormant')}` : a.currencyCode}
+                className={`inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border px-1.5 text-xs font-semibold ${
+                 a.isDormant
+                  ? 'border-dashed border-border-strong bg-transparent text-fg-faint line-through'
+                  : 'border-border-strong bg-surface-2 text-fg-muted'
+                }`}
                >
                 {a.currencySymbol || a.currencyCode}
                </span>

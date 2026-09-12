@@ -15,6 +15,14 @@ type DescriptionSuggestFieldProps = {
  placeholder?: string;
  rows?: number;
  autoFocus?: boolean;
+ // Keys the suggestion list doesn't claim are passed on here — an empty or closed list means
+ // ↑/↓ belong to whoever owns the field (the ledger's row-to-row edit navigation, say) rather
+ // than to a dropdown that isn't on screen.
+ onKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+ // Extra attributes set verbatim on the underlying input/textarea. The ledger tags its row-edit
+ // fields this way (data-ledger-field/data-ledger-key) so arrow navigation can find the same
+ // field on the neighbouring row.
+ dataAttributes?: Record<string, string>;
  // For a caller managing several of these at once (e.g. one per table row) where only one
  // useDescriptionSuggestions() call is shared across all of them (hooks can't be called inside
  // a .map()) — lets the caller know which instance is currently focused, so it can compute
@@ -42,6 +50,8 @@ export function DescriptionSuggestField({
  rows,
  autoFocus,
  onFocus,
+ onKeyDown,
+ dataAttributes,
 }: DescriptionSuggestFieldProps) {
  const [open, setOpen] = useState(false);
  const [highlight, setHighlight] = useState(0);
@@ -63,7 +73,10 @@ export function DescriptionSuggestField({
  const handleBlur = () => setTimeout(() => setOpen(false), 150);
 
  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-  if (!open || suggestions.length === 0) return;
+  if (!open || suggestions.length === 0) {
+   onKeyDown?.(event);
+   return;
+  }
   if (event.key === 'ArrowDown') {
    event.preventDefault();
    setHighlight((h) => (h + 1) % suggestions.length);
@@ -81,6 +94,8 @@ export function DescriptionSuggestField({
    setOpen(false);
   } else if (event.key === 'Escape') {
    setOpen(false);
+  } else {
+   onKeyDown?.(event);
   }
  };
 
@@ -100,6 +115,7 @@ export function DescriptionSuggestField({
   placeholder,
   autoFocus,
   autoComplete: 'off' as const,
+  ...dataAttributes,
  };
 
  return (

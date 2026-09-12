@@ -376,6 +376,22 @@ async function onToggleAccountDormant(accountId: number, isDormant: boolean) {
  }
 }
 
+// The accounts panel's "mark all dormant" toggle: one write for every account the client has,
+// patched locally the same optimistic way as the per-account flag.
+async function onToggleAllAccountsDormant(clientId: number, isDormant: boolean) {
+ if (!accountingApi) return;
+ const previous = clientAccounts.filter((account) => account.clientId === clientId).map((account) => [account.id, account.isDormant] as const);
+ setClientAccounts((prev) => prev.map((account) => (account.clientId === clientId ? { ...account, isDormant } : account)));
+ try {
+  await accountingApi.updateClientAccountsDormant({ clientId, isDormant });
+  void loadData();
+ } catch (e) {
+  const restored = new Map(previous);
+  setClientAccounts((prev) => prev.map((account) => (restored.has(account.id) ? { ...account, isDormant: Boolean(restored.get(account.id)) } : account)));
+  setError(e instanceof Error ? e.message : t('error_failed_save'));
+ }
+}
+
 async function onDeleteClientAccount(accountId: number) {
  if (!accountingApi) return;
  if (!(await confirmDialog({ message: t('client_account_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) return;
@@ -445,6 +461,7 @@ function onClientsOrgDrop(targetKey: string) {
   onSaveEditAccount,
   onDeleteClientAccount,
   onToggleAccountDormant,
+  onToggleAllAccountsDormant,
   onMoveAccountTransactions,
   onUpdateAccountStartingBalance,
   onClientsOrgDrop,

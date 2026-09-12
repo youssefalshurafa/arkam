@@ -78,6 +78,7 @@ type SettingsSectionProps = {
  onAddClientAccount: (clientId: number) => void;
  onDeleteClientAccount: (accountId: number) => void;
  onToggleAccountDormant: (accountId: number, isDormant: boolean) => void;
+ onToggleAllAccountsDormant: (clientId: number, isDormant: boolean) => void;
  onMoveAccountTransactions: (fromAccountId: number) => void;
  onSaveEditAccount: () => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
@@ -138,6 +139,7 @@ export default function SettingsSection({
  onAddClientAccount,
  onDeleteClientAccount,
  onToggleAccountDormant,
+ onToggleAllAccountsDormant,
  onMoveAccountTransactions,
  onSaveEditAccount,
  openClientLedger,
@@ -329,6 +331,7 @@ export default function SettingsSection({
      onAddClientAccount={onAddClientAccount}
      onDeleteClientAccount={onDeleteClientAccount}
      onToggleAccountDormant={onToggleAccountDormant}
+     onToggleAllAccountsDormant={onToggleAllAccountsDormant}
      onMoveAccountTransactions={onMoveAccountTransactions}
      onSaveEditAccount={onSaveEditAccount}
      openClientLedger={openClientLedger}

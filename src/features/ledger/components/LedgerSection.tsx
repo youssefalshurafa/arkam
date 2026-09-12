@@ -44,6 +44,7 @@ import type {
  ClientLedgerEntry,
  Currency,
  LedgerColumnKey,
+ LedgerEditFieldKey,
  LedgerTransactionDraft,
  Organization,
  Section,
@@ -93,7 +94,14 @@ type LedgerSectionProps = {
  onRestoreIgnoredAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
- onLedgerEditFieldArrowKey: (event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number, pagedEntries: ClientLedgerEntry[], entryIdx: number) => void;
+ onLedgerEditFieldArrowKey: (
+  event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
+  field: LedgerEditFieldKey,
+  entry: ClientLedgerEntry,
+  ledgerAccountId: number,
+  pagedEntries: ClientLedgerEntry[],
+  entryIdx: number,
+ ) => void;
  onLedgerRowDrop: (draggedKeys: string[], targetKey: string, dropHalf: 'top' | 'bottom', accountId: number) => void;
  onSaveAllLedger: (ledger: ClientAccountLedger) => void;
  onSaveLedgerRow: (transactionId: number, ledgerAccountId: number) => void;
@@ -2479,9 +2487,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 value={draft.createdDate}
                                 max={localDateKey()}
                                 min={lockPastEditsEnabled ? localDateKey() : undefined}
+                                data-ledger-field="created"
+                                data-ledger-key={getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId)}
                                 onChange={(event) =>
                                  updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { createdDate: event.target.value > localDateKey() ? localDateKey() : event.target.value })
                                 }
+                                onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'created', entry, ledger.accountId, pagedEntries, entryIdx)}
                                 style={{ width: '8.5rem' }}
                                 className={`${seamlessInputClassName} text-xs text-fg`}
                                />
@@ -3562,6 +3573,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 value={draft.description}
                                 onChange={(value) => updateLedgerTransactionDraft(entry.transactionId, ledger.accountId, { description: value })}
                                 onFocus={() => setActiveDescriptionRowKey(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))}
+                                onKeyDown={(event) => onLedgerEditFieldArrowKey(event, 'description', entry, ledger.accountId, pagedEntries, entryIdx)}
+                                dataAttributes={{
+                                 'data-ledger-field': 'description',
+                                 'data-ledger-key': getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId),
+                                }}
                                 suggestions={activeDescriptionRowKey === getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId) ? rowDescriptionSuggestions : []}
                                 onExcludeSuggestion={excludeRowDescriptionSuggestion}
                                 removeSuggestionLabel={t('transaction_description_suggestion_remove')}
