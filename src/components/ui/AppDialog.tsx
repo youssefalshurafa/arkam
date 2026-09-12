@@ -23,6 +23,17 @@ export interface DialogOptions {
  /** Prompt only: placeholder for the text field. */
  placeholder?: string;
  /**
+  * Money a decision is about, pulled out of the prose and onto its own line: one row per
+  * balance, each `before → after` pair coloured by sign exactly as the ledger's balance column
+  * colours it. A warning that has to quote figures stays readable this way instead of burying
+  * them mid-paragraph, and the reader can match them against the rows on screen at a glance.
+  * `label` names the ledger a row belongs to — worth setting whenever the balance is not the
+  * one the user is looking at. Omit `to` to state a single figure rather than a change.
+  */
+ balanceChanges?: Array<{ label?: string; from: string; to?: string; fromNegative?: boolean; toNegative?: boolean }>;
+ /** Small print under the body — the consequence, once the figures above have been read. */
+ note?: string;
+ /**
   * Choice only: the answers on offer, beyond Cancel. Rendered as one button each and resolved as
   * the chosen `key`. For decisions with more than two outcomes, where squeezing the third into a
   * confirm would mean either a second dialog or a checkbox nobody reads.
@@ -163,6 +174,32 @@ export function DialogHost() {
     {current.message ? (
      <p className={`whitespace-pre-line text-sm text-fg-muted ${current.title ? 'mt-2' : ''}`}>{current.message}</p>
     ) : null}
+
+    {current.balanceChanges?.length ? (
+     <div className="mt-3 space-y-2.5 rounded border border-border bg-surface-2 px-3 py-2.5">
+      {current.balanceChanges.map((change, index) => (
+       <div key={index}>
+        {change.label ? <p className="text-xs font-medium text-fg-muted">{change.label}</p> : null}
+        <p className={`flex flex-wrap items-center gap-2 text-sm font-semibold ${change.label ? 'mt-1' : ''}`}>
+         <span className={change.fromNegative ? 'text-bad-text' : 'text-good-text'}>{change.from}</span>
+         {change.to !== undefined ? (
+          <>
+           <span
+            className="text-fg-faint"
+            aria-hidden
+           >
+            {isRTL ? '←' : '→'}
+           </span>
+           <span className={change.toNegative ? 'text-bad-text' : 'text-good-text'}>{change.to}</span>
+          </>
+         ) : null}
+        </p>
+       </div>
+      ))}
+     </div>
+    ) : null}
+
+    {current.note ? <p className="mt-3 text-xs text-fg-faint">{current.note}</p> : null}
 
     {current.kind === 'prompt' ? (
      <input

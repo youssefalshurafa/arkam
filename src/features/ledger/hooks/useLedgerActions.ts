@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { choiceDialog, confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { NEW_ROW_REF_ID, type LockBoundary } from '@/features/ledger/utils/reconciliation';
+import { NEW_ROW_REF_ID, marksAffectedByReorder, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
@@ -17,8 +18,10 @@ import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { ledgerColumnOrderStorageKeyPrefix } from '@/shared/lib/localStorage';
+import { LEDGER_EDIT_FIELD_KEYS } from '@/shared/types';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
+import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { emptyTransactionForm } from '@/features/transactions/forms';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
@@ -33,6 +36,7 @@ import type {
  Currency,
  IgnoredAnomaly,
  LedgerColumnKey,
+ LedgerEditFieldKey,
  LedgerTransactionDraft,
  PdfColVisibility,
  Reconciliation,
@@ -44,6 +48,10 @@ import type {
 // Long enough that a run of quick edits collapses into one refetch, short enough that anything
 // the server decided differently surfaces while the user is still looking at the same rows.
 const WORKSPACE_RESYNC_DELAY_MS = 1_500;
+
+// Every row-edit field routes its keydown through the same handler, and the description column's
+// field can be rendered as a textarea (DescriptionSuggestField), so the event is typed over both.
+type LedgerEditFieldKeyEvent = ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>;
 
 // One already-SAVED edit to a ledger row, reversible/replayable by re-issuing the same update
 // API call with the previous/next persisted values. Distinct from `DraftHistory`, which only
@@ -108,6 +116,8 @@ export function useLedgerActions({
 
  const {
   formatLockBalance,
+  lockAccountLabel,
+  warnLockHit,
   checkLockForNewRow,
   checkLockForEdit,
   checkLockForBatchEdit,
@@ -930,16 +940,19 @@ function openLedgerRowForEdit(entry: ClientLedgerEntry, ledgerAccountId: number)
  setEditingLedgerRowKeys((prev) => new Set([...prev, rowKey]));
 }
 
-function onLedgerEditFieldSideKey(event: ReactKeyboardEvent<HTMLInputElement>, field: 'amount' | 'exchangeRate' | 'commission', entry: ClientLedgerEntry, ledgerAccountId: number): boolean {
+function onLedgerEditFieldSideKey(event: LedgerEditFieldKeyEvent, field: LedgerEditFieldKey, entry: ClientLedgerEntry, ledgerAccountId: number): boolean {
  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return false;
  const input = event.currentTarget;
+ // A date field owns ←/→ for its own day/month/year segments, and has no text selection to read
+ // (the selectionStart getter throws on it), so there is no "caret at the edge" to hand over on.
+ if (input.type === 'date') return false;
  const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
  const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
  if ((event.key === 'ArrowLeft' && !atStart) || (event.key === 'ArrowRight' && !atEnd)) return false;
 
  const editableFieldOrder = orderedLedgerColumnOptions
   .map((column) => column.key)
-  .filter((key): key is 'amount' | 'exchangeRate' | 'commission' => key === 'amount' || key === 'exchangeRate' || key === 'commission');
+  .filter((key): key is LedgerEditFieldKey => (LEDGER_EDIT_FIELD_KEYS as readonly string[]).includes(key));
  const currentIdx = editableFieldOrder.indexOf(field);
  if (currentIdx === -1) return true;
  const forward = event.key === 'ArrowRight' ? 1 : -1;
@@ -952,15 +965,19 @@ function onLedgerEditFieldSideKey(event: ReactKeyboardEvent<HTMLInputElement>, f
  const target = document.querySelector<HTMLInputElement>(`[data-ledger-field="${nextField}"][data-ledger-key="${rowKey}"]`);
  if (target) {
   target.focus();
-  const pos = event.key === 'ArrowRight' ? 0 : target.value.length;
-  target.setSelectionRange(pos, pos);
+  // Same reason as the date guard above, from the other side: placing a caret in a date field
+  // throws rather than doing nothing, so it is landed on as a whole instead.
+  if (target.type !== 'date') {
+   const pos = event.key === 'ArrowRight' ? 0 : target.value.length;
+   target.setSelectionRange(pos, pos);
+  }
  }
  return true;
 }
 
 function onLedgerEditFieldArrowKey(
- event: ReactKeyboardEvent<HTMLInputElement>,
- field: 'amount' | 'exchangeRate' | 'commission',
+ event: LedgerEditFieldKeyEvent,
+ field: LedgerEditFieldKey,
  entry: ClientLedgerEntry,
  ledgerAccountId: number,
  pagedEntries: ClientLedgerEntry[],
@@ -976,19 +993,30 @@ function onLedgerEditFieldArrowKey(
   const target =
    document.querySelector<HTMLInputElement>(`[data-ledger-field="${field}"][data-ledger-key="${neighborKey}"]`) ??
    document.querySelector<HTMLInputElement>(`[data-ledger-key="${neighborKey}"]`);
-  if (target) {
-   target.focus();
-   target.select?.();
-  }
+  if (!target) return false;
+  target.focus();
+  target.select?.();
+  return true;
  };
  if (editingLedgerRowKeys.has(neighborKey)) {
   focusNeighborField();
   return;
  }
- openLedgerRowForEdit(neighbor, ledgerAccountId);
+ // Focus has to reach the neighbour's input INSIDE this keydown, before the browser is free to
+ // dispatch another key. Opening the row normally and focusing from a setTimeout left a real gap
+ // — the save closes this row a microtask later, which unmounts the input the user is typing in
+ // and drops focus to <body>, while the neighbour's input isn't focused until the timer runs
+ // after two full re-renders of the table (~100ms here, longer on a big ledger). Everything
+ // typed in that window went to <body> and was silently lost, so a fast "type, arrow down, type"
+ // run left rows looking untouched and then jumping to half-typed values as the focus caught up.
+ // flushSync mounts the neighbour's inputs now, so the focus move is part of this same task and
+ // no keystroke can slip in between.
+ flushSync(() => openLedgerRowForEdit(neighbor, ledgerAccountId));
+ // Only if the row somehow didn't render (nothing to focus) is a deferred retry worth it: once
+ // focus has landed, a second focus()+select() would re-select whatever the user has typed since
+ // and let the next character wipe it.
+ if (!focusNeighborField()) setTimeout(focusNeighborField, 0);
  void onSaveLedgerRow(entry.transactionId, ledgerAccountId);
- // Wait for the neighbour's inputs to render before focusing.
- setTimeout(focusNeighborField, 0);
 }
 
 async function onDeleteLedgerEntry(entry: ClientLedgerEntry, ledgerAccountId: number) {
@@ -1056,16 +1084,22 @@ async function onRemoveReconciliation(entry: ClientLedgerEntry, ledgerAccountId:
 // of the transaction this applies to.
 async function onIgnoreAnomaly(kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string, description?: string) {
  const message = reason ? `${reason}\n\n${t('ignore_anomaly_confirm')}` : t('ignore_anomaly_confirm');
- // A rate flag on a described row offers a third answer: accept this rate as normal for every row
- // carrying that description. That is the only way a small group ever stops being flagged — it can
- // never reach the sample count needed to form a reference of its own. The offer is explicit
- // rather than inferred, because it changes how OTHER rows are judged, and it teaches rather than
- // exempts: a row in the group at a genuinely wrong rate still flags (see buildAcceptedRates).
- const groupLabel = kind === 'rate' ? (description ?? '').trim() : '';
+ // A rate or commission flag on a described row offers a third answer: accept this value as normal
+ // for every row carrying that description. That is the only way a small group ever stops being
+ // flagged — it can never reach the sample count needed to form a reference of its own. For a
+ // commission it is also the only way a CHANGED convention is ever heard: a client whose "Factura"
+ // work moved from 0% to 1% is judged against a history that is still overwhelmingly 0%, so
+ // row-by-row dismissals can be clicked forever without the next row being judged any differently.
+ // The offer is explicit rather than inferred, because it changes how OTHER rows are judged, and it
+ // teaches rather than exempts: a row in the group at a genuinely wrong value still flags (see
+ // buildAcceptedRates / buildAcceptedCommissions).
+ const groupLabel = kind === 'rate' || kind === 'commission' ? (description ?? '').trim() : '';
  let scope: 'row' | 'description' = 'row';
  if (groupLabel) {
+  // The rate wording asks about "this rate"; the commission flag needs its own sentence.
+  const scopeHintKey = kind === 'commission' ? 'ignore_anomaly_scope_hint_commission' : 'ignore_anomaly_scope_hint';
   const answer = await choiceDialog({
-   message: `${message}\n\n${t('ignore_anomaly_scope_hint', { description: groupLabel })}`,
+   message: `${message}\n\n${t(scopeHintKey, { description: groupLabel })}`,
    choices: [
     { key: 'row', label: t('ignore_anomaly_scope_row') },
     { key: 'description', label: t('ignore_anomaly_scope_description', { description: groupLabel }) },
@@ -1175,23 +1209,47 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  const entryMap = new Map(ledger.entries.map((e) => [`${e.transactionId}:${accountId}`, e]));
  const dateOf = (key: string) => entryMap.get(key)?.createdAt.slice(0, 10) ?? '';
 
- // A row's date is only ever changed by an explicit manual edit, never by dragging it —
- // so only rows that already share the target row's date are eligible to move; any dragged
- // row from a different date is dropped from this operation and keeps its position untouched.
  const targetDate = dateOf(targetKey);
- const dragSet = new Set(draggedKeys.filter((k) => k !== targetKey && dateOf(k) === targetDate));
+ const dragSet = new Set(draggedKeys.filter((k) => k !== targetKey && entryMap.has(k)));
  if (dragSet.size === 0) return;
+
+ // Dropping a row onto a different day is the one reorder that rewrites a DATE rather than just
+ // a position — the row genuinely becomes a transaction of the day it was dropped on. It used to
+ // be filtered out here and the drag simply did nothing, which read as a broken drag rather than
+ // a refused one. It is allowed now, but never silently: a date is a fact about the transaction,
+ // not a display detail, so the user is shown which date it is leaving and which it is joining
+ // and has to say yes. Same-day reorders are untouched by this and stay silent.
+ const crossDateKeys = [...dragSet].filter((key) => dateOf(key) !== targetDate);
+ if (crossDateKeys.length > 0) {
+  const movedFromDates = [...new Set(crossDateKeys.map(dateOf))];
+  // A move across days IS a date edit, so it answers to the workspace's past-edit lock exactly
+  // as the row's own date field would — both the day it leaves and the day it lands on.
+  if (blockedByPastEditLock([...movedFromDates, targetDate])) return;
+  const toLabel = formatDateValue(targetDate, 'full');
+  const confirmed = await confirmDialog({
+   title: t('ledger_drag_date_change_title'),
+   message:
+    crossDateKeys.length === 1
+     ? t('ledger_drag_date_change_message', { from: formatDateValue(movedFromDates[0], 'full'), to: toLabel })
+     : t('ledger_drag_date_change_message_many', { count: crossDateKeys.length, to: toLabel }),
+   note: t('ledger_drag_date_change_note'),
+   confirmText: t('ledger_drag_date_change_confirm'),
+  });
+  if (!confirmed) return;
+ }
 
  // The ledger is ordered by createdAt (ascending). Same-date rows often share an
  // identical timestamp (e.g. expenses at 00:00:00), leaving no room to insert between
  // them, so we reflow the target date's rows to distinct, evenly-spaced timestamps in
- // the new order. That makes the reorder durable without touching any row's date.
- const dateGroup = currentOrder.filter((k) => dateOf(k) === targetDate);
- const without = dateGroup.filter((k) => !dragSet.has(k));
+ // the new order. That makes the reorder durable; rows that were already on this date keep it,
+ // and a row dragged in from another day picks it up here — which is the move confirmed above.
+ const without = currentOrder.filter((k) => dateOf(k) === targetDate && !dragSet.has(k));
  const insertIdx = without.indexOf(targetKey);
  if (insertIdx === -1) return;
  const insertAt = dropHalf === 'top' ? insertIdx : insertIdx + 1;
- const orderedDragged = dateGroup.filter((k) => dragSet.has(k));
+ // Read off the ledger as a whole, not off the target day, so rows arriving from another date
+ // are included and a multi-row drag keeps the order the rows had on screen.
+ const orderedDragged = currentOrder.filter((k) => dragSet.has(k));
  const next = [...without.slice(0, insertAt), ...orderedDragged, ...without.slice(insertAt)];
 
  const newTimes = new Map<string, string>();
@@ -1202,15 +1260,112 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   newTimes.set(k, new Date(ts).toISOString());
  });
 
+ // What this move does to every ✓ it can reach.
+ //
+ // A ✓'s balance is the sum of the rows above it, so a reorder can only move it by changing
+ // WHICH rows those are. Swapping two rows that both sit between the same pair of ✓ lines —
+ // or both above, or both below — leaves every set identical and every agreed balance exactly
+ // where it was, so nothing is reported and the drag proceeds in silence. That is nearly every
+ // drag, and interrupting it would be wrong.
+ //
+ // The reach is wider than the ledger on screen: re-timing a row also moves it inside the
+ // COUNTERPARTY's ledger, which is reconciled independently, so a drag here can shift a ✓ the
+ // user cannot see. Those are checked too and named by client, since an unnamed figure from
+ // another ledger would be impossible to place.
+ //
+ // Re-pointing a ✓ is also what MAKES a crossing move possible: the ledger orders by reconciled
+ // depth before createdAt (see computeClientLedgers), deliberately, so a row with a stray
+ // timestamp cannot drift above a ✓ on its own. Moving the line with the row is the honest
+ // expression of "this row now stands above the agreed balance", and leaves that protection
+ // intact for rows nobody dragged.
+ const reflowedTransactions = transactions.map((tx) => {
+  const rescheduled = newTimes.get(`${tx.id}:${accountId}`);
+  return rescheduled ? { ...tx, createdAt: rescheduled } : tx;
+ });
+ const ledgerEntriesFor = (targetAccountId: number, source: Transaction[]) => {
+  const owner = clientAccountMap.get(targetAccountId);
+  if (!owner) return null;
+  return (
+   computeClientLedgers({
+    selectedClientForLedger: { id: owner.clientId },
+    section: 'client-ledger',
+    pdfExportModal: null,
+    clientAccounts,
+    transactions: source,
+    reconciliations,
+    clientAccountMap,
+    currencyMap,
+    enabled: true,
+   }).find((l) => l.accountId === targetAccountId)?.entries ?? null
+  );
+ };
+
+ // The ledger as it will read after the drop: every row the reflow doesn't touch in its current
+ // order, with the target day's rebuilt block put back where that day belongs. The block is
+ // placed by date rather than by its old indices because it can now be LONGER than the day it
+ // replaces — a row dropped in from another date leaves a gap behind it and joins this one.
+ const proposedEntries = (() => {
+  const reflowed = new Set(next);
+  const rest = currentOrder.filter((key) => !reflowed.has(key));
+  const firstLaterDay = rest.findIndex((key) => dateOf(key) > targetDate);
+  const reordered = firstLaterDay === -1 ? [...rest, ...next] : [...rest.slice(0, firstLaterDay), ...next, ...rest.slice(firstLaterDay)];
+  return reordered.flatMap((key) => {
+   const entry = entryMap.get(key);
+   return entry ? [entry] : [];
+  });
+ })();
+
+ // Every account a reflowed row touches, this ledger's own first so its ✓ leads the list.
+ // Counterparty accounts with no reconciliation at all are dropped straight away: they have no
+ // ✓ to move, and each one kept would otherwise cost two full ledger computations on drop.
+ const reconciledAccountIds = new Set(reconciliations.map((r) => r.accountId));
+ const touchedAccountIds = new Set<number>([accountId]);
+ for (const key of newTimes.keys()) {
+  const entry = entryMap.get(key);
+  const tx = entry ? transactions.find((t) => t.id === entry.transactionId) : null;
+  for (const side of [tx?.accountFromId, tx?.accountToId]) {
+   if (side && reconciledAccountIds.has(side)) touchedAccountIds.add(side);
+  }
+ }
+
+ const changedMarks: Array<{ accountId: number; id: number; from: number; to: number; lockedTransactionIds: number[] }> = [];
+ for (const touchedAccountId of touchedAccountIds) {
+  const before = touchedAccountId === accountId ? ledger.entries : ledgerEntriesFor(touchedAccountId, transactions);
+  const after = touchedAccountId === accountId ? proposedEntries : ledgerEntriesFor(touchedAccountId, reflowedTransactions);
+  if (!before || !after) continue;
+  for (const change of marksAffectedByReorder(before, after)) {
+   changedMarks.push({ accountId: touchedAccountId, ...change });
+  }
+ }
+
+ if (changedMarks.length > 0) {
+  const confirmed = await confirmDialog({
+   title: t('reconcile_warn_title'),
+   message: t('reconcile_reorder_changes_balance'),
+   balanceChanges: changedMarks.map((change) => ({
+    // The ledger being looked at needs no introduction; any other one does.
+    label: change.accountId === accountId ? undefined : lockAccountLabel(change.accountId),
+    from: formatLockBalance(change.accountId, change.from),
+    to: formatLockBalance(change.accountId, change.to),
+    fromNegative: change.from < 0,
+    toNegative: change.to < 0,
+   })),
+   note: t('reconcile_reorder_changes_balance_note'),
+   confirmText: t('reconcile_warn_confirm'),
+   tone: 'danger',
+  });
+  if (!confirmed) return;
+ }
+
  // Reconciliation guard: the reflow rewrites createdAt for every row in the date group — not
  // just the ones dragged — and each of those transactions touches up to two accounts (this
  // ledger's own account and its counterparty), either of which may independently be
  // reconciled. Re-time each affected transaction through the same balance-aware check a
  // direct edit uses. Under the frozen anchorDate/lockedTransactionIds model this can only
  // ever produce a hit if a row's CALENDAR DAY changes, which a same-day reflow never does —
- // so in practice a pure same-day reorder is always silent, including for the anchor's own
- // row — but every reflowed row (not just the explicitly dragged ones) is still checked as a
- // structural safety net, one dialog for the whole batch.
+ // so a pure same-day reorder is always silent, including for the anchor's own row, and it is
+ // a row dropped in from ANOTHER day (confirmed above) that can actually land here. Every
+ // reflowed row is checked, not just the explicitly dragged ones, in one dialog for the batch.
  let dragLockHit: { accountId: number; boundary: LockBoundary } | null = null;
  for (const [key, newCreatedAt] of newTimes) {
   const entry = entryMap.get(key);
@@ -1222,15 +1377,9 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   if (dragLockHit) break;
  }
 
- if (
-  dragLockHit &&
-  !(await confirmDialog({
-   title: t('reconcile_warn_title'),
-   message: t('reconcile_warn_message', { balance: formatLockBalance(dragLockHit.accountId, dragLockHit.boundary.balance) }),
-   confirmText: t('reconcile_warn_confirm'),
-   tone: 'danger',
-  }))
- ) {
+ // Routed through the shared warning so every reconciliation dialog in the app reads the same
+ // and names the account it is about — which for a drag is frequently the counterparty's.
+ if (dragLockHit && !(await warnLockHit(dragLockHit)).proceed) {
   return;
  }
 
@@ -1277,10 +1426,16 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
     counterParty: tx.counterParty,
     distributionLocationId: tx.distributionLocationId,
     createdAt: newCreatedAt,
-    // dragLockHit is non-null only when this drag actually moves a row across a reconciled
-    // boundary and the user confirmed it above — otherwise the server still checks.
-    acknowledgeReconciliationOverride: Boolean(dragLockHit),
+    // Non-null only when this drag actually moves a reconciled balance and the user confirmed
+    // it above (either guard) — otherwise the server still checks.
+    acknowledgeReconciliationOverride: Boolean(dragLockHit) || changedMarks.length > 0,
    });
+  }
+
+  // Only after every row write landed, so a ✓ is never re-pointed at an order that failed
+  // to save half way through.
+  for (const mark of changedMarks) {
+   await accountingApi.updateReconciliation({ id: mark.id, balance: mark.to, lockedTransactionIds: mark.lockedTransactionIds });
   }
 
   setError('');

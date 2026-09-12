@@ -530,6 +530,15 @@ export type ImportRowOverride = {
  swap: boolean; // transaction mode: swap the sheet's from/to direction
 };
 export type LedgerColumnKey = 'created' | 'counterparty' | 'direction' | 'type' | 'amount' | 'currency' | 'exchangeRate' | 'commission' | 'netChange' | 'runningBalance' | 'description';
+/**
+ * The ledger columns whose row-edit control is a plain text/date field — the ones ↑/↓ steps
+ * through row by row and ←/→ moves between (see onLedgerEditFieldArrowKey). Deliberately not
+ * every editable column: `type` and `currency` edit as native <select>s, where the arrow keys
+ * belong to the option list, and `counterparty`/`direction` edit through a picker/toggle with
+ * no field to land in.
+ */
+export type LedgerEditFieldKey = Extract<LedgerColumnKey, 'created' | 'amount' | 'exchangeRate' | 'commission' | 'description'>;
+export const LEDGER_EDIT_FIELD_KEYS: readonly LedgerEditFieldKey[] = ['created', 'amount', 'exchangeRate', 'commission', 'description'];
 export type TransactionColumnKey = 'created' | 'description' | 'type' | 'accountFrom' | 'accountTo' | 'amount' | 'exchangeRate' | 'charges' | 'commission';
 export type DataCache = {
  organizations: Organization[];

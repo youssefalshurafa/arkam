@@ -207,6 +207,10 @@ export const accountingApi = {
  // it changes nothing about the account's ledger or balances.
  updateClientAccountDormant: (payload: { accountId: number; isDormant: boolean }) =>
   request<{ ok: true }>({ action: 'updateClientAccountDormant', payload }),
+ // The same flag applied to every account of one client in a single write — the accounts
+ // panel's "mark all dormant" toggle.
+ updateClientAccountsDormant: (payload: { clientId: number; isDormant: boolean }) =>
+  request<{ ok: true }>({ action: 'updateClientAccountsDormant', payload }),
  updateClientAccount: (payload: unknown) => request<{ ok: true }>({ action: 'updateClientAccount', payload }),
  deleteClientAccount: (accountId: number) => request<{ ok: true }>({ action: 'deleteClientAccount', payload: accountId }),
  moveAccountTransactions: (payload: { fromAccountId: number; toAccountId: number }) =>
@@ -232,6 +236,10 @@ export const accountingApi = {
  listTransactionHistory: (transactionId: number) => request<TransactionHistoryResponse>({ action: 'listTransactionHistory', payload: { transactionId } }),
  listReconciliations: () => request<unknown[]>({ action: 'listReconciliations' }),
  createReconciliation: (payload: unknown) => request<{ id: number }>({ action: 'createReconciliation', payload }),
+ // Re-points an existing ✓ at the balance now standing above it, after a drag moved a row
+ // across that line and the user accepted the stated old → new change.
+ updateReconciliation: (payload: { id: number; balance: number; lockedTransactionIds: number[] }) =>
+  request<{ ok: true }>({ action: 'updateReconciliation', payload }),
  deleteReconciliation: (id: number) => request<{ ok: true }>({ action: 'deleteReconciliation', payload: id }),
  listIgnoredAnomalies: () => request<unknown[]>({ action: 'listIgnoredAnomalies' }),
  createIgnoredAnomaly: (payload: unknown) => request<{ id: number | null }>({ action: 'createIgnoredAnomaly', payload }),

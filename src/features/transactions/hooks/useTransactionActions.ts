@@ -122,7 +122,7 @@ export function useTransactionActions({
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
 
  const {
-  formatLockBalance,
+  warnLockHit,
   checkLockForNewRow,
   checkLockForDelete,
   checkLockForEdit,
@@ -1814,7 +1814,9 @@ async function onTransactionRowDrop(draggedIds: number[], targetId: number, drop
   dropImpactHit = transactionEditImpact(draggedRow, { ...draggedRow, createdAt: newCreatedAt });
   if (dropImpactHit && dateChange) break;
  }
- if (dropImpactHit && !(await confirmDialog({ title: t('reconcile_warn_title'), message: t('reconcile_warn_message', { balance: formatLockBalance(dropImpactHit.accountId, dropImpactHit.boundary.balance) }), confirmText: t('reconcile_warn_confirm'), tone: 'danger' }))) {
+ // Shared warning, same as every other reconciliation dialog — it names the account whose ✓
+ // is affected, which here is often not the one the dragged row is filed under.
+ if (dropImpactHit && !(await warnLockHit(dropImpactHit)).proceed) {
   return;
  }
  if (dateChange && !(await confirmDialog({ title: t('drag_date_change_title'), message: t('drag_date_change_message', { from: dateChange.from, to: dateChange.to }), confirmText: t('drag_date_change_confirm'), tone: 'danger' }))) {

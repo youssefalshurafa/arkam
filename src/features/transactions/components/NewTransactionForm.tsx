@@ -53,7 +53,18 @@ type NewTransactionFormProps = {
  * modal — its data lives entirely in useTransactionsStore (transactionForm and friends), so any
  * mount of this component reads/writes the same in-progress draft.
  */
-export default function NewTransactionForm({ clientAccounts, clientAccountMap, enabledCurrencies, currencyMap, transactions, section, lockPastEditsEnabled, onTransactionSubmit, formRef, onSaveAndClose }: NewTransactionFormProps) {
+export default function NewTransactionForm({
+ clientAccounts,
+ clientAccountMap,
+ enabledCurrencies,
+ currencyMap,
+ transactions,
+ section,
+ lockPastEditsEnabled,
+ onTransactionSubmit,
+ formRef,
+ onSaveAndClose,
+}: NewTransactionFormProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
 
@@ -171,7 +182,10 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
   () => filterActiveClientAccounts(realClientAccounts, [transactionForm.accountFromId, transactionForm.accountToId]),
   [realClientAccounts, transactionForm.accountFromId, transactionForm.accountToId],
  );
- const txFromOptions = useMemo(() => buildAccountOptions(selectableClientAccounts, txFromQuery, txFromExpandedClient), [selectableClientAccounts, txFromQuery, txFromExpandedClient]);
+ const txFromOptions = useMemo(
+  () => buildAccountOptions(selectableClientAccounts, txFromQuery, txFromExpandedClient),
+  [selectableClientAccounts, txFromQuery, txFromExpandedClient],
+ );
  const txToOptions = useMemo(() => buildAccountOptions(selectableClientAccounts, txToQuery, txToExpandedClient), [selectableClientAccounts, txToQuery, txToExpandedClient]);
 
  const { suggestions: descriptionSuggestions, excludeSuggestion: excludeDescriptionSuggestion } = useDescriptionSuggestions({
@@ -241,11 +255,7 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
  // derivation had no way to see the click).
  const [oneSidedDirectionPref, setOneSidedDirectionPref] = useState<'client_from' | 'client_to'>('client_from');
  const oneSidedDirection: 'client_from' | 'client_to' =
-  transactionForm.accountToId != null && transactionForm.accountFromId == null
-   ? 'client_to'
-   : transactionForm.accountFromId != null
-     ? 'client_from'
-     : oneSidedDirectionPref;
+  transactionForm.accountToId != null && transactionForm.accountFromId == null ? 'client_to' : transactionForm.accountFromId != null ? 'client_from' : oneSidedDirectionPref;
  const oneSidedAccountId = oneSidedDirection === 'client_to' ? transactionForm.accountToId : transactionForm.accountFromId;
  const setOneSidedDirection = (direction: 'client_from' | 'client_to') => {
   setOneSidedDirectionPref(direction);
@@ -308,971 +318,984 @@ export default function NewTransactionForm({ clientAccounts, clientAccountMap, e
  };
 
  return (
-           <form
-            ref={formRef}
-            onSubmit={handleFormSubmit}
-            className="mt-5 max-w-md"
-           >
-            {aiFeatureAccess ? (
-             <div className="mb-4 rounded border border-border-strong bg-surface-2 p-3">
-              <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ai_fill_label')}</label>
-              {isSpeechUnsupportedEnv ? <p className="mt-1 text-xs text-fg-faint">{t('ai_fill_voice_unsupported')}</p> : null}
-              {isParsingWithAi ? <p className="mt-1 animate-pulse text-xs text-fg-faint">{t('ai_processing')}</p> : null}
-              <div className="mt-2 flex gap-2">
-               <input
-                type="text"
-                value={aiParseText}
-                onChange={(event) => setAiParseText(event.target.value)}
-                onKeyDown={(event) => {
-                 if (event.key === 'Enter') {
-                  event.preventDefault();
-                  void onFillFromText();
-                 }
-                }}
-                placeholder={t('ai_fill_placeholder')}
-                className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-               />
-               {isSpeechSupported ? (
-                <button
-                 type="button"
-                 title={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
-                 aria-label={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
-                 onClick={() => (isListening ? stopListening() : startListening())}
-                 className={`shrink-0 rounded border px-3 py-2 text-sm transition ${
-                  isListening ? 'animate-pulse border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                 }`}
-                >
-                 <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                 >
-                  <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                  <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-                  <path d="M12 18v4M9 22h6" />
-                 </svg>
-                </button>
-               ) : null}
-               {isParsingWithAi ? (
-                <button
-                 type="button"
-                 onClick={() => stopAiParse()}
-                 title={t('ai_stop')}
-                 aria-label={t('ai_stop')}
-                 className="shrink-0 rounded border border-bad-text bg-bad-bg px-3 py-2 text-bad-text transition hover:opacity-80"
-                >
-                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                 </svg>
-                </button>
-               ) : (
-                <button
-                 type="button"
-                 disabled={!aiParseText.trim()}
-                 onClick={() => void onFillFromText()}
-                 className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                 {t('ai_fill_button')}
-                </button>
-               )}
-              </div>
-             </div>
-            ) : null}
+  <form
+   ref={formRef}
+   onSubmit={handleFormSubmit}
+   className="mt-5 max-w-md"
+  >
+   {aiFeatureAccess ? (
+    <div className="mb-4 rounded border border-border-strong bg-surface-2 p-3">
+     <label className="block text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('ai_fill_label')}</label>
+     {isSpeechUnsupportedEnv ? <p className="mt-1 text-xs text-fg-faint">{t('ai_fill_voice_unsupported')}</p> : null}
+     {isParsingWithAi ? <p className="mt-1 animate-pulse text-xs text-fg-faint">{t('ai_processing')}</p> : null}
+     <div className="mt-2 flex gap-2">
+      <input
+       type="text"
+       value={aiParseText}
+       onChange={(event) => setAiParseText(event.target.value)}
+       onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+         event.preventDefault();
+         void onFillFromText();
+        }
+       }}
+       placeholder={t('ai_fill_placeholder')}
+       className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+      />
+      {isSpeechSupported ? (
+       <button
+        type="button"
+        title={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+        aria-label={isListening ? t('ai_fill_voice_listening') : t('ai_fill_voice_button')}
+        onClick={() => (isListening ? stopListening() : startListening())}
+        className={`shrink-0 rounded border px-3 py-2 text-sm transition ${
+         isListening ? 'animate-pulse border-red-500 bg-bad-bg text-bad-text' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+        }`}
+       >
+        <svg
+         width="16"
+         height="16"
+         viewBox="0 0 24 24"
+         fill="none"
+         stroke="currentColor"
+         strokeWidth="1.8"
+         strokeLinecap="round"
+         strokeLinejoin="round"
+         aria-hidden
+        >
+         <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+         <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+         <path d="M12 18v4M9 22h6" />
+        </svg>
+       </button>
+      ) : null}
+      {isParsingWithAi ? (
+       <button
+        type="button"
+        onClick={() => stopAiParse()}
+        title={t('ai_stop')}
+        aria-label={t('ai_stop')}
+        className="shrink-0 rounded border border-bad-text bg-bad-bg px-3 py-2 text-bad-text transition hover:opacity-80"
+       >
+        <svg
+         width="16"
+         height="16"
+         viewBox="0 0 24 24"
+         fill="currentColor"
+         aria-hidden
+        >
+         <rect
+          x="6"
+          y="6"
+          width="12"
+          height="12"
+          rx="2"
+         />
+        </svg>
+       </button>
+      ) : (
+       <button
+        type="button"
+        disabled={!aiParseText.trim()}
+        onClick={() => void onFillFromText()}
+        className="shrink-0 rounded border border-border-strong bg-surface px-3 py-2 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+       >
+        {t('ai_fill_button')}
+       </button>
+      )}
+     </div>
+    </div>
+   ) : null}
 
-            <label className="block text-sm font-medium">{t('transaction_type')}</label>
-            <select
-             value={transactionForm.type}
-             onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
-             className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-            >
-             <option value="exchange">{t('transaction_type_exchange')}</option>
-             <option value="transfer">{t('transaction_type_transfer')}</option>
-             {section === 'archive' ? null : <option value="adjustment">{t('transaction_type_adjustment')}</option>}
-            </select>
+   <label className="block text-sm font-medium">{t('transaction_type')}</label>
+   <select
+    value={transactionForm.type}
+    onChange={(event) => setTransactionForm((current) => ({ ...current, type: event.target.value }))}
+    className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+   >
+    <option value="exchange">{t('transaction_type_exchange')}</option>
+    <option value="transfer">{t('transaction_type_transfer')}</option>
+    {section === 'archive' ? null : <option value="adjustment">{t('transaction_type_adjustment')}</option>}
+   </select>
 
-            <label className="mt-4 block text-sm font-medium">{t('date')}</label>
-            <input
-             type="date"
-             value={newTransactionDate}
-             max={localDateKey()}
-             min={lockPastEditsEnabled && section !== 'archive' ? localDateKey() : undefined}
-             onChange={(event) => setNewTransactionDate(event.target.value > localDateKey() ? localDateKey() : event.target.value)}
-             className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-            />
+   <label className="mt-4 block text-sm font-medium">{t('date')}</label>
+   <input
+    type="date"
+    value={newTransactionDate}
+    max={localDateKey()}
+    min={lockPastEditsEnabled && section !== 'archive' ? localDateKey() : undefined}
+    onChange={(event) => setNewTransactionDate(event.target.value > localDateKey() ? localDateKey() : event.target.value)}
+    className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+   />
 
-            <label className="mt-4 block text-sm font-medium">{t('transaction_amount')}</label>
-            <div className="mt-2 flex gap-2">
-             <input
-              type="text"
-              inputMode="decimal"
-              dir="ltr"
-              value={transactionForm.amount}
-              onChange={(event) => setTransactionForm((current) => ({ ...current, amount: formatAmountInput(event.target.value) }))}
-              className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-              placeholder="0.00"
-              required
-             />
-             <select
-              value={transactionForm.currencyId ?? ''}
-              onChange={(event) =>
-               setTransactionForm((current) => ({
-                ...current,
-                currencyId: event.target.value ? Number(event.target.value) : null,
-               }))
-              }
-              className="w-28 rounded border border-border-strong px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-              required
-             >
-              <option value="">{t('transaction_currency_placeholder')}</option>
-              {enabledCurrencies.map((cur) => (
-               <option
-                key={cur.id}
-                value={cur.id}
-               >
-                {cur.code}
-               </option>
-              ))}
-             </select>
-            </div>
+   <label className="mt-4 block text-sm font-medium">{t('transaction_amount')}</label>
+   <div className="mt-2 flex gap-2">
+    <input
+     type="text"
+     inputMode="decimal"
+     dir="ltr"
+     value={transactionForm.amount}
+     onChange={(event) => setTransactionForm((current) => ({ ...current, amount: formatAmountInput(event.target.value) }))}
+     className="min-w-0 flex-1 rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+     placeholder="0.00"
+     required
+    />
+    <select
+     value={transactionForm.currencyId ?? ''}
+     onChange={(event) =>
+      setTransactionForm((current) => ({
+       ...current,
+       currencyId: event.target.value ? Number(event.target.value) : null,
+      }))
+     }
+     className="w-28 rounded border border-border-strong px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+     required
+    >
+     <option value="">{t('transaction_currency_placeholder')}</option>
+     {enabledCurrencies.map((cur) => (
+      <option
+       key={cur.id}
+       value={cur.id}
+      >
+       {cur.code}
+      </option>
+     ))}
+    </select>
+   </div>
 
-            {transactionForm.type === 'adjustment' ? (
-             <>
-              <label className="mt-4 block text-sm font-medium">{t('one_sided_direction_label')}</label>
-              <div dir="ltr" className="mt-2 grid grid-cols-2 gap-2">
-               <button
-                type="button"
-                onClick={() => setOneSidedDirection('client_from')}
-                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                 oneSidedDirection === 'client_from' ? 'border-accent bg-accent-weak text-accent' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                }`}
-               >
-                {t('transaction_account_from')}
-               </button>
-               <button
-                type="button"
-                onClick={() => setOneSidedDirection('client_to')}
-                className={`rounded border px-3 py-2 text-sm font-semibold transition ${
-                 oneSidedDirection === 'client_to' ? 'border-accent bg-accent-weak text-accent' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
-                }`}
-               >
-                {t('transaction_account_to')}
-               </button>
-              </div>
-              <p className="mt-1 text-xs text-fg-faint">{oneSidedDirection === 'client_from' ? t('one_sided_client_from_hint') : t('one_sided_client_to_hint')}</p>
+   {transactionForm.type === 'adjustment' ? (
+    <>
+     <label className="mt-4 block text-sm font-medium">{t('one_sided_direction_label')}</label>
+     <div
+      dir="ltr"
+      className="mt-2 grid grid-cols-2 gap-2"
+     >
+      <button
+       type="button"
+       onClick={() => setOneSidedDirection('client_from')}
+       className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+        oneSidedDirection === 'client_from' ? 'border-accent bg-accent-weak text-accent' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+       }`}
+      >
+       {t('transaction_account_from')}
+      </button>
+      <button
+       type="button"
+       onClick={() => setOneSidedDirection('client_to')}
+       className={`rounded border px-3 py-2 text-sm font-semibold transition ${
+        oneSidedDirection === 'client_to' ? 'border-accent bg-accent-weak text-accent' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+       }`}
+      >
+       {t('transaction_account_to')}
+      </button>
+     </div>
+     <p className="mt-1 text-xs text-fg-faint">{oneSidedDirection === 'client_from' ? t('one_sided_client_from_hint') : t('one_sided_client_to_hint')}</p>
 
-              <label className="mt-4 block text-sm font-medium">{oneSidedDirection === 'client_from' ? t('transaction_account_from') : t('transaction_account_to')}</label>
-              <div className="mt-2">
-               <AccountSearchSelect
-                accounts={selectableClientAccounts}
-                value={oneSidedAccountId}
-                onChange={selectOneSidedAccount}
-                placeholder={t('transaction_account_placeholder')}
-                clearLabel={t('clear_selection')}
-                isRTL={isRTL}
-               />
-              </div>
+     <label className="mt-4 block text-sm font-medium">{oneSidedDirection === 'client_from' ? t('transaction_account_from') : t('transaction_account_to')}</label>
+     <div className="mt-2">
+      <AccountSearchSelect
+       accounts={selectableClientAccounts}
+       value={oneSidedAccountId}
+       onChange={selectOneSidedAccount}
+       placeholder={t('transaction_account_placeholder')}
+       clearLabel={t('clear_selection')}
+       isRTL={isRTL}
+      />
+     </div>
 
-              {/* The counterparty is always the side the client is NOT: when the client is the
+     {/* The counterparty is always the side the client is NOT: when the client is the
                   sender the money went out to them (paid to), when the client is the receiver
                   it came in from them (received from). */}
-              <label className="mt-4 block text-sm font-medium">
-               {oneSidedDirection === 'client_from' ? t('adjustment_counter_party_paid_to') : t('adjustment_counter_party_received_from')}
-              </label>
-              <input
-               type="text"
-               value={transactionForm.counterParty}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
-               placeholder={t('adjustment_counter_party_placeholder')}
-               className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-              />
-             </>
-            ) : (
-             <>
-            <label className="mt-4 block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}</label>
-            <div className="relative mt-2">
-             <input
-              type="text"
-              value={
-               txFromOpen
-                ? txFromQuery
-                : transactionForm.accountFromId
-                  ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
-                    ' · ' +
-                    (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
-                  : ''
-              }
-              onChange={(event) => {
-               setTxFromQuery(event.target.value);
-               setTxFromOpen(true);
-               setTxFromHighlight(0);
+     <label className="mt-4 block text-sm font-medium">
+      {oneSidedDirection === 'client_from' ? t('adjustment_counter_party_paid_to') : t('adjustment_counter_party_received_from')}
+     </label>
+     <input
+      type="text"
+      value={transactionForm.counterParty}
+      onChange={(event) => setTransactionForm((current) => ({ ...current, counterParty: event.target.value }))}
+      placeholder={t('adjustment_counter_party_placeholder')}
+      className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+     />
+    </>
+   ) : (
+    <>
+     <label className="mt-4 block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}</label>
+     <div className="relative mt-2">
+      <input
+       type="text"
+       value={
+        txFromOpen
+         ? txFromQuery
+         : transactionForm.accountFromId
+           ? (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.clientName ?? '') +
+             ' · ' +
+             (clientAccounts.find((a) => a.id === transactionForm.accountFromId)?.currencyCode ?? '')
+           : ''
+       }
+       onChange={(event) => {
+        setTxFromQuery(event.target.value);
+        setTxFromOpen(true);
+        setTxFromHighlight(0);
+       }}
+       onFocus={() => {
+        setTxFromQuery('');
+        setTxFromOpen(true);
+        setTxFromHighlight(0);
+       }}
+       onBlur={() => setTimeout(() => setTxFromOpen(false), 150)}
+       onKeyDown={(event) =>
+        handleAccountPickerKeyDown(
+         event,
+         txFromOpen,
+         txFromOptions,
+         txFromHighlight,
+         setTxFromHighlight,
+         (clientId, expanded) => setTxFromExpandedClient(expanded && !txFromQuery.trim() ? null : clientId),
+         selectFromAccount,
+         () => setTxFromOpen(false),
+        )
+       }
+       placeholder={t('transaction_account_placeholder')}
+       className={`w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
+       autoComplete="off"
+      />
+      {transactionForm.accountFromId && !txFromOpen ? (
+       <button
+        type="button"
+        onMouseDown={(event) => {
+         event.preventDefault();
+         setTransactionForm((current) => ({ ...current, accountFromId: null }));
+         setTxFromQuery('');
+         setTxFromOpen(false);
+        }}
+        title={t('clear_selection')}
+        aria-label={t('clear_selection')}
+        className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted ${isRTL ? 'left-2' : 'right-2'}`}
+       >
+        <svg
+         width="14"
+         height="14"
+         viewBox="0 0 24 24"
+         fill="none"
+         stroke="currentColor"
+         strokeWidth="2"
+         strokeLinecap="round"
+         strokeLinejoin="round"
+         aria-hidden
+        >
+         <line
+          x1="18"
+          y1="6"
+          x2="6"
+          y2="18"
+         />
+         <line
+          x1="6"
+          y1="6"
+          x2="18"
+          y2="18"
+         />
+        </svg>
+       </button>
+      ) : null}
+      {txFromOpen && (
+       <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
+        {txFromOptions.length === 0 ? (
+         <li className="px-3 py-2 text-sm text-fg-faint">{t('transaction_account_placeholder')}</li>
+        ) : (
+         txFromOptions.map((option, index) => {
+          const highlighted = index === txFromHighlight;
+          // Keeps the keyboard-highlighted row scrolled into view as ↑/↓ move past the fold.
+          const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
+          if (option.kind === 'single') {
+           const account = option.account;
+           const selected = transactionForm.accountFromId === account.id;
+           return (
+            <li
+             key={`s${account.id}`}
+             ref={highlightRef}
+             onMouseDown={() => selectFromAccount(account.id)}
+             onMouseEnter={() => setTxFromHighlight(index)}
+             className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg'}`}
+            >
+             {account.clientName} · {account.currencyCode}
+            </li>
+           );
+          }
+          if (option.kind === 'group') {
+           const groupHasSelected = clientAccounts.some((a) => a.clientId === option.clientId && a.id === transactionForm.accountFromId);
+           return (
+            <li
+             key={`g${option.clientId}`}
+             ref={highlightRef}
+             onMouseDown={(e) => {
+              e.preventDefault();
+              setTxFromExpandedClient(option.expanded && !txFromQuery.trim() ? null : option.clientId);
+             }}
+             onMouseEnter={() => setTxFromHighlight(index)}
+             className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : ''} ${groupHasSelected ? 'font-medium text-accent' : 'text-fg'}`}
+            >
+             <span>
+              {option.clientName} <span className="text-fg-faint">({option.count})</span>
+             </span>
+             <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`text-fg-faint transition-transform ${option.expanded ? 'rotate-180' : ''}`}
+              aria-hidden
+             >
+              <path d="m6 9 6 6 6-6" />
+             </svg>
+            </li>
+           );
+          }
+          const account = option.account;
+          const selected = transactionForm.accountFromId === account.id;
+          return (
+           <li
+            key={`c${account.id}`}
+            ref={highlightRef}
+            onMouseDown={() => selectFromAccount(account.id)}
+            onMouseEnter={() => setTxFromHighlight(index)}
+            className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg-muted'}`}
+           >
+            {account.currencyCode}
+            {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+           </li>
+          );
+         })
+        )}
+       </ul>
+      )}
+     </div>
+
+     <div className="mt-2 -mb-2 flex justify-center">
+      <button
+       type="button"
+       onClick={swapFromToParties}
+       title={t('swap_parties_action')}
+       aria-label={t('swap_parties_action')}
+       className="inline-flex items-center justify-center rounded p-0 text-fg-faint transition hover:bg-surface-hover hover:text-accent"
+      >
+       <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
+        <path d="M8 3v18" />
+        <path d="M4 7l4-4 4 4" />
+        <path d="M16 21V3" />
+        <path d="M12 17l4 4 4-4" />
+       </svg>
+      </button>
+     </div>
+
+     <>
+      <label className="block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}</label>
+      <div className="relative mt-2">
+       <input
+        type="text"
+        value={
+         txToOpen
+          ? txToQuery
+          : transactionForm.accountToId
+            ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
+              ' · ' +
+              (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
+            : ''
+        }
+        onChange={(event) => {
+         setTxToQuery(event.target.value);
+         setTxToOpen(true);
+         setTxToHighlight(0);
+        }}
+        onFocus={() => {
+         setTxToQuery('');
+         setTxToOpen(true);
+         setTxToHighlight(0);
+        }}
+        onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
+        onKeyDown={(event) =>
+         handleAccountPickerKeyDown(
+          event,
+          txToOpen,
+          txToOptions,
+          txToHighlight,
+          setTxToHighlight,
+          (clientId, expanded) => setTxToExpandedClient(expanded && !txToQuery.trim() ? null : clientId),
+          selectToAccount,
+          () => setTxToOpen(false),
+         )
+        }
+        placeholder={t('transaction_account_placeholder')}
+        className={`w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
+        autoComplete="off"
+       />
+       {transactionForm.accountToId && !txToOpen ? (
+        <button
+         type="button"
+         onMouseDown={(event) => {
+          event.preventDefault();
+          setTransactionForm((current) => ({ ...current, accountToId: null }));
+          setTxToQuery('');
+          setTxToOpen(false);
+         }}
+         title={t('clear_selection')}
+         aria-label={t('clear_selection')}
+         className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted ${isRTL ? 'left-2' : 'right-2'}`}
+        >
+         <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+         >
+          <line
+           x1="18"
+           y1="6"
+           x2="6"
+           y2="18"
+          />
+          <line
+           x1="6"
+           y1="6"
+           x2="18"
+           y2="18"
+          />
+         </svg>
+        </button>
+       ) : null}
+       {txToOpen && (
+        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
+         {txToOptions.length === 0 ? (
+          <li className="px-3 py-2 text-sm text-fg-faint">{t('transaction_account_placeholder')}</li>
+         ) : (
+          txToOptions.map((option, index) => {
+           const highlighted = index === txToHighlight;
+           const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
+           if (option.kind === 'single') {
+            const account = option.account;
+            const selected = transactionForm.accountToId === account.id;
+            return (
+             <li
+              key={`s${account.id}`}
+              ref={highlightRef}
+              onMouseDown={() => selectToAccount(account.id)}
+              onMouseEnter={() => setTxToHighlight(index)}
+              className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg'}`}
+             >
+              {account.clientName} · {account.currencyCode}
+             </li>
+            );
+           }
+           if (option.kind === 'group') {
+            const groupHasSelected = clientAccounts.some((a) => a.clientId === option.clientId && a.id === transactionForm.accountToId);
+            return (
+             <li
+              key={`g${option.clientId}`}
+              ref={highlightRef}
+              onMouseDown={(e) => {
+               e.preventDefault();
+               setTxToExpandedClient(option.expanded && !txToQuery.trim() ? null : option.clientId);
               }}
-              onFocus={() => {
-               setTxFromQuery('');
-               setTxFromOpen(true);
-               setTxFromHighlight(0);
-              }}
-              onBlur={() => setTimeout(() => setTxFromOpen(false), 150)}
-              onKeyDown={(event) =>
-               handleAccountPickerKeyDown(
-                event,
-                txFromOpen,
-                txFromOptions,
-                txFromHighlight,
-                setTxFromHighlight,
-                (clientId, expanded) => setTxFromExpandedClient(expanded && !txFromQuery.trim() ? null : clientId),
-                selectFromAccount,
-                () => setTxFromOpen(false),
-               )
-              }
-              placeholder={t('transaction_account_placeholder')}
-              className={`w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
-              autoComplete="off"
-             />
-             {transactionForm.accountFromId && !txFromOpen ? (
-              <button
-               type="button"
-               onMouseDown={(event) => {
-                event.preventDefault();
-                setTransactionForm((current) => ({ ...current, accountFromId: null }));
-                setTxFromQuery('');
-                setTxFromOpen(false);
-               }}
-               title={t('clear_selection')}
-               aria-label={t('clear_selection')}
-               className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted ${isRTL ? 'left-2' : 'right-2'}`}
-              >
+              onMouseEnter={() => setTxToHighlight(index)}
+              className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : ''} ${groupHasSelected ? 'font-medium text-accent' : 'text-fg'}`}
+             >
+              <span>{option.clientName}</span>
+              <span className="flex items-center gap-1 text-xs text-fg-faint">
+               {option.count}
                <svg
-                width="14"
-                height="14"
+                width="12"
+                height="12"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                className={`transition-transform ${option.expanded ? 'rotate-180' : ''}`}
                 aria-hidden
                >
-                <line
-                 x1="18"
-                 y1="6"
-                 x2="6"
-                 y2="18"
-                />
-                <line
-                 x1="6"
-                 y1="6"
-                 x2="18"
-                 y2="18"
-                />
+                <path d="m6 9 6 6 6-6" />
                </svg>
-              </button>
-             ) : null}
-             {txFromOpen && (
-              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
-               {txFromOptions.length === 0 ? (
-                <li className="px-3 py-2 text-sm text-fg-faint">{t('transaction_account_placeholder')}</li>
-               ) : (
-                txFromOptions.map((option, index) => {
-                 const highlighted = index === txFromHighlight;
-                 // Keeps the keyboard-highlighted row scrolled into view as ↑/↓ move past the fold.
-                 const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
-                 if (option.kind === 'single') {
-                  const account = option.account;
-                  const selected = transactionForm.accountFromId === account.id;
-                  return (
-                   <li
-                    key={`s${account.id}`}
-                    ref={highlightRef}
-                    onMouseDown={() => selectFromAccount(account.id)}
-                    onMouseEnter={() => setTxFromHighlight(index)}
-                    className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg'}`}
-                   >
-                    {account.clientName} · {account.currencyCode}
-                   </li>
-                  );
-                 }
-                 if (option.kind === 'group') {
-                  const groupHasSelected = clientAccounts.some((a) => a.clientId === option.clientId && a.id === transactionForm.accountFromId);
-                  return (
-                   <li
-                    key={`g${option.clientId}`}
-                    ref={highlightRef}
-                    onMouseDown={(e) => {
-                     e.preventDefault();
-                     setTxFromExpandedClient(option.expanded && !txFromQuery.trim() ? null : option.clientId);
-                    }}
-                    onMouseEnter={() => setTxFromHighlight(index)}
-                    className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : ''} ${groupHasSelected ? 'font-medium text-accent' : 'text-fg'}`}
-                   >
-                    <span>
-                     {option.clientName} <span className="text-fg-faint">({option.count})</span>
-                    </span>
-                    <svg
-                     width="12"
-                     height="12"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth="2"
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     className={`text-fg-faint transition-transform ${option.expanded ? 'rotate-180' : ''}`}
-                     aria-hidden
-                    >
-                     <path d="m6 9 6 6 6-6" />
-                    </svg>
-                   </li>
-                  );
-                 }
-                 const account = option.account;
-                 const selected = transactionForm.accountFromId === account.id;
-                 return (
-                  <li
-                   key={`c${account.id}`}
-                   ref={highlightRef}
-                   onMouseDown={() => selectFromAccount(account.id)}
-                   onMouseEnter={() => setTxFromHighlight(index)}
-                   className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg-muted'}`}
-                  >
-                   {account.currencyCode}
-                   {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
-                  </li>
-                 );
-                })
-               )}
-              </ul>
-             )}
-            </div>
+              </span>
+             </li>
+            );
+           }
+           const account = option.account;
+           const selected = transactionForm.accountToId === account.id;
+           return (
+            <li
+             key={`c${account.id}`}
+             ref={highlightRef}
+             onMouseDown={() => selectToAccount(account.id)}
+             onMouseEnter={() => setTxToHighlight(index)}
+             className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg-muted'}`}
+            >
+             {account.currencyCode}
+             {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
+            </li>
+           );
+          })
+         )}
+        </ul>
+       )}
+      </div>
+     </>
+    </>
+   )}
 
-            <div className="mt-2 -mb-2 flex justify-center">
-             <button
-              type="button"
-              onClick={swapFromToParties}
-              title={t('swap_parties_action')}
-              aria-label={t('swap_parties_action')}
-              className="inline-flex items-center justify-center rounded p-0 text-fg-faint transition hover:bg-surface-hover hover:text-accent"
-             >
-              <svg
-               width="12"
-               height="12"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="2.5"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               aria-hidden
-              >
-               <path d="M8 3v18" />
-               <path d="M4 7l4-4 4 4" />
-               <path d="M16 21V3" />
-               <path d="M12 17l4 4 4-4" />
-              </svg>
-             </button>
-            </div>
+   {transactionForm.type !== 'adjustment' || transactionForm.accountFromId ? (
+    <div className="mt-4 rounded border border-border bg-surface-2 p-4">
+     <h3 className="text-sm font-semibold text-fg-muted">
+      {transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}
+      {transactionForm.accountFromId && clientAccountMap.get(transactionForm.accountFromId)?.clientName ? (
+       <span className="ml-1.5 font-normal text-fg-faint">
+        — {clientAccountMap.get(transactionForm.accountFromId)!.clientName}
+        {clientAccountMap.get(transactionForm.accountFromId)!.currencyCode ? ` · ${clientAccountMap.get(transactionForm.accountFromId)!.currencyCode}` : ''}
+       </span>
+      ) : null}
+     </h3>
+     <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
+      {showExchangeRateFrom && (
+       <div>
+        <div className="flex items-center justify-between">
+         <label className="block text-xs font-medium text-fg-faint">
+          {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode
+           ? txFromRateReversed
+             ? ltrIsolate(`1 ${transactionAccountFromCurrencyCode} = ? ${transactionSelectedCurrencyCode}`)
+             : ltrIsolate(`1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountFromCurrencyCode}`)
+           : t('transaction_exchange_rate_from')}
+         </label>
+         {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountFromCurrencyCode && (
+          <button
+           type="button"
+           title="Reverse rate direction"
+           onClick={() => {
+            const val = parseFloat(transactionForm.exchangeRateFrom) || 1;
+            setTransactionForm((c) => ({ ...c, exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
+            setTxFromRateReversed((r) => !r);
+           }}
+           className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
+          >
+           <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+           >
+            <path d="M7 4 3 8l4 4M3 8h13.5" />
+            <path d="M17 20l4-4-4-4m4 4H7.5" />
+           </svg>
+           <span
+            className="text-xs font-semibold"
+            aria-hidden
+           >
+            {txFromRateReversed ? '÷' : '×'}
+           </span>
+          </button>
+         )}
+        </div>
+        <input
+         type="text"
+         inputMode="decimal"
+         dir="ltr"
+         value={transactionForm.exchangeRateFrom}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizePlainDecimalInput(event.target.value) }))}
+         className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         placeholder="1"
+        />
+       </div>
+      )}
+      <div>
+       <div className="flex items-center justify-between gap-2">
+        <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_from')} (%)</label>
+        <CommissionDirectionToggle
+         value={transactionForm.commissionFrom}
+         onChange={(next) => setTransactionForm((current) => ({ ...current, commissionFrom: next }))}
+         t={t}
+        />
+       </div>
+       <input
+        type="text"
+        inputMode="decimal"
+        dir="ltr"
+        value={transactionForm.commissionFrom}
+        onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizePlainDecimalInput(event.target.value) }))}
+        className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        placeholder="0"
+       />
+      </div>
+     </div>
+    </div>
+   ) : null}
 
-            <>
-              <label className="block text-sm font-medium">{transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}</label>
-              <div className="relative mt-2">
-               <input
-                type="text"
-                value={
-                 txToOpen
-                  ? txToQuery
-                  : transactionForm.accountToId
-                    ? (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.clientName ?? '') +
-                      ' · ' +
-                      (clientAccounts.find((a) => a.id === transactionForm.accountToId)?.currencyCode ?? '')
-                    : ''
-                }
-                onChange={(event) => {
-                 setTxToQuery(event.target.value);
-                 setTxToOpen(true);
-                 setTxToHighlight(0);
-                }}
-                onFocus={() => {
-                 setTxToQuery('');
-                 setTxToOpen(true);
-                 setTxToHighlight(0);
-                }}
-                onBlur={() => setTimeout(() => setTxToOpen(false), 150)}
-                onKeyDown={(event) =>
-                 handleAccountPickerKeyDown(
-                  event,
-                  txToOpen,
-                  txToOptions,
-                  txToHighlight,
-                  setTxToHighlight,
-                  (clientId, expanded) => setTxToExpandedClient(expanded && !txToQuery.trim() ? null : clientId),
-                  selectToAccount,
-                  () => setTxToOpen(false),
-                 )
-                }
-                placeholder={t('transaction_account_placeholder')}
-                className={`w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-9' : 'pr-9'}`}
-                autoComplete="off"
-               />
-               {transactionForm.accountToId && !txToOpen ? (
-                <button
-                 type="button"
-                 onMouseDown={(event) => {
-                  event.preventDefault();
-                  setTransactionForm((current) => ({ ...current, accountToId: null }));
-                  setTxToQuery('');
-                  setTxToOpen(false);
-                 }}
-                 title={t('clear_selection')}
-                 aria-label={t('clear_selection')}
-                 className={`absolute inset-y-0 my-auto flex h-6 w-6 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted ${isRTL ? 'left-2' : 'right-2'}`}
-                >
-                 <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden
-                 >
-                  <line
-                   x1="18"
-                   y1="6"
-                   x2="6"
-                   y2="18"
-                  />
-                  <line
-                   x1="6"
-                   y1="6"
-                   x2="18"
-                   y2="18"
-                  />
-                 </svg>
-                </button>
-               ) : null}
-               {txToOpen && (
-                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded border border-border bg-surface shadow-lg">
-                 {txToOptions.length === 0 ? (
-                  <li className="px-3 py-2 text-sm text-fg-faint">{t('transaction_account_placeholder')}</li>
-                 ) : (
-                  txToOptions.map((option, index) => {
-                   const highlighted = index === txToHighlight;
-                   const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
-                   if (option.kind === 'single') {
-                    const account = option.account;
-                    const selected = transactionForm.accountToId === account.id;
-                    return (
-                     <li
-                      key={`s${account.id}`}
-                      ref={highlightRef}
-                      onMouseDown={() => selectToAccount(account.id)}
-                      onMouseEnter={() => setTxToHighlight(index)}
-                      className={`cursor-pointer px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg'}`}
-                     >
-                      {account.clientName} · {account.currencyCode}
-                     </li>
-                    );
-                   }
-                   if (option.kind === 'group') {
-                    const groupHasSelected = clientAccounts.some((a) => a.clientId === option.clientId && a.id === transactionForm.accountToId);
-                    return (
-                     <li
-                      key={`g${option.clientId}`}
-                      ref={highlightRef}
-                      onMouseDown={(e) => {
-                       e.preventDefault();
-                       setTxToExpandedClient(option.expanded && !txToQuery.trim() ? null : option.clientId);
-                      }}
-                      onMouseEnter={() => setTxToHighlight(index)}
-                      className={`flex cursor-pointer items-center justify-between px-3 py-2 text-sm ${highlighted ? 'bg-accent-weak' : ''} ${groupHasSelected ? 'font-medium text-accent' : 'text-fg'}`}
-                     >
-                      <span>{option.clientName}</span>
-                      <span className="flex items-center gap-1 text-xs text-fg-faint">
-                       {option.count}
-                       <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className={`transition-transform ${option.expanded ? 'rotate-180' : ''}`}
-                        aria-hidden
-                       >
-                        <path d="m6 9 6 6 6-6" />
-                       </svg>
-                      </span>
-                     </li>
-                    );
-                   }
-                   const account = option.account;
-                   const selected = transactionForm.accountToId === account.id;
-                   return (
-                    <li
-                     key={`c${account.id}`}
-                     ref={highlightRef}
-                     onMouseDown={() => selectToAccount(account.id)}
-                     onMouseEnter={() => setTxToHighlight(index)}
-                     className={`cursor-pointer py-2 pl-8 pr-3 text-sm ${highlighted ? 'bg-accent-weak' : selected ? 'bg-accent-weak' : ''} ${selected ? 'font-medium text-accent' : 'text-fg-muted'}`}
-                    >
-                     {account.currencyCode}
-                     {account.currencySymbol ? ` (${account.currencySymbol})` : ''}
-                    </li>
-                   );
-                  })
-                 )}
-                </ul>
-               )}
-              </div>
-             </>
-             </>
-            )}
+   {transactionForm.type !== 'adjustment' || transactionForm.accountToId ? (
+    <div className="mt-3 rounded border border-border bg-surface-2 p-4">
+     <h3 className="text-sm font-semibold text-fg-muted">
+      {transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}
+      {transactionForm.accountToId && clientAccountMap.get(transactionForm.accountToId)?.clientName ? (
+       <span className="ml-1.5 font-normal text-fg-faint">
+        — {clientAccountMap.get(transactionForm.accountToId)!.clientName}
+        {clientAccountMap.get(transactionForm.accountToId)!.currencyCode ? ` · ${clientAccountMap.get(transactionForm.accountToId)!.currencyCode}` : ''}
+       </span>
+      ) : null}
+     </h3>
+     <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
+      {showExchangeRateTo && (
+       <div>
+        <div className="flex items-center justify-between">
+         <label className="block text-xs font-medium text-fg-faint">
+          {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
+           ? txToRateReversed
+             ? ltrIsolate(`1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`)
+             : ltrIsolate(`1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`)
+           : t('transaction_exchange_rate_to')}
+         </label>
+         {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
+          <button
+           type="button"
+           title="Reverse rate direction"
+           onClick={() => {
+            const val = parseFloat(transactionForm.exchangeRateTo) || 1;
+            setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
+            setTxToRateReversed((r) => !r);
+           }}
+           className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
+          >
+           <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+           >
+            <path d="M7 4 3 8l4 4M3 8h13.5" />
+            <path d="M17 20l4-4-4-4m4 4H7.5" />
+           </svg>
+           <span
+            className="text-xs font-semibold"
+            aria-hidden
+           >
+            {txToRateReversed ? '÷' : '×'}
+           </span>
+          </button>
+         )}
+        </div>
+        <input
+         type="text"
+         inputMode="decimal"
+         dir="ltr"
+         value={transactionForm.exchangeRateTo}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizePlainDecimalInput(event.target.value) }))}
+         className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         placeholder="1"
+        />
+       </div>
+      )}
+      <div>
+       <div className="flex items-center justify-between gap-2">
+        <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_to')} (%)</label>
+        <CommissionDirectionToggle
+         value={transactionForm.commissionTo}
+         onChange={(next) => setTransactionForm((current) => ({ ...current, commissionTo: next }))}
+         t={t}
+        />
+       </div>
+       <input
+        type="text"
+        inputMode="decimal"
+        dir="ltr"
+        value={transactionForm.commissionTo}
+        onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizePlainDecimalInput(event.target.value) }))}
+        className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        placeholder="0"
+       />
+      </div>
+     </div>
+    </div>
+   ) : null}
 
-            {transactionForm.type !== 'adjustment' || transactionForm.accountFromId ? (
-            <div className="mt-4 rounded border border-border bg-surface-2 p-4">
-             <h3 className="text-sm font-semibold text-fg-muted">
-              {transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')}
-              {transactionForm.accountFromId && clientAccountMap.get(transactionForm.accountFromId)?.clientName ? (
-               <span className="ml-1.5 font-normal text-fg-faint">
-                — {clientAccountMap.get(transactionForm.accountFromId)!.clientName}
-                {clientAccountMap.get(transactionForm.accountFromId)!.currencyCode ? ` · ${clientAccountMap.get(transactionForm.accountFromId)!.currencyCode}` : ''}
-               </span>
-              ) : null}
-             </h3>
-             <div className={`mt-2 grid gap-2 ${showExchangeRateFrom ? 'sm:grid-cols-2' : ''}`}>
-              {showExchangeRateFrom && (
-               <div>
-                <div className="flex items-center justify-between">
-                 <label className="block text-xs font-medium text-fg-faint">
-                  {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode
-                   ? txFromRateReversed
-                     ? ltrIsolate(`1 ${transactionAccountFromCurrencyCode} = ? ${transactionSelectedCurrencyCode}`)
-                     : ltrIsolate(`1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountFromCurrencyCode}`)
-                   : t('transaction_exchange_rate_from')}
-                 </label>
-                 {transactionSelectedCurrencyCode && transactionAccountFromCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountFromCurrencyCode && (
-                  <button
-                   type="button"
-                   title="Reverse rate direction"
-                   onClick={() => {
-                    const val = parseFloat(transactionForm.exchangeRateFrom) || 1;
-                    setTransactionForm((c) => ({ ...c, exchangeRateFrom: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
-                    setTxFromRateReversed((r) => !r);
-                   }}
-                   className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
-                  >
-                   <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                   >
-                    <path d="M7 4 3 8l4 4M3 8h13.5" />
-                    <path d="M17 20l4-4-4-4m4 4H7.5" />
-                   </svg>
-                   <span className="text-xs font-semibold" aria-hidden>
-                    {txFromRateReversed ? '÷' : '×'}
-                   </span>
-                  </button>
-                 )}
-                </div>
-                <input
-                 type="text"
-                 inputMode="decimal"
-                 dir="ltr"
-                 value={transactionForm.exchangeRateFrom}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateFrom: normalizePlainDecimalInput(event.target.value) }))}
-                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder="1"
-                />
-               </div>
-              )}
-              <div>
-               <div className="flex items-center justify-between gap-2">
-                <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_from')} (%)</label>
-                <CommissionDirectionToggle
-                 value={transactionForm.commissionFrom}
-                 onChange={(next) => setTransactionForm((current) => ({ ...current, commissionFrom: next }))}
-                 t={t}
-                />
-               </div>
-               <input
-                type="text"
-                inputMode="decimal"
-                dir="ltr"
-                value={transactionForm.commissionFrom}
-                onChange={(event) => setTransactionForm((current) => ({ ...current, commissionFrom: normalizePlainDecimalInput(event.target.value) }))}
-                className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                placeholder="0"
-               />
-              </div>
-             </div>
-            </div>
-            ) : null}
+   {isExchangeTransaction
+    ? (() => {
+       const amountNum = parseFloat(normalizeDecimalInput(transactionForm.amount));
+       const rateRaw = parseFloat(transactionForm.exchangeRateTo);
+       const effRateTo = showExchangeRateTo && transactionAccountToCurrencyCode ? (Number.isFinite(rateRaw) && rateRaw > 0 ? (txToRateReversed ? 1 / rateRaw : rateRaw) : null) : 1;
+       const computed = Number.isFinite(amountNum) && effRateTo != null ? amountNum * effRateTo : null;
+       const actualRaw = transactionForm.exchangeActualAmount.trim();
+       const actualNum = parseFloat(normalizeDecimalInput(actualRaw));
+       const hasActual = actualRaw !== '' && Number.isFinite(actualNum);
+       const diff = computed != null && hasActual ? computed - actualNum : null;
+       const outOfTolerance = diff != null && Math.abs(diff) > exchangeTolerance;
+       const toCode = transactionAccountToCurrencyCode ?? '';
+       return (
+        <div className="mt-4 rounded border border-border bg-surface-2 p-4">
+         <h3 className="text-sm font-semibold text-fg-muted">{t('exchange_actual_label')}</h3>
+         {computed != null ? (
+          <p className="mt-1 text-xs text-fg-faint">
+           {t('exchange_actual_computed_hint', { value: ltrIsolate(`${formatAmountInput(String(computed.toFixed(2)))} ${toCode}`.trim()) })}
+          </p>
+         ) : null}
+         <input
+          type="text"
+          inputMode="decimal"
+          dir="ltr"
+          value={formatAmountInput(transactionForm.exchangeActualAmount)}
+          onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeActualAmount: normalizeDecimalInput(event.target.value) }))}
+          className={`mt-2 w-full rounded border bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring ${outOfTolerance ? 'border-red-400' : 'border-border-strong'}`}
+          placeholder={computed != null ? computed.toFixed(2) : '0.00'}
+         />
+         {diff != null && Math.abs(diff) > 1e-9 ? (
+          <p className={`mt-1 text-xs ${outOfTolerance ? 'text-bad-text' : 'text-fg-faint'}`}>
+           {outOfTolerance
+            ? t('exchange_actual_out_of_tolerance', { max: String(exchangeTolerance) })
+            : t('exchange_actual_difference', { value: ltrIsolate(`${diff > 0 ? '+' : ''}${diff.toFixed(2)} ${toCode}`.trim()) })}
+          </p>
+         ) : null}
+        </div>
+       );
+      })()
+    : null}
 
-            {transactionForm.type !== 'adjustment' || transactionForm.accountToId ? (
-            <div className="mt-3 rounded border border-border bg-surface-2 p-4">
-              <h3 className="text-sm font-semibold text-fg-muted">
-               {transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')}
-               {transactionForm.accountToId && clientAccountMap.get(transactionForm.accountToId)?.clientName ? (
-                <span className="ml-1.5 font-normal text-fg-faint">
-                 — {clientAccountMap.get(transactionForm.accountToId)!.clientName}
-                 {clientAccountMap.get(transactionForm.accountToId)!.currencyCode ? ` · ${clientAccountMap.get(transactionForm.accountToId)!.currencyCode}` : ''}
-                </span>
-               ) : null}
-              </h3>
-              <div className={`mt-2 grid gap-2 ${showExchangeRateTo ? 'sm:grid-cols-2' : ''}`}>
-               {showExchangeRateTo && (
-                <div>
-                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-medium text-fg-faint">
-                   {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode
-                    ? txToRateReversed
-                      ? ltrIsolate(`1 ${transactionAccountToCurrencyCode} = ? ${transactionSelectedCurrencyCode}`)
-                      : ltrIsolate(`1 ${transactionSelectedCurrencyCode} = ? ${transactionAccountToCurrencyCode}`)
-                    : t('transaction_exchange_rate_to')}
-                  </label>
-                  {transactionSelectedCurrencyCode && transactionAccountToCurrencyCode && transactionSelectedCurrencyCode !== transactionAccountToCurrencyCode && (
-                   <button
-                    type="button"
-                    title="Reverse rate direction"
-                    onClick={() => {
-                     const val = parseFloat(transactionForm.exchangeRateTo) || 1;
-                     setTransactionForm((c) => ({ ...c, exchangeRateTo: (1 / val).toFixed(6).replace(/\.?0+$/, '') }));
-                     setTxToRateReversed((r) => !r);
-                    }}
-                    className="ml-1 inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint hover:text-fg-muted"
-                   >
-                    <svg
-                     width="14"
-                     height="14"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth="1.8"
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     aria-hidden
-                    >
-                     <path d="M7 4 3 8l4 4M3 8h13.5" />
-                     <path d="M17 20l4-4-4-4m4 4H7.5" />
-                    </svg>
-                    <span className="text-xs font-semibold" aria-hidden>
-                     {txToRateReversed ? '÷' : '×'}
-                    </span>
-                   </button>
-                  )}
-                 </div>
-                 <input
-                  type="text"
-                  inputMode="decimal"
-                  dir="ltr"
-                  value={transactionForm.exchangeRateTo}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeRateTo: normalizePlainDecimalInput(event.target.value) }))}
-                  className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  placeholder="1"
-                 />
-                </div>
-               )}
-               <div>
-                <div className="flex items-center justify-between gap-2">
-                 <label className="block text-xs font-medium text-fg-faint">{t('transaction_commission_to')} (%)</label>
-                 <CommissionDirectionToggle
-                  value={transactionForm.commissionTo}
-                  onChange={(next) => setTransactionForm((current) => ({ ...current, commissionTo: next }))}
-                  t={t}
-                 />
-                </div>
-                <input
-                 type="text"
-                 inputMode="decimal"
-                 dir="ltr"
-                 value={transactionForm.commissionTo}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, commissionTo: normalizePlainDecimalInput(event.target.value) }))}
-                 className="mt-1 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder="0"
-                />
-               </div>
-              </div>
-             </div>
-            ) : null}
-
-            {isExchangeTransaction
-             ? (() => {
-                const amountNum = parseFloat(normalizeDecimalInput(transactionForm.amount));
-                const rateRaw = parseFloat(transactionForm.exchangeRateTo);
-                const effRateTo =
-                 showExchangeRateTo && transactionAccountToCurrencyCode
-                  ? Number.isFinite(rateRaw) && rateRaw > 0
-                    ? txToRateReversed
-                      ? 1 / rateRaw
-                      : rateRaw
-                    : null
-                  : 1;
-                const computed = Number.isFinite(amountNum) && effRateTo != null ? amountNum * effRateTo : null;
-                const actualRaw = transactionForm.exchangeActualAmount.trim();
-                const actualNum = parseFloat(normalizeDecimalInput(actualRaw));
-                const hasActual = actualRaw !== '' && Number.isFinite(actualNum);
-                const diff = computed != null && hasActual ? computed - actualNum : null;
-                const outOfTolerance = diff != null && Math.abs(diff) > exchangeTolerance;
-                const toCode = transactionAccountToCurrencyCode ?? '';
-                return (
-                 <div className="mt-4 rounded border border-border bg-surface-2 p-4">
-                  <h3 className="text-sm font-semibold text-fg-muted">{t('exchange_actual_label')}</h3>
-                  {computed != null ? (
-                   <p className="mt-1 text-xs text-fg-faint">
-                    {t('exchange_actual_computed_hint', { value: ltrIsolate(`${formatAmountInput(String(computed.toFixed(2)))} ${toCode}`.trim()) })}
-                   </p>
-                  ) : null}
-                  <input
-                   type="text"
-                   inputMode="decimal"
-                   dir="ltr"
-                   value={formatAmountInput(transactionForm.exchangeActualAmount)}
-                   onChange={(event) => setTransactionForm((current) => ({ ...current, exchangeActualAmount: normalizeDecimalInput(event.target.value) }))}
-                   className={`mt-2 w-full rounded border bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring ${outOfTolerance ? 'border-red-400' : 'border-border-strong'}`}
-                   placeholder={computed != null ? computed.toFixed(2) : '0.00'}
-                  />
-                  {diff != null && Math.abs(diff) > 1e-9 ? (
-                   <p className={`mt-1 text-xs ${outOfTolerance ? 'text-bad-text' : 'text-fg-faint'}`}>
-                    {outOfTolerance
-                     ? t('exchange_actual_out_of_tolerance', { max: String(exchangeTolerance) })
-                     : t('exchange_actual_difference', { value: ltrIsolate(`${diff > 0 ? '+' : ''}${diff.toFixed(2)} ${toCode}`.trim()) })}
-                   </p>
-                  ) : null}
-                 </div>
-                );
-               })()
-             : null}
-
-            {!isExchangeTransaction ? (
-             <div className="mt-4">
-              <button
-               type="button"
-               onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
-               className="flex items-center gap-1 text-sm font-medium text-accent hover:underline"
-              >
-               <span>{isNewTransactionExpensesOpen ? '▾' : '▸'}</span>
-               {t('extra_expenses')}
-              </button>
-              {isNewTransactionExpensesOpen && (
-               <div className="mt-3 rounded border border-border bg-surface-2 p-4">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                 <input
-                  type="text"
-                  inputMode="decimal"
-                  dir="ltr"
-                  value={formatAmountInput(transactionForm.charges)}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
-                  className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
-                  placeholder="0"
-                 />
-                 <ChargesPayerSelects
-                  value={transactionForm.chargesPayer}
-                  onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer }))}
-                  fromLabel={
-                   transactionForm.accountFromId
-                    ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')))
-                    : transactionForm.type === 'exchange'
-                      ? t('transaction_seller')
-                      : t('transaction_account_from')
-                  }
-                  toLabel={
-                   transactionForm.accountToId
-                    ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')))
-                    : transactionForm.type === 'exchange'
-                      ? t('transaction_buyer')
-                      : t('transaction_account_to')
-                  }
-                  meLabel={t('charges_payer_me')}
-                  paidByPlaceholder={t('charges_payer_placeholder')}
-                  paidToPlaceholder={t('charges_payer_to_placeholder')}
-                  className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 />
-                </div>
-                <div className="mt-2">
-                 <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
-                 <input
-                  type="text"
-                  value={transactionForm.chargesDescription}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
-                  className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  placeholder={t('charges_description_placeholder')}
-                 />
-                </div>
-               </div>
-              )}
-              {/* A second, independent charge only makes sense once the first is actually being
+   {!isExchangeTransaction ? (
+    <div className="mt-4">
+     <button
+      type="button"
+      onClick={() => setIsNewTransactionExpensesOpen((prev) => !prev)}
+      className="flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+     >
+      <span>{isNewTransactionExpensesOpen ? '▾' : '▸'}</span>
+      {t('extra_expenses')}
+     </button>
+     {isNewTransactionExpensesOpen && (
+      <div className="mt-3 rounded border border-border bg-surface-2 p-4">
+       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <input
+         type="text"
+         inputMode="decimal"
+         dir="ltr"
+         value={formatAmountInput(transactionForm.charges)}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
+         className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
+         placeholder="0"
+        />
+        <ChargesPayerSelects
+         value={transactionForm.chargesPayer}
+         onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer }))}
+         fromLabel={
+          transactionForm.accountFromId
+           ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')))
+           : transactionForm.type === 'exchange'
+             ? t('transaction_seller')
+             : t('transaction_account_from')
+         }
+         toLabel={
+          transactionForm.accountToId
+           ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')))
+           : transactionForm.type === 'exchange'
+             ? t('transaction_buyer')
+             : t('transaction_account_to')
+         }
+         meLabel={t('charges_payer_me')}
+         paidByPlaceholder={t('charges_payer_placeholder')}
+         paidToPlaceholder={t('charges_payer_to_placeholder')}
+         className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        />
+       </div>
+       <div className="mt-2">
+        <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
+        <input
+         type="text"
+         value={transactionForm.chargesDescription}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
+         className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         placeholder={t('charges_description_placeholder')}
+        />
+       </div>
+      </div>
+     )}
+     {/* A second, independent charge only makes sense once the first is actually being
                   used — showing both toggles up front reads as duplicated UI for the common case
                   of a single expense. This link only appears after the first is opened. */}
-              {isNewTransactionExpensesOpen && !isNewTransactionExpensesOpen2 ? (
-               <button
-                type="button"
-                onClick={() => setIsNewTransactionExpensesOpen2(true)}
-                className="mt-2 text-sm text-accent hover:underline"
-               >
-                + {t('add_expenses')}
-               </button>
-              ) : null}
-              {isNewTransactionExpensesOpen2 && (
-               <div className="mt-3 rounded border border-border bg-surface-2 p-4">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                 <input
-                  type="text"
-                  inputMode="decimal"
-                  dir="ltr"
-                  value={formatAmountInput(transactionForm.charges2)}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, charges2: normalizeDecimalInput(event.target.value) }))}
-                  className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
-                  placeholder="0"
-                 />
-                 <ChargesPayerSelects
-                  value={transactionForm.chargesPayer2}
-                  onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer2: chargesPayer }))}
-                  fromLabel={
-                   transactionForm.accountFromId
-                    ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')))
-                    : transactionForm.type === 'exchange'
-                      ? t('transaction_seller')
-                      : t('transaction_account_from')
-                  }
-                  toLabel={
-                   transactionForm.accountToId
-                    ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')))
-                    : transactionForm.type === 'exchange'
-                      ? t('transaction_buyer')
-                      : t('transaction_account_to')
-                  }
-                  meLabel={t('charges_payer_me')}
-                  paidByPlaceholder={t('charges_payer_placeholder')}
-                  paidToPlaceholder={t('charges_payer_to_placeholder')}
-                  className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 />
-                </div>
-                <div className="mt-2">
-                 <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
-                 <input
-                  type="text"
-                  value={transactionForm.charges2Description}
-                  onChange={(event) => setTransactionForm((current) => ({ ...current, charges2Description: event.target.value }))}
-                  className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                  placeholder={t('charges_description_placeholder')}
-                 />
-                </div>
-               </div>
-              )}
-             </div>
-            ) : null}
+     {isNewTransactionExpensesOpen && !isNewTransactionExpensesOpen2 ? (
+      <button
+       type="button"
+       onClick={() => setIsNewTransactionExpensesOpen2(true)}
+       className="mt-2 text-sm text-accent hover:underline"
+      >
+       + {t('add_expenses')}
+      </button>
+     ) : null}
+     {isNewTransactionExpensesOpen2 && (
+      <div className="mt-3 rounded border border-border bg-surface-2 p-4">
+       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <input
+         type="text"
+         inputMode="decimal"
+         dir="ltr"
+         value={formatAmountInput(transactionForm.charges2)}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, charges2: normalizeDecimalInput(event.target.value) }))}
+         className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
+         placeholder="0"
+        />
+        <ChargesPayerSelects
+         value={transactionForm.chargesPayer2}
+         onChange={(chargesPayer) => setTransactionForm((current) => ({ ...current, chargesPayer2: chargesPayer }))}
+         fromLabel={
+          transactionForm.accountFromId
+           ? (clientAccountMap.get(transactionForm.accountFromId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from')))
+           : transactionForm.type === 'exchange'
+             ? t('transaction_seller')
+             : t('transaction_account_from')
+         }
+         toLabel={
+          transactionForm.accountToId
+           ? (clientAccountMap.get(transactionForm.accountToId)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to')))
+           : transactionForm.type === 'exchange'
+             ? t('transaction_buyer')
+             : t('transaction_account_to')
+         }
+         meLabel={t('charges_payer_me')}
+         paidByPlaceholder={t('charges_payer_placeholder')}
+         paidToPlaceholder={t('charges_payer_to_placeholder')}
+         className="rounded border border-border-strong bg-surface px-2 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        />
+       </div>
+       <div className="mt-2">
+        <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
+        <input
+         type="text"
+         value={transactionForm.charges2Description}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, charges2Description: event.target.value }))}
+         className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+         placeholder={t('charges_description_placeholder')}
+        />
+       </div>
+      </div>
+     )}
+    </div>
+   ) : null}
 
-            <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
-            <div className="mt-2">
-             <DescriptionSuggestField
-              as="textarea"
-              value={transactionForm.description}
-              onChange={(value) => setTransactionForm((current) => ({ ...current, description: value }))}
-              suggestions={descriptionSuggestions}
-              onExcludeSuggestion={excludeDescriptionSuggestion}
-              removeSuggestionLabel={t('transaction_description_suggestion_remove')}
-              className="min-h-20 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-              placeholder={t('transaction_description_placeholder')}
-             />
-            </div>
+   <label className="mt-4 block text-sm font-medium">{t('transaction_description')}</label>
+   <div className="mt-2">
+    <DescriptionSuggestField
+     as="textarea"
+     value={transactionForm.description}
+     onChange={(value) => setTransactionForm((current) => ({ ...current, description: value }))}
+     suggestions={descriptionSuggestions}
+     onExcludeSuggestion={excludeDescriptionSuggestion}
+     removeSuggestionLabel={t('transaction_description_suggestion_remove')}
+     className="min-h-20 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+     placeholder={t('transaction_description_placeholder')}
+    />
+   </div>
 
-            {section === 'archive' ? (
-             <>
-              <label className="mt-4 block text-sm font-medium">{t('archive_more_info')}</label>
-              <input
-               type="text"
-               value={transactionForm.archiveNote}
-               onChange={(event) => setTransactionForm((current) => ({ ...current, archiveNote: event.target.value }))}
-               placeholder={t('archive_more_info_placeholder')}
-               className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
-              />
-             </>
-            ) : null}
+   {section === 'archive' ? (
+    <>
+     <label className="mt-4 block text-sm font-medium">{t('archive_more_info')}</label>
+     <input
+      type="text"
+      value={transactionForm.archiveNote}
+      onChange={(event) => setTransactionForm((current) => ({ ...current, archiveNote: event.target.value }))}
+      placeholder={t('archive_more_info_placeholder')}
+      className="mt-2 w-full rounded border border-border-strong px-3 py-2 outline-none ring-blue-300 focus:ring"
+     />
+    </>
+   ) : null}
 
-            <div className="mt-3">
-             <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-              <input
-               type="checkbox"
-               checked={txSplitDescription}
-               onChange={(event) => setTxSplitDescription(event.target.checked)}
-               className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-300"
-              />
-              {t('transaction_description_split')}
-             </label>
+   <div className="mt-3">
+    <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+     <input
+      type="checkbox"
+      checked={txSplitDescription}
+      onChange={(event) => setTxSplitDescription(event.target.checked)}
+      className="h-4 w-4 rounded border-border-strong text-accent focus:ring-blue-300"
+     />
+     {t('transaction_description_split')}
+    </label>
 
-             {txSplitDescription ? (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-               <div>
-                <label className="block text-xs font-medium text-fg-faint">
-                 {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from'))}
-                </label>
-                <textarea
-                 value={transactionForm.descriptionFrom}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionFrom: event.target.value }))}
-                 className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder={transactionForm.description || t('transaction_description_placeholder')}
-                />
-               </div>
-               <div>
-                <label className="block text-xs font-medium text-fg-faint">
-                 {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to'))}
-                </label>
-                <textarea
-                 value={transactionForm.descriptionTo}
-                 onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionTo: event.target.value }))}
-                 className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-                 placeholder={transactionForm.description || t('transaction_description_placeholder')}
-                />
-               </div>
-              </div>
-             ) : null}
-            </div>
+    {txSplitDescription ? (
+     <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div>
+       <label className="block text-xs font-medium text-fg-faint">
+        {clientAccountMap.get(transactionForm.accountFromId ?? -1)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_seller') : t('transaction_account_from'))}
+       </label>
+       <textarea
+        value={transactionForm.descriptionFrom}
+        onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionFrom: event.target.value }))}
+        className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        placeholder={transactionForm.description || t('transaction_description_placeholder')}
+       />
+      </div>
+      <div>
+       <label className="block text-xs font-medium text-fg-faint">
+        {clientAccountMap.get(transactionForm.accountToId ?? -1)?.clientName ?? (transactionForm.type === 'exchange' ? t('transaction_buyer') : t('transaction_account_to'))}
+       </label>
+       <textarea
+        value={transactionForm.descriptionTo}
+        onChange={(event) => setTransactionForm((current) => ({ ...current, descriptionTo: event.target.value }))}
+        className="mt-1 min-h-16 w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+        placeholder={transactionForm.description || t('transaction_description_placeholder')}
+       />
+      </div>
+     </div>
+    ) : null}
+   </div>
 
-            {onSaveAndClose && !editingTransaction ? (
-             <div className="mt-6 flex gap-2">
-              <button
-               type="submit"
-               value="new"
-               disabled={isSubmittingTransaction}
-               className="flex-1 rounded border border-border-strong bg-surface px-4 py-2 font-medium text-fg transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
-              >
-               {t('save_and_add_another')}
-              </button>
-              <button
-               type="submit"
-               value="close"
-               disabled={isSubmittingTransaction}
-               className="flex-1 rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-               {t('save_and_close')}
-              </button>
-             </div>
-            ) : (
-             <button
-              type="submit"
-              disabled={isSubmittingTransaction}
-              className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-             >
-              {editingTransaction ? t('update_transaction') : t('save_transaction')}
-             </button>
-            )}
-           </form>
-
+   {onSaveAndClose && !editingTransaction ? (
+    <div className="mt-6 flex gap-2">
+     <button
+      type="submit"
+      value="new"
+      disabled={isSubmittingTransaction}
+      className="flex-1 rounded border border-border-strong bg-surface px-4 py-2 font-medium text-fg transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+     >
+      {t('save_and_add_another')}
+     </button>
+     <button
+      type="submit"
+      value="close"
+      disabled={isSubmittingTransaction}
+      className="flex-1 rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+     >
+      {t('save_and_close')}
+     </button>
+    </div>
+   ) : (
+    <button
+     type="submit"
+     disabled={isSubmittingTransaction}
+     className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+     {editingTransaction ? t('update_transaction') : t('save_transaction')}
+    </button>
+   )}
+  </form>
  );
 }

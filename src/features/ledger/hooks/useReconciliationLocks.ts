@@ -5,6 +5,7 @@ import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
+import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { buildLockBoundaries, violatedLock, reconciledImpact, type LockBoundary, type RowContribution } from '@/features/ledger/utils/reconciliation';
 import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { isBeforeToday } from '@/shared/utils/date';
@@ -58,6 +59,9 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const setError = useAppStatusStore((s) => s.setError);
+ // Dialogs quote balances the user is about to compare against rows on screen, so they are
+ // formatted with the ledger's own decimal setting rather than a fixed two places.
+ const ledgerDecimals = useLedgerStore((state) => state.ledgerDecimals);
 
  // Newest reconciliation per client account = the lock line used by the guards below. Both
  // `anchorDate` and `lockedTransactionIds` are frozen at creation time (see reconciliation.ts),
@@ -65,19 +69,41 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
  // positions; it only depends on the reconciliations list itself.
  const lockBoundaries = useMemo(() => buildLockBoundaries(reconciliations), [reconciliations]);
 
- // Formats a reconciled balance for dialogs, e.g. "$100,553.00".
+ // Formats a reconciled balance the way the ledger's own balance column does — "100,553 $",
+ // not "$100,553.00" — so a figure in a dialog can be matched against the rows on screen
+ // without mentally reformatting it.
  function formatLockBalance(accountId: number, balance: number): string {
-  const symbol = clientAccountMap.get(accountId)?.currencySymbol ?? '';
-  return `${symbol}${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const account = clientAccountMap.get(accountId);
+  const suffix = account ? ` ${account.currencySymbol || account.currencyCode}` : '';
+  return `${balance.toLocaleString(undefined, { maximumFractionDigits: ledgerDecimals })}${suffix}`;
  }
 
- // Shared dialog for any lock hit, whatever guard found it. No hit means nothing was locked,
- // which is emphatically not an override — see LockDecision.
+ // Whose ledger a warning is about. A transaction sits in two ledgers, each reconciled
+ // independently, so the ✓ a change trips is very often NOT the one on screen — an unnamed
+ // balance from the other side is impossible to place, hence always naming the account.
+ function lockAccountLabel(accountId: number): string {
+  const account = clientAccountMap.get(accountId);
+  if (!account) return '';
+  return `${account.clientName ?? ''}${account.currencyCode ? ` (${account.currencyCode})` : ''}`.trim();
+ }
+
+ // Shared dialog for any lock hit, whatever guard found it — the ledger drag and the
+ // transactions-table drop route their own hits through here too, so every reconciliation
+ // warning in the app reads the same and names the same things. No hit means nothing was
+ // locked, which is emphatically not an override — see LockDecision.
  async function warnLockHit(hit: LockHit): Promise<LockDecision> {
   if (!hit) return PROCEED_UNLOCKED;
   const confirmed = await confirmDialog({
    title: t('reconcile_warn_title'),
-   message: t('reconcile_warn_message', { balance: formatLockBalance(hit.accountId, hit.boundary.balance) }),
+   message: t('reconcile_warn_message'),
+   balanceChanges: [
+    {
+     label: lockAccountLabel(hit.accountId),
+     from: formatLockBalance(hit.accountId, hit.boundary.balance),
+     fromNegative: hit.boundary.balance < 0,
+    },
+   ],
+   note: t('reconcile_warn_note'),
    confirmText: t('reconcile_warn_confirm'),
    tone: 'danger',
   });
@@ -232,6 +258,8 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
  return {
   lockBoundaries,
   formatLockBalance,
+  lockAccountLabel,
+  warnLockHit,
   checkLockForNewRow,
   checkLockForDelete,
   checkLockForEdit,

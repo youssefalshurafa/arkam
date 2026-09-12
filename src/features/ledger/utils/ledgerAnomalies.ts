@@ -372,6 +372,73 @@ function roundCommission(value: number): number {
  return Math.round(value * 100) / 100;
 }
 
+// The group an "accept this as normal" answer applies to: this account, this direction, rows
+// carrying this label. Deliberately NOT keyed by counterparty, unlike the ladder's narrowest rung
+// — a label like "Factura" describes a kind of business the account does, and the same kind of
+// business is routinely settled against whichever counterparty account is convenient that day.
+// Keying it by counterparty would mean re-answering the same question for every one of them,
+// which is the complaint this whole mechanism exists to end. It stops at the account and the
+// direction because commission practice genuinely is per-client and per-direction (see
+// CommissionScope), so a blessing must never reach another client's books.
+function commissionGroupKey(accountId: number, role: CommissionRole, descriptionKey: string): string {
+ return `${accountId}:${role}:${descriptionKey}`;
+}
+
+/**
+ * The commission values a user has explicitly declared normal for a description group, read back
+ * off the rows they accepted — the commission counterpart of buildAcceptedRates.
+ *
+ * Without this, dismissing a commission flag only ever silenced the one row it was clicked on: a
+ * client whose "Factura" work moved from 0% to 1% went on flagging every new Factura row forever,
+ * because each one is judged against a history that is still mostly 0% (and, when the row's own
+ * narrow bucket is too small to speak, against the account's wider 0% habit, which no amount of
+ * new 1% rows can outvote). The user could answer the question correctly a dozen times and the
+ * engine learned nothing from any of it.
+ *
+ * Only 'description'-scoped dismissals count. A plain "just this row" answer is a judgement about
+ * one row and must teach nothing — that is exactly what the prompt's two answers mean.
+ */
+export function buildAcceptedCommissions(transactions: Transaction[], ignored: IgnoredAnomaly[]): Map<string, number[]> {
+ const groupScoped = new Set(ignored.filter((entry) => entry.kind === 'commission' && entry.scope === 'description').map((entry) => `${entry.transactionId}:${entry.accountId}`));
+ if (groupScoped.size === 0) return new Map();
+ const accepted = new Map<string, number[]>();
+ for (const tx of transactions) {
+  if (tx.isArchived || tx.type === 'adjustment') continue;
+  const sides: Array<[number | null, CommissionRole, number]> = [
+   [tx.accountFromId, 'from', tx.commissionFrom],
+   [tx.accountToId, 'to', tx.commissionTo],
+  ];
+  for (const [accountId, role, commission] of sides) {
+   if (accountId == null || !groupScoped.has(`${tx.id}:${accountId}`)) continue;
+   const descriptionKey = sideDescription(tx, role);
+   // A blank label is not a group: it would collect every unlabelled row on the account under one
+   // key and turn a single acceptance into a blanket exemption. The prompt only offers the group
+   // answer for a labelled row, so this only guards against data that predates or bypasses it.
+   if (!descriptionKey) continue;
+   addSample(accepted, commissionGroupKey(accountId, role, descriptionKey), commission);
+  }
+ }
+ return accepted;
+}
+
+// Whether `entered` breaks a convention of `reference`. The single comparison behind both halves
+// of the check — what makes a row a flag against its history, and what makes an accepted value
+// cover it — so the two can never drift apart: whatever would NOT have been flagged had the
+// history said `reference` is exactly what an acceptance of `reference` forgives.
+function breaksConvention(entered: number, reference: number): boolean {
+ if (Math.abs(reference) < COMMISSION_ZERO_EPSILON) {
+  // Nothing at this scope has ever carried commission — any nontrivial commission is a break.
+  return Math.abs(entered) >= COMMISSION_ZERO_EPSILON;
+ }
+ // A fee became a rebate (or vice versa) — a clear break regardless of magnitude.
+ if (Math.sign(entered) !== Math.sign(reference) && Math.abs(entered) >= COMMISSION_ZERO_EPSILON) return true;
+ // Magnitude break either way: entered back to zero where this scope always carries commission
+ // (ratio 0 falls outside the bounds), or an outsized/undersized value relative to the
+ // established amount.
+ const ratio = Math.abs(entered) / Math.abs(reference);
+ return !(ratio <= MAX_COMMISSION_RATIO && ratio >= MIN_COMMISSION_RATIO);
+}
+
 // The most frequent value in a sample, how many samples share it,
 // and its share of the sample — used to decide whether a pair's history is consistent enough to
 // compare against, and to explain the flag to the user.
@@ -530,9 +597,19 @@ export function checkCommission(
  description: string,
  transactionId: number,
  reference: CommissionReference,
+ acceptedCommissions?: Map<string, number[]>,
 ): CommissionAnomaly | null {
  const settings = reference.settings;
  if (!settings.enabled || !settings.commission.enabled) return null;
+ const descriptionKey = normalizeDescriptionKey(description);
+ // First word goes to what the user explicitly accepted for this label — ahead of every rule
+ // below, including the ceiling, because all of them are inferences about what this account
+ // normally does and this is the account's owner stating it outright. Compared with the same
+ // tolerance the convention test uses, so accepting 1% also covers the 0.99% that is plainly the
+ // same practice, while a value that is nothing like it (0.5%, or 12%) still flags — the
+ // acceptance teaches the group what normal looks like, it does not switch the check off.
+ const acceptedHere = descriptionKey ? acceptedCommissions?.get(commissionGroupKey(accountId, role, descriptionKey)) : undefined;
+ if (acceptedHere?.some((value) => !breaksConvention(enteredCommission, value))) return null;
  // Before any of the history-based reasoning: a value above the workspace's own ceiling is not a
  // commission at all, and saying so needs no counterparty and no samples — see
  // CEILING_PERCENTILE. Placed above the null-counterparty return on purpose, so a one-sided
@@ -542,7 +619,6 @@ export function checkCommission(
   return { transactionId, accountId, reason: 'implausible', scope: 'direction', enteredCommission, referenceCommission: reference.ceiling, sampleSize: 0, matchCount: 0 };
  }
  if (counterpartyAccountId == null) return null;
- const descriptionKey = normalizeDescriptionKey(description);
  // Walk the ladder narrowest-first and stop at the first rung with enough prior history to speak
  // for itself, so the most specific evidence available always wins — see CommissionScope.
  let scope: CommissionScope | null = null;
@@ -574,23 +650,7 @@ export function checkCommission(
  // variable, and pooling more of it in to find agreement would be shopping for a verdict.
  if (share < settings.commission.agreement) return null;
 
- const entered = enteredCommission;
- const modeIsZero = Math.abs(mode) < COMMISSION_ZERO_EPSILON;
- let flagged: boolean;
- if (modeIsZero) {
-  // Nothing at this scope has ever carried commission — any nontrivial commission is a break.
-  flagged = Math.abs(entered) >= COMMISSION_ZERO_EPSILON;
- } else if (Math.sign(entered) !== Math.sign(mode) && Math.abs(entered) >= COMMISSION_ZERO_EPSILON) {
-  // A fee became a rebate (or vice versa) — a clear break regardless of magnitude.
-  flagged = true;
- } else {
-  // Magnitude break either way: entered back to zero when this scope always carries commission
-  // (ratio 0/mode falls outside the bounds below, so this is covered by the same check), or an
-  // outsized/undersized value relative to the established amount.
-  const ratio = Math.abs(entered) / Math.abs(mode);
-  flagged = !(ratio <= MAX_COMMISSION_RATIO && ratio >= MIN_COMMISSION_RATIO);
- }
- if (!flagged) return null;
+ if (!breaksConvention(enteredCommission, mode)) return null;
  // Last word goes to the row's own narrower group. Whichever rung answered, the row also belongs
  // to smaller groups that were passed over for having too little history — and "too little to
  // establish a convention" is not the same as "nothing to say". A single prior row in the row's
@@ -612,6 +672,7 @@ export function checkLedgerEntryCommission(
  entry: ClientLedgerEntry,
  accountId: number,
  reference: CommissionReference,
+ acceptedCommissions?: Map<string, number[]>,
 ): CommissionAnomaly | null {
  if (entry.type === 'adjustment') return null;
  // 'outgoing' means this account was the transaction's "from" side (it sent/converted out);
@@ -620,7 +681,7 @@ export function checkLedgerEntryCommission(
  const role: CommissionRole = entry.direction === 'outgoing' ? 'from' : 'to';
  // entry.description is already the per-side description computeClientLedgers resolved, so it
  // matches the group buildCommissionSamples keyed this same row under.
- return checkCommission(entry.commission, accountId, entry.counterpartyAccountId, role, entry.description, entry.transactionId, reference);
+ return checkCommission(entry.commission, accountId, entry.counterpartyAccountId, role, entry.description, entry.transactionId, reference, acceptedCommissions);
 }
 
 // Identifies one (kind, transaction side) flag for the ignore-list — a transaction's "from"
@@ -658,6 +719,7 @@ export function buildWorkspaceAnomalies(
  const rateSamples = buildRateSamples(transactions, settings);
  const commissionSamples = buildCommissionSamples(transactions, settings);
  const acceptedRates = buildAcceptedRates(transactions, ignoredAnomalies);
+ const acceptedCommissions = buildAcceptedCommissions(transactions, ignoredAnomalies);
  const flagged: FlaggedAnomaly[] = [];
  for (const tx of transactions) {
   if (tx.isArchived) continue;
@@ -671,11 +733,11 @@ export function buildWorkspaceAnomalies(
   }
   if (tx.type === 'adjustment') continue;
   if (tx.accountFromId != null && !ignored.has(anomalyKey('commission', tx.id, tx.accountFromId))) {
-   const commission = checkCommission(tx.commissionFrom, tx.accountFromId, tx.accountToId, 'from', sideDescription(tx, 'from'), tx.id, commissionSamples);
+   const commission = checkCommission(tx.commissionFrom, tx.accountFromId, tx.accountToId, 'from', sideDescription(tx, 'from'), tx.id, commissionSamples, acceptedCommissions);
    if (commission) flagged.push({ kind: 'commission', transactionId: tx.id, accountId: tx.accountFromId, enteredValue: commission.enteredCommission, referenceValue: commission.referenceCommission, sampleSize: commission.sampleSize });
   }
   if (tx.accountToId != null && !ignored.has(anomalyKey('commission', tx.id, tx.accountToId))) {
-   const commission = checkCommission(tx.commissionTo, tx.accountToId, tx.accountFromId, 'to', sideDescription(tx, 'to'), tx.id, commissionSamples);
+   const commission = checkCommission(tx.commissionTo, tx.accountToId, tx.accountFromId, 'to', sideDescription(tx, 'to'), tx.id, commissionSamples, acceptedCommissions);
    if (commission) flagged.push({ kind: 'commission', transactionId: tx.id, accountId: tx.accountToId, enteredValue: commission.enteredCommission, referenceValue: commission.referenceCommission, sampleSize: commission.sampleSize });
   }
  }

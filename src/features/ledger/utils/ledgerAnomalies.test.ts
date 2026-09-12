@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAcceptedRates, buildCommissionSamples, buildRateSamples, buildWorkspaceAnomalies, checkCommission, checkRate, describeCommissionCeiling, referenceRateFor } from './ledgerAnomalies';
+import { buildAcceptedCommissions, buildAcceptedRates, buildCommissionSamples, buildRateSamples, buildWorkspaceAnomalies, checkCommission, checkRate, describeCommissionCeiling, referenceRateFor } from './ledgerAnomalies';
 import { DEFAULT_REVIEW_SETTINGS, type ReviewEngineSettings } from './reviewSettings';
 import type { IgnoredAnomaly, Transaction } from '@/shared/types';
 
@@ -529,5 +529,91 @@ describe('honouring the workspace configuration', () => {
   const described = describeCommissionCeiling(Array.from({ length: 4 }, (_, i) => commissionTx(1, 100 + i)));
   expect(described.ceiling).toBeNull();
   expect(described.samples).toEqual([]);
+ });
+});
+
+// The reported case, in miniature: this client's "factura" work has always been at 0%, and has now
+// moved to 1%. Every new factura row is judged against a history that is still overwhelmingly 0%
+// (and, with a counterparty it hasn't dealt with before, against the account's ledger-wide 0%
+// habit), so dismissing them one at a time could go on forever without the next row being judged
+// any differently. Answering "normal for factura" once is what has to end it.
+describe('accepting a commission for a description group', () => {
+ // The record written when the user answers "normal for this description" on a commission flag.
+ const acceptedCommissionFor = (row: Transaction): IgnoredAnomaly => ({
+  id: row.id,
+  kind: 'commission',
+  transactionId: row.id,
+  accountId: 10,
+  scope: 'description',
+  createdAt: '2026-09-12T00:00:00.000Z',
+ });
+
+ // A long 0% habit across many counterparties, plus the one row the user accepted at the new rate.
+ const build = (acceptedScope: 'description' | 'row' = 'description') => {
+  const zeroHabit = Array.from({ length: 30 }, (_, i) => commissionTx(0, 100 + i, 'factura'));
+  const acceptedRow = commissionTx(1, 50, 'factura');
+  const rows = [...zeroHabit, acceptedRow];
+  return { rows, accepted: buildAcceptedCommissions(rows, [{ ...acceptedCommissionFor(acceptedRow), scope: acceptedScope }]) };
+ };
+
+ const check = (commission: number, rows: Transaction[], accepted: Map<string, number[]>, counterparty = 20, description = 'factura') =>
+  checkCommission(commission, 10, counterparty, 'from', description, 999, buildCommissionSamples(rows), accepted);
+
+ it('flags the new commission until it is accepted', () => {
+  const { rows } = build();
+  expect(check(1, rows, new Map())?.referenceCommission).toBe(0);
+ });
+
+ it('stops flagging the same practice afterwards, on any counterparty', () => {
+  const { rows, accepted } = build();
+  for (const counterparty of [20, 50, 999]) {
+   expect(check(1, rows, accepted, counterparty), `counterparty ${counterparty}`).toBeNull();
+  }
+ });
+
+ // 0.99% and 1% are the same practice typed twice, and the screenshot that prompted this had both.
+ it('covers a value that is plainly the same commission', () => {
+  const { rows, accepted } = build();
+  for (const commission of [0.99, 1, 1.01]) {
+   expect(check(commission, rows, accepted), `commission ${commission}`).toBeNull();
+  }
+ });
+
+ it('keeps flagging a value that is nothing like the accepted one', () => {
+  const { rows, accepted } = build();
+  expect(check(0.2, rows, accepted)).not.toBeNull();
+  expect(check(5, rows, accepted)).not.toBeNull();
+  // A row back at 0% is not covered by the acceptance either — it passes on its own merits,
+  // because 0% is still exactly what this account's history says, and both answers can be true
+  // at once: the group now has two normal values, which is what a convention in transition is.
+  expect(check(0, rows, accepted)).toBeNull();
+ });
+
+ it('does not leak the acceptance to another label', () => {
+  const { rows, accepted } = build();
+  expect(check(1, rows, accepted, 20, 'turk euro')).not.toBeNull();
+ });
+
+ // Commission practice routinely differs by direction (see CommissionScope), so accepting 1% on
+ // what this account charges says nothing about what it is charged. The incoming rows give that
+ // direction a 0% habit of its own, so this is a real flag being kept and not merely a row left
+ // unjudged for want of history.
+ it('does not leak the acceptance to the other direction', () => {
+  const { rows, accepted } = build();
+  const withIncoming = [...Array.from({ length: 30 }, (_, i) => incomingTx(0, 200 + i, 'factura')), ...rows];
+  expect(checkCommission(1, 10, 20, 'to', 'factura', 999, buildCommissionSamples(withIncoming), accepted)).not.toBeNull();
+ });
+
+ // A plain per-row dismissal must teach nothing — that is what the prompt's two answers mean.
+ it('ignores row-scoped dismissals as evidence', () => {
+  const { rows, accepted } = build('row');
+  expect(accepted.size).toBe(0);
+  expect(check(1, rows, accepted)).not.toBeNull();
+ });
+
+ // A blank label is not a group: one acceptance there would exempt every unlabelled row at once.
+ it('records nothing for an unlabelled row', () => {
+  const row = commissionTx(1, 50);
+  expect(buildAcceptedCommissions([row], [acceptedCommissionFor(row)]).size).toBe(0);
  });
 });
