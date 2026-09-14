@@ -95,7 +95,14 @@ export default function OneSidedTransactionModal({
            {copiedTransaction ? (
             <button
              type="button"
-             onClick={onPasteIntoOneSidedTransaction}
+             onClick={() => {
+              onPasteIntoOneSidedTransaction();
+              // Mirror the Transactions page's paste: an expenses section unfolds only when the
+              // pasted row actually carries that expense (otherwise the pasted charge would sit
+              // filled-in but hidden), and stays collapsed for a plain row.
+              setExpensesOpen(Boolean(copiedTransaction.charges) || Boolean(copiedTransaction.chargesPayer));
+              setExpenses2Open(Boolean(copiedTransaction.charges2) || Boolean(copiedTransaction.chargesPayer2));
+             }}
              title={t('paste_transaction')}
              aria-label={t('paste_transaction')}
              className="inline-flex shrink-0 items-center gap-1.5 rounded border border-blue-200 bg-accent-weak px-2.5 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent-weak"

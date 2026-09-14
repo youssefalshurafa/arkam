@@ -2103,12 +2103,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
                    const ledgerStart = (currentLedgerPage - 1) * ledgerPageSize;
                    const pagedEntries = visible.slice(ledgerStart, ledgerStart + ledgerPageSize);
                    return pagedEntries.map((entry, entryIdx) => {
-                    // Whether a charges/expense sub-row renders below this entry's main row (see
-                    // the charges-view <tr> further down) — when true, the reconciliation lock's
-                    // boundary line (bottom border) and lock indicator (left border) must extend
-                    // to that sub-row instead of stopping at the main row, so the block reads as
-                    // one unit rather than cutting the line off above the expense.
-                    const hasVisibleChargesRow = entry.charges > 0 && entry.chargeAffectsThisAccount;
+                    // Which charges/expense sub-rows render below this entry's main row (see the
+                    // charges-view <tr> further down). A reconciliation's boundary line (bottom
+                    // border) has to extend past them so the block reads as one unit rather than
+                    // cutting the line off above the expense — but it is ONE line: it belongs on
+                    // the LAST sub-row only, otherwise a row carrying two expenses draws two
+                    // boundary lines. With no sub-row visible (none recorded, none affecting this
+                    // account, or the row being edited) it stays on the main row.
+                    const visibleChargeSlots = editingLedgerRowKeys.has(getLedgerTransactionDraftKey(entry.transactionId, ledger.accountId))
+                     ? []
+                     : ([1, 2] as const).filter((slot) =>
+                        slot === 2 ? entry.charges2 > 0 && entry.chargeAffectsThisAccount2 : entry.charges > 0 && entry.chargeAffectsThisAccount,
+                       );
+                    const lastVisibleChargeSlot = visibleChargeSlots.length > 0 ? visibleChargeSlots[visibleChargeSlots.length - 1] : null;
+                    const hasVisibleChargesRow = lastVisibleChargeSlot !== null;
                     // Shared by the row's onContextMenu (desktop right-click) and its visible
                     // "⋮" button (touch devices have no right-click event to hook into).
                     const openRowMenu = (event: ReactMouseEvent) => {
@@ -3761,7 +3769,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         return (
                          <tr
                           key={`${ledger.accountId}-${entry.transactionId}-charges-view-slot${slot}`}
-                          className={`${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark ? 'border-b-2 border-b-emerald-500' : ''}`}
+                          className={`${entryIdx % 2 === 1 ? 'bg-surface-2' : 'bg-surface'} ${entry.isLocked ? 'border-l-2 border-l-emerald-400' : ''} ${entry.reconciledMark && slot === lastVisibleChargeSlot ? 'border-b-2 border-b-emerald-500' : ''}`}
                           style={chargesHighlightColor ? { backgroundColor: resolveHighlightBg(chargesHighlightColor, isDark) } : undefined}
                          >
                           <td
