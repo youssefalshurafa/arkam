@@ -15,9 +15,15 @@ import { localDateKey, localWallClock, parseLocalWallClock } from '@/shared/util
  * after the last existing row on that day (capped at end-of-day). All values are emitted as
  * local wall-clock strings (see localWallClock) so the stored/displayed time is the local
  * time and the embedded date matches the user's calendar day.
+ *
+ * `floorEpoch` covers rows this list can't know about yet: `transactions` is whatever the caller
+ * captured at render, so two entries saved a moment apart can both be timed against a list
+ * holding neither, and land on the same timestamp. Callers creating a row pass
+ * pendingCreatedAtFloor(dateStr) (see pendingTransactionWrites) so each one still gets its own
+ * slot — the ledger needs distinct timestamps to have room to reorder rows between each other.
  */
-export function nextCreatedAtForDate(dateStr: string, transactions: Transaction[]): string {
- let maxEpoch = -Infinity;
+export function nextCreatedAtForDate(dateStr: string, transactions: Transaction[], floorEpoch?: number | null): string {
+ let maxEpoch = floorEpoch != null && Number.isFinite(floorEpoch) ? floorEpoch : -Infinity;
  for (const tx of transactions) {
   if (tx.createdAt.slice(0, 10) === dateStr) {
    const e = parseLocalWallClock(tx.createdAt);

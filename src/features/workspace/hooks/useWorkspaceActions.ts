@@ -20,7 +20,7 @@ export function useWorkspaceActions() {
  // accountingApi.request() sends as the x-workspace-id header, so the cache
  // slot this hook reads/writes always matches what was actually fetched.
  const workspaceId = accountingApi.getActiveWorkspaceId();
- const { invalidate, setters } = useWorkspaceCache(sessionUserId, workspaceId);
+ const { invalidate, invalidateSilently, setters } = useWorkspaceCache(sessionUserId, workspaceId);
  const setError = useAppStatusStore((s) => s.setError);
- return { invalidate, setters, setError };
+ return { invalidate, invalidateSilently, setters, setError };
 }

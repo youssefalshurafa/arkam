@@ -1464,5 +1464,6 @@
  "ledger_move_day_start": "Move to start of day",
  "ledger_move_day_end": "Move to end of day",
  "picker_recently_used": "Recently used",
- "picker_all_clients": "All clients"
+ "picker_all_clients": "All clients",
+ "toast_transaction_save_failed": "Save failed — restore what you entered?"
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
+import { pendingTransactionRows } from '@/lib/pendingTransactionWrites';
 import { queryKeys } from '@/lib/queryClient';
 import { readDataCache, saveDataCache } from '@/shared/lib/localStorage';
 import type {
@@ -17,6 +18,22 @@ import type {
  Transaction,
  WriteOffMargin,
 } from '@/shared/types';
+
+/**
+ * One-shot "the next snapshot fetch is a background resync" flag.
+ *
+ * There is exactly one workspace query and React Query starts an active query's refetch
+ * synchronously inside invalidateQueries, so the flag is consumed by the fetch the
+ * invalidateSilently call just triggered. The worst case of a mis-consume is a loading bar that
+ * shows when it needn't, or doesn't when it might have — never wrong data.
+ */
+let nextWorkspaceFetchSilent = false;
+
+function consumeSilentFetchFlag(): boolean {
+ const silent = nextWorkspaceFetchSilent;
+ nextWorkspaceFetchSilent = false;
+ return silent;
+}
 
 /**
  * The full workspace snapshot. All collections are fetched together (as the
@@ -131,7 +148,7 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
    // schema-ensure, pool checkout — by ten for a single page load, and on a cold database made
    // all ten queue behind the same schema advisory lock. The collections are always needed
    // together and always invalidated together, so there was never a reason to ask separately.
-   const snapshot = await accountingApi.getWorkspaceSnapshot();
+   const snapshot = await accountingApi.getWorkspaceSnapshot({ silent: consumeSilentFetchFlag() });
    const { backup } = snapshot;
    const organizations = snapshot.organizations as Organization[];
    const clients = snapshot.clients as Client[];
@@ -154,8 +171,26 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
     currencies = (await accountingApi.listCurrencies()) as Currency[];
    }
 
+   // Cached WITHOUT the pending rows below: the session cache stands in for server truth on the
+   // next load, and a row whose create may never have landed is not that.
    saveDataCache({ organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins }, userId, workspaceId);
-   return { organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup };
+   // A create that is still on the wire predates this snapshot, so the server can't have
+   // returned it. Without putting it back, any refetch landing mid-flight — a window focus, the
+   // cross-tab signal, another save's resync — makes the row the user just entered blink out
+   // and reappear.
+   const pending = pendingTransactionRows();
+   return {
+    organizations,
+    clients,
+    currencies,
+    transactions: pending.length > 0 ? [...transactions, ...pending] : transactions,
+    clientAccounts,
+    reconciliations,
+    ignoredAnomalies,
+    harvestRates,
+    writeOffMargins,
+    backup,
+   };
   },
   initialData: () => {
    const cache = readDataCache(userId, workspaceId);
@@ -223,6 +258,16 @@ export function useWorkspaceCache(userId: string | null | undefined, workspaceId
  }, [queryClient, userId, workspaceId]);
 
  /**
+  * The same refetch, without lighting the loading indicator — for the reconciling read that
+  * follows an optimistic save, which the user is not waiting on. Everything else about it,
+  * including the cross-tab signal, is identical.
+  */
+ const invalidateSilently = useCallback(() => {
+  nextWorkspaceFetchSilent = true;
+  return invalidate();
+ }, [invalidate]);
+
+ /**
   * Stable `setState`-compatible setters, one per collection. Identity is memoized
   * so they can safely sit in downstream useCallback/useEffect dependency arrays.
   */
@@ -241,5 +286,5 @@ export function useWorkspaceCache(userId: string | null | undefined, workspaceId
   };
  }, [update]);
 
- return { update, invalidate, setters };
+ return { update, invalidate, invalidateSilently, setters };
 }

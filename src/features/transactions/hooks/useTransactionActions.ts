@@ -6,11 +6,24 @@ import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
+import { trackPendingWrite } from '@/lib/pendingWrites';
+import {
+ commitPendingCreate,
+ failPendingCreate,
+ mintTempTransactionId,
+ notePendingCreatedAt,
+ pendingCreatedAtFloor,
+ queueTransactionWrite,
+ registerPendingCreate,
+} from '@/lib/pendingTransactionWrites';
 import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
+import { isSameTransactionUpdate, transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
+import { buildOptimisticTransactionRow } from '@/features/transactions/utils/optimisticRow';
+import { forgetTransactionId, remapTransactionId } from '@/features/transactions/utils/transactionIdRemap';
 import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
 import { formatRateValue } from '@/shared/utils/format';
-import { formatDateValue, localDateKey, localWallClock } from '@/shared/utils/date';
+import { formatDateValue, localDateKey, localWallClock, parseLocalWallClock } from '@/shared/utils/date';
 import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import {
  normalizeImportHeader,
@@ -22,6 +35,7 @@ import {
 import { generateArchiveHtml, generateTransactionsExportHtml } from '@/features/pdf/pdfExport';
 import { saveArchiveTableSettings, saveTransactionTableSettings, getStoredExchangeSettings } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
+import { useWorkspaceResync } from '@/features/workspace/hooks/useWorkspaceResync';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
 import { selectArchiveExportRows } from '@/features/transactions/utils/archiveExport';
 import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
@@ -40,6 +54,7 @@ import type {
  Reconciliation,
  Section,
  Transaction,
+ TransactionForm,
  TransactionTableDraft,
  TransactionTableRow,
  TransactionTableSettings,
@@ -116,6 +131,9 @@ export function useTransactionActions({
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const { invalidate: loadData, setters, setError } = useWorkspaceActions();
+ // Coalesced, silent refetch behind the optimistic saves below — shared with the ledger, so a
+ // run of edits across both views still costs one workspace read.
+ const { scheduleWorkspaceResync } = useWorkspaceResync();
  const showToast = useAppStatusStore((s) => s.showToast);
  const showUndo = useAppStatusStore((s) => s.showUndo);
  const setTransactions = setters.setTransactions;
@@ -141,7 +159,6 @@ export function useTransactionActions({
 
  const transactionForm = useTransactionsStore((s) => s.transactionForm);
  const setTransactionForm = useTransactionsStore((s) => s.setTransactionForm);
- const setIsSubmittingTransaction = useTransactionsStore((s) => s.setIsSubmittingTransaction);
  const txSplitDescription = useTransactionsStore((s) => s.txSplitDescription);
  const setTxSplitDescription = useTransactionsStore((s) => s.setTxSplitDescription);
  const setNewTransactionDate = useTransactionsStore((s) => s.setNewTransactionDate);
@@ -152,6 +169,9 @@ export function useTransactionActions({
  const setTxToOpen = useTransactionsStore((s) => s.setTxToOpen);
  const setIsNewTransactionExpensesOpen = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen);
  const setIsNewTransactionExpensesOpen2 = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen2);
+ // Read (not just written) so a failed save can offer back the expense sections as they were.
+ const isNewTransactionExpensesOpen = useTransactionsStore((s) => s.isNewTransactionExpensesOpen);
+ const isNewTransactionExpensesOpen2 = useTransactionsStore((s) => s.isNewTransactionExpensesOpen2);
  const txFromRateReversed = useTransactionsStore((s) => s.txFromRateReversed);
  const setTxFromRateReversed = useTransactionsStore((s) => s.setTxFromRateReversed);
  const txToRateReversed = useTransactionsStore((s) => s.txToRateReversed);
@@ -164,7 +184,6 @@ export function useTransactionActions({
  const setEditingArchiveEntry = useTransactionsStore((s) => s.setEditingArchiveEntry);
  const newArchiveEntryDate = useTransactionsStore((s) => s.newArchiveEntryDate);
  const setNewArchiveEntryDate = useTransactionsStore((s) => s.setNewArchiveEntryDate);
- const setIsSubmittingArchiveEntry = useTransactionsStore((s) => s.setIsSubmittingArchiveEntry);
 
  const pendingImportData = useTransactionsStore((s) => s.pendingImportData);
  const setPendingImportData = useTransactionsStore((s) => s.setPendingImportData);
@@ -390,7 +409,11 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
  const editing = editingTransaction;
  // A new entry lands at the end of its date's sequence (top of the table / bottom of the
  // ledger), after any same-day rows the user manually reordered.
- const newTransactionCreatedAt = editing ? resolveCreatedAt(newTransactionDate, editing.createdAt) : nextCreatedAtForDate(newTransactionDate, transactions);
+ // The floor covers entries saved a moment ago whose row this render's `transactions` doesn't
+ // hold yet — without it two quick past-dated entries land on the same timestamp.
+ const newTransactionCreatedAt = editing
+  ? resolveCreatedAt(newTransactionDate, editing.createdAt)
+  : nextCreatedAtForDate(newTransactionDate, transactions, pendingCreatedAtFloor(newTransactionDate));
 
  if (blockedByPastEditLock([editing?.createdAt, newTransactionCreatedAt])) {
   return;
@@ -510,124 +533,149 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
    counterParty: txPayload.counterParty,
    createdAt: txPayload.createdAt,
   };
+  // The row's pre-edit persisted state, so a write that never lands can be put back.
+  const previousPayload = original ? transactionUpdateSnapshot(original) : null;
+  // Opening a row and saving it untouched — which is most of what clicking through rows does —
+  // used to cost a round-trip, a full refetch and a possible reconciliation prompt, all to write
+  // back exactly what was already there. Treat it as a cancel. Mirrors onSaveLedgerTransaction.
+  if (previousPayload && isSameTransactionUpdate(updatePayload, previousPayload)) {
+   onCancelEditTransaction();
+   return;
+  }
   // No `original` means there is nothing to diff against, so no lock can have been overridden.
   const editLock = original ? await checkLockForEdit(original, updatePayload) : { proceed: true, overrode: false };
   if (!editLock.proceed) {
    return;
   }
-  transactionSubmitLock.current = true;
-  setIsSubmittingTransaction(true);
-  try {
-   await accountingApi.updateTransaction({ ...updatePayload, acknowledgeReconciliationOverride: editLock.overrode });
-   applyTransactionPatch(updatePayload);
-   onCancelEditTransaction();
-   showToast(t('toast_transaction_updated'));
-   void loadData();
-  } catch (e) {
-   setError(e instanceof Error ? e.message : t('error_failed_update'));
-  } finally {
-   transactionSubmitLock.current = false;
-   setIsSubmittingTransaction(false);
-  }
+  // The save doesn't wait for the server. Every new value is already known — the write is a
+  // plain UPDATE of exactly what's in `updatePayload` — so the cache is patched, the form
+  // clears, and the request goes out behind it. Waiting bought nothing but the pause the user
+  // felt on every single save.
+  setError('');
+  applyTransactionPatch(updatePayload);
+  onCancelEditTransaction();
+  showToast(t('toast_transaction_updated'));
+  void trackPendingWrite(
+   queueTransactionWrite(updatePayload.id, () =>
+    accountingApi.updateTransaction({ ...updatePayload, acknowledgeReconciliationOverride: editLock.overrode }, { silent: true }),
+   ),
+  )
+   .then(() => scheduleWorkspaceResync())
+   .catch((e) => {
+    // Never landed: put the row back rather than leaving edited values on screen as though they
+    // had been saved, and re-read the server's actual state, which is all that can be trusted
+    // after a failure.
+    if (previousPayload) applyTransactionPatch(previousPayload);
+    setError(e instanceof Error ? e.message : t('error_failed_update'));
+    void loadData();
+   });
   return;
  }
 
+ // Held across the guard's await below so a double-press can neither open two dialogs nor create
+ // two rows. It is released the moment the row is on screen (further down), not when the server
+ // answers — holding it for the round-trip would swallow the next deliberate entry.
+ transactionSubmitLock.current = true;
  // Reconciliation guard: a new row dated at or before a lock line rewrites reconciled history.
  const createLock = await checkLockForNewRow([txPayload.accountFromId, txPayload.accountToId], txPayload.createdAt, NEW_ROW_REF_ID);
  if (!createLock.proceed) {
+  transactionSubmitLock.current = false;
   return;
  }
 
- transactionSubmitLock.current = true;
- setIsSubmittingTransaction(true);
- try {
-  const created = await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: createLock.overrode });
+ // Everything the user typed, kept so a write that never lands can offer it back rather than
+ // being lost with the row (see the failure path below).
+ const formSnapshot = {
+  transactionForm,
+  newTransactionDate,
+  txSplitDescription,
+  txFromRateReversed,
+  txToRateReversed,
+  isNewTransactionExpensesOpen,
+  isNewTransactionExpensesOpen2,
+ };
 
-  // Optimistically add the new row (with its real, server-assigned id — NOT a placeholder;
-  // a placeholder id here would be sent back to the server if the user immediately edits
-  // and saves this exact row before the background reload below replaces it) so the table
-  // updates instantly. The reload still runs to pick up any server-side normalization.
-  const fromAcc = txPayload.accountFromId != null ? clientAccountMap.get(txPayload.accountFromId) : undefined;
-  const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
-  const cur = txPayload.currencyId != null ? currencyMap.get(txPayload.currencyId) : undefined;
-  const chargesCur = txPayload.chargesCurrencyId != null ? currencyMap.get(txPayload.chargesCurrencyId) : null;
-  const charges2Cur = txPayload.charges2CurrencyId != null ? currencyMap.get(txPayload.charges2CurrencyId) : null;
-  setTransactions((prev) => [
-   ...prev,
-   {
-    id: created.id,
-    accountFromId: txPayload.accountFromId,
-    clientFromName: fromAcc?.clientName ?? '',
-    accountFromCurrencyCode: fromAcc?.currencyCode ?? '',
-    accountFromCurrencySymbol: fromAcc?.currencySymbol ?? '',
-    accountToId: txPayload.accountToId,
-    clientToName: toAcc?.clientName ?? '',
-    accountToCurrencyCode: toAcc?.currencyCode ?? '',
-    accountToCurrencySymbol: toAcc?.currencySymbol ?? '',
-    currencyId: txPayload.currencyId ?? 0,
-    currencyCode: cur?.code ?? '',
-    currencySymbol: cur?.symbol ?? '',
-    amount: txPayload.amount,
-    type: txPayload.type,
-    exchangeRateFrom: txPayload.exchangeRateFrom,
-    commissionFrom: txPayload.commissionFrom,
-    exchangeRateTo: txPayload.exchangeRateTo,
-    commissionTo: txPayload.commissionTo,
-    exchangeRateFromReversed: txPayload.exchangeRateFromReversed,
-    exchangeRateToReversed: txPayload.exchangeRateToReversed,
-    charges: txPayload.charges,
-    chargesCurrencyId: txPayload.chargesCurrencyId,
-    chargesCurrencyCode: chargesCur?.code ?? null,
-    chargesCurrencySymbol: chargesCur?.symbol ?? null,
-    chargesPayer: txPayload.chargesPayer,
-    chargesExchangeRate: txPayload.chargesExchangeRate,
-    chargesDescription: txPayload.chargesDescription,
-    charges2: txPayload.charges2,
-    charges2CurrencyId: txPayload.charges2CurrencyId,
-    charges2CurrencyCode: charges2Cur?.code ?? null,
-    charges2CurrencySymbol: charges2Cur?.symbol ?? null,
-    chargesPayer2: txPayload.chargesPayer2,
-    charges2ExchangeRate: txPayload.charges2ExchangeRate,
-    charges2Description: txPayload.charges2Description,
-    description: txPayload.description,
-    descriptionFrom: txPayload.descriptionFrom,
-    descriptionTo: txPayload.descriptionTo,
-    exchangeActualAmount: txPayload.exchangeActualAmount,
-    archiveNote: '',
-    counterParty: txPayload.counterParty,
-    isArchived: 0,
-    archiveHidden: 0,
-    distributionLocationId: txPayload.distributionLocationId,
-    distributionLocationName: null,
-    distributionLocationKind: null,
-    createdAt: txPayload.createdAt,
-   },
-  ]);
+ // The row goes on screen with a temporary id and the real one is filled in when the create
+ // lands (see pendingTransactionWrites). Nothing waits for the server: the table updates, the
+ // form clears, and the next entry can be typed immediately. The temporary id cannot reach the
+ // database — accountingApi resolves it into the real one for anything sent from here on, so
+ // editing or deleting this very row a moment later is safe.
+ const tempId = mintTempTransactionId();
+ const optimisticRow = buildOptimisticTransactionRow(txPayload, tempId, clientAccountMap, currencyMap);
+ notePendingCreatedAt(newTransactionDate, parseLocalWallClock(txPayload.createdAt));
+ setTransactions((prev) => [...prev, optimisticRow]);
 
-  setTxSplitDescription(false);
-  setTransactionForm(emptyTransactionForm());
-  setTxFromQuery('');
-  setTxFromOpen(false);
-  setTxToQuery('');
-  setTxToOpen(false);
-  setTxFromRateReversed(false);
-  setTxToRateReversed(false);
-  // Keep the form open so several entries can be added in a row.
-  setIsNewTransactionExpensesOpen(false);
-  setIsNewTransactionExpensesOpen2(false);
-  setNewTransactionDate(localDateKey());
-  setError('');
-  showToast(t('toast_transaction_created'));
-  void loadData();
-  // Only reached on a real create success — the "save & close" ledger-modal button passes
-  // its close callback here so it fires after the row is actually saved, not on click.
-  onCreated?.();
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_save'));
- } finally {
-  transactionSubmitLock.current = false;
-  setIsSubmittingTransaction(false);
- }
+ setTxSplitDescription(false);
+ setTransactionForm(emptyTransactionForm());
+ setTxFromQuery('');
+ setTxFromOpen(false);
+ setTxToQuery('');
+ setTxToOpen(false);
+ setTxFromRateReversed(false);
+ setTxToRateReversed(false);
+ // Keep the form open so several entries can be added in a row.
+ setIsNewTransactionExpensesOpen(false);
+ setIsNewTransactionExpensesOpen2(false);
+ setNewTransactionDate(localDateKey());
+ setError('');
+ showToast(t('toast_transaction_created'));
+ // "Save & close" on the ledger modal now means "accepted and on screen" rather than "confirmed
+ // by the server" — holding the modal open for the round-trip is exactly the wait being removed,
+ // and a failure is surfaced by the row disappearing plus the error banner, which is visible
+ // whether the modal is open or not.
+ onCreated?.();
+ // Released here rather than in a finally: it exists to stop a double-press creating two rows
+ // while the reconciliation guard above is open, and that window has now passed. Holding it for
+ // the round-trip would swallow the next deliberate entry.
+ transactionSubmitLock.current = false;
+
+ const createRequest = trackPendingWrite(accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: createLock.overrode }, { silent: true }));
+ registerPendingCreate(
+  tempId,
+  optimisticRow,
+  createRequest.then((created) => created.id),
+ );
+ void createRequest
+  .then((created) => {
+   commitPendingCreate(tempId, created.id);
+   setTransactions((prev) => prev.map((tx) => (tx.id === tempId ? { ...tx, id: created.id } : tx)));
+   remapTransactionId(tempId, created.id);
+   scheduleWorkspaceResync();
+  })
+  .catch((e) => {
+   // The row was never saved, so it must not keep sitting in the table looking as though it
+   // was. What the user typed is offered back instead of being written over whatever they are
+   // typing now — by this point they have moved on, and clobbering that would destroy work in
+   // the name of saving work.
+   failPendingCreate(tempId);
+   setTransactions((prev) => prev.filter((tx) => tx.id !== tempId));
+   forgetTransactionId(tempId);
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+   showUndo(t('toast_transaction_save_failed'), () => restoreTransactionForm(formSnapshot));
+   void loadData();
+  });
+}
+
+// Puts a failed entry's typed values back in the form, on request (see the create failure path).
+type TransactionFormSnapshot = {
+ transactionForm: TransactionForm;
+ newTransactionDate: string;
+ txSplitDescription: boolean;
+ txFromRateReversed: boolean;
+ txToRateReversed: boolean;
+ isNewTransactionExpensesOpen: boolean;
+ isNewTransactionExpensesOpen2: boolean;
+};
+
+function restoreTransactionForm(snapshot: TransactionFormSnapshot) {
+ setTransactionForm(snapshot.transactionForm);
+ setNewTransactionDate(snapshot.newTransactionDate);
+ setTxSplitDescription(snapshot.txSplitDescription);
+ setTxFromRateReversed(snapshot.txFromRateReversed);
+ setTxToRateReversed(snapshot.txToRateReversed);
+ setIsNewTransactionExpensesOpen(snapshot.isNewTransactionExpensesOpen);
+ setIsNewTransactionExpensesOpen2(snapshot.isNewTransactionExpensesOpen2);
+ setIsNewTransactionSectionOpen(true);
 }
 
 async function onImportTransactionsFile(event: ChangeEvent<HTMLInputElement>) {
@@ -1534,10 +1582,11 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
 
  const amount = parseFloat(normalizeDecimalInput(archiveEntryForm.amount)) || 0;
  const editing = editingArchiveEntry;
- const createdAt = editing ? resolveCreatedAt(newArchiveEntryDate, editing.createdAt) : nextCreatedAtForDate(newArchiveEntryDate, transactions);
+ const createdAt = editing
+  ? resolveCreatedAt(newArchiveEntryDate, editing.createdAt)
+  : nextCreatedAtForDate(newArchiveEntryDate, transactions, pendingCreatedAtFloor(newArchiveEntryDate));
 
  transactionSubmitLock.current = true;
- setIsSubmittingArchiveEntry(true);
  try {
   if (editing) {
    // Preserve every field this trimmed form has no input for (rate/commission/charges/type/
@@ -1570,15 +1619,22 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
     distributionLocationId: original?.distributionLocationId ?? null,
     createdAt,
    };
-   await accountingApi.updateTransaction(updatePayload);
+   // Same as the transaction form's edit: patch, close, let the write follow.
+   const previousPayload = original ? transactionUpdateSnapshot(original) : null;
    applyTransactionPatch(updatePayload);
    onCancelArchiveEntryEdit();
    showToast(t('toast_transaction_updated'));
-   void loadData();
+   transactionSubmitLock.current = false;
+   void trackPendingWrite(queueTransactionWrite(updatePayload.id, () => accountingApi.updateTransaction(updatePayload, { silent: true })))
+    .then(() => scheduleWorkspaceResync())
+    .catch((e) => {
+     if (previousPayload) applyTransactionPatch(previousPayload);
+     setError(e instanceof Error ? e.message : t('error_failed_update'));
+     void loadData();
+    });
    return;
   }
 
-  const currency = currencyMap.get(archiveEntryForm.currencyId);
   const txPayload = {
    accountFromId: archiveEntryForm.accountFromId,
    accountToId: archiveEntryForm.accountToId,
@@ -1605,75 +1661,48 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
    distributionLocationId: null,
    createdAt,
   };
-  const created = await accountingApi.createTransaction(txPayload);
-
-  // Optimistically add the new row (with its real, server-assigned id — see the same-shaped
-  // comment in onTransactionSubmit above for why a placeholder id here is unsafe) so the
-  // table updates instantly. The reload still runs to pick up any server-side normalization.
-  const fromAcc = txPayload.accountFromId != null ? clientAccountMap.get(txPayload.accountFromId) : undefined;
-  const toAcc = txPayload.accountToId != null ? clientAccountMap.get(txPayload.accountToId) : undefined;
-  setTransactions((prev) => [
-   ...prev,
-   {
-    id: created.id,
-    accountFromId: txPayload.accountFromId,
-    clientFromName: fromAcc?.clientName ?? '',
-    accountFromCurrencyCode: fromAcc?.currencyCode ?? '',
-    accountFromCurrencySymbol: fromAcc?.currencySymbol ?? '',
-    accountToId: txPayload.accountToId,
-    clientToName: toAcc?.clientName ?? '',
-    accountToCurrencyCode: toAcc?.currencyCode ?? '',
-    accountToCurrencySymbol: toAcc?.currencySymbol ?? '',
-    currencyId: txPayload.currencyId ?? 0,
-    currencyCode: currency?.code ?? '',
-    currencySymbol: currency?.symbol ?? '',
-    amount: txPayload.amount,
-    type: txPayload.type,
-    exchangeRateFrom: txPayload.exchangeRateFrom,
-    commissionFrom: txPayload.commissionFrom,
-    exchangeRateTo: txPayload.exchangeRateTo,
-    commissionTo: txPayload.commissionTo,
-    exchangeRateFromReversed: txPayload.exchangeRateFromReversed,
-    exchangeRateToReversed: txPayload.exchangeRateToReversed,
-    charges: txPayload.charges,
-    chargesCurrencyId: txPayload.chargesCurrencyId,
-    chargesCurrencyCode: null,
-    chargesCurrencySymbol: null,
-    chargesPayer: txPayload.chargesPayer,
-    chargesExchangeRate: txPayload.chargesExchangeRate,
-    chargesDescription: txPayload.chargesDescription,
-    charges2: 0,
-    charges2CurrencyId: null,
-    charges2CurrencyCode: null,
-    charges2CurrencySymbol: null,
-    chargesPayer2: '',
-    charges2ExchangeRate: 1,
-    charges2Description: '',
-    description: txPayload.description,
-    descriptionFrom: txPayload.descriptionFrom,
-    descriptionTo: txPayload.descriptionTo,
-    exchangeActualAmount: txPayload.exchangeActualAmount,
-    archiveNote: txPayload.archiveNote,
-    counterParty: '',
-    isArchived: 1,
-    archiveHidden: 0,
-    distributionLocationId: txPayload.distributionLocationId,
-    distributionLocationName: null,
-    distributionLocationKind: null,
-    createdAt: txPayload.createdAt,
-   },
-  ]);
+  // Same temporary-id treatment as the transaction form's create — the row is listed at once
+  // and the real id arrives behind it.
+  const entrySnapshot = { archiveEntryForm, newArchiveEntryDate };
+  const tempId = mintTempTransactionId();
+  const optimisticRow = buildOptimisticTransactionRow(txPayload, tempId, clientAccountMap, currencyMap);
+  notePendingCreatedAt(newArchiveEntryDate, parseLocalWallClock(createdAt));
+  setTransactions((prev) => [...prev, optimisticRow]);
 
   setArchiveEntryForm(emptyArchiveEntryForm());
   setNewArchiveEntryDate(localDateKey());
   setError('');
   showToast(t('toast_archive_transaction_created'));
-  void loadData();
+  transactionSubmitLock.current = false;
+
+  const createRequest = trackPendingWrite(accountingApi.createTransaction(txPayload, { silent: true }));
+  registerPendingCreate(
+   tempId,
+   optimisticRow,
+   createRequest.then((created) => created.id),
+  );
+  void createRequest
+   .then((created) => {
+    commitPendingCreate(tempId, created.id);
+    setTransactions((prev) => prev.map((tx) => (tx.id === tempId ? { ...tx, id: created.id } : tx)));
+    remapTransactionId(tempId, created.id);
+    scheduleWorkspaceResync();
+   })
+   .catch((e) => {
+    failPendingCreate(tempId);
+    setTransactions((prev) => prev.filter((tx) => tx.id !== tempId));
+    forgetTransactionId(tempId);
+    setError(e instanceof Error ? e.message : t('error_failed_save'));
+    showUndo(t('toast_transaction_save_failed'), () => {
+     setArchiveEntryForm(entrySnapshot.archiveEntryForm);
+     setNewArchiveEntryDate(entrySnapshot.newArchiveEntryDate);
+     setIsNewArchiveSectionOpen(true);
+    });
+    void loadData();
+   });
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_save'));
- } finally {
   transactionSubmitLock.current = false;
-  setIsSubmittingArchiveEntry(false);
  }
 }
 
@@ -1993,21 +2022,41 @@ async function onSaveTransactionTableRow(
   overrodeLock = lock.overrode;
  }
 
- try {
-  await accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: overrodeLock });
-  setError('');
-  applyTransactionPatch(transactionPayload);
-  if (!skipReload) {
-   setEditingRowIds((prev) => {
-    const next = new Set(prev);
-    next.delete(transactionId);
-    return next;
-   });
-   void loadData();
+ // Batch saves (skipReload) stay synchronous: onSaveAllTransactions fires them together and
+ // needs each row's real outcome, so it can't be handed a provisional yes.
+ if (skipReload) {
+  try {
+   await accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: overrodeLock });
+   setError('');
+   applyTransactionPatch(transactionPayload);
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_update'));
+  return;
  }
+
+ // A single-row save doesn't wait for the server — same reasoning as the ledger's row editor
+ // and the form above: the values are already known, so the row closes now and the write
+ // follows it.
+ const previousPayload = transactionUpdateSnapshot(transaction);
+ setError('');
+ applyTransactionPatch(transactionPayload);
+ setEditingRowIds((prev) => {
+  const next = new Set(prev);
+  next.delete(transactionId);
+  return next;
+ });
+ void trackPendingWrite(
+  queueTransactionWrite(transactionId, () =>
+   accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: overrodeLock }, { silent: true }),
+  ),
+ )
+  .then(() => scheduleWorkspaceResync())
+  .catch((e) => {
+   applyTransactionPatch(previousPayload);
+   setError(e instanceof Error ? e.message : t('error_failed_update'));
+   void loadData();
+  });
 }
 
 function onEditAllTransactions() {
@@ -2066,7 +2115,7 @@ async function onSaveAllTransactions() {
   return n;
  });
  setIsEditAllTransactions(false);
- void loadData();
+ scheduleWorkspaceResync();
 }
 
 // Opens the archive export dialog, defaulting the date window to the full span of the

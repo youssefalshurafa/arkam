@@ -70,7 +70,6 @@ export default function NewTransactionForm({
 
  const transactionForm = useTransactionsStore((s) => s.transactionForm);
  const setTransactionForm = useTransactionsStore((s) => s.setTransactionForm);
- const isSubmittingTransaction = useTransactionsStore((s) => s.isSubmittingTransaction);
  const txSplitDescription = useTransactionsStore((s) => s.txSplitDescription);
  const setTxSplitDescription = useTransactionsStore((s) => s.setTxSplitDescription);
  const newTransactionDate = useTransactionsStore((s) => s.newTransactionDate);
@@ -1313,21 +1312,22 @@ export default function NewTransactionForm({
     ) : null}
    </div>
 
+   {/* Never disabled while a save is in flight: a save no longer holds anything up, so the
+       buttons stay live and the next entry can be typed straight away. A double-press is
+       guarded synchronously by transactionSubmitLock in useTransactionActions. */}
    {onSaveAndClose && !editingTransaction ? (
     <div className="mt-6 flex gap-2">
      <button
       type="submit"
       value="new"
-      disabled={isSubmittingTransaction}
-      className="flex-1 rounded border border-border-strong bg-surface px-4 py-2 font-medium text-fg transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+      className="flex-1 rounded border border-border-strong bg-surface px-4 py-2 font-medium text-fg transition hover:bg-surface-hover"
      >
       {t('save_and_add_another')}
      </button>
      <button
       type="submit"
       value="close"
-      disabled={isSubmittingTransaction}
-      className="flex-1 rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+      className="flex-1 rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
      >
       {t('save_and_close')}
      </button>
@@ -1335,8 +1335,7 @@ export default function NewTransactionForm({
    ) : (
     <button
      type="submit"
-     disabled={isSubmittingTransaction}
-     className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+     className="mt-6 w-full rounded bg-blue-700 px-4 py-2 font-medium text-white transition hover:bg-blue-800"
     >
      {editingTransaction ? t('update_transaction') : t('save_transaction')}
     </button>

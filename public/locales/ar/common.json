@@ -1466,5 +1466,6 @@
  "ledger_move_day_start": "نقل إلى بداية اليوم",
  "ledger_move_day_end": "نقل إلى نهاية اليوم",
  "picker_recently_used": "المستخدمة مؤخرًا",
- "picker_all_clients": "كل العملاء"
+ "picker_all_clients": "كل العملاء",
+ "toast_transaction_save_failed": "فشل الحفظ — استعادة ما أدخلته؟"
 }

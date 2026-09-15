@@ -20,6 +20,19 @@ type UndoOffer = { message: string; onUndo: () => void } | null;
 type AppStatusStore = {
  error: string;
  setError: (message: string) => void;
+ /**
+  * True while the banner is showing a LOAD failure rather than one reported by a save.
+  *
+  * Saves are optimistic: a background write that fails reports it here, and then re-reads the
+  * server. Clearing the banner on every successful read — which is what used to happen — wiped
+  * that message moments after showing it, leaving nothing on screen to say the entry had not
+  * been saved. So a successful fetch clears only what a fetch put there.
+  */
+ errorIsFromLoad: boolean;
+ /** Reports a failure to LOAD the workspace (as opposed to a failed save). */
+ setLoadError: (message: string) => void;
+ /** Clears the banner only if a load put it there. */
+ clearLoadError: () => void;
  toast: string;
  toastPos: ToastPosition;
  /**
@@ -41,7 +54,10 @@ let undoTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useAppStatusStore = create<AppStatusStore>((set) => ({
  error: '',
- setError: (message) => set({ error: message }),
+ setError: (message) => set({ error: message, errorIsFromLoad: false }),
+ errorIsFromLoad: false,
+ setLoadError: (message) => set({ error: message, errorIsFromLoad: true }),
+ clearLoadError: () => set((state) => (state.errorIsFromLoad || !state.error ? { error: '', errorIsFromLoad: false } : state)),
  toast: '',
  toastPos: null,
  showToast: (message, event) => {

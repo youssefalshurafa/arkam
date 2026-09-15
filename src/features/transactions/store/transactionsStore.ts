@@ -151,8 +151,6 @@ type TransactionsStore = {
  setTransactionTableDrafts: Dispatch<SetStateAction<Record<number, TransactionTableDraft>>>;
  transactionForm: TransactionForm;
  setTransactionForm: Dispatch<SetStateAction<TransactionForm>>;
- isSubmittingTransaction: boolean;
- setIsSubmittingTransaction: Dispatch<SetStateAction<boolean>>;
  txSplitDescription: boolean;
  setTxSplitDescription: Dispatch<SetStateAction<boolean>>;
  newTransactionDate: string;
@@ -212,8 +210,6 @@ type TransactionsStore = {
  setEditingArchiveEntry: Dispatch<SetStateAction<{ id: number; createdAt: string } | null>>;
  newArchiveEntryDate: string;
  setNewArchiveEntryDate: Dispatch<SetStateAction<string>>;
- isSubmittingArchiveEntry: boolean;
- setIsSubmittingArchiveEntry: Dispatch<SetStateAction<boolean>>;
 };
 
 export const useTransactionsStore = create<TransactionsStore>((set) => {
@@ -320,8 +316,6 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTransactionTableDrafts: setter('transactionTableDrafts'),
   transactionForm: emptyTransactionForm(),
   setTransactionForm: setter('transactionForm'),
-  isSubmittingTransaction: false,
-  setIsSubmittingTransaction: setter('isSubmittingTransaction'),
   txSplitDescription: false,
   setTxSplitDescription: setter('txSplitDescription'),
   newTransactionDate: localDateKey(),
@@ -370,7 +364,5 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setEditingArchiveEntry: setter('editingArchiveEntry'),
   newArchiveEntryDate: localDateKey(),
   setNewArchiveEntryDate: setter('newArchiveEntryDate'),
-  isSubmittingArchiveEntry: false,
-  setIsSubmittingArchiveEntry: setter('isSubmittingArchiveEntry'),
  };
 });

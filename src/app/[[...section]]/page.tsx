@@ -10,6 +10,11 @@ import HomePage from '@/components/marketing/HomePage';
 import { SectionErrorBoundary } from '@/components/ui/SectionErrorBoundary';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
+import { trackPendingWrite } from '@/lib/pendingWrites';
+import { queueTransactionWrite } from '@/lib/pendingTransactionWrites';
+import { transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
+import { useTransactionPatchers } from '@/features/transactions/hooks/useTransactionPatchers';
+import { useWorkspaceResync } from '@/features/workspace/hooks/useWorkspaceResync';
 
 import type {
  Organization,
@@ -466,10 +471,10 @@ function AuthenticatedHome() {
  const setNewClientAccountDrafts = useClientsStore((s) => s.setNewClientAccountDrafts);
  const transactionForm = useTransactionsStore((s) => s.transactionForm);
  const setTransactionForm = useTransactionsStore((s) => s.setTransactionForm);
- // Disables the submit button while a new transaction/adjustment is being created, so a
- // double-click can't create a duplicate. The ref is the synchronous guard (state hasn't
- // re-rendered yet on a rapid second click); the state drives the disabled UI.
- const setIsSubmittingTransaction = useTransactionsStore((s) => s.setIsSubmittingTransaction);
+ // Stops a double-press creating a duplicate while the reconciliation guard is up. A ref, not
+ // state, because it has to be true synchronously — a re-render is far too late — and because
+ // saving no longer blocks the UI, so there is nothing to grey out: it is released as soon as
+ // the row is on screen, leaving the next deliberate entry free to go straight in.
  const transactionSubmitLock = useRef(false);
  // When enabled, the sender and receiver ledgers each get their own description override.
  const txSplitDescription = useTransactionsStore((s) => s.txSplitDescription);
@@ -480,6 +485,9 @@ function AuthenticatedHome() {
  const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
  const error = useAppStatusStore((s) => s.error);
  const setError = useAppStatusStore((s) => s.setError);
+ // A failed LOAD is the only thing a successful refetch is allowed to clear (see below).
+ const setLoadError = useAppStatusStore((s) => s.setLoadError);
+ const clearLoadError = useAppStatusStore((s) => s.clearLoadError);
  const [importSummary, setImportSummary] = useState('');
  // Currencies the "apply to all clients" control will open for every client.
  const transactionsImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -504,12 +512,16 @@ function AuthenticatedHome() {
  // mirrors the setError handling that used to live inside loadData.
  useEffect(() => {
   if (workspaceQuery.isError) {
-   setError(workspaceQuery.error instanceof Error ? workspaceQuery.error.message : t('error_failed_load'));
+   setLoadError(workspaceQuery.error instanceof Error ? workspaceQuery.error.message : t('error_failed_load'));
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [workspaceQuery.isError, workspaceQuery.errorUpdatedAt, t]);
+ // A successful (re)fetch clears the banner — but only a banner the FETCH put there. Saves are
+ // optimistic now, and a failed background write both reports its error here and re-reads the
+ // server; clearing on that read would wipe the one thing telling the user their entry didn't
+ // save, moments after showing it.
  useEffect(() => {
-  if (workspaceQuery.isSuccess) setError('');
+  if (workspaceQuery.isSuccess) clearLoadError();
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [workspaceQuery.dataUpdatedAt, workspaceQuery.isSuccess]);
 
@@ -1717,6 +1729,9 @@ function AuthenticatedHome() {
  // account's balance from that date forward, so it must respect reconciliation locks the
  // same way the ledger/transaction edit paths do.
  const { checkLockForEdit, blockedByPastEditLock } = useReconciliationLocks({ reconciliations, clientAccountMap, lockPastEditsEnabled });
+ // Same optimistic machinery the forms and both table editors use, for the inline edits below.
+ const { applyTransactionPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
+ const { scheduleWorkspaceResync } = useWorkspaceResync();
 
  // Sets the exchange rate on one "waiting for pricing" entry directly from the org page,
  // reusing the same update endpoint the ledger edit uses. When not reversed the rate
@@ -1772,9 +1787,17 @@ function AuthenticatedHome() {
     if (!lock.proceed) {
      return false;
     }
-    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode });
+    // Optimistic like every other save: the rate is on screen at once and the write follows.
+    const previousPayload = transactionUpdateSnapshot(tx);
     setError('');
-    await loadData();
+    applyTransactionPatch(payload);
+    void trackPendingWrite(queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true })))
+     .then(() => scheduleWorkspaceResync())
+     .catch((e) => {
+      applyTransactionPatch(previousPayload);
+      setError(e instanceof Error ? e.message : t('error_failed_update'));
+      void loadData();
+     });
     return true;
    } catch (e) {
     setError(e instanceof Error ? e.message : t('error_failed_update'));
@@ -1828,13 +1851,18 @@ function AuthenticatedHome() {
    if (!lock.proceed) {
     return;
    }
-   try {
-    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode });
-    setError('');
-    await loadData();
-   } catch (e) {
-    setError(e instanceof Error ? e.message : t('error_failed_update'));
-   }
+   // Optimistic like every other save — these back the "More info" popup's inline edits, where
+   // waiting for a round-trip per field was the whole of the lag.
+   const previousPayload = transactionUpdateSnapshot(tx);
+   setError('');
+   applyTransactionPatch(payload);
+   void trackPendingWrite(queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true })))
+    .then(() => scheduleWorkspaceResync())
+    .catch((e) => {
+     applyTransactionPatch(previousPayload);
+     setError(e instanceof Error ? e.message : t('error_failed_update'));
+     void loadData();
+    });
   },
   [transactions, checkLockForEdit, blockedByPastEditLock, loadData, setError, t],
  );
