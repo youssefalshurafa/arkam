@@ -1462,5 +1462,7 @@
  "ledger_move_up": "Move up",
  "ledger_move_down": "Move down",
  "ledger_move_day_start": "Move to start of day",
- "ledger_move_day_end": "Move to end of day"
+ "ledger_move_day_end": "Move to end of day",
+ "picker_recently_used": "Recently used",
+ "picker_all_clients": "All clients"
 }

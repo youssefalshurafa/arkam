@@ -1436,8 +1436,11 @@ function onPasteCopiedTransaction() {
  setTxToRateReversed(toReversed);
  setTxFromQuery('');
  setTxToQuery('');
- setIsNewTransactionExpensesOpen(true);
- setIsNewTransactionExpensesOpen2(true);
+ // Both expenses sections are sticky store state, so a paste has to set them either way: open
+ // only when the copied row actually carries that expense, collapsed otherwise — a paste of a
+ // plain row must not leave two empty expense sections unfolded. Same rule as the edit fill below.
+ setIsNewTransactionExpensesOpen(Boolean(row.charges) || Boolean(row.chargesPayer));
+ setIsNewTransactionExpensesOpen2(Boolean(row.charges2) || Boolean(row.chargesPayer2));
  // A paste is a template for a NEW entry, so it never carries the copied row's date over —
  // today, the same as any other fresh transaction, and the user re-dates it by hand when they
  // actually mean to backdate. (Matches onPasteIntoOneSidedTransaction, which already left the

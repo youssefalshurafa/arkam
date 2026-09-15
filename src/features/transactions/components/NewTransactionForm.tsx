@@ -19,7 +19,7 @@ import { useSpeechToText } from '@/shared/hooks/useSpeechToText';
 import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
-import { buildAccountOptions, type AccountOption } from '@/features/transactions/utils/accountOptions';
+import { buildAccountOptions, buildRecentClientIds, type AccountOption } from '@/features/transactions/utils/accountOptions';
 import { filterRealClientAccounts } from '@/shared/utils/systemAccounts';
 import { filterActiveClientAccounts } from '@/shared/utils/dormantAccounts';
 import type { ClientAccount, Currency, Section, Transaction } from '@/shared/types';
@@ -182,11 +182,17 @@ export default function NewTransactionForm({
   () => filterActiveClientAccounts(realClientAccounts, [transactionForm.accountFromId, transactionForm.accountToId]),
   [realClientAccounts, transactionForm.accountFromId, transactionForm.accountToId],
  );
+ // The five clients most recently transacted with, pinned above the alphabetical list in both
+ // pickers (they also keep their normal alphabetical place further down — see buildAccountOptions).
+ const recentClientIds = useMemo(() => buildRecentClientIds(transactions, selectableClientAccounts), [transactions, selectableClientAccounts]);
  const txFromOptions = useMemo(
-  () => buildAccountOptions(selectableClientAccounts, txFromQuery, txFromExpandedClient),
-  [selectableClientAccounts, txFromQuery, txFromExpandedClient],
+  () => buildAccountOptions(selectableClientAccounts, txFromQuery, txFromExpandedClient, recentClientIds),
+  [selectableClientAccounts, txFromQuery, txFromExpandedClient, recentClientIds],
  );
- const txToOptions = useMemo(() => buildAccountOptions(selectableClientAccounts, txToQuery, txToExpandedClient), [selectableClientAccounts, txToQuery, txToExpandedClient]);
+ const txToOptions = useMemo(
+  () => buildAccountOptions(selectableClientAccounts, txToQuery, txToExpandedClient, recentClientIds),
+  [selectableClientAccounts, txToQuery, txToExpandedClient, recentClientIds],
+ );
 
  const { suggestions: descriptionSuggestions, excludeSuggestion: excludeDescriptionSuggestion } = useDescriptionSuggestions({
   transactions,
@@ -274,6 +280,17 @@ export default function NewTransactionForm({
   }));
  };
 
+ // Next row the arrow keys should land on, wrapping around the list and stepping over the
+ // section labels ('header'), which are text rather than choices.
+ const stepAccountPickerHighlight = (options: AccountOption[], from: number, step: 1 | -1): number => {
+  if (options.length === 0) return 0;
+  for (let moved = 1; moved <= options.length; moved += 1) {
+   const index = (from + step * moved + options.length * moved) % options.length;
+   if (options[index].kind !== 'header') return index;
+  }
+  return from;
+ };
+
  // Shared arrow/Enter/Escape behaviour for both pickers. Enter on a group header expands or
  // collapses it (keeping the highlight put so the user can arrow into its accounts); Enter on
  // an account selects it.
@@ -291,13 +308,13 @@ export default function NewTransactionForm({
   if (!isOpen) return;
   if (event.key === 'ArrowDown') {
    event.preventDefault();
-   setHighlight((h) => (options.length ? (h + 1) % options.length : 0));
+   setHighlight((h) => stepAccountPickerHighlight(options, h, 1));
   } else if (event.key === 'ArrowUp') {
    event.preventDefault();
-   setHighlight((h) => (options.length ? (h - 1 + options.length) % options.length : 0));
+   setHighlight((h) => stepAccountPickerHighlight(options, h, -1));
   } else if (event.key === 'Enter') {
    const option = options[highlight];
-   if (!option) return;
+   if (!option || option.kind === 'header') return;
    event.preventDefault();
    if (option.kind === 'group') toggleExpanded(option.clientId, option.expanded);
    else selectAccount(option.account.id);
@@ -607,12 +624,27 @@ export default function NewTransactionForm({
           const highlighted = index === txFromHighlight;
           // Keeps the keyboard-highlighted row scrolled into view as ↑/↓ move past the fold.
           const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
+          if (option.kind === 'header') {
+           // Section label — not a choice, so it carries no highlight/click behaviour and the
+           // arrow keys step over it (see stepAccountPickerHighlight).
+           return (
+            <li
+             key={`h${option.key}`}
+             className="border-t border-border bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint first:border-t-0"
+            >
+             {t(option.key === 'recent' ? 'picker_recently_used' : 'picker_all_clients')}
+            </li>
+           );
+          }
+          // A recently-used row is the same client the alphabetical list renders further down, so its
+          // keys need their own namespace to stay distinct from that second copy's.
+          const keyPrefix = option.recent ? 'r' : '';
           if (option.kind === 'single') {
            const account = option.account;
            const selected = transactionForm.accountFromId === account.id;
            return (
             <li
-             key={`s${account.id}`}
+             key={`${keyPrefix}s${account.id}`}
              ref={highlightRef}
              onMouseDown={() => selectFromAccount(account.id)}
              onMouseEnter={() => setTxFromHighlight(index)}
@@ -626,7 +658,7 @@ export default function NewTransactionForm({
            const groupHasSelected = clientAccounts.some((a) => a.clientId === option.clientId && a.id === transactionForm.accountFromId);
            return (
             <li
-             key={`g${option.clientId}`}
+             key={`${keyPrefix}g${option.clientId}`}
              ref={highlightRef}
              onMouseDown={(e) => {
               e.preventDefault();
@@ -659,7 +691,7 @@ export default function NewTransactionForm({
           const selected = transactionForm.accountFromId === account.id;
           return (
            <li
-            key={`c${account.id}`}
+            key={`${keyPrefix}c${account.id}`}
             ref={highlightRef}
             onMouseDown={() => selectFromAccount(account.id)}
             onMouseEnter={() => setTxFromHighlight(index)}
@@ -790,12 +822,25 @@ export default function NewTransactionForm({
           txToOptions.map((option, index) => {
            const highlighted = index === txToHighlight;
            const highlightRef = highlighted ? (el: HTMLLIElement | null) => el?.scrollIntoView({ block: 'nearest' }) : undefined;
+           if (option.kind === 'header') {
+            // Section label — not a choice, so it carries no highlight/click behaviour and the
+            // arrow keys step over it (see stepAccountPickerHighlight).
+            return (
+             <li
+              key={`h${option.key}`}
+              className="border-t border-border bg-surface-2 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint first:border-t-0"
+             >
+              {t(option.key === 'recent' ? 'picker_recently_used' : 'picker_all_clients')}
+             </li>
+            );
+           }
+           const keyPrefix = option.recent ? 'r' : '';
            if (option.kind === 'single') {
             const account = option.account;
             const selected = transactionForm.accountToId === account.id;
             return (
              <li
-              key={`s${account.id}`}
+              key={`${keyPrefix}s${account.id}`}
               ref={highlightRef}
               onMouseDown={() => selectToAccount(account.id)}
               onMouseEnter={() => setTxToHighlight(index)}
@@ -809,7 +854,7 @@ export default function NewTransactionForm({
             const groupHasSelected = clientAccounts.some((a) => a.clientId === option.clientId && a.id === transactionForm.accountToId);
             return (
              <li
-              key={`g${option.clientId}`}
+              key={`${keyPrefix}g${option.clientId}`}
               ref={highlightRef}
               onMouseDown={(e) => {
                e.preventDefault();
@@ -843,7 +888,7 @@ export default function NewTransactionForm({
            const selected = transactionForm.accountToId === account.id;
            return (
             <li
-             key={`c${account.id}`}
+             key={`${keyPrefix}c${account.id}`}
              ref={highlightRef}
              onMouseDown={() => selectToAccount(account.id)}
              onMouseEnter={() => setTxToHighlight(index)}
