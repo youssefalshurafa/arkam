@@ -1,12 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { choiceDialog, confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
+import { trackPendingWrite } from '@/lib/pendingWrites';
+import {
+ mintTempTransactionId,
+ notePendingCreatedAt,
+ pendingCreatedAtFloor,
+ queueTransactionWrite,
+ registerPendingCreate,
+ commitPendingCreate,
+ failPendingCreate,
+} from '@/lib/pendingTransactionWrites';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { NEW_ROW_REF_ID, marksAffectedByReorder, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
@@ -15,11 +25,15 @@ import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSetting
 import { isSameTransactionUpdate, transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
 import { formatRateValue } from '@/shared/utils/format';
-import { formatDateValue, localDateKey } from '@/shared/utils/date';
+import { formatDateValue, localDateKey, parseLocalWallClock } from '@/shared/utils/date';
 import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { ledgerColumnOrderStorageKeyPrefix } from '@/shared/lib/localStorage';
 import { LEDGER_EDIT_FIELD_KEYS } from '@/shared/types';
+import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
+import { useWorkspaceResync } from '@/features/workspace/hooks/useWorkspaceResync';
+import { buildOptimisticTransactionRow } from '@/features/transactions/utils/optimisticRow';
+import { forgetTransactionId, remapTransactionId } from '@/features/transactions/utils/transactionIdRemap';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
@@ -43,11 +57,6 @@ import type {
  TransactionUpdateInput,
  Transaction,
 } from '@/shared/types';
-
-// How long to wait after the last optimistic ledger write before reconciling with the server.
-// Long enough that a run of quick edits collapses into one refetch, short enough that anything
-// the server decided differently surfaces while the user is still looking at the same rows.
-const WORKSPACE_RESYNC_DELAY_MS = 1_500;
 
 // Every row-edit field routes its keydown through the same handler, and the description column's
 // field can be rendered as a textarea (DescriptionSuggestField), so the event is typed over both.
@@ -131,46 +140,12 @@ export function useLedgerActions({
  });
  const { applyTransactionPatch } = useTransactionPatchers({ clientAccountMap, currencyMap });
 
- // Reconciling refetch after optimistic ledger writes, coalesced. `loadData` invalidates the
- // whole workspace snapshot — every organization, client, account and transaction in one
- // round-trip — which is far too heavy to run once per saved row: editing a column with the
- // arrow keys fired one per keystroke. The optimistic patch already shows the right values, so
- // this exists only to pick up anything the server decided differently; running it once after
- // the user stops is enough, and keeps a run of edits from queueing a reload behind each one.
- const resyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
- const scheduleWorkspaceResync = useCallback(() => {
-  if (resyncTimerRef.current) clearTimeout(resyncTimerRef.current);
-  resyncTimerRef.current = setTimeout(() => {
-   resyncTimerRef.current = null;
-   void loadData();
-  }, WORKSPACE_RESYNC_DELAY_MS);
- }, [loadData]);
- // A pending resync is dropped if the ledger unmounts; whatever mounts next fetches on its own.
- useEffect(() => () => {
-  if (resyncTimerRef.current) clearTimeout(resyncTimerRef.current);
- }, []);
-
- // Saves no longer hold the UI open until the server answers, which means a row can be closed
- // and looking saved while its write is still on the wire. That window is short, but this is
- // accounting data: closing the tab inside it would drop the edit with nothing on screen to
- // suggest it hadn't landed. Track the writes still in flight and let the browser ask before
- // unloading — the listener only exists while something is genuinely pending.
- const pendingWritesRef = useRef(0);
- // One stable listener identity for the whole hook's life — a fresh closure per call would be
- // added under one identity and removed under another, leaving the warning armed forever.
- const warnOnUnloadRef = useRef((event: BeforeUnloadEvent) => event.preventDefault());
- const trackPendingWrite = useCallback(<T,>(request: Promise<T>): Promise<T> => {
-  if (pendingWritesRef.current === 0) window.addEventListener('beforeunload', warnOnUnloadRef.current);
-  pendingWritesRef.current += 1;
-  return request.finally(() => {
-   pendingWritesRef.current -= 1;
-   if (pendingWritesRef.current === 0) window.removeEventListener('beforeunload', warnOnUnloadRef.current);
-  });
- }, []);
- useEffect(() => {
-  const warn = warnOnUnloadRef.current;
-  return () => window.removeEventListener('beforeunload', warn);
- }, []);
+ // Both shared app-wide (see useWorkspaceResync / pendingWrites): the ledger, the transactions
+ // form and the table editor all write in the background, and a timer or unload guard per hook
+ // would mean one refetch each and a guard blind to the others' writes.
+ const { scheduleWorkspaceResync } = useWorkspaceResync();
+ // Offers a failed background save's entry back rather than losing what was typed with it.
+ const showUndo = useAppStatusStore((s) => s.showUndo);
 
  const draggedLedgerColumn = useLedgerStore((s) => s.draggedLedgerColumn);
  const setDraggedLedgerColumn = useLedgerStore((s) => s.setDraggedLedgerColumn);
@@ -368,7 +343,9 @@ async function onSubmitOneSidedTransaction() {
  const effectiveRate = !needsRate ? 1 : rateSet ? (oneSidedTransactionModal.exchangeRateReversed ? 1 / parsedRate : parsedRate) : 0;
  const effectiveRateReversed = needsRate && rateSet ? oneSidedTransactionModal.exchangeRateReversed : false;
 
- const createdAt = nextCreatedAtForDate(oneSidedTransactionModal.date, transactions);
+ // Floor included so two entries saved back to back don't share a timestamp — the render's
+ // `transactions` may not hold the first one yet (see pendingCreatedAtFloor).
+ const createdAt = nextCreatedAtForDate(oneSidedTransactionModal.date, transactions, pendingCreatedAtFloor(oneSidedTransactionModal.date));
  if (blockedByPastEditLock([createdAt])) {
   return;
  }
@@ -418,14 +395,41 @@ async function onSubmitOneSidedTransaction() {
   createdAt,
  };
 
- try {
-  await accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: lock.overrode });
-  setOneSidedTransactionModal(null);
-  setError('');
-  await loadData();
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_save'));
- }
+ // Nothing waits for the server: the row is listed with a temporary id, the modal closes, and
+ // the create goes out behind it (see pendingTransactionWrites). This path used to await both
+ // the write AND a full workspace reload before the modal would even close.
+ const modalSnapshot = oneSidedTransactionModal;
+ const tempId = mintTempTransactionId();
+ const optimisticRow = buildOptimisticTransactionRow(txPayload, tempId, clientAccountMap, currencyMap);
+ notePendingCreatedAt(oneSidedTransactionModal.date, parseLocalWallClock(createdAt));
+ setTransactions((prev) => [...prev, optimisticRow]);
+ setOneSidedTransactionModal(null);
+ setError('');
+
+ const createRequest = trackPendingWrite(accountingApi.createTransaction({ ...txPayload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true }));
+ registerPendingCreate(
+  tempId,
+  optimisticRow,
+  createRequest.then((created) => created.id),
+ );
+ void createRequest
+  .then((created) => {
+   commitPendingCreate(tempId, created.id);
+   setTransactions((prev) => prev.map((tx) => (tx.id === tempId ? { ...tx, id: created.id } : tx)));
+   // The row is in a ledger the user is looking at, so it can already be selected, highlighted
+   // or open for edit under the temporary id — all of that has to come with it.
+   remapTransactionId(tempId, created.id);
+   scheduleWorkspaceResync();
+  })
+  .catch((e) => {
+   // Never saved, so the row goes; the modal is offered back with everything still in it.
+   failPendingCreate(tempId);
+   setTransactions((prev) => prev.filter((tx) => tx.id !== tempId));
+   forgetTransactionId(tempId);
+   setError(e instanceof Error ? e.message : t('error_failed_save'));
+   showUndo(t('toast_transaction_save_failed'), () => setOneSidedTransactionModal(modalSnapshot));
+   void loadData();
+  });
 }
 
 function onLedgerColumnDrop(targetColumn: LedgerColumnKey) {
@@ -754,7 +758,15 @@ async function onSaveLedgerTransaction(
  setError('');
  applyTransactionPatch(payload);
  const undoEntry = pushUndo();
- void trackPendingWrite(accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock }))
+ void trackPendingWrite(
+  // Queued per row: a background write sends the WHOLE row, so two quick edits to the same one
+  // landing out of order would leave the server holding the older of them — and the resync below
+  // would then paint those stale values back over the newer edit, silently. Different rows still
+  // go in parallel.
+  queueTransactionWrite(transactionId, () =>
+   accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock }, { silent: true }),
+  ),
+ )
   // Resync rather than refetch-per-save: several quick edits (or a run of arrow-key steps)
   // collapse into one refetch once the user pauses, instead of a full workspace reload each.
   .then(() => scheduleWorkspaceResync())
@@ -1390,6 +1402,22 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
    return nc ? { ...tx, createdAt: nc } : tx;
   }),
  );
+ // ...and the ✓ marks the move re-points, in the same render. Timestamps alone are not enough:
+ // the ledger sorts by reconciled depth BEFORE createdAt (see computeClientLedgers), so a row
+ // dragged across a ✓ line is held on its old side of it by a membership set that still predates
+ // the move. It then sat visibly in the wrong place for the whole round-trip and jumped a second
+ // time when the refetch landed — the drop has to show its final position at once, or not move at
+ // all. These are exactly the values written to the server below, so the optimistic state and
+ // what is being saved cannot disagree; a failed write reloads the truth in the catch.
+ if (changedMarks.length > 0) {
+  const marksById = new Map(changedMarks.map((mark) => [mark.id, mark]));
+  setReconciliations((prev) =>
+   prev.map((rec) => {
+    const mark = marksById.get(rec.id);
+    return mark ? { ...rec, balance: mark.to, lockedTransactionIds: mark.lockedTransactionIds } : rec;
+   }),
+  );
+ }
 
  try {
   for (const [key, newCreatedAt] of newTimes) {

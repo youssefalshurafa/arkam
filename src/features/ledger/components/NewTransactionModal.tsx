@@ -54,7 +54,6 @@ export default function NewTransactionModal({
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const accountId = useLedgerStore((s) => s.newTransactionModalAccountId);
- const isSubmittingTransaction = useTransactionsStore((s) => s.isSubmittingTransaction);
  // Mirrors the Transactions page's header save icon: submits the form from up here so a long
  // form doesn't have to be scrolled to the bottom to be saved. requestSubmit() leaves the
  // native submitter null, which NewTransactionForm reads as "save and close" — the same thing
@@ -103,10 +102,9 @@ export default function NewTransactionModal({
       <button
        type="button"
        onClick={() => formRef.current?.requestSubmit()}
-       disabled={isSubmittingTransaction}
        title={t('save_transaction')}
        aria-label={t('save_transaction')}
-       className="inline-flex shrink-0 items-center justify-center rounded border border-border-strong bg-surface-2 p-1.5 text-fg-muted transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+       className="inline-flex shrink-0 items-center justify-center rounded border border-border-strong bg-surface-2 p-1.5 text-fg-muted transition hover:bg-surface-hover"
       >
        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
