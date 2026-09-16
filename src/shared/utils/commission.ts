@@ -87,3 +87,12 @@ export function chargeLedgerEffect(chargesPayer: string, side: 'from' | 'to'): -
 export function chargeShowsInLedger(chargesPayer: string) {
  return !ORG_SETTLED_CHARGE_PAYERS.has(chargesPayer);
 }
+
+// The magnitude of a charge, for every consumer that computes or displays one. Direction lives
+// in chargesPayer (see chargeLedgerEffect), so a negative stored value is the same charge and
+// must not be dropped — the old `charges > 0` gates silently hid such a row from the ledger,
+// the balance and the PDF while the edit form still showed it. New input can no longer carry a
+// sign (see normalizeUnsignedDecimalInput); this rescues rows already saved with one.
+export function chargeAmount(value: number | null | undefined): number {
+ return Math.abs(Number(value) || 0);
+}

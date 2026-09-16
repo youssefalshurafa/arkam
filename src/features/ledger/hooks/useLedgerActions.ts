@@ -35,6 +35,7 @@ import { useWorkspaceResync } from '@/features/workspace/hooks/useWorkspaceResyn
 import { buildOptimisticTransactionRow } from '@/features/transactions/utils/optimisticRow';
 import { forgetTransactionId, remapTransactionId } from '@/features/transactions/utils/transactionIdRemap';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
+import { chargeAmount } from '@/shared/utils/commission';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { emptyTransactionForm } from '@/features/transactions/forms';
@@ -375,12 +376,12 @@ async function onSubmitOneSidedTransaction() {
   exchangeRateFromReversed: isClientFrom && effectiveRateReversed,
   exchangeRateToReversed: !isClientFrom && effectiveRateReversed,
   // A charge always uses the transaction's own currency — no separate currency/rate to ask for.
-  charges: parseFloat(oneSidedTransactionModal.charges) || 0,
+  charges: chargeAmount(parseFloat(oneSidedTransactionModal.charges)),
   chargesCurrencyId: oneSidedTransactionModal.currencyId,
   chargesPayer: oneSidedTransactionModal.chargesPayer,
   chargesExchangeRate: 1,
   chargesDescription: oneSidedTransactionModal.chargesDescription,
-  charges2: parseFloat(oneSidedTransactionModal.charges2) || 0,
+  charges2: chargeAmount(parseFloat(oneSidedTransactionModal.charges2)),
   charges2CurrencyId: oneSidedTransactionModal.currencyId,
   chargesPayer2: oneSidedTransactionModal.chargesPayer2,
   charges2ExchangeRate: 1,
@@ -646,12 +647,12 @@ function buildLedgerTransactionUpdate(transactionId: number, ledgerAccountId: nu
   // spurious "you may affect the reconciled balance" warning when editing only the commission.
   exchangeActualAmount: transaction.exchangeActualAmount,
   // A charge always uses the transaction's own currency — no separate currency/rate to ask for.
-  charges: parseFloat(draft.charges) || 0,
+  charges: chargeAmount(parseFloat(draft.charges)),
   chargesCurrencyId: draft.currencyId,
   chargesPayer: draft.chargesPayer,
   chargesExchangeRate: 1,
   chargesDescription: draft.chargesDescription,
-  charges2: parseFloat(draft.charges2) || 0,
+  charges2: chargeAmount(parseFloat(draft.charges2)),
   charges2CurrencyId: draft.currencyId,
   chargesPayer2: draft.chargesPayer2,
   charges2ExchangeRate: 1,

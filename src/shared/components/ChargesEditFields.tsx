@@ -2,7 +2,7 @@
 
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
 import { compactFieldInputClassName, compactFieldLabelClassName } from '@/shared/styles';
-import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
+import { formatAmountInput, normalizeUnsignedDecimalInput } from '@/shared/utils/decimal';
 
 type ChargesEditFieldsProps = {
  t: (key: string, params?: Record<string, string | number>) => string;
@@ -45,7 +45,7 @@ export default function ChargesEditFields({
      inputMode="decimal"
      dir="ltr"
      value={formatAmountInput(charges)}
-     onChange={(event) => onChargesChange(normalizeDecimalInput(event.target.value))}
+     onChange={(event) => onChargesChange(normalizeUnsignedDecimalInput(event.target.value))}
      className={`${compactFieldInputClassName} w-20`}
      placeholder="0"
     />

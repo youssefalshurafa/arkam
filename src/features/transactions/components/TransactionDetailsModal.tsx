@@ -8,7 +8,7 @@ import { formatDateValue } from '@/shared/utils/date';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatRateValue } from '@/shared/utils/format';
 import { seamlessSelectClassName } from '@/shared/styles';
-import { getCommissionAmount, exchangeToBase } from '@/shared/utils/commission';
+import { chargeAmount, getCommissionAmount, exchangeToBase } from '@/shared/utils/commission';
 import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import { computeTransactionSideNetChange } from '@/features/ledger/utils/ledgerBalances';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
@@ -493,14 +493,14 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
      })}
     </div>
 
-    {tx.charges > 0 ? (
+    {chargeAmount(tx.charges) > 0 ? (
      <div className="mt-3 divide-y divide-border rounded border border-border bg-surface-2 px-3">
       {row(
        t('charges'),
        <>
         <EditableField
-         editValue={String(tx.charges)}
-         display={fmt(tx.charges)}
+         editValue={String(chargeAmount(tx.charges))}
+         display={fmt(chargeAmount(tx.charges))}
          decimal
          onCommit={(raw) => {
           const parsed = parseFloat(raw);
@@ -538,14 +538,14 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
      </div>
     ) : null}
 
-    {tx.charges2 > 0 ? (
+    {chargeAmount(tx.charges2) > 0 ? (
      <div className="mt-3 divide-y divide-border rounded border border-border bg-surface-2 px-3">
       {row(
        t('charges'),
        <>
         <EditableField
-         editValue={String(tx.charges2)}
-         display={fmt(tx.charges2)}
+         editValue={String(chargeAmount(tx.charges2))}
+         display={fmt(chargeAmount(tx.charges2))}
          decimal
          onCommit={(raw) => {
           const parsed = parseFloat(raw);

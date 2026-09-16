@@ -35,3 +35,13 @@ export function formatAmountInput(value: string) {
  const groupedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
  return `${negative ? '-' : ''}${groupedInt}${hasDot ? `.${decPart}` : ''}`;
 }
+
+// For the expenses/charges amount fields. A charge is a magnitude — which way it moves is
+// carried entirely by its payer→payee pair (chargesPayer), not by a sign — and every consumer
+// of `charges` (ledger sub-row, running balance, PDF export) reads it as one. Typing a leading
+// "-" there, as one would in the commission field where the sign IS the direction, used to
+// store a negative charge that then vanished from the ledger and the PDF while still showing
+// in the row's edit form. The minus is dropped here so that value can never be entered.
+export function normalizeUnsignedDecimalInput(value: string) {
+ return normalizeDecimalInput(value).replace(/-/g, '');
+}
