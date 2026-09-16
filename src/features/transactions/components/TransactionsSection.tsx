@@ -13,6 +13,7 @@ import { SkTablePanel, SK_TX } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
 import { saveArchiveFilter, saveTableZoom, saveTxFilter } from '@/shared/lib/localStorage';
 import { cellCopyText, copyExcludeProps } from '@/shared/utils/cellCopy';
+import { chargeAmount } from '@/shared/utils/commission';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, highlightPenCursor, ledgerSelectWidth, ltrIsolate } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
@@ -2115,7 +2116,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                       const draftAmount = (isSlot2 ? draft?.charges2 : draft?.charges) ?? '0';
                       const draftPayer = (isSlot2 ? draft?.chargesPayer2 : draft?.chargesPayer) ?? '';
                       const draftDescription = (isSlot2 ? draft?.charges2Description : draft?.chargesDescription) ?? '';
-                      const txnAmount = isSlot2 ? txn.charges2 : txn.charges;
+                      const txnAmount = chargeAmount(isSlot2 ? txn.charges2 : txn.charges);
                       const txnPayer = isSlot2 ? txn.chargesPayer2 : txn.chargesPayer;
                       const txnCurrencyCode = isSlot2 ? txn.charges2CurrencyCode : txn.chargesCurrencyCode;
                       const txnExchangeRate = isSlot2 ? txn.charges2ExchangeRate : txn.chargesExchangeRate;

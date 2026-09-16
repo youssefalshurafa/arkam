@@ -1,4 +1,5 @@
 import { formatDateValue } from '@/shared/utils/date';
+import { chargeAmount } from '@/shared/utils/commission';
 import { formatRateValue } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { ledgerEntryKey } from '@/features/ledger/utils/ledgerEntries';
@@ -62,14 +63,16 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
     isNum: true,
     cell: (tx) => {
      const chargeCells: string[] = [];
-     if (tx.charges) {
-      const parts = [`${tx.charges.toLocaleString(numLocale)}${tx.chargesCurrencyCode ? ` ${tx.chargesCurrencyCode}` : ''}`];
+     const charge1 = chargeAmount(tx.charges);
+     if (charge1) {
+      const parts = [`${charge1.toLocaleString(numLocale)}${tx.chargesCurrencyCode ? ` ${tx.chargesCurrencyCode}` : ''}`];
       if (tx.chargesPayer) parts.push(tx.chargesPayer === 'from' ? tx.clientFromName : tx.chargesPayer === 'to' ? tx.clientToName : '');
       if (tx.chargesDescription) parts.push(tx.chargesDescription);
       chargeCells.push(parts.filter(Boolean).join(' — '));
      }
-     if (tx.charges2) {
-      const parts = [`${tx.charges2.toLocaleString(numLocale)}${tx.charges2CurrencyCode ? ` ${tx.charges2CurrencyCode}` : ''}`];
+     const charge2 = chargeAmount(tx.charges2);
+     if (charge2) {
+      const parts = [`${charge2.toLocaleString(numLocale)}${tx.charges2CurrencyCode ? ` ${tx.charges2CurrencyCode}` : ''}`];
       if (tx.chargesPayer2) parts.push(tx.chargesPayer2 === 'from' ? tx.clientFromName : tx.chargesPayer2 === 'to' ? tx.clientToName : '');
       if (tx.charges2Description) parts.push(tx.charges2Description);
       chargeCells.push(parts.filter(Boolean).join(' — '));

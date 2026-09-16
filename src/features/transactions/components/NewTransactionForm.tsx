@@ -6,7 +6,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getStoredExchangeSettings } from '@/shared/lib/localStorage';
-import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
+import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput, normalizeUnsignedDecimalInput } from '@/shared/utils/decimal';
 import { parseChargesPayer, combineChargesPayer, type ChargesPayerParty } from '@/shared/utils/commission';
 import { ltrIsolate } from '@/shared/utils/format';
 import { localDateKey } from '@/shared/utils/date';
@@ -1145,7 +1145,7 @@ export default function NewTransactionForm({
          inputMode="decimal"
          dir="ltr"
          value={formatAmountInput(transactionForm.charges)}
-         onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeDecimalInput(event.target.value) }))}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, charges: normalizeUnsignedDecimalInput(event.target.value) }))}
          className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
          placeholder="0"
         />
@@ -1204,7 +1204,7 @@ export default function NewTransactionForm({
          inputMode="decimal"
          dir="ltr"
          value={formatAmountInput(transactionForm.charges2)}
-         onChange={(event) => setTransactionForm((current) => ({ ...current, charges2: normalizeDecimalInput(event.target.value) }))}
+         onChange={(event) => setTransactionForm((current) => ({ ...current, charges2: normalizeUnsignedDecimalInput(event.target.value) }))}
          className="rounded border border-border-strong bg-surface px-3 py-2 outline-none ring-blue-300 focus:ring"
          placeholder="0"
         />

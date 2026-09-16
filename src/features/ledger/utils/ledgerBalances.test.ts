@@ -297,3 +297,41 @@ describe('computeClientLedgers — two independent charge slots', () => {
   expect(toEntry.runningBalance).toBe(0); // -100 received, +100 for the charge it's credited
  });
 });
+
+describe('computeClientLedgers — a charge stored with a negative sign', () => {
+ const account = makeAccount();
+ const counterAccount = makeCounterAccount();
+ const clientAccounts = [account, counterAccount];
+ const clientAccountMap = new Map(clientAccounts.map((a) => [a.id, a]));
+ const currencyMap = new Map([[1, { id: 1, code: 'USD', name: 'US Dollar', symbol: '$', isEnabled: 1, isMain: 1, createdAt: '2026-01-01T00:00:00.000Z' }]]);
+
+ // Reported bug: an expense typed as "-2,440" (the minus meaning "deduct", as it does in the
+ // commission field) was stored negative, and every consumer gated on `charges > 0` — so the
+ // charge vanished from the ledger sub-row, the running balance and the PDF while the row's
+ // edit form still showed it. A charge is a magnitude; its direction is chargesPayer's job.
+ it('treats it as the same charge as its positive twin', () => {
+  const negative = makeTransaction({ id: 1, amount: 100, charges: -80, chargesPayer: 'from_to_me' });
+  const positive = makeTransaction({ id: 1, amount: 100, charges: 80, chargesPayer: 'from_to_me' });
+
+  const ledgerFor = (tx: ReturnType<typeof makeTransaction>) =>
+   computeClientLedgers({
+    selectedClientForLedger: { id: counterAccount.clientId },
+    section: 'client-ledger',
+    pdfExportModal: null,
+    clientAccounts,
+    transactions: [tx],
+    reconciliations: [],
+    clientAccountMap,
+    currencyMap,
+    enabled: true,
+   })[0].entries[0];
+
+  const negativeEntry = ledgerFor(negative);
+  const positiveEntry = ledgerFor(positive);
+
+  // The sub-row's visibility gate (charges > 0 && chargeAffectsThisAccount) and the PDF's.
+  expect(negativeEntry.charges).toBe(80);
+  expect(negativeEntry.chargeAffectsThisAccount).toBe(true);
+  expect(negativeEntry.runningBalance).toBe(positiveEntry.runningBalance);
+ });
+});

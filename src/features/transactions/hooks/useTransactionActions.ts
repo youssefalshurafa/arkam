@@ -22,6 +22,7 @@ import { buildOptimisticTransactionRow } from '@/features/transactions/utils/opt
 import { forgetTransactionId, remapTransactionId } from '@/features/transactions/utils/transactionIdRemap';
 import { isArchiveEligible } from '@/features/transactions/utils/transactionRows';
 import { normalizeDecimalInput, formatAmountInput } from '@/shared/utils/decimal';
+import { chargeAmount } from '@/shared/utils/commission';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, localWallClock, parseLocalWallClock } from '@/shared/utils/date';
 import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt';
@@ -479,12 +480,12 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
   exchangeRateFromReversed: txFromRateReversed && (parseFloat(transactionForm.exchangeRateFrom) || 0) > 0 ? 1 : 0,
   exchangeRateToReversed: txToRateReversed && (parseFloat(transactionForm.exchangeRateTo) || 0) > 0 ? 1 : 0,
   // A charge always uses the transaction's own currency — no separate currency/rate to ask for.
-  charges: parseFloat(transactionForm.charges) || 0,
+  charges: chargeAmount(parseFloat(transactionForm.charges)),
   chargesCurrencyId: transactionForm.currencyId,
   chargesPayer: transactionForm.chargesPayer,
   chargesExchangeRate: 1,
   chargesDescription: transactionForm.chargesDescription,
-  charges2: parseFloat(transactionForm.charges2) || 0,
+  charges2: chargeAmount(parseFloat(transactionForm.charges2)),
   charges2CurrencyId: transactionForm.currencyId,
   chargesPayer2: transactionForm.chargesPayer2,
   charges2ExchangeRate: 1,
@@ -1950,12 +1951,12 @@ function buildTableTransactionUpdate(transactionId: number, draft: TransactionTa
   exchangeRateFromReversed: tableRateFromReversed[transactionId] && fromRateVal > 0 ? 1 : 0,
   exchangeRateToReversed: tableRateToReversed[transactionId] && toRateVal > 0 ? 1 : 0,
   // A charge always uses the transaction's own currency — no separate currency/rate to ask for.
-  charges: parseFloat(draft.charges) || 0,
+  charges: chargeAmount(parseFloat(draft.charges)),
   chargesCurrencyId: draft.currencyId,
   chargesPayer: draft.chargesPayer,
   chargesExchangeRate: 1,
   chargesDescription: draft.chargesDescription,
-  charges2: parseFloat(draft.charges2) || 0,
+  charges2: chargeAmount(parseFloat(draft.charges2)),
   charges2CurrencyId: draft.currencyId,
   chargesPayer2: draft.chargesPayer2,
   charges2ExchangeRate: 1,

@@ -1,4 +1,4 @@
-import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from './commission';
+import { getCommissionAmount, chargeAmount, chargeLedgerEffect, exchangeToBase } from './commission';
 import type { ClientAccount, Transaction } from '@/shared/types';
 
 // A cross-currency side with no exchange rate entered yet — excluded from the balance
@@ -37,8 +37,10 @@ export function computeAccountBalances({ clientAccounts, transactions }: {
     // The charge is always entered in the transaction's own currency, so it converts into this
     // side's account currency via the same rate that converts `amount` (see ledgerBalances.ts's
     // computeTransactionSideNetChange for the canonical version of this formula).
-    const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (transaction.charges * transaction.exchangeRateFrom) : 0;
-    const chargeEffect2 = transaction.charges2 > 0 ? chargeLedgerEffect(transaction.chargesPayer2, 'from') * (transaction.charges2 * transaction.exchangeRateFrom) : 0;
+    const charge = chargeAmount(transaction.charges);
+    const chargeEffect = charge > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'from') * (charge * transaction.exchangeRateFrom) : 0;
+    const charge2 = chargeAmount(transaction.charges2);
+    const chargeEffect2 = charge2 > 0 ? chargeLedgerEffect(transaction.chargesPayer2, 'from') * (charge2 * transaction.exchangeRateFrom) : 0;
     const netChange = pending
      ? 0
      : transaction.amount * transaction.exchangeRateFrom + getCommissionAmount(transaction.amount * transaction.exchangeRateFrom, transaction.commissionFrom) + chargeEffect + chargeEffect2;
@@ -49,8 +51,10 @@ export function computeAccountBalances({ clientAccounts, transactions }: {
    const account = clientAccountMap.get(transaction.accountToId);
    if (account) {
     const pending = isPendingTransactionTo(transaction, account.currencyId);
-    const chargeEffect = transaction.charges > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (transaction.charges * transaction.exchangeRateTo) : 0;
-    const chargeEffect2 = transaction.charges2 > 0 ? chargeLedgerEffect(transaction.chargesPayer2, 'to') * (transaction.charges2 * transaction.exchangeRateTo) : 0;
+    const charge = chargeAmount(transaction.charges);
+    const chargeEffect = charge > 0 ? chargeLedgerEffect(transaction.chargesPayer, 'to') * (charge * transaction.exchangeRateTo) : 0;
+    const charge2 = chargeAmount(transaction.charges2);
+    const chargeEffect2 = charge2 > 0 ? chargeLedgerEffect(transaction.chargesPayer2, 'to') * (charge2 * transaction.exchangeRateTo) : 0;
     const toBase = exchangeToBase(transaction);
     const netChange = pending
      ? 0

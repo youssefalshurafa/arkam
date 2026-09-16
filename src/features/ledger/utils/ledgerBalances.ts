@@ -1,4 +1,4 @@
-import { getCommissionAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
+import { getCommissionAmount, chargeAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
 import { buildAccountLockBoundaries, buildLockBoundaries, isReconciledMember, reconciledDepth } from '@/features/ledger/utils/reconciliation';
 import type {
  ClientAccount,
@@ -48,9 +48,11 @@ export function computeTransactionSideNetChange(tx: NetChangeSideInput, accountC
  // The charge is always entered in the transaction's own currency (tx.currencyId), so it's
  // converted into this side's account currency by the exact same rate that converts `amount`
  // — i.e. the charge behaves as if it were added to `amount` before that multiplication.
- const chargeEffect = tx.charges > 0 ? chargeLedgerEffect(tx.chargesPayer, side) * (tx.charges * rate) : 0;
+ const charge = chargeAmount(tx.charges);
+ const chargeEffect = charge > 0 ? chargeLedgerEffect(tx.chargesPayer, side) * (charge * rate) : 0;
  // The second, independent charge slot follows the exact same convention.
- const chargeEffect2 = tx.charges2 > 0 ? chargeLedgerEffect(tx.chargesPayer2, side) * (tx.charges2 * rate) : 0;
+ const charge2 = chargeAmount(tx.charges2);
+ const chargeEffect2 = charge2 > 0 ? chargeLedgerEffect(tx.chargesPayer2, side) * (charge2 * rate) : 0;
  if (side === 'from') {
   return tx.amount * rate + getCommissionAmount(tx.amount * rate, commission) + chargeEffect + chargeEffect2;
  }
@@ -138,14 +140,14 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          netChange: pendingRate ? 0 : computeTransactionSideNetChange(transaction, account.currencyId, 'from'),
          runningBalance: 0,
          description: transaction.descriptionFrom?.trim() || transaction.description,
-         charges: transaction.charges,
+         charges: chargeAmount(transaction.charges),
          chargesCurrencyCode: transaction.chargesCurrencyCode,
          chargesPayer: transaction.chargesPayer,
          chargesExchangeRate: transaction.chargesExchangeRate,
          chargesDescription: transaction.chargesDescription,
          isChargesPayerThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'from') < 0,
          chargeAffectsThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'from') !== 0,
-         charges2: transaction.charges2,
+         charges2: chargeAmount(transaction.charges2),
          charges2CurrencyCode: transaction.charges2CurrencyCode,
          chargesPayer2: transaction.chargesPayer2,
          charges2ExchangeRate: transaction.charges2ExchangeRate,
@@ -188,14 +190,14 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          netChange: pendingRate ? 0 : computeTransactionSideNetChange(transaction, account.currencyId, 'to'),
          runningBalance: 0,
          description: transaction.descriptionTo?.trim() || transaction.description,
-         charges: transaction.charges,
+         charges: chargeAmount(transaction.charges),
          chargesCurrencyCode: transaction.chargesCurrencyCode,
          chargesPayer: transaction.chargesPayer,
          chargesExchangeRate: transaction.chargesExchangeRate,
          chargesDescription: transaction.chargesDescription,
          isChargesPayerThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'to') < 0,
          chargeAffectsThisAccount: chargeLedgerEffect(transaction.chargesPayer, 'to') !== 0,
-         charges2: transaction.charges2,
+         charges2: chargeAmount(transaction.charges2),
          charges2CurrencyCode: transaction.charges2CurrencyCode,
          chargesPayer2: transaction.chargesPayer2,
          charges2ExchangeRate: transaction.charges2ExchangeRate,
