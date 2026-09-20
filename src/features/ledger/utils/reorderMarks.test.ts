@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { marksAffectedByReorder } from './reconciliation';
+import { marksAffectedByReorder, violatedLock, type LockBoundary } from './reconciliation';
 
 // A ledger's rows top-to-bottom, with running balances as the engine would render them.
 function row(transactionId: number, netChange: number, runningBalance: number, markId?: number) {
@@ -55,5 +55,32 @@ describe('marksAffectedByReorder', () => {
   // B (-500) moves above ✓ #1, so that mark now stands over two rows instead of one.
   const changes = marksAffectedByReorder([A, B], reorder([B, A]));
   expect(changes).toEqual([{ id: 1, from: -100, to: -600, lockedTransactionIds: [2, 1] }]);
+ });
+});
+
+// The gap that made "drag a row onto another date" snap back. marksAffectedByReorder (and the
+// balance guard built on it) answers "does this move the agreed number?", while the server's
+// backstop asks the much coarser "does this row sit in reconciled history at all?". A drag that
+// re-dates a row WITHIN the reconciled set answers no to the first and yes to the second, so the
+// client sent no override and db.js refused the write. onLedgerRowDrop now checks both rules.
+describe('a cross-date move inside reconciled history', () => {
+ // ✓ anchored on the 10th, standing over rows 1-3.
+ const boundaries = new Map<number, LockBoundary>([
+  [7, { id: 1, accountId: 7, anchorDate: '2026-09-10', lockedTransactionIds: new Set([1, 2, 3]), balance: -900 } as LockBoundary],
+ ]);
+
+ it('moves no reconciled balance', () => {
+  // Row 2 moves from the 3rd to the 4th; both days are inside the ✓'s set, so the set — and
+  // therefore the agreed balance — is identical before and after.
+  expect(marksAffectedByReorder([A, B, C, D, E], reorder([A, C, B, D, E]))).toEqual([]);
+ });
+
+ it('still sits at or before the ✓ line on BOTH sides of the move', () => {
+  expect(violatedLock([7], '2026-09-03T10:00:00.000Z', 2, boundaries)).not.toBeNull();
+  expect(violatedLock([7], '2026-09-04T10:00:00.000Z', 2, boundaries)).not.toBeNull();
+ });
+
+ it('is untouched by the ✓ once the row is past the anchor date', () => {
+  expect(violatedLock([7], '2026-09-11T10:00:00.000Z', 2, boundaries)).toBeNull();
  });
 });
