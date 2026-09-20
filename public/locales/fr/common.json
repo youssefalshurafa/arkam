@@ -1462,7 +1462,5 @@
  "ledger_move_down": "Descendre",
  "ledger_move_day_start": "Déplacer au début de la journée",
  "ledger_move_day_end": "Déplacer à la fin de la journée",
- "picker_recently_used": "Utilisés récemment",
- "picker_all_clients": "Tous les clients",
  "toast_transaction_save_failed": "Échec de l'enregistrement — restaurer votre saisie ?"
 }

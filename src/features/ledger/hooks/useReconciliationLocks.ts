@@ -266,6 +266,7 @@ export function useReconciliationLocks({ reconciliations, clientAccountMap, lock
   checkLockForBatchEdit,
   checkLockForBatchDelete,
   transactionEditImpact,
+  editTouchesLockedPosition,
   blockedByPastEditLock,
  };
 }

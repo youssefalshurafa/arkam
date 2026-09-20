@@ -133,6 +133,7 @@ export function useLedgerActions({
   checkLockForBatchEdit,
   checkLockForBatchDelete,
   transactionEditImpact,
+  editTouchesLockedPosition,
   blockedByPastEditLock,
  } = useReconciliationLocks({
   reconciliations,
@@ -1233,11 +1234,20 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  // not a display detail, so the user is shown which date it is leaving and which it is joining
  // and has to say yes. Same-day reorders are untouched by this and stay silent.
  const crossDateKeys = [...dragSet].filter((key) => dateOf(key) !== targetDate);
+ const movedFromDates = [...new Set(crossDateKeys.map(dateOf))];
+
+ // EVERY reorder rewrites createdAt, so all of them answer to the workspace's past-edit lock
+ // exactly as the row's own date field would — the day the rows land on, plus any day a row
+ // leaves. This used to run only in the cross-date branch below, so a plain same-day drag on a
+ // past-dated row was applied optimistically here and then refused by the server
+ // (assertPastEditAllowed rejects the write whether or not the calendar day changed), leaving the
+ // row to jump back to where it started with nothing said. The drag was the last path missing
+ // this: the handle's Move menu and Alt+↑/↓ have always greyed those rows out.
+ if (blockedByPastEditLock([...movedFromDates, targetDate])) return;
+
+ // A cross-date drop is never silent: the user is shown which date the row is leaving and which
+ // it is joining and has to say yes. Same-day reorders stay silent.
  if (crossDateKeys.length > 0) {
-  const movedFromDates = [...new Set(crossDateKeys.map(dateOf))];
-  // A move across days IS a date edit, so it answers to the workspace's past-edit lock exactly
-  // as the row's own date field would — both the day it leaves and the day it lands on.
-  if (blockedByPastEditLock([...movedFromDates, targetDate])) return;
   const toLabel = formatDateValue(targetDate, 'full');
   const confirmed = await confirmDialog({
    title: t('ledger_drag_date_change_title'),
@@ -1380,14 +1390,28 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  // a row dropped in from ANOTHER day (confirmed above) that can actually land here. Every
  // reflowed row is checked, not just the explicitly dragged ones, in one dialog for the batch.
  let dragLockHit: { accountId: number; boundary: LockBoundary } | null = null;
+ // ...and, separately, whether any re-timed row merely SITS in locked history. db.js's
+ // assertReconciliationNotViolated is a coarser, POSITION-only rule than the balance math above:
+ // it refuses any write whose row is at or before a ✓ line "regardless of whether that specific
+ // write actually moves the reconciled number". A same-day reflow is exempted server-side
+ // (isSameDayRetime), but a row dropped onto ANOTHER day is not — and moving a row between two
+ // days that both sit inside the same reconciled set changes no balance at all, so the precise
+ // guard correctly stayed silent, no override was sent, and the server refused the write. The
+ // drag then snapped back to its original position, which is exactly the "move to another date
+ // doesn't always work" report. Every other edit path already pairs the two rules this way; see
+ // checkLockForEdit, which this mirrors.
+ let touchesLockedPosition = false;
  for (const [key, newCreatedAt] of newTimes) {
   const entry = entryMap.get(key);
   if (!entry) continue;
   if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
   const tx = transactions.find((t) => t.id === entry.transactionId);
   if (!tx) continue;
-  dragLockHit = transactionEditImpact(tx, { ...tx, createdAt: newCreatedAt });
-  if (dragLockHit) break;
+  const retimed = { ...tx, createdAt: newCreatedAt };
+  if (!touchesLockedPosition && editTouchesLockedPosition(tx, retimed)) touchesLockedPosition = true;
+  // First hit wins for the dialog, as before — one warning stands for the whole batch.
+  if (!dragLockHit) dragLockHit = transactionEditImpact(tx, retimed);
+  if (dragLockHit && touchesLockedPosition) break;
  }
 
  // Routed through the shared warning so every reconciliation dialog in the app reads the same
@@ -1455,9 +1479,11 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
     counterParty: tx.counterParty,
     distributionLocationId: tx.distributionLocationId,
     createdAt: newCreatedAt,
-    // Non-null only when this drag actually moves a reconciled balance and the user confirmed
-    // it above (either guard) — otherwise the server still checks.
-    acknowledgeReconciliationOverride: Boolean(dragLockHit) || changedMarks.length > 0,
+    // Set when the user confirmed a real balance change above (either guard), or when the row
+    // only sits in locked history without moving the number — the server's position-only rule
+    // refuses that too, and there is nothing there to ask the user about. Otherwise it stays
+    // false and the server's backstop still checks the write.
+    acknowledgeReconciliationOverride: Boolean(dragLockHit) || changedMarks.length > 0 || touchesLockedPosition,
    });
   }
 
