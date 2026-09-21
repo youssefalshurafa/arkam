@@ -1790,8 +1790,10 @@ function AuthenticatedHome() {
     // Optimistic like every other save: the rate is on screen at once and the write follows.
     const previousPayload = transactionUpdateSnapshot(tx);
     setError('');
-    applyTransactionPatch(payload);
-    void trackPendingWrite(queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true })))
+    const patchedRow = applyTransactionPatch(payload);
+    void trackPendingWrite(
+     queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true }), patchedRow),
+    )
      .then(() => scheduleWorkspaceResync())
      .catch((e) => {
       applyTransactionPatch(previousPayload);
@@ -1855,8 +1857,10 @@ function AuthenticatedHome() {
    // waiting for a round-trip per field was the whole of the lag.
    const previousPayload = transactionUpdateSnapshot(tx);
    setError('');
-   applyTransactionPatch(payload);
-   void trackPendingWrite(queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true })))
+   const patchedRow = applyTransactionPatch(payload);
+   void trackPendingWrite(
+    queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true }), patchedRow),
+   )
     .then(() => scheduleWorkspaceResync())
     .catch((e) => {
      applyTransactionPatch(previousPayload);

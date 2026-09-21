@@ -6,8 +6,10 @@ import {
  commitPendingCreate,
  failPendingCreate,
  isTempTransactionId,
+ applyPendingTransactionUpdates,
  mintTempTransactionId,
  notePendingCreatedAt,
+ noteSettledTransactionUpdate,
  pendingCreatedAtFloor,
  pendingTransactionRows,
  queueTransactionWrite,
@@ -20,6 +22,7 @@ import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
 import type { Transaction } from '@/shared/types';
 
 const row = (id: number) => ({ id }) as Transaction;
+const rowAt = (id: number, exchangeRateFrom: number) => ({ id, exchangeRateFrom }) as Transaction;
 
 // A promise whose settling this test controls, standing in for a create still on the wire.
 function deferred<T>() {
@@ -145,6 +148,68 @@ describe('queueTransactionWrite', () => {
   });
   await expect(failed).rejects.toThrow('write failed');
   await expect(queueTransactionWrite(3, async () => 'ok')).resolves.toBe('ok');
+ });
+});
+
+describe('applyPendingTransactionUpdates', () => {
+ it('keeps an edit whose write is still on the wire over the snapshot that predates it', async () => {
+  const write = deferred<void>();
+  const request = queueTransactionWrite(7, () => write.promise, rowAt(7, 99));
+
+  // A snapshot that went out while the write is outstanding still holds the old rate.
+  const fetchStartedAt = Date.now();
+  expect(applyPendingTransactionUpdates([rowAt(7, 1)], fetchStartedAt)[0].exchangeRateFrom).toBe(99);
+
+  write.resolve();
+  await request;
+  // Still held: this fetch went out BEFORE the write landed, so it cannot contain it — this is
+  // the flip the ledger showed, new value → old value → new value.
+  expect(applyPendingTransactionUpdates([rowAt(7, 1)], fetchStartedAt)[0].exchangeRateFrom).toBe(99);
+
+  // A fetch started after the write settled is authoritative, and the hold is released.
+  expect(applyPendingTransactionUpdates([rowAt(7, 99)], Date.now() + 1)[0].exchangeRateFrom).toBe(99);
+  expect(applyPendingTransactionUpdates([rowAt(7, 1)], Date.now() + 1)[0].exchangeRateFrom).toBe(1);
+ });
+
+ it('lets the server win again once a write fails, since the caller rolls the row back', async () => {
+  const failed = queueTransactionWrite(8, async () => {
+   throw new Error('nope');
+  }, rowAt(8, 99));
+  await expect(failed).rejects.toThrow('nope');
+  expect(applyPendingTransactionUpdates([rowAt(8, 1)], Date.now())[0].exchangeRateFrom).toBe(1);
+ });
+
+ it('holds the newer of two edits to the same row', async () => {
+  const first = deferred<void>();
+  const a = queueTransactionWrite(9, () => first.promise, rowAt(9, 10));
+  const b = queueTransactionWrite(9, async () => {}, rowAt(9, 20));
+  expect(applyPendingTransactionUpdates([rowAt(9, 1)], Date.now())[0].exchangeRateFrom).toBe(20);
+  first.resolve();
+  await Promise.all([a, b]);
+  // The first write settling must not release the hold that belongs to the second edit.
+  expect(applyPendingTransactionUpdates([rowAt(9, 1)], Date.now() - 1)[0].exchangeRateFrom).toBe(20);
+ });
+
+ it('follows a row edited before its create landed onto its real id', () => {
+  const tempId = mintTempTransactionId();
+  queueTransactionWrite(tempId, async () => {}, rowAt(tempId, 99));
+  commitPendingCreate(tempId, 404);
+  const [merged] = applyPendingTransactionUpdates([rowAt(404, 1)], Date.now());
+  expect(merged.exchangeRateFrom).toBe(99);
+  // The snapshot's real id is kept — the held row still carries the temporary one.
+  expect(merged.id).toBe(404);
+ });
+
+ it('holds an awaited batch save against a snapshot older than it', () => {
+  const fetchStartedAt = Date.now();
+  noteSettledTransactionUpdate(11, rowAt(11, 99));
+  expect(applyPendingTransactionUpdates([rowAt(11, 1)], fetchStartedAt)[0].exchangeRateFrom).toBe(99);
+  expect(applyPendingTransactionUpdates([rowAt(11, 1)], Date.now() + 1)[0].exchangeRateFrom).toBe(1);
+ });
+
+ it('leaves rows nobody edited alone', () => {
+  const rows = [rowAt(1, 5), rowAt(2, 6)];
+  expect(applyPendingTransactionUpdates(rows, Date.now())).toBe(rows);
  });
 });
 

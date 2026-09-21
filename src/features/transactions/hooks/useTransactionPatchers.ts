@@ -30,16 +30,22 @@ export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTra
  // otherwise sit in the cache looking like an edit nobody made.
  const trimmed = (value: string | null | undefined) => (value == null ? value : value.trim());
 
- function applyTransactionPatch(input: TransactionUpdateInput) {
+ /**
+  * Patches the cached row and hands it back, so the caller can pass it to queueTransactionWrite
+  * as the optimistic row to hold on to while the write is on the wire (see
+  * applyPendingTransactionUpdates). Returns null when the row isn't in the cache.
+  */
+ function applyTransactionPatch(input: TransactionUpdateInput): Transaction | null {
   const fromAccount = input.accountFromId != null ? clientAccountMap.get(input.accountFromId) : undefined;
   const toAccount = input.accountToId != null ? clientAccountMap.get(input.accountToId) : undefined;
   const currency = currencyMap.get(input.currencyId);
   const chargesCurrency = input.chargesCurrencyId != null ? currencyMap.get(input.chargesCurrencyId) : null;
   const charges2Currency = input.charges2CurrencyId != null ? currencyMap.get(input.charges2CurrencyId) : null;
+  let patched: Transaction | null = null;
   setTransactions((prev) =>
    prev.map((tx) =>
     tx.id === input.id
-     ? {
+     ? (patched = {
         ...tx,
         accountFromId: input.accountFromId,
         accountToId: input.accountToId,
@@ -82,10 +88,11 @@ export function useTransactionPatchers({ clientAccountMap, currencyMap }: UseTra
         exchangeActualAmount: input.exchangeActualAmount ?? tx.exchangeActualAmount,
         distributionLocationId: input.distributionLocationId || null,
         createdAt: input.createdAt,
-       }
+       })
      : tx,
    ),
   );
+  return patched;
  }
 
  return { applyTransactionPatch };

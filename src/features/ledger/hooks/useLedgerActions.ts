@@ -11,6 +11,7 @@ import { trackPendingWrite } from '@/lib/pendingWrites';
 import {
  mintTempTransactionId,
  notePendingCreatedAt,
+ noteSettledTransactionUpdate,
  pendingCreatedAtFloor,
  queueTransactionWrite,
  registerPendingCreate,
@@ -744,7 +745,7 @@ async function onSaveLedgerTransaction(
   try {
    await accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock });
    setError('');
-   applyTransactionPatch(payload);
+   noteSettledTransactionUpdate(transactionId, applyTransactionPatch(payload));
    pushUndo();
    return true;
   } catch (e) {
@@ -758,15 +759,21 @@ async function onSaveLedgerTransaction(
  // closes, and the request goes out behind it. Waiting bought nothing but the delay the user
  // felt on every save and on every arrow-key step between rows.
  setError('');
- applyTransactionPatch(payload);
+ const patchedRow = applyTransactionPatch(payload);
  const undoEntry = pushUndo();
  void trackPendingWrite(
   // Queued per row: a background write sends the WHOLE row, so two quick edits to the same one
   // landing out of order would leave the server holding the older of them — and the resync below
   // would then paint those stale values back over the newer edit, silently. Different rows still
   // go in parallel.
-  queueTransactionWrite(transactionId, () =>
-   accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock }, { silent: true }),
+  //
+  // `patchedRow` is held for the same reason from the other side: a snapshot fetched before this
+  // write landed — the previous row's resync, a window focus, another tab — must not repaint the
+  // row with the values the user has just replaced.
+  queueTransactionWrite(
+   transactionId,
+   () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: overrodeLock }, { silent: true }),
+   patchedRow,
   ),
  )
   // Resync rather than refetch-per-save: several quick edits (or a run of arrow-key steps)

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi, type BackupInfo } from '@/lib/accountingApi';
-import { pendingTransactionRows } from '@/lib/pendingTransactionWrites';
+import { applyPendingTransactionUpdates, pendingTransactionRows } from '@/lib/pendingTransactionWrites';
 import { queryKeys } from '@/lib/queryClient';
 import { readDataCache, saveDataCache } from '@/shared/lib/localStorage';
 import type {
@@ -148,6 +148,10 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
    // schema-ensure, pool checkout — by ten for a single page load, and on a cold database made
    // all ten queue behind the same schema advisory lock. The collections are always needed
    // together and always invalidated together, so there was never a reason to ask separately.
+
+   // Noted BEFORE the request so an edit made while it is outstanding can be recognised as
+   // newer than whatever comes back — see applyPendingTransactionUpdates below.
+   const fetchStartedAt = Date.now();
    const snapshot = await accountingApi.getWorkspaceSnapshot({ silent: consumeSilentFetchFlag() });
    const { backup } = snapshot;
    const organizations = snapshot.organizations as Organization[];
@@ -179,11 +183,15 @@ export function useWorkspaceData(userId: string | null | undefined, workspaceId:
    // cross-tab signal, another save's resync — makes the row the user just entered blink out
    // and reappear.
    const pending = pendingTransactionRows();
+   // Likewise for EDITS this snapshot is too old to know about: a row whose write was still on
+   // the wire when this request went out (or landed while it was) keeps the values the user is
+   // already looking at, instead of flipping back to the stored ones until the next resync.
+   const rows = applyPendingTransactionUpdates(transactions, fetchStartedAt);
    return {
     organizations,
     clients,
     currencies,
-    transactions: pending.length > 0 ? [...transactions, ...pending] : transactions,
+    transactions: pending.length > 0 ? [...rows, ...pending] : rows,
     clientAccounts,
     reconciliations,
     ignoredAnomalies,
