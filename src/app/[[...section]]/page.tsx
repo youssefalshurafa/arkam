@@ -370,6 +370,7 @@ function AuthenticatedHome() {
  const txFilterDateTo = useTransactionsStore((s) => s.txFilterDateTo);
  const setTxFilterDateTo = useTransactionsStore((s) => s.setTxFilterDateTo);
  const txFilterHideExpenses = useTransactionsStore((s) => s.txFilterHideExpenses);
+ const txFilterTags = useTransactionsStore((s) => s.txFilterTags);
  // Archive keeps its own full copy of the filter bar (see transactionsStore.ts) so switching
  // between Transactions and Archive never carries one page's search/filter state into the other.
  const archiveFilterSearch = useTransactionsStore((s) => s.archiveFilterSearch);
@@ -378,6 +379,7 @@ function AuthenticatedHome() {
  const archiveFilterDateFrom = useTransactionsStore((s) => s.archiveFilterDateFrom);
  const archiveFilterDateTo = useTransactionsStore((s) => s.archiveFilterDateTo);
  const archiveFilterHideExpenses = useTransactionsStore((s) => s.archiveFilterHideExpenses);
+ const archiveFilterTags = useTransactionsStore((s) => s.archiveFilterTags);
  const archiveHiddenFilter = useTransactionsStore((s) => s.archiveHiddenFilter);
  const setCommissionExpandedTxns = useTransactionsStore((s) => s.setCommissionExpandedTxns);
  const setExpensesExpandedTxns = useTransactionsStore((s) => s.setExpensesExpandedTxns);
@@ -1014,6 +1016,7 @@ function AuthenticatedHome() {
  const activeFilterDateFrom = isArchiveSection ? archiveFilterDateFrom : txFilterDateFrom;
  const activeFilterDateTo = isArchiveSection ? archiveFilterDateTo : txFilterDateTo;
  const activeFilterHideExpenses = isArchiveSection ? archiveFilterHideExpenses : txFilterHideExpenses;
+ const activeFilterTags = isArchiveSection ? archiveFilterTags : txFilterTags;
 
  // Rows in user-defined order (if any), otherwise natural sort order.
  // The Archive section shows only transactions missing a party; the main
@@ -1031,8 +1034,9 @@ function AuthenticatedHome() {
     txFilterDateTo: activeFilterDateTo,
     txFilterHideExpenses: activeFilterHideExpenses,
     txHiddenFilter: archiveHiddenFilter,
+    txFilterTags: activeFilterTags,
    }),
-  [transactionTableRows, manualRowOrder, section, activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses, archiveHiddenFilter],
+  [transactionTableRows, manualRowOrder, section, activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses, archiveHiddenFilter, activeFilterTags],
  );
 
  // Surfaced next to the Archive's filter bar so hiding a row is visibly reversible: without a
@@ -1049,6 +1053,8 @@ function AuthenticatedHome() {
   }
   return [...names].sort((a, b) => a.localeCompare(b));
  }, [transactionTableRows]);
+
+ const txFilterCurrencyOptions = useMemo(() => [...new Set(transactionTableRows.map((row) => row.currencyCode).filter(Boolean))].sort(), [transactionTableRows]);
 
  // Per-currency totals across all archived rows (not just the current page), shown at the table foot.
  const archiveCurrencyTotals = useMemo(() => {
@@ -1079,7 +1085,7 @@ function AuthenticatedHome() {
 
  useEffect(() => {
   setTransactionsPage(99999);
- }, [activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses]);
+ }, [activeFilterSearch, activeFilterWholeWord, activeFilterClient, activeFilterDateFrom, activeFilterDateTo, activeFilterHideExpenses, activeFilterTags]);
 
  useEffect(() => {
   setLedgerPageState({});
@@ -1790,8 +1796,10 @@ function AuthenticatedHome() {
     // Optimistic like every other save: the rate is on screen at once and the write follows.
     const previousPayload = transactionUpdateSnapshot(tx);
     setError('');
-    applyTransactionPatch(payload);
-    void trackPendingWrite(queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true })))
+    const patchedRow = applyTransactionPatch(payload);
+    void trackPendingWrite(
+     queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true }), patchedRow),
+    )
      .then(() => scheduleWorkspaceResync())
      .catch((e) => {
       applyTransactionPatch(previousPayload);
@@ -1855,8 +1863,10 @@ function AuthenticatedHome() {
    // waiting for a round-trip per field was the whole of the lag.
    const previousPayload = transactionUpdateSnapshot(tx);
    setError('');
-   applyTransactionPatch(payload);
-   void trackPendingWrite(queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true })))
+   const patchedRow = applyTransactionPatch(payload);
+   void trackPendingWrite(
+    queueTransactionWrite(tx.id, () => accountingApi.updateTransaction({ ...payload, acknowledgeReconciliationOverride: lock.overrode }, { silent: true }), patchedRow),
+   )
     .then(() => scheduleWorkspaceResync())
     .catch((e) => {
      applyTransactionPatch(previousPayload);
@@ -2818,6 +2828,7 @@ function AuthenticatedHome() {
          paginatedTransactions={paginatedTransactions}
          transactionsPager={transactionsPager}
          txFilterClientOptions={txFilterClientOptions}
+         txFilterCurrencyOptions={txFilterCurrencyOptions}
          visibleTransactionColumnCount={visibleTransactionColumnCount}
          selectedTransactionSums={selectedTransactionSums}
          archiveCurrencyTotals={archiveCurrencyTotals}

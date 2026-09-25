@@ -1,5 +1,6 @@
 import type { Section, Transaction, TransactionTableRow } from '@/shared/types';
 import { amountMatchesSearch, textMatchesSearch } from '@/shared/utils/searchMatch';
+import { rowMatchesSearchTags, type SearchTag } from './searchTags';
 
 // Sorts transactions by date (then id). Ported verbatim from the page's
 // transactionTableRows memo.
@@ -43,7 +44,7 @@ function matchesHiddenFilter(row: TransactionTableRow, hiddenFilter: HiddenFilte
 
 // Applies manual ordering, the archive/transactions split, and the active filters.
 // Ported verbatim from the page's displayedTransactionRows memo.
-export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txHiddenFilter }: {
+export function filterDisplayedTransactionRows({ transactionTableRows, manualRowOrder, section, txFilterSearch, txFilterWholeWord, txFilterClient, txFilterDateFrom, txFilterDateTo, txFilterHideExpenses, txHiddenFilter, txFilterTags = [] }: {
  transactionTableRows: TransactionTableRow[];
  manualRowOrder: number[] | null;
  section: Section;
@@ -54,6 +55,8 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
  txFilterDateTo: string;
  txFilterHideExpenses: boolean;
  txHiddenFilter: HiddenFilter;
+ // Advanced-search tags (see searchTags.ts), ANDed with each other and with the filters above.
+ txFilterTags?: SearchTag[];
 }): TransactionTableRow[] {
   const ordered = (() => {
    if (!manualRowOrder) return transactionTableRows;
@@ -90,6 +93,9 @@ export function filterDisplayedTransactionRows({ transactionTableRows, manualRow
   }
   if (txFilterHideExpenses) {
    filtered = filtered.filter((row) => row.type !== 'adjustment');
+  }
+  if (txFilterTags.length > 0) {
+   filtered = filtered.filter((row) => rowMatchesSearchTags(row, txFilterTags));
   }
   return filtered;
 }

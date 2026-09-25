@@ -12,6 +12,7 @@ import {
  failPendingCreate,
  mintTempTransactionId,
  notePendingCreatedAt,
+ noteSettledTransactionUpdate,
  pendingCreatedAtFloor,
  queueTransactionWrite,
  registerPendingCreate,
@@ -553,12 +554,14 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
   // clears, and the request goes out behind it. Waiting bought nothing but the pause the user
   // felt on every single save.
   setError('');
-  applyTransactionPatch(updatePayload);
+  const patchedRow = applyTransactionPatch(updatePayload);
   onCancelEditTransaction();
   showToast(t('toast_transaction_updated'));
   void trackPendingWrite(
-   queueTransactionWrite(updatePayload.id, () =>
-    accountingApi.updateTransaction({ ...updatePayload, acknowledgeReconciliationOverride: editLock.overrode }, { silent: true }),
+   queueTransactionWrite(
+    updatePayload.id,
+    () => accountingApi.updateTransaction({ ...updatePayload, acknowledgeReconciliationOverride: editLock.overrode }, { silent: true }),
+    patchedRow,
    ),
   )
    .then(() => scheduleWorkspaceResync())
@@ -1622,11 +1625,11 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
    };
    // Same as the transaction form's edit: patch, close, let the write follow.
    const previousPayload = original ? transactionUpdateSnapshot(original) : null;
-   applyTransactionPatch(updatePayload);
+   const patchedRow = applyTransactionPatch(updatePayload);
    onCancelArchiveEntryEdit();
    showToast(t('toast_transaction_updated'));
    transactionSubmitLock.current = false;
-   void trackPendingWrite(queueTransactionWrite(updatePayload.id, () => accountingApi.updateTransaction(updatePayload, { silent: true })))
+   void trackPendingWrite(queueTransactionWrite(updatePayload.id, () => accountingApi.updateTransaction(updatePayload, { silent: true }), patchedRow))
     .then(() => scheduleWorkspaceResync())
     .catch((e) => {
      if (previousPayload) applyTransactionPatch(previousPayload);
@@ -2029,7 +2032,7 @@ async function onSaveTransactionTableRow(
   try {
    await accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: overrodeLock });
    setError('');
-   applyTransactionPatch(transactionPayload);
+   noteSettledTransactionUpdate(transactionId, applyTransactionPatch(transactionPayload));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_update'));
   }
@@ -2041,15 +2044,17 @@ async function onSaveTransactionTableRow(
  // follows it.
  const previousPayload = transactionUpdateSnapshot(transaction);
  setError('');
- applyTransactionPatch(transactionPayload);
+ const patchedRow = applyTransactionPatch(transactionPayload);
  setEditingRowIds((prev) => {
   const next = new Set(prev);
   next.delete(transactionId);
   return next;
  });
  void trackPendingWrite(
-  queueTransactionWrite(transactionId, () =>
-   accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: overrodeLock }, { silent: true }),
+  queueTransactionWrite(
+   transactionId,
+   () => accountingApi.updateTransaction({ ...transactionPayload, acknowledgeReconciliationOverride: overrodeLock }, { silent: true }),
+   patchedRow,
   ),
  )
   .then(() => scheduleWorkspaceResync())

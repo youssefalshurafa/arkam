@@ -4,6 +4,7 @@ import { getStoredArchiveFilter, getStoredArchiveTableSettings, getStoredTableZo
 import { localDateKey } from '@/shared/utils/date';
 import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
 import type { HiddenFilter } from '@/features/transactions/utils/transactionRows';
+import type { SearchTag } from '@/features/transactions/utils/searchTags';
 import type {
  ArchiveEntryForm,
  ImportClientReview,
@@ -105,6 +106,9 @@ type TransactionsStore = {
  setTxFilterDateTo: Dispatch<SetStateAction<string>>;
  txFilterHideExpenses: boolean;
  setTxFilterHideExpenses: Dispatch<SetStateAction<boolean>>;
+ // Advanced-search tags (see searchTags.ts). Not persisted, same as txFilterClient.
+ txFilterTags: SearchTag[];
+ setTxFilterTags: Dispatch<SetStateAction<SearchTag[]>>;
  // Archive keeps its own full copy of the filter bar, entirely separate from the Transactions
  // table's above (see archiveFilterStorageKey) — switching between the two pages must never
  // carry one page's search term/date range/etc into the other.
@@ -122,6 +126,8 @@ type TransactionsStore = {
  setArchiveFilterDateTo: Dispatch<SetStateAction<string>>;
  archiveFilterHideExpenses: boolean;
  setArchiveFilterHideExpenses: Dispatch<SetStateAction<boolean>>;
+ archiveFilterTags: SearchTag[];
+ setArchiveFilterTags: Dispatch<SetStateAction<SearchTag[]>>;
  // How the Archive list treats rows marked archiveHidden: leave them out (default), mix them
  // back in, or show only them. The last is how a user reviews and un-hides what they've hidden.
  // Archive-only — there's no Transactions-page equivalent since only archive-eligible rows ever
@@ -282,6 +288,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTxFilterDateTo: setter('txFilterDateTo'),
   txFilterHideExpenses: false,
   setTxFilterHideExpenses: setter('txFilterHideExpenses'),
+  txFilterTags: [],
+  setTxFilterTags: setter('txFilterTags'),
   archiveFilterOpen: false,
   setArchiveFilterOpen: setter('archiveFilterOpen'),
   archiveFilterSearch: initialArchiveFilter.search,
@@ -296,6 +304,8 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setArchiveFilterDateTo: setter('archiveFilterDateTo'),
   archiveFilterHideExpenses: false,
   setArchiveFilterHideExpenses: setter('archiveFilterHideExpenses'),
+  archiveFilterTags: [],
+  setArchiveFilterTags: setter('archiveFilterTags'),
   archiveHiddenFilter: 'exclude',
   setArchiveHiddenFilter: setter('archiveHiddenFilter'),
   commissionExpandedTxns: new Set(),

@@ -28,6 +28,7 @@ import { useTransactionsStore, type ArchiveExportModalState } from '@/features/t
 import { useLongPress } from '@/shared/hooks/useLongPress';
 import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
+import { AdvancedSearchTags } from '@/features/transactions/components/AdvancedSearchTags';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
 import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import NewTransactionForm from '@/features/transactions/components/NewTransactionForm';
@@ -121,6 +122,7 @@ type TransactionsSectionProps = {
  paginatedTransactions: TransactionTableRow[];
  transactionsPager: ReactNode;
  txFilterClientOptions: string[];
+ txFilterCurrencyOptions: string[];
  visibleTransactionColumnCount: number;
  selectedTransactionSums: CurrencyTotal[];
  archiveCurrencyTotals: CurrencyTotal[];
@@ -173,7 +175,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const setFlashLedgerEntry = useLedgerStore((s) => s.setFlashLedgerEntry);
  const {
   isLoading, section, clients, clientAccounts, enabledCurrencies, transactions, clientAccountMap, currencyMap,
-  displayedTransactionRows, archiveHiddenCount, paginatedTransactions, transactionsPager, txFilterClientOptions, visibleTransactionColumnCount,
+  displayedTransactionRows, archiveHiddenCount, paginatedTransactions, transactionsPager, txFilterClientOptions, txFilterCurrencyOptions, visibleTransactionColumnCount,
   selectedTransactionSums, archiveCurrencyTotals, workspaceAnomalies,
   getTransactionTableDraft, updateTransactionTableDraft, txTableHistory, highlightedTxRows, txRowClickHighlight, txRowClickActive, txRowHighlightColor,
   txSumMode, txSumSelection, txSumByCurrency,
@@ -211,7 +213,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // to that entry's client ledger, where the actual badge (and its "ignore" action) lives.
  const anomalyReviewMenu = useContextMenu();
  const clientMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
- const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir: txSortDirStore, setTxSortDir: setTxSortDirStore, archiveSortDir, setArchiveSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveHiddenFilter, setArchiveHiddenFilter, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, expensesExpandedTxns2, setExpensesExpandedTxns2, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, tableZoom, setTableZoom } = useTransactionsStore();
+ const { selectedTransactionIds, setSelectedTransactionIds, editingRowIds, setEditingRowIds, isEditAllTransactions, dragRowId, setDragRowId, dragOverRowId, setDragOverRowId, dragOverHalf, setDragOverHalf, transactionTableSettings: transactionTableSettingsStore, archiveTableSettings, txSortDir: txSortDirStore, setTxSortDir: setTxSortDirStore, archiveSortDir, setArchiveSortDir, txFilterOpen, setTxFilterOpen, txFilterSearch, setTxFilterSearch, txFilterWholeWord, setTxFilterWholeWord, txFilterClient, setTxFilterClient, txFilterDateFrom, setTxFilterDateFrom, txFilterDateTo, setTxFilterDateTo, txFilterHideExpenses, setTxFilterHideExpenses, txFilterTags, setTxFilterTags, archiveFilterOpen, setArchiveFilterOpen, archiveFilterSearch, setArchiveFilterSearch, archiveFilterWholeWord, setArchiveFilterWholeWord, archiveFilterClient, setArchiveFilterClient, archiveFilterDateFrom, setArchiveFilterDateFrom, archiveFilterDateTo, setArchiveFilterDateTo, archiveFilterHideExpenses, setArchiveFilterHideExpenses, archiveFilterTags, setArchiveFilterTags, archiveHiddenFilter, setArchiveHiddenFilter, commissionExpandedTxns, setCommissionExpandedTxns, expensesExpandedTxns, setExpensesExpandedTxns, expensesExpandedTxns2, setExpensesExpandedTxns2, isNewTransactionSectionOpen, setIsNewTransactionSectionOpen, isNewArchiveSectionOpen, setIsNewArchiveSectionOpen, editingTransaction, transactionTableDrafts, copiedTransaction, tableRateFromReversed, setTableRateFromReversed, tableRateToReversed, setTableRateToReversed, isImportingTransactions, setInfoTransactionId, archiveEntryForm, setArchiveEntryForm, editingArchiveEntry, newArchiveEntryDate, setNewArchiveEntryDate, tableZoom, setTableZoom } = useTransactionsStore();
  // Archive keeps its own column-visibility/date-format settings, separate from the
  // Transactions table (see transactionsStore.ts) — resolve whichever is active here so
  // every downstream read of `transactionTableSettings` in this file is section-aware.
@@ -242,6 +244,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  const setFilterDateTo = isArchiveSection ? setArchiveFilterDateTo : setTxFilterDateTo;
  const filterHideExpenses = isArchiveSection ? archiveFilterHideExpenses : txFilterHideExpenses;
  const setFilterHideExpenses = isArchiveSection ? setArchiveFilterHideExpenses : setTxFilterHideExpenses;
+ const filterTags = isArchiveSection ? archiveFilterTags : txFilterTags;
+ const setFilterTags = isArchiveSection ? setArchiveFilterTags : setTxFilterTags;
  // Persist the search/date filter bar so it survives a refresh and follows the user to
  // another device (see saveTxFilter/saveArchiveFilter in shared/lib/localStorage.ts) — each
  // section under its own storage key so they never overwrite each other.
@@ -1137,9 +1141,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
             </svg>
             {t('tx_filter_toggle')}
-            {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveHiddenFilter !== 'exclude') && (
+            {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveHiddenFilter !== 'exclude' || filterTags.length > 0) && (
              <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-xs font-semibold text-white leading-none">
-              {[filterSearch, filterClient, filterDateFrom, filterDateTo, filterHideExpenses, archiveHiddenFilter !== 'exclude'].filter(Boolean).length}
+              {[filterSearch, filterClient, filterDateFrom, filterDateTo, filterHideExpenses, archiveHiddenFilter !== 'exclude'].filter(Boolean).length + filterTags.length}
              </span>
             )}
             <svg
@@ -1158,6 +1162,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </svg>
            </button>
            {filterOpen && (
+            <>
             <div className="flex flex-wrap items-end gap-2 border-t border-border px-3 py-3">
              <div className="flex min-w-36 flex-1 flex-col gap-1">
               <label className="text-xs font-medium text-fg-faint">{t('tx_filter_search')}</label>
@@ -1288,7 +1293,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                </div>
               </div>
              ) : null}
-             {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveHiddenFilter !== 'exclude') && (
+             {(filterSearch || filterClient || filterDateFrom || filterDateTo || filterHideExpenses || archiveHiddenFilter !== 'exclude' || filterTags.length > 0) && (
               <button
                type="button"
                onClick={() => {
@@ -1299,6 +1304,7 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                 setFilterDateTo('');
                 setFilterHideExpenses(false);
                 setArchiveHiddenFilter('exclude');
+                setFilterTags([]);
                }}
                className="self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover"
               >
@@ -1306,6 +1312,13 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </button>
              )}
             </div>
+            <AdvancedSearchTags
+             tags={filterTags}
+             onTagsChange={setFilterTags}
+             clientOptions={txFilterClientOptions}
+             currencyOptions={txFilterCurrencyOptions}
+            />
+            </>
            )}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
