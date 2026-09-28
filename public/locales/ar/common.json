@@ -1512,5 +1512,17 @@
  "trash_show_rows": "عرض المعاملات",
  "trash_hide_rows": "إخفاء المعاملات",
  "trash_more_rows": "…و{{count}} أخرى",
- "history_step_gone": "لم يعد بالإمكان التراجع عن هذه الخطوة — تم تغيير المعاملة أو حذفها منذ ذلك الحين."
+ "history_step_gone": "لم يعد بالإمكان التراجع عن هذه الخطوة — تم تغيير المعاملة أو حذفها منذ ذلك الحين.",
+ "clients_search_placeholder": "الاسم أو الرصيد…",
+ "clients_search_hint": "ابحث بالاسم أو بالرصيد: 25000 أو 20000-40000 أو >20000",
+ "clients_balance_range": "الرصيد النهائي بين",
+ "clients_balance_and": "و",
+ "clients_balance_min_placeholder": "من",
+ "clients_balance_max_placeholder": "إلى",
+ "clients_balance_currency_any": "كل العملات",
+ "clients_balance_direction": "الاتجاه",
+ "clients_balance_direction_any": "الكل",
+ "clients_balance_clear": "مسح",
+ "clients_balance_range_hint": "المقارنة على قيمة الرصيد دون إشارته، فالنطاق 20,000–40,000 يُظهر أيضاً عميلاً مديناً لك بـ 30,000. اختر اتجاهاً لعرض طرف واحد فقط. يظهر العميل إذا طابق أيٌّ من أرصدة عملاته.",
+ "clients_balance_match_count": "{{count}} من {{total}} عميل مطابق"
 }

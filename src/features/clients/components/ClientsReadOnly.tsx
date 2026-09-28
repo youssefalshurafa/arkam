@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -11,6 +11,7 @@ import type { Client, ClientAccount, Section, SettingsTab, WriteOffMargin } from
 import type { ClientOrgGroup } from '@/features/clients/utils/clientsView';
 import type { ClientBalanceEntry } from '@/features/clients/utils/clientBalances';
 import { isZeroMoney } from '@/shared/utils/money';
+import { clientMatchesBalanceRange, emptyBalanceRangeFilter, isBalanceRangeActive, type BalanceDirection } from '@/features/clients/utils/clientBalanceFilter';
 
 type ClientsReadOnlyProps = {
  clients: Client[];
@@ -40,7 +41,45 @@ export default function ClientsReadOnly({
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
  const numLocale = language === 'fr' ? 'en-US' : language;
- const { clientSearch, setClientSearch, clientsGroupByOrg, setClientsGroupByOrg, draggedOrgKey, setDraggedOrgKey, dragOverOrgKey, setDragOverOrgKey } = useClientsStore();
+ const { clientSearch, setClientSearch, clientBalanceFilter, setClientBalanceFilter, clientsGroupByOrg, setClientsGroupByOrg, draggedOrgKey, setDraggedOrgKey, dragOverOrgKey, setDragOverOrgKey } = useClientsStore();
+ const rangeActive = isBalanceRangeActive(clientBalanceFilter);
+ // Opens by itself when a range is already set (it lives in the store, so it survives leaving
+ // the page and coming back) — a filter that hides clients must never be applied out of sight.
+ const [advancedOpen, setAdvancedOpen] = useState(rangeActive);
+
+ // The advanced balance range is applied here, on top of the search box's own filtering
+ // (sortedClients), and only on this page — Settings > Clients shares sortedClients but has no
+ // range controls, so it must not be narrowed by one it can't show.
+ const visibleClients = useMemo(
+  () => (rangeActive ? sortedClients.filter((client) => clientMatchesBalanceRange(clientPageBalances.get(client.id) ?? [], clientBalanceFilter)) : sortedClients),
+  [sortedClients, clientPageBalances, clientBalanceFilter, rangeActive],
+ );
+ const visibleGroups = useMemo(() => {
+  if (!rangeActive) return clientsByOrganization;
+  const visibleIds = new Set(visibleClients.map((client) => client.id));
+  return clientsByOrganization
+   .map((group) => ({ ...group, clients: group.clients.filter((client) => visibleIds.has(client.id)) }))
+   .filter((group) => group.clients.length > 0);
+ }, [clientsByOrganization, visibleClients, rangeActive]);
+
+ // Only currencies someone on this page actually holds are worth offering.
+ const balanceCurrencies = useMemo(() => {
+  const seen = new Map<number, string>();
+  for (const client of clients) {
+   for (const entry of clientPageBalances.get(client.id) ?? []) {
+    if (!seen.has(entry.currencyId)) seen.set(entry.currencyId, entry.currencyCode);
+   }
+  }
+  return [...seen.entries()].map(([id, code]) => ({ id, code })).sort((a, b) => a.code.localeCompare(b.code));
+ }, [clients, clientPageBalances]);
+
+ const updateBalanceFilter = (patch: Partial<typeof clientBalanceFilter>) => setClientBalanceFilter((current) => ({ ...current, ...patch }));
+ const directionOptions: { key: BalanceDirection; label: string }[] = [
+  { key: 'any', label: t('clients_balance_direction_any') },
+  { key: 'owes_us', label: t('adjustment_direction_debit') },
+  { key: 'we_owe', label: t('adjustment_direction_credit') },
+ ];
+ const rangeInputClassName = 'w-28 rounded border border-border-strong bg-surface px-2 py-1.5 text-sm text-fg outline-none ring-blue-300 focus:ring';
 
  // Per-client balance chips (with the inline write-off button for near-zero balances), shared
  // by the list-view table cell and its mobile card. Plain render function (not a component).
@@ -79,7 +118,8 @@ export default function ClientsReadOnly({
     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
      <h2 className="text-xl font-semibold">{t('clients_title')}</h2>
      <div className="flex flex-wrap items-center gap-2">
-      <div className="relative min-w-0 flex-1 sm:flex-none">
+      {/* Full-width row of its own on phones: beside three buttons it would shrink to nothing. */}
+      <div className="relative w-full min-w-0 sm:w-auto sm:flex-none">
        <svg
         className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-faint"
         width="14"
@@ -108,10 +148,25 @@ export default function ClientsReadOnly({
         type="search"
         value={clientSearch}
         onChange={(e) => setClientSearch(e.target.value)}
-        placeholder={t('search')}
+        placeholder={t('clients_search_placeholder')}
+        title={t('clients_search_hint')}
         className="w-full rounded border border-border-strong py-2 pl-8 pr-3 text-sm outline-none ring-blue-300 focus:ring sm:w-56"
        />
       </div>
+      <button
+       type="button"
+       onClick={() => setAdvancedOpen((open) => !open)}
+       aria-expanded={advancedOpen}
+       className={`inline-flex shrink-0 items-center gap-1.5 rounded border px-3 py-2 text-sm font-semibold transition ${
+        rangeActive ? 'border-accent bg-accent-weak text-accent' : 'border-border-strong text-fg-muted hover:bg-surface-hover'
+       }`}
+      >
+       {t('tx_adv_toggle')}
+       {rangeActive ? <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden /> : null}
+       <span className="text-xs" aria-hidden>
+        {advancedOpen ? '▲' : '▼'}
+       </span>
+      </button>
       <button
        type="button"
        onClick={() => setClientsGroupByOrg((current) => !current)}
@@ -137,13 +192,92 @@ export default function ClientsReadOnly({
      </div>
     </div>
 
+    {advancedOpen ? (
+     <div className="mb-4 rounded border border-border bg-surface-2 p-3">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+       <div className="flex flex-col gap-1">
+        <span className="text-xs font-semibold text-fg-muted">{t('clients_balance_range')}</span>
+        <div className="flex items-center gap-2">
+         <input
+          type="text"
+          inputMode="decimal"
+          dir="ltr"
+          value={clientBalanceFilter.min}
+          onChange={(e) => updateBalanceFilter({ min: e.target.value })}
+          placeholder={t('clients_balance_min_placeholder')}
+          aria-label={t('clients_balance_min_placeholder')}
+          className={rangeInputClassName}
+         />
+         <span className="text-sm text-fg-faint">{t('clients_balance_and')}</span>
+         <input
+          type="text"
+          inputMode="decimal"
+          dir="ltr"
+          value={clientBalanceFilter.max}
+          onChange={(e) => updateBalanceFilter({ max: e.target.value })}
+          placeholder={t('clients_balance_max_placeholder')}
+          aria-label={t('clients_balance_max_placeholder')}
+          className={rangeInputClassName}
+         />
+        </div>
+       </div>
+       <label className="flex flex-col gap-1">
+        <span className="text-xs font-semibold text-fg-muted">{t('currency')}</span>
+        <select
+         value={clientBalanceFilter.currencyId ?? ''}
+         onChange={(e) => updateBalanceFilter({ currencyId: e.target.value ? Number(e.target.value) : null })}
+         className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm text-fg outline-none ring-blue-300 focus:ring"
+        >
+         <option value="">{t('clients_balance_currency_any')}</option>
+         {balanceCurrencies.map((currency) => (
+          <option key={currency.id} value={currency.id}>
+           {currency.code}
+          </option>
+         ))}
+        </select>
+       </label>
+       <div className="flex flex-col gap-1">
+        <span className="text-xs font-semibold text-fg-muted">{t('clients_balance_direction')}</span>
+        <div className="inline-flex flex-wrap overflow-hidden rounded border border-border-strong text-sm">
+         {directionOptions.map((option) => (
+          <button
+           key={option.key}
+           type="button"
+           onClick={() => updateBalanceFilter({ direction: option.key })}
+           aria-pressed={clientBalanceFilter.direction === option.key}
+           className={`px-3 py-1.5 transition ${
+            clientBalanceFilter.direction === option.key ? 'bg-accent text-accent-contrast' : 'bg-surface text-fg-muted hover:bg-surface-hover'
+           }`}
+          >
+           {option.label}
+          </button>
+         ))}
+        </div>
+       </div>
+       {rangeActive ? (
+        <button
+         type="button"
+         onClick={() => setClientBalanceFilter(emptyBalanceRangeFilter())}
+         className="rounded border border-border-strong px-3 py-1.5 text-sm font-semibold text-fg-muted transition hover:bg-surface-hover"
+        >
+         {t('clients_balance_clear')}
+        </button>
+       ) : null}
+      </div>
+      <p className="mt-2 text-xs text-fg-faint">{t('clients_balance_range_hint')}</p>
+      {rangeActive ? (
+       <p className="mt-1 text-xs font-semibold text-fg-muted">{t('clients_balance_match_count', { count: visibleClients.length, total: sortedClients.length })}</p>
+      ) : null}
+     </div>
+    ) : null}
+
     {clients.length === 0 ? (
      <p className="px-1 py-6 text-fg-faint">{t('no_clients')}</p>
-    ) : sortedClients.length === 0 ? (
+    ) : visibleClients.length === 0 ? (
      <p className="px-1 py-6 text-fg-faint">{t('no_search_results')}</p>
     ) : clientsGroupByOrg ? (
      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {clientsByOrganization.map((group) => {
+      {visibleGroups.map((group) => {
        const orgKey = group.id == null ? '__unassigned__' : String(group.id);
        return (
         <div
@@ -279,7 +413,7 @@ export default function ClientsReadOnly({
          </tr>
         </thead>
         <tbody>
-         {sortedClients.map((client) => (
+         {visibleClients.map((client) => (
           <tr
            key={client.id}
            className="border-t border-border align-top"
@@ -309,7 +443,7 @@ export default function ClientsReadOnly({
       {/* Mobile (below md): each client as a stacked card so everything fits with no
           horizontal scroll. */}
       <div className="mt-3 flex flex-col gap-2 md:hidden">
-       {sortedClients.map((client) => (
+       {visibleClients.map((client) => (
         <div
          key={client.id}
          className="rounded border border-border bg-surface-2 p-3"

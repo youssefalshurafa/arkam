@@ -1646,7 +1646,18 @@ function AuthenticatedHome() {
  );
  const enabledCurrencies = useMemo(() => localizedCurrencies.filter((currency) => currency.isEnabled === 1), [localizedCurrencies]);
  const currencyMap = useMemo(() => new Map(localizedCurrencies.map((currency) => [currency.id, currency])), [localizedCurrencies]);
- const sortedClients = useMemo(() => sortAndFilterClients({ clients, clientSort, clientSearch, language }), [clients, clientSort, clientSearch, language]);
+ // Per-client balances for the clients list/group view. Keyed by clientId, each value is
+ // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
+ // Computed ahead of sortedClients: the search box also matches on these balances.
+ const clientPageBalances = useMemo(
+  () => computeClientPageBalances({ clientAccounts, transactions }),
+  [clientAccounts, transactions],
+ );
+
+ const sortedClients = useMemo(
+  () => sortAndFilterClients({ clients, clientSort, clientSearch, language, balances: clientPageBalances }),
+  [clients, clientSort, clientSearch, language, clientPageBalances],
+ );
  const totalClientPages = Math.max(1, Math.ceil(sortedClients.length / clientsPageSize));
  const clampedClientsPage = Math.min(clientsPage, totalClientPages);
  const paginatedClients = useMemo(() => {
@@ -1697,13 +1708,6 @@ function AuthenticatedHome() {
   clientsByOrganization,
   lockPastEditsEnabled,
  });
-
- // Per-client balances for the clients list/group view. Keyed by clientId, each value is
- // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
- const clientPageBalances = useMemo(
-  () => computeClientPageBalances({ clientAccounts, transactions }),
-  [clientAccounts, transactions],
- );
 
  // Per-client count of transactions awaiting a manually-entered exchange rate (excluded from
  // clientPageBalances above until set). Shown on the organization page.

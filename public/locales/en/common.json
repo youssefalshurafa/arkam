@@ -1510,5 +1510,17 @@
  "trash_show_rows": "Show transactions",
  "trash_hide_rows": "Hide transactions",
  "trash_more_rows": "…and {{count}} more",
- "history_step_gone": "That step can no longer be undone — the transaction was changed or removed since."
+ "history_step_gone": "That step can no longer be undone — the transaction was changed or removed since.",
+ "clients_search_placeholder": "Name or balance…",
+ "clients_search_hint": "Search by name, or by balance: 25000, 20000-40000, >20000",
+ "clients_balance_range": "Final balance between",
+ "clients_balance_and": "and",
+ "clients_balance_min_placeholder": "From",
+ "clients_balance_max_placeholder": "To",
+ "clients_balance_currency_any": "All currencies",
+ "clients_balance_direction": "Direction",
+ "clients_balance_direction_any": "Any",
+ "clients_balance_clear": "Clear",
+ "clients_balance_range_hint": "Compares the size of the balance, so 20,000–40,000 also finds a client who owes you 30,000. Pick a direction to see only one side. A client matches if any of their currency balances fits.",
+ "clients_balance_match_count": "{{count}} of {{total}} clients match"
 }

@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { getStoredClientsOrgOrder } from '@/shared/lib/localStorage';
 import type { ClientForm, NewClientAccountDraft } from '@/shared/types';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
+import { emptyBalanceRangeFilter, type BalanceRangeFilter } from '@/features/clients/utils/clientBalanceFilter';
 
 /**
  * UI state for the Clients feature (per browser): the create/edit client form,
@@ -23,6 +24,9 @@ type ClientsStore = {
  setIsSubmittingClient: Dispatch<SetStateAction<boolean>>;
  clientSearch: string;
  setClientSearch: Dispatch<SetStateAction<string>>;
+ // Clients page advanced search: balance range / currency / direction (see clientBalanceFilter).
+ clientBalanceFilter: BalanceRangeFilter;
+ setClientBalanceFilter: Dispatch<SetStateAction<BalanceRangeFilter>>;
  clientSort: ClientSort;
  setClientSort: Dispatch<SetStateAction<ClientSort>>;
  clientsPage: number;
@@ -77,6 +81,8 @@ export const useClientsStore = create<ClientsStore>((set) => {
   setIsSubmittingClient: setter('isSubmittingClient'),
   clientSearch: '',
   setClientSearch: setter('clientSearch'),
+  clientBalanceFilter: emptyBalanceRangeFilter(),
+  setClientBalanceFilter: setter('clientBalanceFilter'),
   clientSort: { key: 'name', dir: 'asc' },
   setClientSort: setter('clientSort'),
   clientsPage: 1,
