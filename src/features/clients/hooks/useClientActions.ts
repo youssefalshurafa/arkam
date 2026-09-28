@@ -11,6 +11,7 @@ import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
+import { offerTrashUndo, restoreTrashBatch } from '@/features/trash/utils/restoreTrashBatch';
 import { clientsOrgOrderStorageKey, notifySettingsChanged } from '@/shared/lib/localStorage';
 import { nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { localDateKey } from '@/shared/utils/date';
@@ -186,7 +187,7 @@ async function onDeleteClient(id: number) {
  }
 
  try {
-  await accountingApi.deleteClient(id);
+  const { batchId } = await accountingApi.deleteClient(id);
   if (clientForm.id === id) {
    setClientForm(emptyClientForm());
   }
@@ -199,6 +200,9 @@ async function onDeleteClient(id: number) {
   }
   setError('');
   await loadData();
+  // The client comes back with its accounts and every transaction on them — the other
+  // parties' ledger entries included.
+  offerTrashUndo(batchId, t('toast_moved_to_trash'), (restoreBatchId) => void restoreTrashBatch(restoreBatchId, { t, loadData }));
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }
@@ -216,7 +220,7 @@ async function onDeleteAllClients() {
  }
 
  const firstConfirm = await confirmDialog({
-  title: t('danger_action_cannot_undo'),
+  title: t('danger_moves_to_trash'),
   message: t('danger_delete_all_clients_confirm'),
   confirmText: t('delete'),
   tone: 'danger',
@@ -226,7 +230,7 @@ async function onDeleteAllClients() {
  }
 
  try {
-  await accountingApi.deleteAllClients();
+  const { batchId } = await accountingApi.deleteAllClients();
   setClientForm(emptyClientForm());
   setSelectedClientForAccounts(null);
   setSelectedClientForLedger(null);
@@ -237,6 +241,7 @@ async function onDeleteAllClients() {
   setExpensesExpandedTxns(new Set());
   setError('');
   await loadData();
+  offerTrashUndo(batchId, t('toast_moved_to_trash'), (restoreBatchId) => void restoreTrashBatch(restoreBatchId, { t, loadData }));
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }
@@ -396,8 +401,9 @@ async function onDeleteClientAccount(accountId: number) {
  if (!accountingApi) return;
  if (!(await confirmDialog({ message: t('client_account_delete_confirm'), confirmText: t('delete'), tone: 'danger' }))) return;
  try {
-  await accountingApi.deleteClientAccount(accountId);
+  const { batchId } = await accountingApi.deleteClientAccount(accountId);
   await loadData();
+  offerTrashUndo(batchId, t('toast_moved_to_trash'), (restoreBatchId) => void restoreTrashBatch(restoreBatchId, { t, loadData }));
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }

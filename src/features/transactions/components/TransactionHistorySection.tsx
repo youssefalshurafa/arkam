@@ -135,15 +135,18 @@ export default function TransactionHistorySection({ transaction, clientAccounts,
           return (
            <li key={entry.id} className="rounded border border-border bg-surface px-3 py-2">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-             <span className={`text-xs font-semibold ${entry.action === 'delete' ? 'text-bad-text' : 'text-fg'}`}>
-              {entry.action === 'delete' ? t('audit_action_delete') : t('audit_action_update')}
+             <span
+              className={`text-xs font-semibold ${entry.action === 'delete' ? 'text-bad-text' : entry.action === 'restore' ? 'text-good-text' : 'text-fg'}`}
+             >
+              {entry.action === 'delete' ? t('audit_action_delete') : entry.action === 'restore' ? t('audit_action_restore') : t('audit_action_update')}
              </span>
              <span className="text-xs text-fg-faint">
               {nameFor(entry.changedBy)} · {formatDateValue(entry.changedAt, dateFormat)}
              </span>
             </div>
 
-            {entry.action === 'delete' ? null : changes.length > 0 ? (
+            {/* Moving to and from the Trash changes no field, so there is no diff to list. */}
+            {entry.action === 'delete' || entry.action === 'restore' ? null : changes.length > 0 ? (
              <ul className="mt-1 flex flex-col gap-0.5">
               {changes.map((change) => (
                <li key={change.key} className="text-xs text-fg-muted">

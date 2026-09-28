@@ -21,6 +21,8 @@ import ExchangeSettingsTab from '@/features/settings/components/ExchangeSettings
 import TreasurySettings from '@/features/treasury/components/TreasurySettings';
 import WriteOffSettings from '@/features/settings/components/WriteOffSettings';
 import ReviewEngineSettingsTab from '@/features/settings/components/ReviewEngineSettings';
+import TrashSettings from '@/features/trash/components/TrashSettings';
+import type { WorkspaceRole } from '@/lib/accountingApi';
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import type {
  Client,
@@ -41,6 +43,7 @@ type SettingsSectionProps = {
  importSummary: string;
  setImportSummary: Dispatch<SetStateAction<string>>;
  isEditorRole: boolean;
+ workspaceRole: WorkspaceRole | null;
  isWorkspaceOwner: boolean;
  isWorkspaceOwnerOrAdmin: boolean;
  aiFeatureAccess: boolean;
@@ -102,6 +105,7 @@ export default function SettingsSection({
  importSummary,
  setImportSummary,
  isEditorRole,
+ workspaceRole,
  isWorkspaceOwner,
  isWorkspaceOwnerOrAdmin,
  aiFeatureAccess,
@@ -305,6 +309,9 @@ export default function SettingsSection({
    {settingsTab === 'pdf' ? <PdfSettingsTab /> : null}
    {settingsTab === 'live-rates' ? <LiveRatesSettings /> : null}
    {settingsTab === 'ai' && aiFeatureAccess ? <AiSettingsTab /> : null}
+   {settingsTab === 'trash' && workspaceRole && workspaceRole !== 'viewer' ? (
+    <TrashSettings role={workspaceRole} sessionUserId={sessionUserId} workspaceId={activeWorkspaceId} />
+   ) : null}
    {settingsTab === 'danger' && !isEditorRole ? (
     <DangerZone
      transactionCount={transactions.length}

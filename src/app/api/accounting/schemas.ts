@@ -41,8 +41,8 @@ const looseNumber = z.union([finiteNumber, numericString]);
 /**
  * The `*Reversed` and `isArchived` flags are typed `number` (0/1) on `Transaction` but read
  * as booleans by db.js (`Boolean(...)`) and stored as BOOLEAN. Both representations are live
- * in the client today — buildTransactionCreatePayload forwards the raw 0/1 from an existing
- * row, while NewTransactionForm sends a real boolean — so both must be accepted.
+ * in the client today — paths that forward an existing row pass the raw 0/1, while
+ * NewTransactionForm sends a real boolean — so both must be accepted.
  */
 const looseBoolean = z.union([z.boolean(), finiteNumber]);
 
@@ -151,6 +151,28 @@ export const actionSchemas: Record<string, z.ZodType> = {
  saveWriteOffMargin: z.object({ currencyId: id, threshold: looseNumber }),
 
  listTransactionHistory: z.object({ transactionId: id }),
+
+ /** Exactly one target: a whole delete batch (Undo, Trash "Restore"), or specific rows. */
+ restoreTrash: z
+  .object({
+   batchId: opt(id),
+   transactionIds: opt(z.array(looseNumber)),
+   acknowledgeReconciliationOverride: opt(z.boolean()),
+  })
+  .refine((value) => (value.batchId != null) !== (value.transactionIds != null && value.transactionIds.length > 0), {
+   message: 'provide exactly one of batchId or transactionIds',
+  }),
+
+ /** Batches, specific rows, or `all: true` for "Empty Trash" — at least one of them. */
+ purgeTrash: z
+  .object({
+   batchIds: opt(z.array(id)),
+   transactionIds: opt(z.array(looseNumber)),
+   all: opt(z.literal(true)),
+  })
+  .refine((value) => value.all === true || (value.batchIds?.length ?? 0) > 0 || (value.transactionIds?.length ?? 0) > 0, {
+   message: 'nothing to delete was selected',
+  }),
 };
 
 /**

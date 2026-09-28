@@ -220,8 +220,10 @@ export const accountingApi = {
  listClients: () => request<unknown[]>({ action: 'listClients' }),
  createClient: (client: unknown) => request<{ ok: true; clientId: number }>({ action: 'createClient', payload: client }),
  updateClient: (client: unknown) => request<{ ok: true }>({ action: 'updateClient', payload: client }),
- deleteClient: (clientId: number) => request<{ ok: true }>({ action: 'deleteClient', payload: clientId }),
- deleteAllClients: () => request<{ ok: true }>({ action: 'deleteAllClients' }),
+ // Deletes are soft: each moves rows to the Trash and returns the batch id the Undo toast and
+ // the Trash's Restore hand back to restoreTrash.
+ deleteClient: (clientId: number) => request<TrashDeleteResult>({ action: 'deleteClient', payload: clientId }),
+ deleteAllClients: () => request<TrashDeleteResult>({ action: 'deleteAllClients' }),
  listAllClientAccounts: () => request<unknown[]>({ action: 'listAllClientAccounts' }),
  listClientAccounts: (clientId: number) => request<unknown[]>({ action: 'listClientAccounts', payload: clientId }),
  createClientAccount: (account: unknown) => request<{ ok: true }>({ action: 'createClientAccount', payload: account }),
@@ -251,7 +253,7 @@ export const accountingApi = {
  updateClientAccountsDormant: (payload: { clientId: number; isDormant: boolean }) =>
   request<{ ok: true }>({ action: 'updateClientAccountsDormant', payload }),
  updateClientAccount: (payload: unknown) => request<{ ok: true }>({ action: 'updateClientAccount', payload }),
- deleteClientAccount: (accountId: number) => request<{ ok: true }>({ action: 'deleteClientAccount', payload: accountId }),
+ deleteClientAccount: (accountId: number) => request<TrashDeleteResult>({ action: 'deleteClientAccount', payload: accountId }),
  moveAccountTransactions: (payload: { fromAccountId: number; toAccountId: number }) =>
   request<{ ok: true; moved: number }>({ action: 'moveAccountTransactions', payload }),
  listCurrencies: () => request<unknown[]>({ action: 'listCurrencies' }),
@@ -282,16 +284,23 @@ export const accountingApi = {
  setTransactionArchiveHidden: async (payload: { id: number; hidden: boolean }, opts?: { silent?: boolean }) =>
   request<{ ok: true }>({ action: 'setTransactionArchiveHidden', payload: { ...payload, id: await resolveTransactionId(payload.id) }, silent: opts?.silent }),
  deleteTransaction: async (transactionId: number, opts?: { acknowledgeReconciliationOverride?: boolean }) =>
-  request<{ ok: true }>({
+  request<TrashDeleteResult>({
    action: 'deleteTransaction',
    payload: { id: await resolveTransactionId(transactionId), acknowledgeReconciliationOverride: opts?.acknowledgeReconciliationOverride },
   }),
  deleteTransactionsBulk: async (payload: { transactionIds: number[]; acknowledgeReconciliationOverride?: boolean }) =>
-  request<{ ok: true; deleted: number }>({
+  request<TrashDeleteResult & { deleted: number }>({
    action: 'deleteTransactionsBulk',
    payload: { ...payload, transactionIds: await resolveTransactionIds(payload.transactionIds) },
   }),
- deleteAllTransactions: () => request<{ ok: true }>({ action: 'deleteAllTransactions' }),
+ deleteAllTransactions: () => request<TrashDeleteResult>({ action: 'deleteAllTransactions' }),
+ // The Trash: what's restorable (grouped by delete action), bringing it back, and removing it
+ // for good. listTrash is scoped server-side — a member only sees their own transaction deletes.
+ listTrash: () => request<TrashListResponse>({ action: 'listTrash' }),
+ restoreTrash: (payload: { batchId: number; acknowledgeReconciliationOverride?: boolean } | { transactionIds: number[]; acknowledgeReconciliationOverride?: boolean }) =>
+  request<TrashRestoreResult>({ action: 'restoreTrash', payload }),
+ purgeTrash: (payload: { batchIds: number[] } | { transactionIds: number[] } | { all: true }) =>
+  request<{ ok: true; transactions: number; accounts: number; clients: number }>({ action: 'purgeTrash', payload }),
  listTransactionHistory: async (transactionId: number) =>
   request<TransactionHistoryResponse>({ action: 'listTransactionHistory', payload: { transactionId: await resolveTransactionId(transactionId) } }),
  listReconciliations: () => request<unknown[]>({ action: 'listReconciliations' }),
@@ -478,7 +487,7 @@ export type BackupInfo = {
  */
 export type TransactionHistoryEntry = {
  id: number;
- action: 'update' | 'delete';
+ action: 'update' | 'delete' | 'restore';
  changedBy: string | null;
  changedAt: string;
  snapshot: Record<string, unknown>;
@@ -491,11 +500,67 @@ export type TransactionHistoryResponse = {
   updatedBy: string | null;
   createdAt: string;
   updatedAt: string | null;
+  // Set while the transaction sits in the Trash.
+  deletedBy?: string | null;
+  deletedAt?: string | null;
  } | null;
  history: TransactionHistoryEntry[];
  // id -> person, for whichever ids could still be resolved. An id absent from this map
  // belongs to a deleted login and must render as unknown, never as a guessed name.
  users: Record<string, { name: string; email: string }>;
+};
+
+/** What every soft delete returns. `batchId` is null when nothing was left to delete. */
+export type TrashDeleteResult = { ok: true; batchId: number | null; count: number };
+
+export type TrashBatchKind = 'transaction' | 'transactions' | 'all_transactions' | 'client' | 'client_account' | 'all_clients';
+
+/** A few of a batch's trashed transactions, enough to recognise what was deleted. */
+export type TrashPreviewRow = {
+ id: number;
+ batchId: number;
+ createdAt: string;
+ amount: number;
+ type: string;
+ currencyCode: string;
+ clientFromName: string;
+ clientToName: string;
+ counterParty: string;
+ description: string;
+ isArchived: number;
+};
+
+/** One delete action in the Trash, and everything it still holds. */
+export type TrashBatch = {
+ id: number;
+ kind: TrashBatchKind;
+ label: string;
+ deletedBy: string | null;
+ deletedAt: string;
+ counts: { clients: number; accounts: number; transactions: number };
+ // Rows a Restore would currently hold back because the other side's client/account is in the
+ // Trash under a different delete — and those clients' names ("restore X first").
+ blockedCount: number;
+ blockedBy: string[];
+ // Restoring re-adds rows at or before a reconciled balance: ask before sending the override.
+ touchesReconciled: boolean;
+ // Transaction restores answer to the past-edit lock; this batch would be refused.
+ pastEditLocked: boolean;
+ preview: TrashPreviewRow[];
+};
+
+export type TrashListResponse = {
+ retentionDays: number;
+ serverNow: string;
+ batches: TrashBatch[];
+ users: Record<string, { name: string; email: string }>;
+};
+
+export type TrashRestoreResult = {
+ ok: true;
+ restored: { clients: number; accounts: number; transactions: number };
+ blockedCount: number;
+ blocked: { kind: 'account' | 'transaction'; id: number; reason: 'account_in_trash' | 'client_in_trash' | 'account_exists'; name: string }[];
 };
 
 export type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer';
