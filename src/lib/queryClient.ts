@@ -54,6 +54,9 @@ export const queryKeys = {
  // over-fetches; nobody needs every transaction's history on every page load.
  transactionHistory: (transactionId: number) => [...queryKeys.all, 'transactionHistory', transactionId] as const,
  clientAccounts: () => [...queryKeys.all, 'clientAccounts'] as const,
+ // The Trash (Settings > Trash), per user AND workspace — what it lists depends on the role.
+ trash: (userId: string | null | undefined, workspaceId: string | null | undefined) =>
+  [...queryKeys.all, 'trash', userId ?? '__anon__', workspaceId ?? '__none__'] as const,
  backupInfo: () => [...queryKeys.all, 'backupInfo'] as const,
  workspaces: () => [...queryKeys.all, 'workspaces'] as const,
  // Live external FX/gold quotes (proxied via /api/live-rates); polled on an interval.

@@ -1,6 +1,5 @@
 'use client';
 
-import { useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { choiceDialog, confirmDialog } from '@/components/ui/AppDialog';
@@ -31,6 +30,9 @@ import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt
 import { ledgerColumnOrderStorageKeyPrefix } from '@/shared/lib/localStorage';
 import { LEDGER_EDIT_FIELD_KEYS } from '@/shared/types';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
+import { useActionHistoryStore } from '@/shared/store/actionHistoryStore';
+import { useCombinedHistory } from '@/shared/hooks/useCombinedHistory';
+import { dropHistoryAction, offerUndoFor, recordTransactionCreate, recordTransactionDelete } from '@/features/transactions/utils/transactionHistoryActions';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useWorkspaceResync } from '@/features/workspace/hooks/useWorkspaceResync';
 import { buildOptimisticTransactionRow } from '@/features/transactions/utils/optimisticRow';
@@ -63,11 +65,6 @@ import type {
 // Every row-edit field routes its keydown through the same handler, and the description column's
 // field can be rendered as a textarea (DescriptionSuggestField), so the event is typed over both.
 type LedgerEditFieldKeyEvent = ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>;
-
-// One already-SAVED edit to a ledger row, reversible/replayable by re-issuing the same update
-// API call with the previous/next persisted values. Distinct from `DraftHistory`, which only
-// rewinds unsaved keystrokes in a currently-open row.
-type LedgerEditAction = { undo: () => Promise<void>; redo: () => Promise<void> };
 
 type UseLedgerActionsParams = {
  clientAccounts: ClientAccount[];
@@ -186,75 +183,21 @@ export function useLedgerActions({
  const setIsNewTransactionExpensesOpen = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen);
  const setIsNewTransactionExpensesOpen2 = useTransactionsStore((s) => s.setIsNewTransactionExpensesOpen2);
 
- // Undo/redo for already-SAVED edits — a separate bounded stack from `ledgerHistory`
- // (unsaved-draft undo). Each entry re-issues the same update API call the original save
- // used, with the previous/next persisted values, then refreshes like any other edit.
- const pastLedgerActions = useRef<LedgerEditAction[]>([]);
- const futureLedgerActions = useRef<LedgerEditAction[]>([]);
- const [isLedgerActionBusy, setIsLedgerActionBusy] = useState(false);
- const [, bumpLedgerActionHistory] = useReducer((x: number) => x + 1, 0);
-
- function pushLedgerEditAction(action: LedgerEditAction) {
-  pastLedgerActions.current = [...pastLedgerActions.current, action].slice(-30);
-  futureLedgerActions.current = [];
-  bumpLedgerActionHistory();
-  return action;
- }
-
+ // Undo/redo for already-SAVED changes lives in the app-wide actionHistoryStore, shared with the
+ // Transactions page: edits made here, and transactions created or deleted anywhere, all go on
+ // one history. Each edit entry re-issues the same update API call the original save used, with
+ // the previous/next persisted values, then refreshes like any other edit.
+ const pushLedgerEditAction = useActionHistoryStore((s) => s.push);
  // Takes back an entry pushed for an edit that turned out not to have landed. Optimistic saves
  // push their undo entry up front so undo works the instant the row closes; when the write then
  // fails and the row is rolled back, its entry has to come off the stack too, or the next undo
  // would "revert" a change the server never made.
- function dropLedgerEditAction(action: LedgerEditAction) {
-  pastLedgerActions.current = pastLedgerActions.current.filter((entry) => entry !== action);
-  bumpLedgerActionHistory();
- }
+ const dropLedgerEditAction = useActionHistoryStore((s) => s.drop);
 
- async function undoLedgerEditAction() {
-  const action = pastLedgerActions.current[pastLedgerActions.current.length - 1];
-  if (!action || isLedgerActionBusy) return;
-  setIsLedgerActionBusy(true);
-  try {
-   await action.undo();
-   pastLedgerActions.current = pastLedgerActions.current.slice(0, -1);
-   futureLedgerActions.current = [...futureLedgerActions.current, action];
-  } finally {
-   setIsLedgerActionBusy(false);
-   bumpLedgerActionHistory();
-  }
- }
-
- async function redoLedgerEditAction() {
-  const action = futureLedgerActions.current[futureLedgerActions.current.length - 1];
-  if (!action || isLedgerActionBusy) return;
-  setIsLedgerActionBusy(true);
-  try {
-   await action.redo();
-   futureLedgerActions.current = futureLedgerActions.current.slice(0, -1);
-   pastLedgerActions.current = [...pastLedgerActions.current, action];
-  } finally {
-   setIsLedgerActionBusy(false);
-   bumpLedgerActionHistory();
-  }
- }
-
- // The toolbar's undo/redo buttons drive both stacks through one pair of controls:
+ // The toolbar's undo/redo buttons drive both histories through one pair of controls:
  // unsaved-draft undo (typing in an open row) takes priority since it's the most recent
- // thing the user touched, falling back to the saved-edit stack once drafts are exhausted.
- const combinedLedgerHistory: DraftHistory = {
-  record: ledgerHistory.record,
-  reset: ledgerHistory.reset,
-  canUndo: ledgerHistory.canUndo || (pastLedgerActions.current.length > 0 && !isLedgerActionBusy),
-  canRedo: ledgerHistory.canRedo || (futureLedgerActions.current.length > 0 && !isLedgerActionBusy),
-  undo: () => {
-   if (ledgerHistory.canUndo) ledgerHistory.undo();
-   else void undoLedgerEditAction();
-  },
-  redo: () => {
-   if (ledgerHistory.canRedo) ledgerHistory.redo();
-   else void redoLedgerEditAction();
-  },
- };
+ // thing the user touched, falling back to saved changes once drafts are exhausted.
+ const combinedLedgerHistory = useCombinedHistory(ledgerHistory);
 
 // Fills the open one-sided-transaction modal from a row copied on the Transactions page
 // (useTransactionsStore's `copiedTransaction`), mirroring the Transactions page's own
@@ -415,6 +358,10 @@ async function onSubmitOneSidedTransaction() {
   optimisticRow,
   createRequest.then((created) => created.id),
  );
+ const historyEntry = recordTransactionCreate(
+  createRequest.then((created) => created.id),
+  { override: lock.overrode, t, reload: loadData },
+ );
  void createRequest
   .then((created) => {
    commitPendingCreate(tempId, created.id);
@@ -426,6 +373,7 @@ async function onSubmitOneSidedTransaction() {
   })
   .catch((e) => {
    // Never saved, so the row goes; the modal is offered back with everything still in it.
+   dropHistoryAction(historyEntry);
    failPendingCreate(tempId);
    setTransactions((prev) => prev.filter((tx) => tx.id !== tempId));
    forgetTransactionId(tempId);
@@ -1200,10 +1148,14 @@ async function onDeleteSelectedLedgerEntries() {
  }
 
  try {
-  await accountingApi.deleteTransactionsBulk({ transactionIds, acknowledgeReconciliationOverride: deleteLock.overrode });
+  const { batchId } = await accountingApi.deleteTransactionsBulk({ transactionIds, acknowledgeReconciliationOverride: deleteLock.overrode });
   setSelectedLedgerEntryKeys(new Set());
   setError('');
   await loadData();
+  if (batchId != null) {
+   const entry = recordTransactionDelete(transactionIds, batchId, { override: deleteLock.overrode, t, reload: loadData });
+   offerUndoFor(entry, t('toast_moved_to_trash'));
+  }
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }

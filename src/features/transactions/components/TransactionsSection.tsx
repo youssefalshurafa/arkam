@@ -915,7 +915,9 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               <span className="text-fg-faint">{sum.symbol || sum.code}</span>
              </span>
             ))}
-            {Object.keys(transactionTableDrafts).length > 0 ? (
+            {/* Shown in edit mode, and whenever there is a saved change (a create, a delete, a
+                ledger edit) to step back through. */}
+            {Object.keys(transactionTableDrafts).length > 0 || txTableHistory.canUndo || txTableHistory.canRedo ? (
              <>
               <button
                type="button"

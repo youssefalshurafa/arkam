@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import path from 'node:path';
 import { getServerSession } from 'next-auth';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -24,6 +24,9 @@ const readOnlyActions = new Set([
  // Audit trail for a single transaction. Read-only and no stricter than listTransactions —
  // anyone who can already see a transaction can see who touched it.
  'listTransactionHistory',
+ // The Trash. Not open to viewers (blocked explicitly below); a member only gets back the
+ // deletes they made themselves — db.js's listTrash scopes that.
+ 'listTrash',
  'listReconciliations',
  'listIgnoredAnomalies',
  'listHarvestRates',
@@ -84,6 +87,11 @@ const writeActions = new Set([
  'deleteTransaction',
  'deleteTransactionsBulk',
  'deleteAllTransactions',
+ // Open to members, but db.js's restoreTrash only lets a member restore transaction deletes
+ // they made themselves — that rule depends on the rows, so it can't be checked here.
+ 'restoreTrash',
+ // Permanent deletion: owner/admin only (ownerAdminActions below).
+ 'purgeTrash',
  'createReconciliation',
  'updateReconciliation',
  'deleteReconciliation',
@@ -110,15 +118,18 @@ const writeActions = new Set([
  * day-to-day entry surface and members are meant to use it.
  *
  * These are different in kind from the settings gates further below. Each one either removes
- * rows that no per-row guard ever sees, or cascades far beyond the id it was handed:
- *   * deleteAllTransactions / deleteAllClients / deleteAllCurrencies — wipe the workspace.
- *   * importWorkspaceData — deletes all nine tables INCLUDING transaction_history, then
+ * rows that no per-row guard ever sees, or reaches far beyond the id it was handed:
+ *   * deleteAllTransactions / deleteAllClients — move the whole workspace to the Trash. It is
+ *     restorable for 30 days now, but emptying every ledger is still owner/admin business.
+ *   * deleteAllCurrencies — wipes the workspace (currencies are still hard-deleted).
+ *   * importWorkspaceData — deletes every backup table INCLUDING transaction_history, then
  *     restores whatever the caller uploaded; both a wipe and a history-forgery surface.
  *   * deleteCurrency — cascades currencies -> client_accounts -> transactions, so a single
  *     statement is enough to destroy the ledger.
- *   * deleteClient / deleteClientAccount — cascade into every transaction on either side,
- *     including the counterparty's entries in someone else's ledger, and leave no
+ *   * deleteClient / deleteClientAccount — trash every transaction on either side, including
+ *     the counterparty's entries in someone else's ledger, with no per-row
  *     transaction_history trail (see recordTransactionHistory's exclusion list in db.js).
+ *   * purgeTrash — permanently deletes what the Trash was holding; the only way past it.
  *   * moveAccountTransactions — re-points every transaction between two accounts at once.
  *
  * db.js keeps its own per-row Treasury/Cashbox guards (assertMemberCanWrite*); this gate is
@@ -133,6 +144,7 @@ const ownerAdminActions = new Set([
  'deleteClientAccount',
  'moveAccountTransactions',
  'importWorkspaceData',
+ 'purgeTrash',
 ]);
 
 type Body = {
@@ -260,6 +272,11 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'Viewers cannot modify workspace data.' }, { status: 403 });
   }
 
+  // Viewers can't restore anything, so the Trash has nothing to offer them.
+  if (action === 'listTrash' && role === 'viewer') {
+   return NextResponse.json({ error: 'Viewers cannot access the Trash.' }, { status: 403 });
+  }
+
   // Only the workspace owner may change the shared UI settings (toggle or push).
   if (action === 'saveWorkspaceSettings' && role !== 'owner') {
    return NextResponse.json({ error: 'Only the workspace owner can change shared settings.' }, { status: 403 });
@@ -340,6 +357,15 @@ export async function POST(request: NextRequest) {
      db.listWriteOffMargins(appLike),
      authDb.getWorkspaceBackupInfo(workspaceId),
     ]);
+    // The Trash's 30-day expiry rides on the workspace load, after the response is sent so it
+    // never adds latency. purgeExpiredTrash throttles itself to one real run per day.
+    after(async () => {
+     try {
+      await db.purgeExpiredTrash(appLike);
+     } catch (error) {
+      console.error('[api/accounting] purgeExpiredTrash failed', error);
+     }
+    });
     return NextResponse.json({ organizations, clients, currencies, transactions, clientAccounts, reconciliations, ignoredAnomalies, harvestRates, writeOffMargins, backup });
    }
    case 'listOrganizations':
@@ -360,12 +386,11 @@ export async function POST(request: NextRequest) {
    case 'updateClient':
     await db.updateClient(appLike, payload);
     return NextResponse.json({ ok: true });
+   // Soft deletes: each returns { ok, batchId, count } so the client can offer Undo.
    case 'deleteClient':
-    await db.deleteClient(appLike, payload);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(await db.deleteClient(appLike, payload));
    case 'deleteAllClients':
-    await db.deleteAllClients(appLike);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(await db.deleteAllClients(appLike));
    case 'listAllClientAccounts':
     return NextResponse.json(await db.listAllClientAccounts(appLike));
    case 'listClientAccounts':
@@ -434,8 +459,7 @@ export async function POST(request: NextRequest) {
     await db.updateClientAccount(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteClientAccount':
-    await db.deleteClientAccount(appLike, payload);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(await db.deleteClientAccount(appLike, payload));
    case 'moveAccountTransactions':
     return NextResponse.json(await db.moveAccountTransactions(appLike, payload));
    case 'listCurrencies':
@@ -479,13 +503,23 @@ export async function POST(request: NextRequest) {
     await db.setTransactionArchiveHidden(appLike, payload);
     return NextResponse.json({ ok: true });
    case 'deleteTransaction':
-    await db.deleteTransaction(appLike, payload);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(await db.deleteTransaction(appLike, payload));
    case 'deleteTransactionsBulk':
     return NextResponse.json(await db.deleteTransactionsBulk(appLike, payload));
    case 'deleteAllTransactions':
-    await db.deleteAllTransactions(appLike);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json(await db.deleteAllTransactions(appLike));
+   case 'listTrash': {
+    const trash = (await db.listTrash(appLike)) as { batches: { deletedBy: string | null }[] };
+    // Same batched id -> name lookup as listTransactionHistory below.
+    const users = await authDb.getUserDisplayNamesByIds(
+     trash.batches.map((batch) => batch.deletedBy).filter((value): value is string => typeof value === 'string' && value.length > 0),
+    );
+    return NextResponse.json({ ...trash, users });
+   }
+   case 'restoreTrash':
+    return NextResponse.json(await db.restoreTrash(appLike, payload));
+   case 'purgeTrash':
+    return NextResponse.json(await db.purgeTrash(appLike, payload));
    case 'listTransactionHistory': {
     const trail = (await db.listTransactionHistory(appLike, payload)) as {
      current: { createdBy: string | null; updatedBy: string | null } | null;

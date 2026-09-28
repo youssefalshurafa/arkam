@@ -1,15 +1,19 @@
 import type { Client } from '@/shared/types';
+import type { ClientBalanceEntry } from '@/features/clients/utils/clientBalances';
+import { balanceMatchesSearch } from '@/features/clients/utils/clientBalanceFilter';
 
 export type ClientSort = { key: 'name' | 'organization'; dir: 'asc' | 'desc' };
 export type ClientOrgGroup = { id: number | null; name: string; clients: Client[] };
 
-// Sorts clients by the active column/direction, then applies the search filter.
-// Ported verbatim from the page's sortedClients memo.
-export function sortAndFilterClients({ clients, clientSort, clientSearch, language }: {
+// Sorts clients by the active column/direction, then applies the search filter. The search box
+// matches a client's name, or — for a number, range ("20000-40000") or bound (">20000") — any of
+// their current balances (see balanceMatchesSearch).
+export function sortAndFilterClients({ clients, clientSort, clientSearch, language, balances }: {
  clients: Client[];
  clientSort: ClientSort;
  clientSearch: string;
  language: string;
+ balances?: Map<number, ClientBalanceEntry[]>;
 }): Client[] {
   const factor = clientSort.dir === 'asc' ? 1 : -1;
   const sorted = [...clients].sort((a, b) => {
@@ -19,7 +23,7 @@ export function sortAndFilterClients({ clients, clientSort, clientSearch, langua
   });
   const q = clientSearch.trim().toLowerCase();
   if (!q) return sorted;
-  return sorted.filter((c) => c.name.toLowerCase().includes(q));
+  return sorted.filter((c) => c.name.toLowerCase().includes(q) || (balances ? balanceMatchesSearch(balances.get(c.id) ?? [], q) : false));
 }
 
 // Groups (already sorted/filtered) clients per organization for the card view,

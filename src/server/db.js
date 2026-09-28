@@ -7,6 +7,7 @@ const {
     getDatabaseMetadata,
     ensureWorkspaceSchema,
 } = require('@/server/postgres');
+const { planRestore } = require('@/server/trashPlanner');
 
 function getWorkspaceId(app) {
     const rawWorkspaceId = typeof app?.workspaceId === 'string' ? app.workspaceId.trim() : '';
@@ -24,11 +25,63 @@ async function getSchemaInfo(app) {
     };
 }
 
+// ---- Trash (soft delete) ------------------------------------------------------------------
+//
+// Deleting a transaction, client or account stamps deleted_at/deleted_by/delete_batch_id (see
+// the soft-delete block in postgres.js) instead of removing the row. Each delete ACTION is one
+// trash_batches row, and everything it trashed shares that batch id, so it restores as a unit.
+// Rows stay restorable for TRASH_RETENTION_DAYS, then purgeExpiredTrash hard-deletes them.
+
+const TRASH_RETENTION_DAYS = 30;
+
+// SET clause shared by every soft delete. Callers pass [userId, batchId, ...] as $1/$2 and
+// always pair it with `AND deleted_at IS NULL`, so a row that is already in the Trash keeps the
+// batch (and countdown) of the delete that first put it there.
+const TRASH_STAMP = 'deleted_at = NOW(), deleted_by = $1, delete_batch_id = $2';
+
+const TRASH_TRANSACTION_KINDS = ['transaction', 'transactions'];
+
+async function createTrashBatch(schema, { kind, label, userId }, executor) {
+    const result = await query(
+        `INSERT INTO ${schema}.trash_batches (kind, label, deleted_by) VALUES ($1, $2, $3) RETURNING id`,
+        [kind, label || '', userId || null],
+        executor,
+    );
+    return result.rows[0].id;
+}
+
+// Trashes clients plus exactly what the old ON DELETE CASCADE reached: their accounts, and every
+// transaction on either side of those accounts (the counterparty's ledger entries included).
+async function trashClientsInBatch(schema, clientIds, userId, batchId, executor) {
+    const clients = await query(
+        `UPDATE ${schema}.clients SET ${TRASH_STAMP} WHERE id = ANY($3::bigint[]) AND deleted_at IS NULL`,
+        [userId || null, batchId, clientIds],
+        executor,
+    );
+    const accounts = await query(
+        `UPDATE ${schema}.client_accounts SET ${TRASH_STAMP} WHERE client_id = ANY($3::bigint[]) AND deleted_at IS NULL RETURNING id`,
+        [userId || null, batchId, clientIds],
+        executor,
+    );
+    const accountIds = accounts.rows.map((row) => row.id);
+    let transactionCount = 0;
+    if (accountIds.length) {
+        const transactions = await query(
+            `UPDATE ${schema}.transactions SET ${TRASH_STAMP}
+             WHERE (account_from_id = ANY($3::bigint[]) OR account_to_id = ANY($3::bigint[])) AND deleted_at IS NULL`,
+            [userId || null, batchId, accountIds],
+            executor,
+        );
+        transactionCount = transactions.rowCount || 0;
+    }
+    return { clients: clients.rowCount || 0, accounts: accountIds.length, transactions: transactionCount };
+}
+
 // Used by the workspace delete-confirmation flow, so the user can see how much
 // data (transactions) a workspace holds before deleting it.
 async function countWorkspaceTransactions(app) {
     const { schema } = await getSchemaInfo(app);
-    const result = await query(`SELECT COUNT(*)::int AS count FROM ${schema}.transactions`);
+    const result = await query(`SELECT COUNT(*)::int AS count FROM ${schema}.transactions WHERE deleted_at IS NULL`);
     return result.rows[0]?.count || 0;
 }
 
@@ -40,10 +93,10 @@ async function getWorkspaceStats(app) {
     const result = await query(`
         SELECT
             (SELECT COUNT(*) FROM ${schema}.organizations)::int AS "organizationCount",
-            (SELECT COUNT(*) FROM ${schema}.clients)::int AS "clientCount",
-            (SELECT COUNT(*) FROM ${schema}.client_accounts)::int AS "accountCount",
-            (SELECT COUNT(*) FROM ${schema}.transactions)::int AS "transactionCount",
-            (SELECT MAX(created_at) FROM ${schema}.transactions) AS "lastTransactionAt"
+            (SELECT COUNT(*) FROM ${schema}.clients WHERE deleted_at IS NULL)::int AS "clientCount",
+            (SELECT COUNT(*) FROM ${schema}.client_accounts WHERE deleted_at IS NULL)::int AS "accountCount",
+            (SELECT COUNT(*) FROM ${schema}.transactions WHERE deleted_at IS NULL)::int AS "transactionCount",
+            (SELECT MAX(created_at) FROM ${schema}.transactions WHERE deleted_at IS NULL) AS "lastTransactionAt"
     `);
     return (
         result.rows[0] || {
@@ -249,11 +302,11 @@ async function listClients(app) {
             (
                 SELECT COUNT(*)
                 FROM ${schema}.client_accounts
-                WHERE client_id = clients.id
+                WHERE client_id = clients.id AND deleted_at IS NULL
             )::integer AS "accountCount"
         FROM ${schema}.clients clients
         LEFT JOIN ${schema}.organizations organizations ON organizations.id = clients.organization_id
-        WHERE clients.is_system = FALSE
+        WHERE clients.is_system = FALSE AND clients.deleted_at IS NULL
         ORDER BY LOWER(clients.name) ASC
     `);
     return result.rows;
@@ -299,7 +352,7 @@ async function updateClient(app, client) {
         `
             UPDATE ${schema}.clients
             SET organization_id = $1, name = $2, email = $3, phone = $4, address = $5, exclude_from_balance = $6, distribution_commission_enabled = $7, updated_at = NOW()
-            WHERE id = $8
+            WHERE id = $8 AND deleted_at IS NULL
         `,
         [
             client.organizationId || null,
@@ -314,15 +367,50 @@ async function updateClient(app, client) {
     );
 }
 
+// Moves a client to the Trash together with everything the old hard DELETE cascaded into: its
+// accounts and every transaction on either side of them (including the counterparty's entries
+// in other clients' ledgers). All of it shares one delete batch, so restoring the client brings
+// the whole ledger back exactly as it was. Treasury/Cashbox are refused outright — their
+// ON CONFLICT upserts would keep resolving to the trashed row.
 async function deleteClient(app, clientId) {
     const { schema } = await getSchemaInfo(app);
-    await query(`DELETE FROM ${schema}.clients WHERE id = $1`, [clientId]);
+    return withTransaction(async (executor) => {
+        const existing = await query(
+            `SELECT id, name, is_system AS "isSystem" FROM ${schema}.clients WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+            [Number(clientId)],
+            executor,
+        );
+        const row = existing.rows[0];
+        if (!row) {
+            return { ok: true, batchId: null, count: 0 };
+        }
+        if (row.isSystem) {
+            throw new Error('Treasury and Cashbox cannot be deleted.');
+        }
+        const batchId = await createTrashBatch(schema, { kind: 'client', label: row.name, userId: app?.userId }, executor);
+        const counts = await trashClientsInBatch(schema, [row.id], app?.userId, batchId, executor);
+        return { ok: true, batchId, count: counts.transactions };
+    });
 }
 
+// Danger Zone "delete all clients" — now a single restorable Trash batch. Must never touch
+// Treasury/Cashbox (their history outlives any client wipe).
 async function deleteAllClients(app) {
     const { schema } = await getSchemaInfo(app);
-    // Danger Zone "delete all clients" must never wipe Treasury/Cashbox history.
-    await query(`DELETE FROM ${schema}.clients WHERE is_system = FALSE`);
+    return withTransaction(async (executor) => {
+        const existing = await query(
+            `SELECT id FROM ${schema}.clients WHERE is_system = FALSE AND deleted_at IS NULL FOR UPDATE`,
+            [],
+            executor,
+        );
+        const clientIds = existing.rows.map((row) => row.id);
+        if (!clientIds.length) {
+            return { ok: true, batchId: null, count: 0 };
+        }
+        const batchId = await createTrashBatch(schema, { kind: 'all_clients', label: '', userId: app?.userId }, executor);
+        const counts = await trashClientsInBatch(schema, clientIds, app?.userId, batchId, executor);
+        return { ok: true, batchId, count: counts.clients };
+    });
 }
 
 // A `member`'s cashbox rows are their own private working set; a `member` sees their own
@@ -353,7 +441,8 @@ async function listAllClientAccounts(app) {
             FROM ${schema}.client_accounts ca
             JOIN ${schema}.clients c ON c.id = ca.client_id
             JOIN ${schema}.currencies cur ON cur.id = ca.currency_id
-            ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
+            WHERE ca.deleted_at IS NULL
+            ${isMember ? `AND (c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1))` : ''}
             ORDER BY LOWER(c.name) ASC, cur.code ASC
         `,
         isMember ? [app.userId] : [],
@@ -379,7 +468,7 @@ async function listClientAccounts(app, clientId) {
         FROM ${schema}.client_accounts ca
         JOIN ${schema}.clients c ON c.id = ca.client_id
         JOIN ${schema}.currencies cur ON cur.id = ca.currency_id
-        WHERE ca.client_id = $1
+        WHERE ca.client_id = $1 AND ca.deleted_at IS NULL
         ORDER BY cur.code ASC
     `, [clientId]);
     return result.rows;
@@ -395,11 +484,12 @@ async function createClientAccount(app, { clientId, currencyId, startingBalance 
     await assertMemberCanWriteClient(app, clientId);
 
     const { schema } = await getSchemaInfo(app);
+    await assertClientLive(schema, clientId);
     await query(
         `
             INSERT INTO ${schema}.client_accounts (client_id, currency_id, starting_balance)
             VALUES ($1, $2, $3)
-            ON CONFLICT (client_id, currency_id) DO NOTHING
+            ON CONFLICT (client_id, currency_id) WHERE deleted_at IS NULL DO NOTHING
         `,
         [clientId, currencyId, startingBalance ?? 0],
     );
@@ -424,7 +514,7 @@ async function listSystemClients(app) {
             SELECT c.id, c.name, c.system_kind AS "systemKind", c.owner_user_id AS "ownerUserId", u.name AS "ownerName"
             FROM ${schema}.clients c
             LEFT JOIN public.users u ON u.id = c.owner_user_id
-            WHERE c.is_system = TRUE
+            WHERE c.is_system = TRUE AND c.deleted_at IS NULL
             ${isMember ? `AND (c.system_kind = 'treasury' OR c.owner_user_id = $1)` : ''}
             ORDER BY CASE WHEN c.system_kind = 'treasury' THEN 0 ELSE 1 END, LOWER(c.name) ASC
         `,
@@ -462,7 +552,7 @@ async function getTreasuryLedgerData(app) {
         FROM ${schema}.client_accounts ca
         JOIN ${schema}.clients c ON c.id = ca.client_id
         JOIN ${schema}.currencies cur ON cur.id = ca.currency_id
-        WHERE c.system_kind = 'treasury'
+        WHERE c.system_kind = 'treasury' AND ca.deleted_at IS NULL
     `);
     // Field list mirrors listTransactions (L752) exactly, minus the isMember filter, scoped to
     // rows touching a Treasury account instead.
@@ -525,7 +615,7 @@ async function getTreasuryLedgerData(app) {
         LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
         LEFT JOIN ${schema}.currencies chcur2 ON chcur2.id = t.charges2_currency_id
         LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
-        WHERE c_from.system_kind = 'treasury' OR c_to.system_kind = 'treasury'
+        WHERE t.deleted_at IS NULL AND (c_from.system_kind = 'treasury' OR c_to.system_kind = 'treasury')
         ORDER BY t.created_at ASC
     `);
     return { clientAccounts: accountsResult.rows, transactions: transactionsResult.rows };
@@ -570,7 +660,7 @@ async function ensureTreasuryAndCashboxes(app, { members = [] } = {}) {
                     `
                         INSERT INTO ${schema}.client_accounts (client_id, currency_id, starting_balance)
                         VALUES ($1, $2, 0)
-                        ON CONFLICT (client_id, currency_id) DO NOTHING
+                        ON CONFLICT (client_id, currency_id) WHERE deleted_at IS NULL DO NOTHING
                     `,
                     [treasuryId, mainCurrencyId],
                     client,
@@ -627,7 +717,7 @@ async function ensureSystemAccount(app, { systemClientId, currencyId }) {
         `
             INSERT INTO ${schema}.client_accounts (client_id, currency_id, starting_balance)
             VALUES ($1, $2, 0)
-            ON CONFLICT (client_id, currency_id) DO UPDATE SET currency_id = EXCLUDED.currency_id
+            ON CONFLICT (client_id, currency_id) WHERE deleted_at IS NULL DO UPDATE SET currency_id = EXCLUDED.currency_id
             RETURNING id
         `,
         [systemClientId, currencyId],
@@ -647,7 +737,7 @@ async function updateClientAccountStartingBalance(app, { accountId, startingBala
     await assertOwnerCanWriteSystemStartingBalance(app, accountId);
 
     const { schema } = await getSchemaInfo(app);
-    await query(`UPDATE ${schema}.client_accounts SET starting_balance = $1 WHERE id = $2`, [startingBalance ?? 0, accountId]);
+    await query(`UPDATE ${schema}.client_accounts SET starting_balance = $1 WHERE id = $2 AND deleted_at IS NULL`, [startingBalance ?? 0, accountId]);
 }
 
 async function assertOwnerCanWriteSystemStartingBalance(app, accountId) {
@@ -671,7 +761,7 @@ async function updateClientAccountNote(app, { accountId, note, noteShowInPdf }) 
 
     const { schema } = await getSchemaInfo(app);
     await query(
-        `UPDATE ${schema}.client_accounts SET note = $1, note_show_in_pdf = $2 WHERE id = $3`,
+        `UPDATE ${schema}.client_accounts SET note = $1, note_show_in_pdf = $2 WHERE id = $3 AND deleted_at IS NULL`,
         [note ?? '', Boolean(noteShowInPdf), accountId],
     );
 }
@@ -690,7 +780,7 @@ async function updateClientAccountDormant(app, { accountId, isDormant }) {
 
     const { schema } = await getSchemaInfo(app);
     await query(
-        `UPDATE ${schema}.client_accounts SET is_dormant = $1 WHERE id = $2`,
+        `UPDATE ${schema}.client_accounts SET is_dormant = $1 WHERE id = $2 AND deleted_at IS NULL`,
         [Boolean(isDormant), accountId],
     );
 }
@@ -710,7 +800,7 @@ async function updateClientAccountsDormant(app, { clientId, isDormant }) {
 
     const { schema } = await getSchemaInfo(app);
     await query(
-        `UPDATE ${schema}.client_accounts SET is_dormant = $1 WHERE client_id = $2`,
+        `UPDATE ${schema}.client_accounts SET is_dormant = $1 WHERE client_id = $2 AND deleted_at IS NULL`,
         [Boolean(isDormant), clientId],
     );
 }
@@ -727,19 +817,47 @@ async function updateClientAccount(app, { accountId, currencyId, startingBalance
 
     const { schema } = await getSchemaInfo(app);
     await query(
-        `UPDATE ${schema}.client_accounts SET currency_id = $1, starting_balance = $2 WHERE id = $3`,
+        `UPDATE ${schema}.client_accounts SET currency_id = $1, starting_balance = $2 WHERE id = $3 AND deleted_at IS NULL`,
         [currencyId, startingBalance ?? 0, accountId],
     );
 }
 
-// Deletes the account row; ON DELETE CASCADE then removes every transaction on either side of
-// it, including the counterparty's entries in other clients' ledgers. Those cascaded rows leave
-// no transaction_history trail (see recordTransactionHistory's exclusion list), which is why
-// this is gated to owner/admin in route.ts on top of the per-row guard here.
+// Moves the account to the Trash along with every transaction on either side of it, including
+// the counterparty's entries in other clients' ledgers — the same reach the old ON DELETE
+// CASCADE had, but restorable as one batch. Gated to owner/admin in route.ts on top of the
+// per-row guard here, since it can pull rows out of someone else's ledger.
 async function deleteClientAccount(app, accountId) {
     await assertMemberCanWriteAccount(app, accountId);
     const { schema } = await getSchemaInfo(app);
-    await query(`DELETE FROM ${schema}.client_accounts WHERE id = $1`, [accountId]);
+    return withTransaction(async (executor) => {
+        const existing = await query(
+            `SELECT ca.id, c.name AS "clientName", cur.code AS "currencyCode"
+             FROM ${schema}.client_accounts ca
+             JOIN ${schema}.clients c ON c.id = ca.client_id
+             JOIN ${schema}.currencies cur ON cur.id = ca.currency_id
+             WHERE ca.id = $1 AND ca.deleted_at IS NULL
+             FOR UPDATE OF ca`,
+            [Number(accountId)],
+            executor,
+        );
+        const row = existing.rows[0];
+        if (!row) {
+            return { ok: true, batchId: null, count: 0 };
+        }
+        const batchId = await createTrashBatch(schema, { kind: 'client_account', label: `${row.clientName} · ${row.currencyCode}`, userId: app?.userId }, executor);
+        await query(
+            `UPDATE ${schema}.client_accounts SET ${TRASH_STAMP} WHERE id = $3 AND deleted_at IS NULL`,
+            [app?.userId || null, batchId, row.id],
+            executor,
+        );
+        const transactions = await query(
+            `UPDATE ${schema}.transactions SET ${TRASH_STAMP}
+             WHERE (account_from_id = $3 OR account_to_id = $3) AND deleted_at IS NULL`,
+            [app?.userId || null, batchId, row.id],
+            executor,
+        );
+        return { ok: true, batchId, count: transactions.rowCount || 0 };
+    });
 }
 
 // Re-points every transaction (both the "from" and "to" sides) from one account onto another,
@@ -758,7 +876,10 @@ async function moveAccountTransactions(app, { fromAccountId, toAccountId }) {
 
     const { schema } = await getSchemaInfo(app);
     const accountsResult = await query(
-        `SELECT id, currency_id AS "currencyId" FROM ${schema}.client_accounts WHERE id = ANY($1::bigint[])`,
+        // Both ends must be live. The source's individually trashed transactions are moved along
+        // with its live ones (the UPDATEs below don't filter on deleted_at), so a later restore of
+        // one of them lands it on the live destination instead of the emptied source.
+        `SELECT id, currency_id AS "currencyId" FROM ${schema}.client_accounts WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
         [[from, to]],
     );
     const fromAccount = accountsResult.rows.find((row) => Number(row.id) === from);
@@ -916,7 +1037,7 @@ async function listTransactions(app) {
     // dealings, another member's cashbox) is invisible to them — owner/admin/viewer see every
     // transaction unfiltered, same as today.
     const memberFilter = isMember
-        ? `WHERE (
+        ? `AND (
                 NOT (COALESCE(c_from.is_system, FALSE) OR COALESCE(c_to.is_system, FALSE))
                 OR (c_from.system_kind = 'cashbox' AND c_from.owner_user_id = $1)
                 OR (c_to.system_kind = 'cashbox' AND c_to.owner_user_id = $1)
@@ -982,6 +1103,7 @@ async function listTransactions(app) {
             LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
             LEFT JOIN ${schema}.currencies chcur2 ON chcur2.id = t.charges2_currency_id
             LEFT JOIN ${schema}.distribution_locations dloc ON dloc.id = t.distribution_location_id
+            WHERE t.deleted_at IS NULL
             ${memberFilter}
             ORDER BY t.created_at DESC
         `,
@@ -1006,6 +1128,41 @@ async function resolveSystemAccountInfo(app, accountIds) {
         [ids],
     );
     return new Map(result.rows.map((row) => [Number(row.accountId), row]));
+}
+
+// Rejects a write that would attach something to a client/account sitting in the Trash (or
+// gone entirely). Before soft delete the foreign key caught this; now the row still exists, so
+// a stale page posting to an account someone else just deleted would otherwise land an entry
+// on an invisible ledger. Checks the owning client too — an account is only as live as its
+// client (deleteClient trashes both, but belt and braces).
+async function assertAccountsLive(schema, accountIds, executor) {
+    const ids = [...new Set(accountIds.map(Number).filter((id) => Number.isFinite(id) && id > 0))];
+    if (!ids.length) return;
+    const result = await query(
+        `SELECT ca.id
+         FROM ${schema}.client_accounts ca
+         JOIN ${schema}.clients c ON c.id = ca.client_id
+         WHERE ca.id = ANY($1::bigint[]) AND ca.deleted_at IS NULL AND c.deleted_at IS NULL`,
+        [ids],
+        executor,
+    );
+    if (result.rows.length !== ids.length) {
+        throw new Error('This account was deleted (it may be in the Trash). Refresh the page and try again.');
+    }
+}
+
+async function assertTransactionLive(schema, transactionId, executor) {
+    const result = await query(`SELECT 1 FROM ${schema}.transactions WHERE id = $1 AND deleted_at IS NULL`, [Number(transactionId)], executor);
+    if (!result.rows.length) {
+        throw new Error('This transaction no longer exists (it may be in the Trash). Refresh the page and try again.');
+    }
+}
+
+async function assertClientLive(schema, clientId, executor) {
+    const result = await query(`SELECT 1 FROM ${schema}.clients WHERE id = $1 AND deleted_at IS NULL`, [Number(clientId)], executor);
+    if (!result.rows.length) {
+        throw new Error('This client was deleted (it may be in the Trash). Refresh the page and try again.');
+    }
 }
 
 // Blocks a `member`-role user from posting a single-sided entry (reconciliation) directly
@@ -1083,6 +1240,7 @@ async function createTransaction(app, txn) {
     await assertMemberCanWriteTransaction(app, { accountFromId: txn.accountFromId, accountToId: txn.accountToId });
 
     const { schema } = await getSchemaInfo(app);
+    await assertAccountsLive(schema, [txn.accountFromId, txn.accountToId]);
     const hasCustomCreatedAt = typeof txn.createdAt === 'string' && txn.createdAt.trim().length > 0;
 
     // Archive-only records are deliberately backdated historical entries (see the isArchived
@@ -1255,15 +1413,16 @@ async function createTransaction(app, txn) {
 }
 
 // Snapshots a transaction as it exists RIGHT NOW into transaction_history, before the caller
-// overwrites or deletes it. `action` is 'update' or 'delete'.
+// overwrites, trashes or restores it. `action` is 'update', 'delete' or 'restore'.
 //
 // Callers must pass an `executor` (a client inside withTransaction) so the snapshot and the
 // change it describes commit or roll back together — a snapshot without its change would
 // invent an edit that never happened, and a change without its snapshot loses the audit record.
 //
 // Deliberately NOT covered by this, because none of them go through a single-row path:
-//   * deleteAllTransactions      — wipes the table wholesale
-//   * ON DELETE CASCADE          — rows removed when an account or currency is deleted
+//   * deleteAllTransactions      — trashes the table wholesale (and its restore)
+//   * deleteClient/deleteClientAccount — trash every transaction on the account(s) (and restores)
+//   * ON DELETE CASCADE          — rows removed when a currency is deleted or the Trash is purged
 //   * moveAccountTransactions    — bulk re-pointing of account_from_id/account_to_id
 // If per-row history is ever wanted for those, they need their own snapshot loop; today they
 // leave no trail, and that limitation is intentional rather than overlooked.
@@ -1306,10 +1465,16 @@ async function updateTransaction(app, txn) {
                 charges, charges_currency_id AS "chargesCurrencyId", charges_payer AS "chargesPayer", charges_exchange_rate AS "chargesExchangeRate",
                 charges2, charges2_currency_id AS "charges2CurrencyId", charges2_payer AS "chargesPayer2", charges2_exchange_rate AS "charges2ExchangeRate",
                 exchange_actual_amount AS "exchangeActualAmount"
-         FROM ${schema}.transactions WHERE id = $1`,
+         FROM ${schema}.transactions WHERE id = $1 AND deleted_at IS NULL`,
         [txn.id],
     );
     const existingRow = existing.rows[0];
+    // Used to fall through and UPDATE zero rows silently. With soft delete the likely cause is
+    // an edit from a stale page after someone else moved the row to the Trash — say so.
+    if (!existingRow) {
+        throw new Error('This transaction no longer exists (it may be in the Trash). Refresh the page and try again.');
+    }
+    await assertAccountsLive(schema, [txn.accountFromId, txn.accountToId]);
     if (existingRow && !existingRow.isArchived) {
         await assertPastEditAllowed(app, app.todayKey, existingRow.createdAt, txn.createdAt);
     }
@@ -1371,7 +1536,7 @@ async function updateTransaction(app, txn) {
                     -- are captured in transaction_history by recordTransactionHistory above.
                     updated_by = $31,
                     updated_at = NOW()
-                WHERE id = $20
+                WHERE id = $20 AND deleted_at IS NULL
             `,
             [
                 txn.accountFromId || null,
@@ -1421,13 +1586,13 @@ async function setTransactionArchiveHidden(app, { id, hidden }) {
         throw new Error('Transaction id is required.');
     }
     const { schema } = await getSchemaInfo(app);
-    const existing = await query(`SELECT account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1`, [id]);
+    const existing = await query(`SELECT account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1 AND deleted_at IS NULL`, [id]);
     const existingRow = existing.rows[0];
     if (!existingRow) {
         throw new Error('Transaction not found.');
     }
     await assertMemberCanWriteTransaction(app, { accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId });
-    await query(`UPDATE ${schema}.transactions SET archive_hidden = $1 WHERE id = $2`, [Boolean(hidden), id]);
+    await query(`UPDATE ${schema}.transactions SET archive_hidden = $1 WHERE id = $2 AND deleted_at IS NULL`, [Boolean(hidden), id]);
 }
 
 async function deleteTransaction(app, payload) {
@@ -1436,28 +1601,35 @@ async function deleteTransaction(app, payload) {
     const acknowledgeReconciliationOverride = typeof payload === 'object' && payload !== null ? payload.acknowledgeReconciliationOverride : false;
     const { schema } = await getSchemaInfo(app);
     const existing = await query(
-        `SELECT created_at AS "createdAt", is_archived AS "isArchived", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1`,
+        `SELECT created_at AS "createdAt", is_archived AS "isArchived", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1 AND deleted_at IS NULL`,
         [transactionId],
     );
     const existingRow = existing.rows[0];
-    if (existingRow) {
-        await assertMemberCanWriteTransaction(app, { accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId });
+    // Already in the Trash (or gone): nothing to do, same as the old DELETE of a missing id.
+    if (!existingRow) {
+        return { ok: true, batchId: null, count: 0 };
     }
-    if (existingRow && !existingRow.isArchived) {
+    await assertMemberCanWriteTransaction(app, { accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId });
+    if (!existingRow.isArchived) {
         await assertPastEditAllowed(app, app.todayKey, existingRow.createdAt);
     }
-    if (existingRow) {
-        await assertReconciliationNotViolated(
-            app,
-            [{ accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId, createdAt: existingRow.createdAt, refId: transactionId, isArchived: existingRow.isArchived }],
-            Boolean(acknowledgeReconciliationOverride),
-        );
-    }
-    await withTransaction(async (client) => {
-        // Snapshot before the delete: this history row becomes the ONLY surviving copy of the
-        // transaction, so it and the delete must commit together.
+    await assertReconciliationNotViolated(
+        app,
+        [{ accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId, createdAt: existingRow.createdAt, refId: transactionId, isArchived: existingRow.isArchived }],
+        Boolean(acknowledgeReconciliationOverride),
+    );
+    return withTransaction(async (client) => {
+        // Snapshot and move to the Trash together, so the 'delete' history entry and the
+        // delete it describes commit or roll back as one. After the 30-day purge that snapshot
+        // is the only surviving copy of the transaction.
         await recordTransactionHistory(app, schema, transactionId, 'delete', client);
-        await query(`DELETE FROM ${schema}.transactions WHERE id = $1`, [transactionId], client);
+        const batchId = await createTrashBatch(schema, { kind: 'transaction', label: '', userId: app?.userId }, client);
+        await query(
+            `UPDATE ${schema}.transactions SET ${TRASH_STAMP} WHERE id = $3 AND deleted_at IS NULL`,
+            [app?.userId || null, batchId, transactionId],
+            client,
+        );
+        return { ok: true, batchId, count: 1 };
     });
 }
 
@@ -1475,7 +1647,8 @@ async function listTransactionHistory(app, payload) {
     // The transaction itself may be gone (a 'delete' history row outlives it), so this is a
     // separate lookup that's allowed to come back empty rather than a join.
     const current = await query(
-        `SELECT created_by AS "createdBy", updated_by AS "updatedBy", created_at AS "createdAt", updated_at AS "updatedAt"
+        `SELECT created_by AS "createdBy", updated_by AS "updatedBy", created_at AS "createdAt", updated_at AS "updatedAt",
+                deleted_by AS "deletedBy", deleted_at AS "deletedAt"
          FROM ${schema}.transactions WHERE id = $1`,
         [transactionId],
     );
@@ -1491,12 +1664,480 @@ async function listTransactionHistory(app, payload) {
     return { current: current.rows[0] || null, history: history.rows };
 }
 
-// Wholesale wipe — deliberately NOT snapshotted into transaction_history (see
-// recordTransactionHistory): writing one history row per transaction here would double the
-// table's size on an operation whose entire point is to clear it out.
+// Danger Zone wipe — every transaction (archived ones included, as before) moves to the Trash
+// as ONE batch, so a misclick is a single Restore away for 30 days. Deliberately NOT snapshotted
+// into transaction_history (see recordTransactionHistory): one history row per transaction
+// would double the table on an operation whose entire point is to clear it out.
 async function deleteAllTransactions(app) {
     const { schema } = await getSchemaInfo(app);
-    await query(`DELETE FROM ${schema}.transactions`);
+    return withTransaction(async (executor) => {
+        const batchId = await createTrashBatch(schema, { kind: 'all_transactions', label: '', userId: app?.userId }, executor);
+        const result = await query(
+            `UPDATE ${schema}.transactions SET ${TRASH_STAMP} WHERE deleted_at IS NULL`,
+            [app?.userId || null, batchId],
+            executor,
+        );
+        if (!result.rowCount) {
+            await query(`DELETE FROM ${schema}.trash_batches WHERE id = $1`, [batchId], executor);
+            return { ok: true, batchId: null, count: 0 };
+        }
+        return { ok: true, batchId, count: result.rowCount };
+    });
+}
+
+const TRASH_CLEAR = 'deleted_at = NULL, deleted_by = NULL, delete_batch_id = NULL';
+
+// Drops trash_batches rows that no longer hold anything (fully restored or fully purged).
+// `batchIds` null means check every batch — only the expiry sweep does that.
+async function deleteEmptyTrashBatches(schema, batchIds, executor) {
+    if (batchIds && !batchIds.length) return;
+    await query(
+        `DELETE FROM ${schema}.trash_batches b
+         WHERE ${batchIds ? 'b.id = ANY($1::bigint[]) AND' : ''}
+             NOT EXISTS (SELECT 1 FROM ${schema}.transactions x WHERE x.delete_batch_id = b.id AND x.deleted_at IS NOT NULL)
+             AND NOT EXISTS (SELECT 1 FROM ${schema}.client_accounts x WHERE x.delete_batch_id = b.id AND x.deleted_at IS NOT NULL)
+             AND NOT EXISTS (SELECT 1 FROM ${schema}.clients x WHERE x.delete_batch_id = b.id AND x.deleted_at IS NOT NULL)`,
+        batchIds ? [batchIds] : [],
+        executor,
+    );
+}
+
+// Brings a Trash batch — or specific trashed transactions — back exactly as it was: same ids,
+// so the row's history, reconciliation membership and ignored anomalies all re-attach, which the
+// old "undo = re-create the transaction" never managed.
+//
+// Permissions: owner/admin may restore anything. A member may restore only single/bulk
+// transaction deletes they made themselves (route.ts lets members call this; the check lives
+// here because it depends on the rows). Restoring a transaction re-adds it to the balances it
+// was removed from, so transaction restores answer to the same past-edit lock and
+// reconciliation backstop the delete did. Client/account restores are owner/admin only and,
+// like the client/account delete itself, run neither (the UI warns instead).
+//
+// Anything that can't come back without breaking an invariant — a row whose counterparty is in
+// the Trash under another delete, or an account whose (client, currency) was re-created since —
+// stays in the Trash and is reported in `blocked` (see trashPlanner.js).
+async function restoreTrash(app, payload) {
+    const { schema } = await getSchemaInfo(app);
+    const isManager = app?.role === 'owner' || app?.role === 'admin';
+    const batchId = payload?.batchId != null ? Number(payload.batchId) : null;
+    const requestedIds = Array.isArray(payload?.transactionIds)
+        ? [...new Set(payload.transactionIds.map(Number).filter((id) => Number.isFinite(id)))]
+        : [];
+    const override = Boolean(payload?.acknowledgeReconciliationOverride);
+    if (!batchId && !requestedIds.length) {
+        throw new Error('Nothing to restore was selected.');
+    }
+
+    return withTransaction(async (executor) => {
+        let batch = null;
+        let clients = [];
+        let accounts = [];
+        const transactionColumns = `t.id, t.account_from_id AS "accountFromId", t.account_to_id AS "accountToId", t.created_at AS "createdAt",
+            t.is_archived AS "isArchived", t.deleted_by AS "deletedBy", t.delete_batch_id AS "batchId", b.kind AS "batchKind"`;
+        let transactions;
+        if (batchId) {
+            batch = (await query(`SELECT id, kind, deleted_by AS "deletedBy" FROM ${schema}.trash_batches WHERE id = $1 FOR UPDATE`, [batchId], executor)).rows[0];
+            if (!batch) {
+                throw new Error('This item is no longer in the Trash.');
+            }
+            clients = (await query(`SELECT id FROM ${schema}.clients WHERE delete_batch_id = $1 AND deleted_at IS NOT NULL FOR UPDATE`, [batchId], executor)).rows;
+            accounts = (
+                await query(
+                    `SELECT id, client_id AS "clientId", currency_id AS "currencyId" FROM ${schema}.client_accounts WHERE delete_batch_id = $1 AND deleted_at IS NOT NULL FOR UPDATE`,
+                    [batchId],
+                    executor,
+                )
+            ).rows;
+            transactions = (
+                await query(
+                    `SELECT ${transactionColumns} FROM ${schema}.transactions t LEFT JOIN ${schema}.trash_batches b ON b.id = t.delete_batch_id
+                     WHERE t.delete_batch_id = $1 AND t.deleted_at IS NOT NULL FOR UPDATE OF t`,
+                    [batchId],
+                    executor,
+                )
+            ).rows;
+        } else {
+            transactions = (
+                await query(
+                    `SELECT ${transactionColumns} FROM ${schema}.transactions t LEFT JOIN ${schema}.trash_batches b ON b.id = t.delete_batch_id
+                     WHERE t.id = ANY($1::bigint[]) AND t.deleted_at IS NOT NULL FOR UPDATE OF t`,
+                    [requestedIds],
+                    executor,
+                )
+            ).rows;
+        }
+
+        if (!isManager) {
+            const ownsAll = batch
+                ? TRASH_TRANSACTION_KINDS.includes(batch.kind) && batch.deletedBy === app?.userId
+                : transactions.every((row) => TRASH_TRANSACTION_KINDS.includes(row.batchKind) && row.deletedBy === app?.userId);
+            if (!ownsAll) {
+                throw new Error('You can only restore transactions you deleted yourself. Ask an admin or the workspace owner to restore this.');
+            }
+            for (const row of transactions) {
+                await assertMemberCanWriteTransaction(app, row);
+            }
+        }
+
+        // Current state of everything the candidates depend on, for the planner.
+        const referencedAccountIds = [
+            ...new Set(
+                [...transactions.flatMap((row) => [row.accountFromId, row.accountToId]), ...accounts.map((row) => row.id)]
+                    .filter((id) => id != null)
+                    .map(Number),
+            ),
+        ];
+        const accountInfo = new Map();
+        if (referencedAccountIds.length) {
+            const { rows } = await query(
+                `SELECT ca.id, ca.client_id AS "clientId", c.name AS "clientName", (ca.deleted_at IS NULL AND c.deleted_at IS NULL) AS live
+                 FROM ${schema}.client_accounts ca
+                 JOIN ${schema}.clients c ON c.id = ca.client_id
+                 WHERE ca.id = ANY($1::bigint[])`,
+                [referencedAccountIds],
+                executor,
+            );
+            for (const row of rows) {
+                accountInfo.set(Number(row.id), { clientId: Number(row.clientId), clientName: row.clientName, live: Boolean(row.live) });
+            }
+        }
+        const accountClientIds = [...new Set(accounts.map((row) => Number(row.clientId)))];
+        const liveClientIds = new Set();
+        const clientNames = new Map();
+        const liveAccountKeys = new Set();
+        if (accountClientIds.length) {
+            const clientRows = (
+                await query(`SELECT id, name, deleted_at IS NULL AS live FROM ${schema}.clients WHERE id = ANY($1::bigint[])`, [accountClientIds], executor)
+            ).rows;
+            for (const row of clientRows) {
+                clientNames.set(Number(row.id), row.name);
+                if (row.live) liveClientIds.add(Number(row.id));
+            }
+            const liveAccounts = (
+                await query(
+                    `SELECT client_id AS "clientId", currency_id AS "currencyId" FROM ${schema}.client_accounts WHERE client_id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+                    [accountClientIds],
+                    executor,
+                )
+            ).rows;
+            for (const row of liveAccounts) {
+                liveAccountKeys.add(`${Number(row.clientId)}:${Number(row.currencyId)}`);
+            }
+        }
+
+        const plan = planRestore({ clients, accounts, transactions, accountInfo, liveClientIds, liveAccountKeys, clientNames });
+        const restoreTransactionIdSet = new Set(plan.restoreTransactionIds);
+        const restoredTransactions = transactions.filter((row) => restoreTransactionIdSet.has(Number(row.id)));
+
+        const isTransactionRestore = !batch || TRASH_TRANSACTION_KINDS.includes(batch.kind);
+        if (isTransactionRestore && restoredTransactions.length) {
+            const datedRows = restoredTransactions.filter((row) => !row.isArchived).map((row) => row.createdAt);
+            if (datedRows.length) {
+                await assertPastEditAllowed(app, app.todayKey, ...datedRows);
+            }
+            await assertReconciliationNotViolated(
+                app,
+                restoredTransactions.map((row) => ({
+                    accountFromId: row.accountFromId,
+                    accountToId: row.accountToId,
+                    createdAt: row.createdAt,
+                    refId: Number(row.id),
+                    isArchived: row.isArchived,
+                })),
+                override,
+            );
+        }
+
+        if (plan.restoreClientIds.length) {
+            await query(`UPDATE ${schema}.clients SET ${TRASH_CLEAR} WHERE id = ANY($1::bigint[]) AND deleted_at IS NOT NULL`, [plan.restoreClientIds], executor);
+        }
+        if (plan.restoreAccountIds.length) {
+            try {
+                await query(`UPDATE ${schema}.client_accounts SET ${TRASH_CLEAR} WHERE id = ANY($1::bigint[]) AND deleted_at IS NOT NULL`, [plan.restoreAccountIds], executor);
+            } catch (error) {
+                // The planner already checked for a live twin; this only fires if one was created
+                // between that check and here.
+                if (error?.code === '23505') {
+                    throw new Error('One of these accounts was re-created while restoring. Refresh the Trash and try again.');
+                }
+                throw error;
+            }
+        }
+        if (plan.restoreTransactionIds.length) {
+            // Same scope as the 'delete' entries: only single/bulk transaction deletes are in the
+            // per-row history, so only their restores are.
+            if (isTransactionRestore) {
+                for (const id of plan.restoreTransactionIds) {
+                    await recordTransactionHistory(app, schema, id, 'restore', executor);
+                }
+            }
+            await query(`UPDATE ${schema}.transactions SET ${TRASH_CLEAR} WHERE id = ANY($1::bigint[]) AND deleted_at IS NOT NULL`, [plan.restoreTransactionIds], executor);
+        }
+
+        const touchedBatchIds = batch ? [batch.id] : [...new Set(restoredTransactions.map((row) => row.batchId).filter((id) => id != null))];
+        await deleteEmptyTrashBatches(schema, touchedBatchIds, executor);
+
+        return {
+            ok: true,
+            restored: {
+                clients: plan.restoreClientIds.length,
+                accounts: plan.restoreAccountIds.length,
+                transactions: plan.restoreTransactionIds.length,
+            },
+            blockedCount: plan.blocked.length,
+            // Capped: a "restore all transactions" blocked by one deleted client could otherwise
+            // ship thousands of entries the UI only summarises anyway.
+            blocked: plan.blocked.slice(0, 50),
+        };
+    });
+}
+
+// Hard-deletes trashed rows matching `condition` (which must include deleted_at IS NOT NULL),
+// children before parents. The existing ON DELETE CASCADEs still apply (ignored anomalies,
+// reconciliations, distribution locations), and by the soft-delete invariants they can only
+// ever reach rows that are themselves already in the Trash.
+async function hardDeleteTrashed(schema, condition, params, executor, { transactionsOnly = false } = {}) {
+    const transactions = await query(`DELETE FROM ${schema}.transactions WHERE ${condition}`, params, executor);
+    if (transactionsOnly) {
+        return { transactions: transactions.rowCount || 0, accounts: 0, clients: 0 };
+    }
+    const accounts = await query(`DELETE FROM ${schema}.client_accounts WHERE ${condition}`, params, executor);
+    const clients = await query(`DELETE FROM ${schema}.clients WHERE ${condition}`, params, executor);
+    return { transactions: transactions.rowCount || 0, accounts: accounts.rowCount || 0, clients: clients.rowCount || 0 };
+}
+
+// "Delete permanently" / "Empty Trash" — owner/admin only (route.ts). No 'purge' history row:
+// the 'delete' snapshot already recorded when the row was trashed is the surviving audit copy.
+async function purgeTrash(app, payload) {
+    const { schema } = await getSchemaInfo(app);
+    const all = payload?.all === true;
+    const batchIds = Array.isArray(payload?.batchIds) ? [...new Set(payload.batchIds.map(Number).filter((id) => Number.isFinite(id)))] : [];
+    const transactionIds = Array.isArray(payload?.transactionIds)
+        ? [...new Set(payload.transactionIds.map(Number).filter((id) => Number.isFinite(id)))]
+        : [];
+    if (!all && !batchIds.length && !transactionIds.length) {
+        throw new Error('Nothing to delete was selected.');
+    }
+
+    return withTransaction(async (executor) => {
+        if (all) {
+            const counts = await hardDeleteTrashed(schema, 'deleted_at IS NOT NULL', [], executor);
+            await deleteEmptyTrashBatches(schema, null, executor);
+            return { ok: true, ...counts };
+        }
+        if (batchIds.length) {
+            const counts = await hardDeleteTrashed(schema, 'deleted_at IS NOT NULL AND delete_batch_id = ANY($1::bigint[])', [batchIds], executor);
+            await deleteEmptyTrashBatches(schema, batchIds, executor);
+            return { ok: true, ...counts };
+        }
+        const affected = await query(
+            `SELECT DISTINCT delete_batch_id AS "batchId" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND deleted_at IS NOT NULL`,
+            [transactionIds],
+            executor,
+        );
+        const counts = await hardDeleteTrashed(schema, 'deleted_at IS NOT NULL AND id = ANY($1::bigint[])', [transactionIds], executor, { transactionsOnly: true });
+        await deleteEmptyTrashBatches(schema, affected.rows.map((row) => row.batchId).filter((id) => id != null), executor);
+        return { ok: true, ...counts };
+    });
+}
+
+// Per-process memo so a busy workspace doesn't even ask the database more than hourly.
+const trashPurgeCheckedAt = new Map();
+
+// The 30-day expiry. Called lazily (after getWorkspaceSnapshot responds, and before listTrash),
+// not from a cron: there is no cron infrastructure, and per-workspace schemas would make one
+// enumerate every workspace. An idle workspace just keeps expired rows until its next visit,
+// which is harmless — listTrash hides anything past the window regardless. The once-a-day claim
+// on workspace_settings.trash_purged_at runs inside the purge's own transaction, so concurrent
+// instances can't both run it and a failed purge doesn't burn the day's claim.
+async function purgeExpiredTrash(app) {
+    const { schema } = await getSchemaInfo(app);
+    const now = Date.now();
+    if (now - (trashPurgeCheckedAt.get(schema) || 0) < 60 * 60 * 1000) {
+        return { ok: true, skipped: true };
+    }
+    trashPurgeCheckedAt.set(schema, now);
+
+    return withTransaction(async (executor) => {
+        const claim = await query(
+            `INSERT INTO ${schema}.workspace_settings (id, trash_purged_at) VALUES (1, NOW())
+             ON CONFLICT (id) DO UPDATE SET trash_purged_at = NOW()
+             WHERE ${schema}.workspace_settings.trash_purged_at IS NULL
+                OR ${schema}.workspace_settings.trash_purged_at < NOW() - INTERVAL '1 day'
+             RETURNING 1`,
+            [],
+            executor,
+        );
+        if (!claim.rows.length) {
+            return { ok: true, skipped: true };
+        }
+        const counts = await hardDeleteTrashed(schema, 'deleted_at IS NOT NULL AND deleted_at < NOW() - make_interval(days => $1)', [TRASH_RETENTION_DAYS], executor);
+        await deleteEmptyTrashBatches(schema, null, executor);
+        return { ok: true, ...counts };
+    });
+}
+
+// The Trash, grouped by delete action, newest first. Owner/admin see everything; a member sees
+// only the single/bulk transaction deletes they made themselves — exactly what restoreTrash will
+// let them restore. Returns raw deleted_by ids; the route resolves them to names.
+async function listTrash(app) {
+    const { schema } = await getSchemaInfo(app);
+    try {
+        await purgeExpiredTrash(app);
+    } catch (error) {
+        console.error('[db] purgeExpiredTrash failed', error);
+    }
+
+    const isManager = app?.role === 'owner' || app?.role === 'admin';
+    const params = isManager ? [TRASH_RETENTION_DAYS] : [TRASH_RETENTION_DAYS, app?.userId || '', TRASH_TRANSACTION_KINDS];
+    const batchResult = await query(
+        `
+            SELECT
+                b.id,
+                b.kind,
+                b.label,
+                b.deleted_by AS "deletedBy",
+                b.deleted_at AS "deletedAt",
+                (SELECT COUNT(*) FROM ${schema}.clients x WHERE x.delete_batch_id = b.id AND x.deleted_at IS NOT NULL)::int AS "clientCount",
+                (SELECT COUNT(*) FROM ${schema}.client_accounts x WHERE x.delete_batch_id = b.id AND x.deleted_at IS NOT NULL)::int AS "accountCount",
+                (SELECT COUNT(*) FROM ${schema}.transactions x WHERE x.delete_batch_id = b.id AND x.deleted_at IS NOT NULL)::int AS "transactionCount",
+                (SELECT MIN(x.created_at) FROM ${schema}.transactions x WHERE x.delete_batch_id = b.id AND x.deleted_at IS NOT NULL AND x.is_archived = FALSE) AS "earliestCreatedAt"
+            FROM ${schema}.trash_batches b
+            WHERE b.deleted_at > NOW() - make_interval(days => $1)
+            ${isManager ? '' : 'AND b.deleted_by = $2 AND b.kind = ANY($3::text[])'}
+            ORDER BY b.deleted_at DESC, b.id DESC
+            LIMIT 200
+        `,
+        params,
+    );
+    const batches = batchResult.rows.filter((row) => row.clientCount + row.accountCount + row.transactionCount > 0);
+    const batchIds = batches.map((row) => row.id);
+    const base = { retentionDays: TRASH_RETENTION_DAYS, serverNow: new Date().toISOString() };
+    if (!batchIds.length) {
+        return { ...base, batches: [] };
+    }
+
+    // Up to 20 newest rows per batch — enough to recognise what was deleted without shipping a
+    // whole "delete all" batch.
+    const previewResult = await query(
+        `
+            SELECT * FROM (
+                SELECT
+                    t.id,
+                    t.delete_batch_id AS "batchId",
+                    t.created_at AS "createdAt",
+                    t.amount,
+                    t.type,
+                    cur.code AS "currencyCode",
+                    COALESCE(c_from.name, '') AS "clientFromName",
+                    COALESCE(c_to.name, '') AS "clientToName",
+                    COALESCE(t.counter_party, '') AS "counterParty",
+                    t.description,
+                    CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
+                    ROW_NUMBER() OVER (PARTITION BY t.delete_batch_id ORDER BY t.created_at DESC, t.id DESC) AS rn
+                FROM ${schema}.transactions t
+                JOIN ${schema}.currencies cur ON cur.id = t.currency_id
+                LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
+                LEFT JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
+                LEFT JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
+                LEFT JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
+                WHERE t.delete_batch_id = ANY($1::bigint[]) AND t.deleted_at IS NOT NULL
+            ) ranked
+            WHERE rn <= 20
+            ORDER BY "createdAt" DESC, id DESC
+        `,
+        [batchIds],
+    );
+
+    // Transactions a Restore would currently hold back because an account on one side is in the
+    // Trash under a DIFFERENT delete — the same rule trashPlanner applies, as a count plus the
+    // blocking clients' names ("restore X first"). Ignores the rarer account_exists conflict,
+    // which the restore itself reports.
+    const blockedResult = await query(
+        `
+            SELECT "batchId", COUNT(*)::int AS "blockedCount",
+                   ARRAY_REMOVE(ARRAY_AGG(DISTINCT blocker), NULL) AS "blockedBy"
+            FROM (
+                SELECT
+                    t.delete_batch_id AS "batchId",
+                    CASE
+                        WHEN t.account_from_id IS NOT NULL
+                             AND NOT ((fa.deleted_at IS NULL OR fa.delete_batch_id = t.delete_batch_id)
+                                      AND (fc.deleted_at IS NULL OR fc.delete_batch_id = t.delete_batch_id))
+                            THEN fc.name
+                        WHEN t.account_to_id IS NOT NULL
+                             AND NOT ((ta.deleted_at IS NULL OR ta.delete_batch_id = t.delete_batch_id)
+                                      AND (tc.deleted_at IS NULL OR tc.delete_batch_id = t.delete_batch_id))
+                            THEN tc.name
+                    END AS blocker
+                FROM ${schema}.transactions t
+                LEFT JOIN ${schema}.client_accounts fa ON fa.id = t.account_from_id
+                LEFT JOIN ${schema}.clients fc ON fc.id = fa.client_id
+                LEFT JOIN ${schema}.client_accounts ta ON ta.id = t.account_to_id
+                LEFT JOIN ${schema}.clients tc ON tc.id = ta.client_id
+                WHERE t.delete_batch_id = ANY($1::bigint[]) AND t.deleted_at IS NOT NULL
+            ) sides
+            WHERE blocker IS NOT NULL
+            GROUP BY "batchId"
+        `,
+        [batchIds],
+    );
+    const blockedByBatch = new Map(blockedResult.rows.map((row) => [row.batchId, row]));
+
+    // Whether restoring would put rows back at or before a reconciled balance, so the UI can ask
+    // before sending the override the backstop requires. Only rows on reconciled accounts are
+    // fetched, which keeps this small even for a "delete all" batch.
+    const boundaries = await getActiveReconciliationBoundaries(schema);
+    const reconciledBatchIds = new Set();
+    if (boundaries.size) {
+        const reconciledAccountIds = [...boundaries.keys()];
+        const candidates = await query(
+            `SELECT id, delete_batch_id AS "batchId", account_from_id AS "accountFromId", account_to_id AS "accountToId", created_at AS "createdAt"
+             FROM ${schema}.transactions
+             WHERE delete_batch_id = ANY($1::bigint[]) AND deleted_at IS NOT NULL AND is_archived = FALSE
+               AND (account_from_id = ANY($2::bigint[]) OR account_to_id = ANY($2::bigint[]))`,
+            [batchIds, reconciledAccountIds],
+        );
+        for (const row of candidates.rows) {
+            if (reconciledBatchIds.has(row.batchId)) continue;
+            const touches = [row.accountFromId, row.accountToId].some((accountId) => {
+                const boundary = accountId != null ? boundaries.get(accountId) : null;
+                return Boolean(boundary) && isReconciledMemberServer(row.createdAt, Number(row.id), boundary);
+            });
+            if (touches) reconciledBatchIds.add(row.batchId);
+        }
+    }
+
+    const pastLockOn = Boolean(app?.todayKey) && (await isPastEditLockEnabled(app));
+    const previewsByBatch = new Map();
+    for (const row of previewResult.rows) {
+        delete row.rn;
+        if (!previewsByBatch.has(row.batchId)) previewsByBatch.set(row.batchId, []);
+        previewsByBatch.get(row.batchId).push(row);
+    }
+
+    return {
+        ...base,
+        batches: batches.map((row) => {
+            const blocked = blockedByBatch.get(row.id);
+            const isTransactionKind = TRASH_TRANSACTION_KINDS.includes(row.kind);
+            return {
+                id: row.id,
+                kind: row.kind,
+                label: row.label,
+                deletedBy: row.deletedBy,
+                deletedAt: row.deletedAt,
+                counts: { clients: row.clientCount, accounts: row.accountCount, transactions: row.transactionCount },
+                blockedCount: blocked?.blockedCount || 0,
+                blockedBy: blocked?.blockedBy || [],
+                touchesReconciled: reconciledBatchIds.has(row.id),
+                // Only transaction restores answer to the past-edit lock (see restoreTrash).
+                pastEditLocked:
+                    isTransactionKind && pastLockOn && row.earliestCreatedAt != null && createdAtDateKey(row.earliestCreatedAt) < app.todayKey,
+                preview: previewsByBatch.get(row.id) || [],
+            };
+        }),
+    };
 }
 
 async function listReconciliations(app) {
@@ -1516,7 +2157,8 @@ async function listReconciliations(app) {
             FROM ${schema}.reconciliations r
             JOIN ${schema}.client_accounts ca ON ca.id = r.account_id
             JOIN ${schema}.clients c ON c.id = ca.client_id
-            ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
+            WHERE ca.deleted_at IS NULL
+            ${isMember ? `AND (c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1))` : ''}
             ORDER BY r.anchor_date ASC, r.anchor_transaction_id ASC
         `,
         isMember ? [app.userId] : [],
@@ -1531,6 +2173,8 @@ async function createReconciliation(app, { accountId, anchorTransactionId, ancho
     if (!anchorDate) throw new Error('The reconciled row date is required.');
     if (!Array.isArray(lockedTransactionIds) || lockedTransactionIds.length === 0) throw new Error('The reconciled row set is required.');
     await assertMemberCanWriteAccount(app, accountId);
+    await assertAccountsLive(schema, [accountId]);
+    await assertTransactionLive(schema, anchorTransactionId);
     const result = await query(
         `INSERT INTO ${schema}.reconciliations (account_id, anchor_transaction_id, anchor_date, balance, note, locked_transaction_ids)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
@@ -1581,7 +2225,11 @@ async function listIgnoredAnomalies(app) {
             FROM ${schema}.ignored_anomalies ia
             JOIN ${schema}.client_accounts ca ON ca.id = ia.account_id
             JOIN ${schema}.clients c ON c.id = ca.client_id
-            ${isMember ? `WHERE c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1)` : ''}
+            -- A dismissal stays attached to its trashed transaction (and comes back with it on
+            -- restore); it just isn't served while the row is in the Trash.
+            JOIN ${schema}.transactions t ON t.id = ia.transaction_id
+            WHERE ca.deleted_at IS NULL AND t.deleted_at IS NULL
+            ${isMember ? `AND (c.is_system = FALSE OR (c.system_kind = 'cashbox' AND c.owner_user_id = $1))` : ''}
             ORDER BY ia.created_at ASC
         `,
         isMember ? [app.userId] : [],
@@ -1596,6 +2244,8 @@ async function createIgnoredAnomaly(app, { kind, transactionId, accountId, scope
     if (!accountId) throw new Error('An account is required.');
     const resolvedScope = scope === 'description' ? 'description' : 'row';
     await assertMemberCanWriteAccount(app, accountId);
+    await assertAccountsLive(schema, [accountId]);
+    await assertTransactionLive(schema, transactionId);
     const result = await query(
         `INSERT INTO ${schema}.ignored_anomalies (kind, transaction_id, account_id, scope)
          VALUES ($1, $2, $3, $4)
@@ -1708,7 +2358,7 @@ async function deleteTransactionsBulk(app, payload) {
     }
 
     const existing = await query(
-        `SELECT id, created_at AS "createdAt", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE`,
+        `SELECT id, created_at AS "createdAt", account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND is_archived = FALSE AND deleted_at IS NULL`,
         [transactionIds],
     );
     await assertPastEditAllowed(app, app.todayKey, ...existing.rows.map((r) => r.createdAt));
@@ -1728,22 +2378,41 @@ async function deleteTransactionsBulk(app, payload) {
     // because it is the same call the single-row path uses, which keeps the stored snapshot
     // shape identical for both; TransactionHistorySection reads those raw snake_case columns.
     //
-    // Snapshots every requested id, not just existing.rows: that SELECT above filters to
-    // is_archived = FALSE for the guard checks, while the DELETE takes archived rows too.
-    // recordTransactionHistory no-ops on an id that isn't there.
-    await withTransaction(async (client) => {
-        for (const transactionId of transactionIds) {
+    // Snapshots every requested live id, not just existing.rows: that SELECT above filters to
+    // is_archived = FALSE for the guard checks, while the Trash takes archived rows too. Rows
+    // already in the Trash are skipped entirely — they keep their original batch and history.
+    return withTransaction(async (client) => {
+        const live = await query(
+            `SELECT id FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL FOR UPDATE`,
+            [transactionIds],
+            client,
+        );
+        const liveIds = live.rows.map((row) => row.id);
+        if (!liveIds.length) {
+            return { ok: true, deleted: 0, batchId: null, count: 0 };
+        }
+        for (const transactionId of liveIds) {
             await recordTransactionHistory(app, schema, transactionId, 'delete', client);
         }
-        await query(`DELETE FROM ${schema}.transactions WHERE id = ANY($1::bigint[])`, [transactionIds], client);
+        const batchId = await createTrashBatch(schema, { kind: 'transactions', label: '', userId: app?.userId }, client);
+        await query(
+            `UPDATE ${schema}.transactions SET ${TRASH_STAMP} WHERE id = ANY($3::bigint[]) AND deleted_at IS NULL`,
+            [app?.userId || null, batchId, liveIds],
+            client,
+        );
+        return { ok: true, deleted: liveIds.length, batchId, count: liveIds.length };
     });
-
-    return { ok: true, deleted: transactionIds.length };
 }
 
 // Tables that make up a full workspace backup, listed in dependency order
 // (parents before children) so a restore can insert them sequentially.
-const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'distribution_locations', 'transactions', 'reconciliations', 'harvest_rates', 'user_table_settings'];
+//
+// Trashed rows (deleted_at set) are exported as-is, and trash_batches with them: excluding them
+// would break the foreign keys of rows that still point at them (reconciliations,
+// distribution_locations), and keeping them means a restored backup reproduces the Trash exactly,
+// with the 30-day countdown continuing from each row's original deleted_at. Older backups predate
+// the soft-delete columns, so their rows simply import as live.
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'distribution_locations', 'transactions', 'reconciliations', 'harvest_rates', 'user_table_settings', 'trash_batches'];
 
 const BACKUP_FORMAT = 'arkam-backup';
 const BACKUP_VERSION = 1;
@@ -1937,6 +2606,7 @@ async function bulkImportTransactions(app, { transactions = [] } = {}) {
     // Before anything is written, so a bad row aborts the whole import rather than leaving a
     // partial one behind.
     transactions.forEach(assertImportRowNumbersFinite);
+    await assertAccountsLive(schema, transactions.flatMap((row) => [row?.accountFromId, row?.accountToId]));
 
     if (transactions.length > 0) {
         const cols = [
@@ -2318,6 +2988,10 @@ module.exports = {
     listTransactionHistory,
     deleteTransactionsBulk,
     deleteAllTransactions,
+    listTrash,
+    restoreTrash,
+    purgeTrash,
+    purgeExpiredTrash,
     listReconciliations,
     createReconciliation,
     updateReconciliation,

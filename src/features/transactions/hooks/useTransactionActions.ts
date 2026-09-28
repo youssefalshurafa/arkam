@@ -43,6 +43,8 @@ import { selectArchiveExportRows } from '@/features/transactions/utils/archiveEx
 import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
+import { offerTrashUndo, restoreTrashBatch } from '@/features/trash/utils/restoreTrashBatch';
+import { dropHistoryAction, offerUndoFor, recordTransactionCreate, recordTransactionDelete } from '@/features/transactions/utils/transactionHistoryActions';
 import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
 import { useTransactionPatchers } from '@/features/transactions/hooks/useTransactionPatchers';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
@@ -372,7 +374,7 @@ async function onDeleteAllTransactions() {
  }
 
  const firstConfirm = await confirmDialog({
-  title: t('danger_action_cannot_undo'),
+  title: t('danger_moves_to_trash'),
   message: t('danger_delete_all_transactions_confirm'),
   confirmText: t('delete'),
   tone: 'danger',
@@ -382,7 +384,7 @@ async function onDeleteAllTransactions() {
  }
 
  try {
-  await accountingApi.deleteAllTransactions();
+  const { batchId } = await accountingApi.deleteAllTransactions();
   setSelectedTransactionIds(new Set());
   setTransactionTableDrafts({});
   setCommissionExpandedTxns(new Set());
@@ -390,6 +392,7 @@ async function onDeleteAllTransactions() {
   setTransactionsPage(99999);
   setError('');
   await loadData();
+  offerTrashUndo(batchId, t('toast_moved_to_trash'), (restoreBatchId) => void restoreTrashBatch(restoreBatchId, { t, loadData }));
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }
@@ -639,6 +642,11 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
   optimisticRow,
   createRequest.then((created) => created.id),
  );
+ // Undoable from the toolbar straight away — undo waits for the real id if it is still on the wire.
+ const historyEntry = recordTransactionCreate(
+  createRequest.then((created) => created.id),
+  { override: createLock.overrode, t, reload: loadData },
+ );
  void createRequest
   .then((created) => {
    commitPendingCreate(tempId, created.id);
@@ -651,6 +659,7 @@ async function onTransactionSubmit(event: FormEvent<HTMLFormElement>, onCreated?
    // was. What the user typed is offered back instead of being written over whatever they are
    // typing now — by this point they have moved on, and clobbering that would destroy work in
    // the name of saving work.
+   dropHistoryAction(historyEntry);
    failPendingCreate(tempId);
    setTransactions((prev) => prev.filter((tx) => tx.id !== tempId));
    forgetTransactionId(tempId);
@@ -1297,7 +1306,7 @@ async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {
  }
 
  try {
-  await accountingApi.deleteTransaction(id, { acknowledgeReconciliationOverride: deleteLock.overrode });
+  const { batchId } = await accountingApi.deleteTransaction(id, { acknowledgeReconciliationOverride: deleteLock.overrode });
   setSelectedTransactionIds((current) => {
    const next = new Set(current);
    next.delete(id);
@@ -1305,66 +1314,17 @@ async function onDeleteTransaction(id: number, opts: { offerUndo?: boolean } = {
   });
   setError('');
   await loadData();
-  if (offerUndo && tx) {
-   showUndo(t('toast_transaction_deleted'), () => void onUndoDeleteTransaction(tx, deleteLock.overrode));
+  if (batchId != null) {
+   // On the shared undo/redo history (the toolbar buttons) and behind the toast's Undo alike.
+   // Undo restores the trashed row itself — same id, history, reconciliation membership and
+   // ignored anomalies. `overrode` carries the decision from this delete: putting the row back
+   // where it was needs the same permission the removal did, and no more.
+   const entry = recordTransactionDelete([id], batchId, { override: deleteLock.overrode, t, reload: loadData });
+   if (offerUndo) offerUndoFor(entry, t('toast_moved_to_trash'));
   }
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }
-}
-
-// `overrodeLock` carries the decision from the delete this undoes: re-inserting the row puts it
-// back exactly where it was, so it needs the same permission the removal did — and no more. It
-// used to hardcode true, which meant an undo could write into reconciled history even when the
-// delete itself never touched any.
-async function onUndoDeleteTransaction(tx: Transaction, overrodeLock = false) {
- if (!accountingApi) {
-  setError(t('error_bridge'));
-  return;
- }
- try {
-  // Undoing a delete re-inserts the exact row that was just removed — the delete itself
-  // already passed (or wasn't subject to) the reconciliation guard, so this recreate doesn't
-  // need to reconfirm it; it just reuses that same decision.
-  await accountingApi.createTransaction({ ...buildTransactionCreatePayload(tx, tx.createdAt), acknowledgeReconciliationOverride: overrodeLock });
-  setError('');
-  await loadData();
- } catch (e) {
-  setError(e instanceof Error ? e.message : t('error_failed_save'));
- }
-}
-
-function buildTransactionCreatePayload(tx: Transaction, createdAt: string) {
- return {
-  accountFromId: tx.accountFromId,
-  accountToId: tx.accountToId,
-  currencyId: tx.currencyId,
-  amount: tx.amount,
-  type: tx.type,
-  isArchived: !!tx.isArchived,
-  exchangeRateFrom: tx.exchangeRateFrom,
-  commissionFrom: tx.commissionFrom,
-  exchangeRateTo: tx.exchangeRateTo,
-  commissionTo: tx.commissionTo,
-  exchangeRateFromReversed: tx.exchangeRateFromReversed,
-  exchangeRateToReversed: tx.exchangeRateToReversed,
-  charges: tx.charges,
-  chargesCurrencyId: tx.chargesCurrencyId,
-  chargesPayer: tx.chargesPayer,
-  chargesExchangeRate: tx.chargesExchangeRate,
-  chargesDescription: tx.chargesDescription,
-  charges2: tx.charges2,
-  charges2CurrencyId: tx.charges2CurrencyId,
-  chargesPayer2: tx.chargesPayer2,
-  charges2ExchangeRate: tx.charges2ExchangeRate,
-  charges2Description: tx.charges2Description,
-  description: tx.description,
-  descriptionFrom: tx.descriptionFrom,
-  descriptionTo: tx.descriptionTo,
-  exchangeActualAmount: tx.exchangeActualAmount,
-  distributionLocationId: tx.distributionLocationId,
-  createdAt,
- };
 }
 
 async function onDeleteTransactionTableRow(row: TransactionTableRow) {
@@ -1685,6 +1645,11 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
    optimisticRow,
    createRequest.then((created) => created.id),
   );
+  // Archive-only rows are exempt from the reconciliation lock, so there is no override to carry.
+  const historyEntry = recordTransactionCreate(
+   createRequest.then((created) => created.id),
+   { override: false, t, reload: loadData },
+  );
   void createRequest
    .then((created) => {
     commitPendingCreate(tempId, created.id);
@@ -1693,6 +1658,7 @@ async function onArchiveEntrySubmit(event: FormEvent<HTMLFormElement>) {
     scheduleWorkspaceResync();
    })
    .catch((e) => {
+    dropHistoryAction(historyEntry);
     failPendingCreate(tempId);
     setTransactions((prev) => prev.filter((tx) => tx.id !== tempId));
     forgetTransactionId(tempId);
@@ -1768,10 +1734,14 @@ async function onDeleteSelectedTransactions() {
  }
 
  try {
-  await accountingApi.deleteTransactionsBulk({ transactionIds: idsToDelete, acknowledgeReconciliationOverride: bulkDeleteLock.overrode });
+  const { batchId } = await accountingApi.deleteTransactionsBulk({ transactionIds: idsToDelete, acknowledgeReconciliationOverride: bulkDeleteLock.overrode });
   setSelectedTransactionIds(new Set());
   setError('');
   await loadData();
+  if (batchId != null) {
+   const entry = recordTransactionDelete(idsToDelete, batchId, { override: bulkDeleteLock.overrode, t, reload: loadData });
+   offerUndoFor(entry, t('toast_moved_to_trash'));
+  }
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_delete'));
  }

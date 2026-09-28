@@ -9,7 +9,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import HomePage from '@/components/marketing/HomePage';
 import { SectionErrorBoundary } from '@/components/ui/SectionErrorBoundary';
 import { useTranslation } from '@/hooks/useTranslation';
-import { accountingApi } from '@/lib/accountingApi';
+import { accountingApi, type WorkspaceRole } from '@/lib/accountingApi';
 import { trackPendingWrite } from '@/lib/pendingWrites';
 import { queueTransactionWrite } from '@/lib/pendingTransactionWrites';
 import { transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
@@ -127,6 +127,7 @@ import { emptyOrganizationForm } from '@/features/organizations/forms';
 import ClientsReadOnly from '@/features/clients/components/ClientsReadOnly';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { useDraftHistory } from '@/shared/hooks/useDraftHistory';
+import { useCombinedHistory } from '@/shared/hooks/useCombinedHistory';
 import TransactionsSection from '@/features/transactions/components/TransactionsSection';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import LedgerSection from '@/features/ledger/components/LedgerSection';
@@ -413,6 +414,9 @@ function AuthenticatedHome() {
  const setTransactionTableDrafts = useTransactionsStore((s) => s.setTransactionTableDrafts);
  const ledgerHistory = useDraftHistory(getLedgerTransactionDrafts, setLedgerTransactionDrafts);
  const txTableHistory = useDraftHistory(getTransactionTableDrafts, setTransactionTableDrafts);
+ // What the Transactions page's undo/redo buttons drive: its unsaved table drafts first, then the
+ // app-wide history of saved changes (transactions created, deleted, or edited in a ledger).
+ const txTableToolbarHistory = useCombinedHistory(txTableHistory);
  const resetLedgerHistory = ledgerHistory.reset;
  const resetTxTableHistory = txTableHistory.reset;
  // Clear undo/redo history once an edit session ends (all drafts discarded/saved).
@@ -1614,6 +1618,9 @@ function AuthenticatedHome() {
   // The Second Accountant decides what warnings every member sees, so it is owner/admin config
   // like the two above.
   ...(isWorkspaceOwnerOrAdmin ? [{ key: 'review' as const, label: t('settings_review_title'), icon: 'settings' as IconName }] : []),
+  // Every role that can delete gets the Trash; a member's view is limited to their own deletes
+  // (server-side, in db.js's listTrash). Viewers can't delete, so there is nothing to show them.
+  ...(currentWorkspaceRole && currentWorkspaceRole !== 'viewer' ? [{ key: 'trash' as const, label: t('trash_title'), icon: 'archive' as IconName }] : []),
   ...(isEditorRole ? [] : [{ key: 'danger' as const, label: t('settings_danger_title'), icon: 'settings' as IconName }]),
  ];
 
@@ -1639,7 +1646,18 @@ function AuthenticatedHome() {
  );
  const enabledCurrencies = useMemo(() => localizedCurrencies.filter((currency) => currency.isEnabled === 1), [localizedCurrencies]);
  const currencyMap = useMemo(() => new Map(localizedCurrencies.map((currency) => [currency.id, currency])), [localizedCurrencies]);
- const sortedClients = useMemo(() => sortAndFilterClients({ clients, clientSort, clientSearch, language }), [clients, clientSort, clientSearch, language]);
+ // Per-client balances for the clients list/group view. Keyed by clientId, each value is
+ // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
+ // Computed ahead of sortedClients: the search box also matches on these balances.
+ const clientPageBalances = useMemo(
+  () => computeClientPageBalances({ clientAccounts, transactions }),
+  [clientAccounts, transactions],
+ );
+
+ const sortedClients = useMemo(
+  () => sortAndFilterClients({ clients, clientSort, clientSearch, language, balances: clientPageBalances }),
+  [clients, clientSort, clientSearch, language, clientPageBalances],
+ );
  const totalClientPages = Math.max(1, Math.ceil(sortedClients.length / clientsPageSize));
  const clampedClientsPage = Math.min(clientsPage, totalClientPages);
  const paginatedClients = useMemo(() => {
@@ -1690,13 +1708,6 @@ function AuthenticatedHome() {
   clientsByOrganization,
   lockPastEditsEnabled,
  });
-
- // Per-client balances for the clients list/group view. Keyed by clientId, each value is
- // an array of { accountId, currencyCode, currencySymbol, balance } — one entry per account.
- const clientPageBalances = useMemo(
-  () => computeClientPageBalances({ clientAccounts, transactions }),
-  [clientAccounts, transactions],
- );
 
  // Per-client count of transactions awaiting a manually-entered exchange rate (excluded from
  // clientPageBalances above until set). Shown on the organization page.
@@ -2392,6 +2403,7 @@ function AuthenticatedHome() {
    importSummary={importSummary}
    setImportSummary={setImportSummary}
    isEditorRole={isEditorRole}
+   workspaceRole={(currentWorkspaceRole || null) as WorkspaceRole | null}
    isWorkspaceOwner={isWorkspaceOwner}
    isWorkspaceOwnerOrAdmin={isWorkspaceOwnerOrAdmin}
    aiFeatureAccess={aiFeatureAccess}
@@ -2835,7 +2847,7 @@ function AuthenticatedHome() {
          workspaceAnomalies={workspaceAnomalies}
          getTransactionTableDraft={getTransactionTableDraft}
          updateTransactionTableDraft={updateTransactionTableDraft}
-         txTableHistory={txTableHistory}
+         txTableHistory={txTableToolbarHistory}
          highlightedTxRows={isArchiveSection ? highlightedArchiveRows : highlightedTxRows}
          txRowClickHighlight={isArchiveSection ? archiveRowClickHighlight : txRowClickHighlight}
          txRowClickActive={isArchiveSection ? archiveRowClickActive : txRowClickActive}
