@@ -98,7 +98,7 @@
  "settings_language_title": "Langue",
  "settings_language_description": "Choisissez la langue utilisée dans toute l'interface de l'application.",
  "settings_appearance_title": "Apparence",
- "settings_appearance_description": "Choisissez l'apparence d'Arkam. « Système » suit le réglage clair ou sombre de votre appareil.",
+ "settings_appearance_description": "Choisissez l'apparence d'Arkam. « Système » suit le réglage clair ou sombre de votre appareil. Enregistré sur cet appareil uniquement : votre téléphone et votre ordinateur peuvent différer.",
  "appearance_theme_label": "Thème",
  "appearance_theme_light": "Clair",
  "appearance_theme_dark": "Sombre",

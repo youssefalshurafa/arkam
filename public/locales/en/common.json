@@ -99,7 +99,7 @@
  "settings_language_title": "Language",
  "settings_language_description": "Choose the language used across the application interface.",
  "settings_appearance_title": "Appearance",
- "settings_appearance_description": "Choose how Arkam looks. \"System\" follows your device's light or dark setting.",
+ "settings_appearance_description": "Choose how Arkam looks. \"System\" follows your device's light or dark setting. Saved on this device only, so your phone and computer can differ.",
  "appearance_theme_label": "Theme",
  "appearance_theme_light": "Light",
  "appearance_theme_dark": "Dark",

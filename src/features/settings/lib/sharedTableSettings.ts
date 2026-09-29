@@ -11,7 +11,6 @@ import {
  archiveRowSettingsStorageKey,
  archiveHighlightsStorageKey,
  exchangeSettingsStorageKey,
- themeStorageKey,
  clientsOrgOrderStorageKey,
  liveRatesIntervalStorageKey,
  harvestSortDirStorageKey,
@@ -52,22 +51,23 @@ function isSharedKey(key: string): boolean {
  return SHARED_EXACT_KEYS.includes(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
-// Per-user-only keys: personal device/browser preferences and private data (row
-// highlights, filter bars, theme, etc). These ride along with the always-on per-user
+// Per-user-only keys: personal preferences and private data (row highlights, filter
+// bars, etc). These ride along with the always-on per-user
 // settings sync (so they follow the user to another device) but are deliberately kept
 // OUT of isSharedKey/SHARED_* — the owner's workspace-wide shared snapshot must never
 // carry one user's personal settings to everyone else.
 //
-// Table zoom (tableZoomStorageKeyPrefix) is deliberately absent from BOTH lists below:
-// it's a pure per-device viewing preference (a laptop and a phone want different zoom
-// levels for the same wide table), so it must never round-trip through the server at
-// all — see getStoredTableZoom/saveTableZoom in localStorage.ts, which read/write
-// window.localStorage directly and are never wrapped by snapshotUserSettings/
-// applyUserSettings below.
+// Table zoom (tableZoomStorageKeyPrefix) and the theme (themeStorageKey) are deliberately
+// absent from BOTH lists below: they are pure per-device viewing preferences (a laptop and
+// a phone want different zoom levels for the same wide table, and a PC kept dark while the
+// phone is light), so they must never round-trip through the server at all — see
+// getStoredTableZoom/saveTableZoom and getStoredTheme/saveStoredTheme in localStorage.ts.
+// The theme used to be synced here, and a dark choice on one device kept overwriting a
+// light/system choice on another. Snapshots saved before that change still carry
+// 'arkam:theme'; applyUserSettings ignores it because it matches neither list.
 const USER_ONLY_EXACT_KEYS = [
  txHighlightsStorageKey,
  archiveHighlightsStorageKey,
- themeStorageKey,
  languageStorageKey,
  sidebarCollapsedStorageKey,
  ledgerPageSizeStorageKey,
@@ -119,7 +119,7 @@ export function applySharedSettings(settings: Record<string, string>) {
 }
 
 // Per-user snapshot = the shareable layout settings PLUS this user's private settings
-// (highlights, filters, theme, etc — see USER_ONLY_*). Used only by the always-on
+// (highlights, filters, etc — see USER_ONLY_*). Used only by the always-on
 // per-user sync, so these follow a user across their own devices without ever entering
 // the owner's shared workspace snapshot.
 export function snapshotUserSettings(): Record<string, string> {
