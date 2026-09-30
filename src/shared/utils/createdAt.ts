@@ -24,10 +24,17 @@ import { localDateKey, localWallClock, parseLocalWallClock } from '@/shared/util
  */
 export function nextCreatedAtForDate(dateStr: string, transactions: Transaction[], floorEpoch?: number | null): string {
  let maxEpoch = floorEpoch != null && Number.isFinite(floorEpoch) ? floorEpoch : -Infinity;
+ // A ledger's within-day positions (ledgerOrder.ts) share createdAt's time-of-day scale, so they
+ // count too: a new row must sort after a row that was dragged to the end of the day in some
+ // ledger, not only after the latest createdAt.
+ const localDayStart = Date.parse(`${dateStr}T00:00:00.000`);
  for (const tx of transactions) {
   if (tx.createdAt.slice(0, 10) === dateStr) {
    const e = parseLocalWallClock(tx.createdAt);
    if (Number.isFinite(e)) maxEpoch = Math.max(maxEpoch, e);
+   for (const position of [tx.ledgerPosFrom, tx.ledgerPosTo]) {
+    if (position != null && Number.isFinite(position)) maxEpoch = Math.max(maxEpoch, localDayStart + position);
+   }
   }
  }
 

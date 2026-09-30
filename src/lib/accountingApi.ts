@@ -281,6 +281,15 @@ export const accountingApi = {
    payload: { ...transaction, id: await resolveTransactionId(transaction.id) },
    silent: opts?.silent,
   }),
+ // Re-orders rows within their day in ONE client's ledger — only that side of each transaction, so
+ // the counterparty's ledger keeps its own order (see ledgerOrder.ts).
+ setLedgerPositions: async (payload: { accountId: number; positions: { id: number; position: number }[] }) => {
+  const ids = await resolveTransactionIds(payload.positions.map((entry) => entry.id));
+  return request<{ ok: true; updated: number }>({
+   action: 'setLedgerPositions',
+   payload: { accountId: payload.accountId, positions: payload.positions.map((entry, index) => ({ id: ids[index], position: entry.position })) },
+  });
+ },
  setTransactionArchiveHidden: async (payload: { id: number; hidden: boolean }, opts?: { silent?: boolean }) =>
   request<{ ok: true }>({ action: 'setTransactionArchiveHidden', payload: { ...payload, id: await resolveTransactionId(payload.id) }, silent: opts?.silent }),
  deleteTransaction: async (transactionId: number, opts?: { acknowledgeReconciliationOverride?: boolean }) =>

@@ -20,6 +20,7 @@ import {
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { NEW_ROW_REF_ID, marksAffectedByReorder, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
+import { spreadLedgerPositions, timeOfDayMs, withLedgerPosition } from '@/features/ledger/utils/ledgerOrder';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import { isSameTransactionUpdate, transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
@@ -1220,11 +1221,11 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   if (!confirmed) return;
  }
 
- // The ledger is ordered by createdAt (ascending). Same-date rows often share an
- // identical timestamp (e.g. expenses at 00:00:00), leaving no room to insert between
- // them, so we reflow the target date's rows to distinct, evenly-spaced timestamps in
- // the new order. That makes the reorder durable; rows that were already on this date keep it,
- // and a row dragged in from another day picks it up here — which is the move confirmed above.
+ // Within a day, this ledger is ordered by its OWN side's position (ledgerOrder.ts), not by the
+ // createdAt both ledgers share. So the target day's rows get fresh, distinct positions in the new
+ // order — written to this ledger's side only. That is what keeps a same-day drag out of the
+ // counterparty's ledger: it used to rewrite createdAt for the whole day, which re-ordered the
+ // rows there too and could trip reconciliation warnings on a ledger the user never touched.
  const without = currentOrder.filter((k) => dateOf(k) === targetDate && !dragSet.has(k));
  const insertIdx = without.indexOf(targetKey);
  if (insertIdx === -1) return;
@@ -1234,13 +1235,40 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  const orderedDragged = currentOrder.filter((k) => dragSet.has(k));
  const next = [...without.slice(0, insertAt), ...orderedDragged, ...without.slice(insertAt)];
 
- const newTimes = new Map<string, string>();
- const dayStart = Date.parse(`${targetDate}T00:00:00.000Z`);
- const dayEnd = Date.parse(`${targetDate}T23:59:59.999Z`);
- next.forEach((k, i) => {
-  const ts = dayStart + ((dayEnd - dayStart) * (i + 1)) / (next.length + 1);
-  newTimes.set(k, new Date(ts).toISOString());
- });
+ const positionOf = (key: string) => {
+  const entry = entryMap.get(key);
+  return entry ? (entry.ledgerPosition ?? timeOfDayMs(entry.createdAt)) : 0;
+ };
+ // Kept inside the day's current range (see spreadLedgerPositions), so a transaction added to
+ // this day later still lands at its end.
+ const spread = spreadLedgerPositions(without.map(positionOf), next.length);
+ const newPositions = new Map(next.map((key, i) => [key, spread[i]]));
+
+ // Only a row dropped in from ANOTHER day changes its date — a fact about the transaction, so it
+ // moves in both ledgers (the move confirmed above). Its createdAt takes the new day, at the time
+ // matching its new position so the Transactions page reads it in the same order.
+ const txById = new Map(transactions.map((tx) => [tx.id, tx]));
+ const txOfKey = (key: string) => {
+  const entry = entryMap.get(key);
+  return entry ? txById.get(entry.transactionId) : undefined;
+ };
+ const newCreatedAt = new Map<string, string>();
+ const targetDayStart = Date.parse(`${targetDate}T00:00:00.000Z`);
+ for (const key of crossDateKeys) {
+  const timeOfDay = Math.min(Math.max(newPositions.get(key) ?? 0, 0), 86_399_999);
+  newCreatedAt.set(key, new Date(targetDayStart + timeOfDay).toISOString());
+ }
+
+ // The drop, applied to one transaction: a re-dated row loses both positions (they described its
+ // old day — the server clears them the same way), then takes this ledger's new one.
+ const applyDrop = (tx: Transaction): Transaction => {
+  const key = `${tx.id}:${accountId}`;
+  const position = newPositions.get(key);
+  if (position === undefined) return tx;
+  const redated = newCreatedAt.get(key);
+  const base = redated ? { ...tx, createdAt: redated, ledgerPosFrom: null, ledgerPosTo: null } : tx;
+  return withLedgerPosition(base, accountId, position);
+ };
 
  // What this move does to every ✓ it can reach.
  //
@@ -1250,20 +1278,18 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  // where it was, so nothing is reported and the drag proceeds in silence. That is nearly every
  // drag, and interrupting it would be wrong.
  //
- // The reach is wider than the ledger on screen: re-timing a row also moves it inside the
- // COUNTERPARTY's ledger, which is reconciled independently, so a drag here can shift a ✓ the
- // user cannot see. Those are checked too and named by client, since an unnamed figure from
- // another ledger would be impossible to place.
+ // A same-day move re-positions only this ledger's side, so it cannot touch the counterparty's
+ // ledger at all. A row dropped onto another DAY is different: its date changes in both ledgers,
+ // and the counterparty's is reconciled independently, so that drag can shift a ✓ the user cannot
+ // see. Those are checked too and named by client, since an unnamed figure from another ledger
+ // would be impossible to place.
  //
  // Re-pointing a ✓ is also what MAKES a crossing move possible: the ledger orders by reconciled
  // depth before createdAt (see computeClientLedgers), deliberately, so a row with a stray
  // timestamp cannot drift above a ✓ on its own. Moving the line with the row is the honest
  // expression of "this row now stands above the agreed balance", and leaves that protection
  // intact for rows nobody dragged.
- const reflowedTransactions = transactions.map((tx) => {
-  const rescheduled = newTimes.get(`${tx.id}:${accountId}`);
-  return rescheduled ? { ...tx, createdAt: rescheduled } : tx;
- });
+ const reflowedTransactions = transactions.map(applyDrop);
  const ledgerEntriesFor = (targetAccountId: number, source: Transaction[]) => {
   const owner = clientAccountMap.get(targetAccountId);
   if (!owner) return null;
@@ -1297,14 +1323,14 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   });
  })();
 
- // Every account a reflowed row touches, this ledger's own first so its ✓ leads the list.
- // Counterparty accounts with no reconciliation at all are dropped straight away: they have no
- // ✓ to move, and each one kept would otherwise cost two full ledger computations on drop.
+ // This ledger's own account first so its ✓ leads the list, then the other side of every row
+ // that changes DATE — the only rows whose counterparty ledger moves at all. Counterparty accounts
+ // with no reconciliation are dropped straight away: they have no ✓ to move, and each one kept
+ // would otherwise cost two full ledger computations on drop.
  const reconciledAccountIds = new Set(reconciliations.map((r) => r.accountId));
  const touchedAccountIds = new Set<number>([accountId]);
- for (const key of newTimes.keys()) {
-  const entry = entryMap.get(key);
-  const tx = entry ? transactions.find((t) => t.id === entry.transactionId) : null;
+ for (const key of newCreatedAt.keys()) {
+  const tx = txOfKey(key);
   for (const side of [tx?.accountFromId, tx?.accountToId]) {
    if (side && reconciledAccountIds.has(side)) touchedAccountIds.add(side);
   }
@@ -1339,15 +1365,10 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   if (!confirmed) return;
  }
 
- // Reconciliation guard: the reflow rewrites createdAt for every row in the date group — not
- // just the ones dragged — and each of those transactions touches up to two accounts (this
- // ledger's own account and its counterparty), either of which may independently be
- // reconciled. Re-time each affected transaction through the same balance-aware check a
- // direct edit uses. Under the frozen anchorDate/lockedTransactionIds model this can only
- // ever produce a hit if a row's CALENDAR DAY changes, which a same-day reflow never does —
- // so a pure same-day reorder is always silent, including for the anchor's own row, and it is
- // a row dropped in from ANOTHER day (confirmed above) that can actually land here. Every
- // reflowed row is checked, not just the explicitly dragged ones, in one dialog for the batch.
+ // Reconciliation guard for the rows whose DATE changes — the only rows this move re-times. Each
+ // touches up to two accounts (this ledger's and its counterparty's), either of which may be
+ // reconciled, so each goes through the same balance-aware check a direct edit uses. A same-day
+ // move changes no createdAt at all (positions only), so it never reaches this guard.
  let dragLockHit: { accountId: number; boundary: LockBoundary } | null = null;
  // ...and, separately, whether any re-timed row merely SITS in locked history. db.js's
  // assertReconciliationNotViolated is a coarser, POSITION-only rule than the balance math above:
@@ -1360,13 +1381,10 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  // doesn't always work" report. Every other edit path already pairs the two rules this way; see
  // checkLockForEdit, which this mirrors.
  let touchesLockedPosition = false;
- for (const [key, newCreatedAt] of newTimes) {
-  const entry = entryMap.get(key);
-  if (!entry) continue;
-  if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
-  const tx = transactions.find((t) => t.id === entry.transactionId);
+ for (const [key, redatedAt] of newCreatedAt) {
+  const tx = txOfKey(key);
   if (!tx) continue;
-  const retimed = { ...tx, createdAt: newCreatedAt };
+  const retimed = { ...tx, createdAt: redatedAt };
   if (!touchesLockedPosition && editTouchesLockedPosition(tx, retimed)) touchesLockedPosition = true;
   // First hit wins for the dialog, as before — one warning stands for the whole batch.
   if (!dragLockHit) dragLockHit = transactionEditImpact(tx, retimed);
@@ -1379,13 +1397,9 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
   return;
  }
 
- // Optimistically apply the new timestamps so the rows reorder instantly, before the round-trip.
- setTransactions((prev) =>
-  prev.map((tx) => {
-   const nc = newTimes.get(`${tx.id}:${accountId}`);
-   return nc ? { ...tx, createdAt: nc } : tx;
-  }),
- );
+ // Optimistically apply the new positions (and dates) so the rows reorder instantly, before the
+ // round-trip.
+ setTransactions((prev) => prev.map(applyDrop));
  // ...and the ✓ marks the move re-points, in the same render. Timestamps alone are not enough:
  // the ledger sorts by reconciled depth BEFORE createdAt (see computeClientLedgers), so a row
  // dragged across a ✓ line is held on its old side of it by a membership set that still predates
@@ -1404,12 +1418,10 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  }
 
  try {
-  for (const [key, newCreatedAt] of newTimes) {
-   const entry = entryMap.get(key);
-   if (!entry || !newCreatedAt) continue;
-   // Skip rows whose timestamp didn't actually change, to avoid needless writes.
-   if (new Date(entry.createdAt).getTime() === new Date(newCreatedAt).getTime()) continue;
-   const tx = transactions.find((t) => t.id === entry.transactionId);
+  // Re-dated rows first: updateTransaction clears a row's positions when its date changes, so
+  // this ledger's new position for it has to be written after.
+  for (const [key, redatedAt] of newCreatedAt) {
+   const tx = txOfKey(key);
    if (!tx) continue;
    await accountingApi.updateTransaction({
     id: tx.id,
@@ -1437,13 +1449,26 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
     description: tx.description,
     counterParty: tx.counterParty,
     distributionLocationId: tx.distributionLocationId,
-    createdAt: newCreatedAt,
+    createdAt: redatedAt,
     // Set when the user confirmed a real balance change above (either guard), or when the row
     // only sits in locked history without moving the number — the server's position-only rule
     // refuses that too, and there is nothing there to ask the user about. Otherwise it stays
     // false and the server's backstop still checks the write.
     acknowledgeReconciliationOverride: Boolean(dragLockHit) || changedMarks.length > 0 || touchesLockedPosition,
    });
+  }
+
+  // This ledger's side only — the counterparty's order is untouched. Rows already where they
+  // were are skipped, except re-dated ones, whose position the date change just cleared.
+  const positions = next.flatMap((key) => {
+   const tx = txOfKey(key);
+   const position = newPositions.get(key);
+   if (!tx || position === undefined) return [];
+   if (!newCreatedAt.has(key) && positionOf(key) === position) return [];
+   return [{ id: tx.id, position }];
+  });
+  if (positions.length > 0) {
+   await accountingApi.setLedgerPositions({ accountId, positions });
   }
 
   // Only after every row write landed, so a ✓ is never re-pointed at an order that failed

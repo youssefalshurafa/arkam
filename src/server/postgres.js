@@ -875,6 +875,15 @@ async function ensureWorkspaceSchema(workspaceId) {
                 CREATE INDEX IF NOT EXISTS idx_client_accounts_client ON ${schema}.client_accounts (client_id);
                 ALTER TABLE ${schema}.client_accounts DROP CONSTRAINT IF EXISTS client_accounts_client_id_currency_id_key;
 
+                -- Each side of a transaction has its own position WITHIN ITS DAY in that side's client
+                -- ledger (milliseconds after midnight; NULL = follow created_at's time of day). A drag
+                -- inside a day in one client's ledger writes only that client's side, so the row does not
+                -- move in the counterparty's ledger — it used to, because both ledgers sorted on the one
+                -- shared created_at the drag rewrote. Reset to NULL whenever the row's date changes,
+                -- since a position means nothing on another day. See ledgerOrder.ts.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS ledger_pos_from DOUBLE PRECISION;
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS ledger_pos_to DOUBLE PRECISION;
+
                 -- Throttle for the lazy 30-day Trash purge: at most one run per workspace per day,
                 -- claimed atomically so concurrent server instances don't both run it.
                 ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS trash_purged_at TIMESTAMPTZ;

@@ -84,6 +84,9 @@ const writeActions = new Set([
  'createTransaction',
  'updateTransaction',
  'setTransactionArchiveHidden',
+ // Same-day ledger reorder: one ledger's side only (see db.js). Open to members like the drag
+ // always was; db.js applies the member write rules and the past-edit lock per row.
+ 'setLedgerPositions',
  'deleteTransaction',
  'deleteTransactionsBulk',
  'deleteAllTransactions',
@@ -499,6 +502,8 @@ export async function POST(request: NextRequest) {
    case 'updateTransaction':
     await db.updateTransaction(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'setLedgerPositions':
+    return NextResponse.json(await db.setLedgerPositions(appLike, payload));
    case 'setTransactionArchiveHidden':
     await db.setTransactionArchiveHidden(appLike, payload);
     return NextResponse.json({ ok: true });

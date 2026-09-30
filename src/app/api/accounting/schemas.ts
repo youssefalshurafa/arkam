@@ -152,6 +152,12 @@ export const actionSchemas: Record<string, z.ZodType> = {
 
  listTransactionHistory: z.object({ transactionId: id }),
 
+ /** A position is milliseconds into the row's day; it can dip below 0 when rows share 00:00:00. */
+ setLedgerPositions: z.object({
+  accountId: id,
+  positions: z.array(z.object({ id, position: finiteNumber })),
+ }),
+
  /** Exactly one target: a whole delete batch (Undo, Trash "Restore"), or specific rows. */
  restoreTrash: z
   .object({

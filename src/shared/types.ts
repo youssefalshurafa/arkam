@@ -183,6 +183,11 @@ export type Transaction = {
  distributionLocationId: number | null;
  distributionLocationName: string | null;
  distributionLocationKind: 'receiving' | 'settlement' | null;
+ // Position within the day in the sender's (From) and receiver's (To) ledger — see
+ // features/ledger/utils/ledgerOrder.ts. null = follow createdAt's time of day. Each side is
+ // reordered independently, so dragging a row in one ledger never moves it in the other.
+ ledgerPosFrom?: number | null;
+ ledgerPosTo?: number | null;
  createdAt: string;
 };
 
@@ -331,6 +336,8 @@ export type LedgerTransactionDraft = {
 
 export type ClientLedgerEntry = {
  transactionId: number;
+ // This row's position within its day in THIS ledger (see ledgerOrder.ts).
+ ledgerPosition?: number;
  // Derived display convenience (type === 'adjustment'), not a separate storage kind —
  // every entry is backed by a real Transaction row. Used only where "Hide expenses"-style
  // filtering is intentional (e.g. CommissionReportModal).

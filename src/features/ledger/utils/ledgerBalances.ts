@@ -1,5 +1,6 @@
 import { getCommissionAmount, chargeAmount, chargeLedgerEffect, exchangeToBase } from '@/shared/utils/commission';
 import { buildAccountLockBoundaries, buildLockBoundaries, isReconciledMember, reconciledDepth } from '@/features/ledger/utils/reconciliation';
+import { compareLedgerOrder, ledgerPositionOf } from '@/features/ledger/utils/ledgerOrder';
 import type {
  ClientAccount,
  ClientAccountLedger,
@@ -119,6 +120,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
        return [
         {
          transactionId: transaction.id,
+         ledgerPosition: ledgerPositionOf(transaction, account.id),
          createdAt: transaction.createdAt,
          counterpartyName: counterparty?.clientName || transaction.counterParty?.trim() || '-',
          counterpartyClientId: counterparty?.clientId ?? null,
@@ -171,6 +173,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
        return [
         {
          transactionId: transaction.id,
+         ledgerPosition: ledgerPositionOf(transaction, account.id),
          createdAt: transaction.createdAt,
          counterpartyName: counterparty?.clientName || transaction.counterParty?.trim() || '-',
          counterpartyClientId: counterparty?.clientId ?? null,
@@ -218,16 +221,18 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
       // Deeper history first: a row counted into more of this account's agreed balances can
       // never render below one counted into fewer, whatever the raw timestamps say. Rows at
       // equal depth (the normal case — no reconciliation at all, or both on the same side of
-      // every one) fall through to plain createdAt/id order, so drag-reordering is untouched.
+      // every one) fall through to day / position-within-day / id order, so drag-reordering is
+      // untouched.
       const depthDiff = depthOf(right) - depthOf(left);
       if (depthDiff !== 0) return depthDiff;
-      const dateDiff = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
-      if (dateDiff !== 0) return dateDiff;
-      return left.transactionId - right.transactionId;
+      // Then day, then this ledger's own position within the day (ledgerOrder.ts): a same-day
+      // drag in one client's ledger re-positions only that side, so the counterparty's order
+      // is untouched.
+      return compareLedgerOrder(left, right);
      });
 
-    // Entries are ordered by reconciled depth then createdAt (drag-to-reorder persists the order
-    // by rewriting timestamps), so a running balance accumulated in this order is durable.
+    // Entries are ordered by reconciled depth, then day, then this side's position within the day
+    // (drag-to-reorder persists it per side), so a running balance accumulated in this order is durable.
     // Which row each of the account's reconciliations shows its ✓ badge on: whichever member of
     // ITS OWN frozen set currently sits LAST (highest index) in ledger order — same-day
     // siblings can be dragged around an anchor without moving that reconciliation record. Two

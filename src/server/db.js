@@ -603,6 +603,8 @@ async function getTreasuryLedgerData(app) {
             t.distribution_location_id AS "distributionLocationId",
             dloc.name AS "distributionLocationName",
             dloc.kind AS "distributionLocationKind",
+            t.ledger_pos_from AS "ledgerPosFrom",
+            t.ledger_pos_to AS "ledgerPosTo",
             t.created_at AS "createdAt"
         FROM ${schema}.transactions t
         LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
@@ -1091,6 +1093,8 @@ async function listTransactions(app) {
                 t.distribution_location_id AS "distributionLocationId",
                 dloc.name AS "distributionLocationName",
                 dloc.kind AS "distributionLocationKind",
+                t.ledger_pos_from AS "ledgerPosFrom",
+                t.ledger_pos_to AS "ledgerPosTo",
                 t.created_at AS "createdAt"
             FROM ${schema}.transactions t
             LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
@@ -1492,6 +1496,10 @@ async function updateTransaction(app, txn) {
         );
     }
 
+    // A position orders a row within ITS day (ledger_pos_from/to); on another day it means
+    // nothing, so a re-dated row goes back to following its created_at in both ledgers.
+    const dateChanged = createdAtDateKey(existingRow.createdAt) !== createdAtDateKey(txn.createdAt);
+
     await withTransaction(async (client) => {
         await recordTransactionHistory(app, schema, txn.id, 'update', client);
         await query(
@@ -1535,7 +1543,9 @@ async function updateTransaction(app, txn) {
                     -- Audit stamp: who last touched this row, and when. The values being replaced
                     -- are captured in transaction_history by recordTransactionHistory above.
                     updated_by = $31,
-                    updated_at = NOW()
+                    updated_at = NOW(),
+                    ledger_pos_from = CASE WHEN $32 THEN NULL ELSE ledger_pos_from END,
+                    ledger_pos_to = CASE WHEN $32 THEN NULL ELSE ledger_pos_to END
                 WHERE id = $20 AND deleted_at IS NULL
             `,
             [
@@ -1571,10 +1581,62 @@ async function updateTransaction(app, txn) {
                 txn.charges2ExchangeRate != null ? txn.charges2ExchangeRate : 1,
                 txn.charges2Description?.trim() || '',
                 app?.userId || null,
+                dateChanged,
             ],
             client,
         );
     });
+}
+
+// Re-orders rows WITHIN their day in one client's ledger: writes only the side of each
+// transaction that belongs to `accountId`, leaving the counterparty's order alone (see
+// ledger_pos_from/to in postgres.js and ledgerOrder.ts). This is what a same-day drag and the
+// row's Move menu send; a drag onto ANOTHER day changes the date through updateTransaction.
+//
+// Deliberately light: no transaction_history entry (it changes no fact about the transaction,
+// only where one ledger draws it) and no reconciliation backstop — membership of a ✓ is frozen by
+// calendar day and id set (isReconciledMemberServer), neither of which this touches; the client
+// re-points any ✓ a reorder crosses through updateReconciliation, as before. It does answer to the
+// past-edit lock, as every reorder always has, and to the member write rules.
+async function setLedgerPositions(app, { accountId, positions } = {}) {
+    const account = Number(accountId);
+    const entries = (Array.isArray(positions) ? positions : [])
+        .map((entry) => ({ id: Number(entry?.id), position: Number(entry?.position) }))
+        .filter((entry) => Number.isFinite(entry.id) && Number.isFinite(entry.position));
+    if (!account || !entries.length) {
+        return { ok: true, updated: 0 };
+    }
+
+    const { schema } = await getSchemaInfo(app);
+    const ids = entries.map((entry) => entry.id);
+    const existing = await query(
+        `SELECT id, created_at AS "createdAt", is_archived AS "isArchived", account_from_id AS "accountFromId", account_to_id AS "accountToId"
+         FROM ${schema}.transactions WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL`,
+        [ids],
+    );
+    if (existing.rows.length !== new Set(ids).size) {
+        throw new Error('This transaction no longer exists (it may be in the Trash). Refresh the page and try again.');
+    }
+    for (const row of existing.rows) {
+        if (row.accountFromId !== account && row.accountToId !== account) {
+            throw new Error('A transaction in this reorder does not belong to this ledger. Refresh the page and try again.');
+        }
+        await assertMemberCanWriteTransaction(app, row);
+    }
+    const dated = existing.rows.filter((row) => !row.isArchived).map((row) => row.createdAt);
+    if (dated.length) {
+        await assertPastEditAllowed(app, app.todayKey, ...dated);
+    }
+
+    const result = await query(
+        `UPDATE ${schema}.transactions t
+         SET ledger_pos_from = CASE WHEN t.account_from_id = $1 THEN p.position ELSE t.ledger_pos_from END,
+             ledger_pos_to = CASE WHEN t.account_to_id = $1 THEN p.position ELSE t.ledger_pos_to END
+         FROM unnest($2::bigint[], $3::double precision[]) AS p(id, position)
+         WHERE t.id = p.id AND t.deleted_at IS NULL`,
+        [account, ids, entries.map((entry) => entry.position)],
+    );
+    return { ok: true, updated: result.rowCount || 0 };
 }
 
 // A pure display-filter toggle (Archive table row hidden/unhidden) — deliberately a small,
@@ -2984,6 +3046,7 @@ module.exports = {
     createTransaction,
     updateTransaction,
     setTransactionArchiveHidden,
+    setLedgerPositions,
     deleteTransaction,
     listTransactionHistory,
     deleteTransactionsBulk,
