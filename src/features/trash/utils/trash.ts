@@ -1,4 +1,4 @@
-import type { TrashBatch, TrashBatchKind, TrashRestoreResult } from '@/lib/accountingApi';
+import type { TrashBatch, TrashBatchKind, TrashRestoreResult, TrashTransactionRow } from '@/lib/accountingApi';
 import type { WorkspaceRole } from '@/lib/accountingApi';
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -44,6 +44,32 @@ export function canRestoreBatch(role: WorkspaceRole | null | undefined, userId: 
  if (role === 'owner' || role === 'admin') return true;
  if (role !== 'member' || !userId) return false;
  return isTransactionKind(batch.kind) && batch.deletedBy === userId;
+}
+
+/** canRestoreBatch for one row of the Trash's transactions table — judged by the delete it came from. */
+export function canRestoreTransaction(
+ role: WorkspaceRole | null | undefined,
+ userId: string | null | undefined,
+ row: Pick<TrashTransactionRow, 'batchKind' | 'deletedBy'>,
+): boolean {
+ return canRestoreBatch(role, userId, { kind: row.batchKind, deletedBy: row.deletedBy });
+}
+
+/**
+ * The Trash table's search: every whitespace-separated term must appear in the row's description,
+ * either party (client or free-text counterparty), its currency, or its amount (typed with or
+ * without thousands separators).
+ */
+export function searchTrashTransactions<T extends Pick<TrashTransactionRow, 'description' | 'clientFromName' | 'clientToName' | 'counterParty' | 'currencyCode' | 'amount'>>(
+ rows: T[],
+ search: string,
+): T[] {
+ const terms = search.toLowerCase().replace(/,/g, '').split(/\s+/).filter(Boolean);
+ if (!terms.length) return rows;
+ return rows.filter((row) => {
+  const haystack = [row.description, row.clientFromName, row.clientToName, row.counterParty, row.currencyCode, String(row.amount)].join(' ').toLowerCase();
+  return terms.every((term) => haystack.includes(term));
+ });
 }
 
 /** Permanent deletion ("Delete permanently", "Empty Trash") is owner/admin only. */

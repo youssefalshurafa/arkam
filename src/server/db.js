@@ -41,6 +41,9 @@ const TRASH_STAMP = 'deleted_at = NOW(), deleted_by = $1, delete_batch_id = $2';
 
 const TRASH_TRANSACTION_KINDS = ['transaction', 'transactions'];
 
+// Most rows listTrash returns for the Trash's transactions table (newest deletes first).
+const TRASH_TABLE_ROW_LIMIT = 5000;
+
 async function createTrashBatch(schema, { kind, label, userId }, executor) {
     const result = await query(
         `INSERT INTO ${schema}.trash_batches (kind, label, deleted_by) VALUES ($1, $2, $3) RETURNING id`,
@@ -2076,7 +2079,7 @@ async function listTrash(app) {
     const batchIds = batches.map((row) => row.id);
     const base = { retentionDays: TRASH_RETENTION_DAYS, serverNow: new Date().toISOString() };
     if (!batchIds.length) {
-        return { ...base, batches: [] };
+        return { ...base, batches: [], transactions: [], transactionsTruncated: false };
     }
 
     // Up to 20 newest rows per batch — enough to recognise what was deleted without shipping a
@@ -2151,6 +2154,7 @@ async function listTrash(app) {
     // fetched, which keeps this small even for a "delete all" batch.
     const boundaries = await getActiveReconciliationBoundaries(schema);
     const reconciledBatchIds = new Set();
+    const reconciledTransactionIds = new Set();
     if (boundaries.size) {
         const reconciledAccountIds = [...boundaries.keys()];
         const candidates = await query(
@@ -2160,15 +2164,79 @@ async function listTrash(app) {
                AND (account_from_id = ANY($2::bigint[]) OR account_to_id = ANY($2::bigint[]))`,
             [batchIds, reconciledAccountIds],
         );
+        // Checked per row (not stopping at the batch's first hit) so the Trash's transactions
+        // table can flag each row a single-row Restore would need the override for.
         for (const row of candidates.rows) {
-            if (reconciledBatchIds.has(row.batchId)) continue;
             const touches = [row.accountFromId, row.accountToId].some((accountId) => {
                 const boundary = accountId != null ? boundaries.get(accountId) : null;
                 return Boolean(boundary) && isReconciledMemberServer(row.createdAt, Number(row.id), boundary);
             });
-            if (touches) reconciledBatchIds.add(row.batchId);
+            if (touches) {
+                reconciledBatchIds.add(row.batchId);
+                reconciledTransactionIds.add(Number(row.id));
+            }
         }
     }
+
+    // Every trashed transaction of the listed batches, with the same columns the Transactions
+    // table shows, for the Trash's table view. Newest delete first; capped so a "delete all" of a
+    // large workspace can't ship an unbounded payload — `transactionsTruncated` says when it did.
+    const transactionResult = await query(
+        `
+            SELECT
+                t.id,
+                t.delete_batch_id AS "batchId",
+                b.kind AS "batchKind",
+                t.deleted_by AS "deletedBy",
+                t.deleted_at AS "deletedAt",
+                t.account_from_id AS "accountFromId",
+                COALESCE(c_from.name, '') AS "clientFromName",
+                COALESCE(acur_from.code, '') AS "accountFromCurrencyCode",
+                COALESCE(acur_from.symbol, '') AS "accountFromCurrencySymbol",
+                t.account_to_id AS "accountToId",
+                COALESCE(c_to.name, '') AS "clientToName",
+                COALESCE(acur_to.code, '') AS "accountToCurrencyCode",
+                COALESCE(acur_to.symbol, '') AS "accountToCurrencySymbol",
+                cur.code AS "currencyCode",
+                cur.symbol AS "currencySymbol",
+                t.amount,
+                t.type,
+                t.exchange_rate_from AS "exchangeRateFrom",
+                t.commission_from AS "commissionFrom",
+                t.exchange_rate_to AS "exchangeRateTo",
+                t.commission_to AS "commissionTo",
+                CASE WHEN t.exchange_rate_from_reversed THEN 1 ELSE 0 END AS "exchangeRateFromReversed",
+                CASE WHEN t.exchange_rate_to_reversed THEN 1 ELSE 0 END AS "exchangeRateToReversed",
+                t.charges,
+                chcur.code AS "chargesCurrencyCode",
+                chcur.symbol AS "chargesCurrencySymbol",
+                t.charges_payer AS "chargesPayer",
+                t.charges2,
+                chcur2.code AS "charges2CurrencyCode",
+                chcur2.symbol AS "charges2CurrencySymbol",
+                t.charges2_payer AS "chargesPayer2",
+                t.description,
+                COALESCE(t.counter_party, '') AS "counterParty",
+                CASE WHEN t.is_archived THEN 1 ELSE 0 END AS "isArchived",
+                t.created_at AS "createdAt"
+            FROM ${schema}.transactions t
+            JOIN ${schema}.trash_batches b ON b.id = t.delete_batch_id
+            LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
+            LEFT JOIN ${schema}.clients c_from ON c_from.id = ca_from.client_id
+            LEFT JOIN ${schema}.currencies acur_from ON acur_from.id = ca_from.currency_id
+            LEFT JOIN ${schema}.client_accounts ca_to ON ca_to.id = t.account_to_id
+            LEFT JOIN ${schema}.clients c_to ON c_to.id = ca_to.client_id
+            LEFT JOIN ${schema}.currencies acur_to ON acur_to.id = ca_to.currency_id
+            JOIN ${schema}.currencies cur ON cur.id = t.currency_id
+            LEFT JOIN ${schema}.currencies chcur ON chcur.id = t.charges_currency_id
+            LEFT JOIN ${schema}.currencies chcur2 ON chcur2.id = t.charges2_currency_id
+            WHERE t.delete_batch_id = ANY($1::bigint[]) AND t.deleted_at IS NOT NULL
+            ORDER BY t.deleted_at DESC, t.created_at DESC, t.id DESC
+            LIMIT $2
+        `,
+        [batchIds, TRASH_TABLE_ROW_LIMIT + 1],
+    );
+    const transactionsTruncated = transactionResult.rows.length > TRASH_TABLE_ROW_LIMIT;
 
     const pastLockOn = Boolean(app?.todayKey) && (await isPastEditLockEnabled(app));
     const previewsByBatch = new Map();
@@ -2199,6 +2267,14 @@ async function listTrash(app) {
                 preview: previewsByBatch.get(row.id) || [],
             };
         }),
+        transactions: transactionResult.rows.slice(0, TRASH_TABLE_ROW_LIMIT).map((row) => ({
+            ...row,
+            touchesReconciled: reconciledTransactionIds.has(Number(row.id)),
+            // The per-row form of the batch's flag: restoreTrash refuses a live (non-archive) row
+            // dated before today while the past-edit lock is on.
+            pastEditLocked: pastLockOn && !row.isArchived && createdAtDateKey(row.createdAt) < app.todayKey,
+        })),
+        transactionsTruncated,
     };
 }
 

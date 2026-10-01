@@ -1,5 +1,6 @@
 import { isTempTransactionId, resolveTransactionId, resolveTransactionIds } from '@/lib/pendingTransactionWrites';
 import { localDateKey } from '@/shared/utils/date';
+import { printHtml } from '@/lib/printHtml';
 import type { SystemClient, TreasuryBalanceEntry, WriteOffMargin } from '@/shared/types';
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 
@@ -128,44 +129,7 @@ async function request<T>({ action, payload, silent }: ApiOptions, hasRetried = 
 }
 
 function exportHtmlAsPdfFallback(html: string, title: string): Promise<{ ok: boolean; filePath?: string }> {
- const popup = window.open('', '_blank');
-
- if (!popup) {
-  return Promise.resolve({ ok: false });
- }
-
- popup.document.open();
- popup.document.write(html);
- popup.document.title = title;
- popup.document.close();
-
- const triggerPrint = () => {
-  popup.focus();
-  popup.print();
- };
-
- // Wait for the brand logo (and any other images) to finish loading so they render in the PDF.
- const waitForImages = () => {
-  const images = Array.from(popup.document.images || []);
-  return Promise.all(
-   images.map((img) =>
-    img.complete
-     ? Promise.resolve()
-     : new Promise<void>((resolve) => {
-        img.addEventListener('load', () => resolve(), { once: true });
-        img.addEventListener('error', () => resolve(), { once: true });
-       }),
-   ),
-  );
- };
-
- // Wait for web fonts (e.g. Cairo) to load before printing so they don't fall back to a system font.
- const popupFonts = (popup.document as Document & { fonts?: FontFaceSet }).fonts;
- const fontsReady = popupFonts?.ready ?? Promise.resolve();
- Promise.all([fontsReady, waitForImages()])
-  .then(() => setTimeout(triggerPrint, 150))
-  .catch(() => setTimeout(triggerPrint, 400));
-
+ printHtml(html, title);
  return Promise.resolve({ ok: true });
 }
 
@@ -558,10 +522,55 @@ export type TrashBatch = {
  preview: TrashPreviewRow[];
 };
 
+/** One trashed transaction, with the columns the Transactions table shows, for the Trash table. */
+export type TrashTransactionRow = {
+ id: number;
+ batchId: number;
+ batchKind: TrashBatchKind;
+ deletedBy: string | null;
+ deletedAt: string;
+ accountFromId: number | null;
+ clientFromName: string;
+ accountFromCurrencyCode: string;
+ accountFromCurrencySymbol: string;
+ accountToId: number | null;
+ clientToName: string;
+ accountToCurrencyCode: string;
+ accountToCurrencySymbol: string;
+ currencyCode: string;
+ currencySymbol: string | null;
+ amount: number;
+ type: string;
+ exchangeRateFrom: number;
+ commissionFrom: number;
+ exchangeRateTo: number;
+ commissionTo: number;
+ exchangeRateFromReversed: number;
+ exchangeRateToReversed: number;
+ charges: number;
+ chargesCurrencyCode: string | null;
+ chargesCurrencySymbol: string | null;
+ chargesPayer: string | null;
+ charges2: number;
+ charges2CurrencyCode: string | null;
+ charges2CurrencySymbol: string | null;
+ chargesPayer2: string | null;
+ description: string;
+ counterParty: string;
+ isArchived: number;
+ createdAt: string;
+ // Restoring this row alone needs the reconciliation override / is refused by the past-edit lock.
+ touchesReconciled: boolean;
+ pastEditLocked: boolean;
+};
+
 export type TrashListResponse = {
  retentionDays: number;
  serverNow: string;
  batches: TrashBatch[];
+ transactions: TrashTransactionRow[];
+ // More trashed transactions exist than the table was sent.
+ transactionsTruncated: boolean;
  users: Record<string, { name: string; email: string }>;
 };
 

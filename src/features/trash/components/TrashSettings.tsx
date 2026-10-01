@@ -5,13 +5,14 @@ import { useQuery } from '@tanstack/react-query';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { accountingApi, type TrashBatch, type WorkspaceRole } from '@/lib/accountingApi';
+import { accountingApi, type TrashBatch, type TrashTransactionRow, type WorkspaceRole } from '@/lib/accountingApi';
 import { queryKeys } from '@/lib/queryClient';
 import { panelClassName } from '@/shared/styles';
 import { formatDateValue } from '@/shared/utils/date';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
-import { restoreTrashBatch } from '@/features/trash/utils/restoreTrashBatch';
+import { restoreTrashBatch, restoreTrashTransactions } from '@/features/trash/utils/restoreTrashBatch';
+import TrashTransactionsTable from '@/features/trash/components/TrashTransactionsTable';
 import { batchTitle, canPurge, canRestoreBatch, daysRemaining, filterBatches, isExpiringSoon, type TrashFilter } from '@/features/trash/utils/trash';
 
 type Props = {
@@ -20,25 +21,29 @@ type Props = {
  workspaceId: string | null;
 };
 
+// Transactions comes first and is the default: it's the table view of every trashed
+// transaction, which is what people come here looking for most.
 const FILTERS: { key: TrashFilter; labelKey: string }[] = [
- { key: 'all', labelKey: 'trash_filter_all' },
  { key: 'transactions', labelKey: 'trash_filter_transactions' },
  { key: 'clients', labelKey: 'trash_filter_clients' },
+ { key: 'all', labelKey: 'trash_filter_all' },
 ];
 
 /**
- * Settings > Trash: every delete of the last 30 days, grouped by the action that made it, with
- * Restore and (owner/admin) Delete permanently. Fetched only while the tab is open — it isn't
- * part of the workspace snapshot, and refetched on every visit since deletes elsewhere change it.
+ * Settings > Trash: every delete of the last 30 days. The Transactions tab lists the trashed
+ * transactions as a table (TrashTransactionsTable); the other tabs group deletes by the action
+ * that made them. Both offer Restore and (owner/admin) Delete permanently. Fetched only while the
+ * tab is open — it isn't part of the workspace snapshot, and refetched on every visit since
+ * deletes elsewhere change it.
  */
 export default function TrashSettings({ role, sessionUserId, workspaceId }: Props) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const dateFormat = useTransactionsStore((s) => s.transactionTableSettings.dateFormat);
  const { invalidate, setError } = useWorkspaceActions();
- const [filter, setFilter] = useState<TrashFilter>('all');
+ const [filter, setFilter] = useState<TrashFilter>('transactions');
  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
- const [busy, setBusy] = useState<number | 'all' | null>(null);
+ const [busy, setBusy] = useState<number | 'all' | 'rows' | null>(null);
 
  const { data, isPending, isError, refetch } = useQuery({
   queryKey: queryKeys.trash(sessionUserId, workspaceId),
@@ -70,6 +75,10 @@ export default function TrashSettings({ role, sessionUserId, workspaceId }: Prop
   });
  }
 
+ // Refreshes the Trash alongside the workspace instead of after it, so the restored rows leave the
+ // list as soon as the (small) Trash query answers rather than after the full snapshot reload.
+ const reloadAfterRestore = () => Promise.all([invalidate(), refetch()]);
+
  async function onRestore(batch: TrashBatch) {
   if (batch.pastEditLocked) {
    setError(t('trash_restore_past_locked'));
@@ -84,7 +93,49 @@ export default function TrashSettings({ role, sessionUserId, workspaceId }: Prop
    override = true;
   }
   setBusy(batch.id);
-  await restoreTrashBatch(batch.id, { override, t, loadData: invalidate });
+  const restored = await restoreTrashBatch(batch.id, { override, t, loadData: reloadAfterRestore });
+  if (!restored) await refetch();
+  setBusy(null);
+ }
+
+ // The table's Restore, for one row or a checked selection. Same checks as a batch restore.
+ async function onRestoreRows(rows: TrashTransactionRow[]) {
+  if (!rows.length) return;
+  if (rows.some((row) => row.pastEditLocked)) {
+   setError(t('trash_restore_past_locked'));
+   return;
+  }
+  let override = false;
+  if (rows.some((row) => row.touchesReconciled)) {
+   const confirmed = await confirmDialog({ title: t('trash_restore'), message: t('trash_restore_reconciled_confirm'), confirmText: t('trash_restore') });
+   if (!confirmed) return;
+   override = true;
+  }
+  setBusy('rows');
+  const restored = await restoreTrashTransactions(
+   rows.map((row) => row.id),
+   { override, t, loadData: reloadAfterRestore },
+  );
+  if (!restored) await refetch();
+  setBusy(null);
+ }
+
+ async function onPurgeRows(rows: TrashTransactionRow[]) {
+  if (!rows.length) return;
+  const confirmed = await confirmDialog({
+   title: t('danger_action_cannot_undo'),
+   message: rows.length === 1 ? t('trash_delete_forever_confirm') : t('trash_delete_selected_confirm', { count: rows.length }),
+   confirmText: t('trash_delete_forever'),
+   tone: 'danger',
+  });
+  if (!confirmed) return;
+  setBusy('rows');
+  try {
+   await accountingApi.purgeTrash({ transactionIds: rows.map((row) => row.id) });
+   setError('');
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('error_failed_delete'));
+  }
   setBusy(null);
   await refetch();
  }
@@ -165,9 +216,24 @@ export default function TrashSettings({ role, sessionUserId, workspaceId }: Prop
    <div className="mt-4">
     {isPending ? <p className="text-sm text-fg-muted">{t('loading')}</p> : null}
     {isError ? <p className="text-sm text-bad-text">{t('error_failed_load')}</p> : null}
-    {data && batches.length === 0 ? <p className="text-sm text-fg-faint">{t('trash_nothing')}</p> : null}
+    {data && filter === 'transactions' ? (
+     <TrashTransactionsTable
+      rows={data.transactions}
+      truncated={data.transactionsTruncated}
+      role={role}
+      sessionUserId={sessionUserId}
+      serverNow={data.serverNow}
+      retentionDays={data.retentionDays}
+      busy={busy !== null}
+      nameFor={nameFor}
+      formatDeletedAt={formatDeletedAt}
+      onRestore={onRestoreRows}
+      onPurge={onPurgeRows}
+     />
+    ) : null}
+    {data && filter !== 'transactions' && batches.length === 0 ? <p className="text-sm text-fg-faint">{t('trash_nothing')}</p> : null}
 
-    {batches.length > 0 ? (
+    {filter !== 'transactions' && batches.length > 0 ? (
      <ul className="flex flex-col gap-3">
       {batches.map((batch) => {
        // batches is only non-empty once data has loaded, so serverNow is always there.

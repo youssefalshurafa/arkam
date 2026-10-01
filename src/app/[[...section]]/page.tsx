@@ -1117,10 +1117,13 @@ function AuthenticatedHome() {
   }
  }, [transactionForm.currencyId, transactionForm.accountToId, currencies, clientAccounts]);
 
- function navigateToSection(nextSection: Section) {
+ // Pushes by default so browser Back returns to where you were (e.g. Settings → back to the
+ // client ledger you came from). Pass 'replace' only for redirects away from something that no
+ // longer exists (a deleted client/organization), so Back can't land on a dead page.
+ function navigateToSection(nextSection: Section, mode: 'push' | 'replace' = 'push') {
   setSection(nextSection);
   if (nextSection === 'client-ledger' || nextSection === 'organization-clients') return;
-  setSectionUrl(nextSection === 'overview' ? '/' : `/${nextSection}`, 'replace');
+  setSectionUrl(nextSection === 'overview' ? '/' : `/${nextSection}`, mode);
  }
 
  function openOrganizationClientsPage(organization: Organization) {
