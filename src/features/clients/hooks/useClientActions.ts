@@ -32,7 +32,7 @@ type UseClientActionsParams = {
  selectedClientForLedger: Client | null;
  setSelectedClientForLedger: Dispatch<SetStateAction<Client | null>>;
  setSelectedLedgerAccountId: Dispatch<SetStateAction<number | null>>;
- navigateToSection: (section: Section) => void;
+ navigateToSection: (section: Section, mode?: 'push' | 'replace') => void;
  currencyMap: Map<number, Currency>;
  clientAccountMap: Map<number, ClientAccount & { clientName?: string }>;
  clientsByOrganization: ClientsByOrganizationGroup[];
@@ -196,7 +196,7 @@ async function onDeleteClient(id: number) {
   }
   if (selectedClientForLedger?.id === id) {
    setSelectedClientForLedger(null);
-   navigateToSection('clients');
+   navigateToSection('clients', 'replace');
   }
   setError('');
   await loadData();

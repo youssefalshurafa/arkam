@@ -14,7 +14,7 @@ type UseOrganizationActionsParams = {
  setOrganizationForm: Dispatch<SetStateAction<OrganizationForm>>;
  selectedOrganizationForClients: Organization | null;
  setSelectedOrganizationForClients: Dispatch<SetStateAction<Organization | null>>;
- navigateToSection: (section: Section) => void;
+ navigateToSection: (section: Section, mode?: 'push' | 'replace') => void;
  setOrgDialogError: Dispatch<SetStateAction<string>>;
  setIsSavingOrg: Dispatch<SetStateAction<boolean>>;
  setShowCreateOrgDialog: Dispatch<SetStateAction<boolean>>;
@@ -128,7 +128,7 @@ async function onDeleteOrganization(id: number) {
   }
   if (selectedOrganizationForClients?.id === id) {
    setSelectedOrganizationForClients(null);
-   navigateToSection('organizations');
+   navigateToSection('organizations', 'replace');
   }
   if (clientForm.organizationId === id) {
    setClientForm((current) => ({ ...current, organizationId: null }));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TrashBatch } from '@/lib/accountingApi';
-import { batchTitle, canPurge, canRestoreBatch, daysRemaining, describeBlockedRestore, filterBatches, isExpiringSoon } from './trash';
+import { batchTitle, canPurge, canRestoreBatch, canRestoreTransaction, daysRemaining, describeBlockedRestore, filterBatches, isExpiringSoon, searchTrashTransactions } from './trash';
 
 const t = (key: string, params?: Record<string, string | number>) => (params ? `${key}:${JSON.stringify(params)}` : key);
 
@@ -126,5 +126,45 @@ describe('describeBlockedRestore', () => {
  it('explains an account left behind because it was re-created', () => {
   const message = describeBlockedRestore({ blockedCount: 1, blocked: [{ kind: 'account', id: 9, reason: 'account_exists', name: 'A' }] }, t);
   expect(message).toBe('trash_blocked_account_exists');
+ });
+});
+
+describe('canRestoreTransaction', () => {
+ it('lets a member restore a row from their own transaction delete', () => {
+  expect(canRestoreTransaction('member', 'u1', { batchKind: 'transactions', deletedBy: 'u1' })).toBe(true);
+ });
+
+ it("refuses a member a row from someone else's delete, or from a client delete", () => {
+  expect(canRestoreTransaction('member', 'u1', { batchKind: 'transaction', deletedBy: 'u2' })).toBe(false);
+  expect(canRestoreTransaction('member', 'u1', { batchKind: 'client', deletedBy: 'u1' })).toBe(false);
+ });
+
+ it('lets owners and admins restore any row', () => {
+  expect(canRestoreTransaction('admin', 'u1', { batchKind: 'client', deletedBy: 'u2' })).toBe(true);
+ });
+});
+
+describe('searchTrashTransactions', () => {
+ const rows = [
+  { id: 1, description: 'Rent', clientFromName: 'Ahmed', clientToName: 'Milano Lyon', counterParty: '', currencyCode: 'USD', amount: 1500 },
+  { id: 2, description: '', clientFromName: '', clientToName: 'Turkiye Trading', counterParty: 'Bank fee', currencyCode: 'TRY', amount: 20 },
+ ];
+
+ it('returns everything for an empty search', () => {
+  expect(searchTrashTransactions(rows, '  ')).toHaveLength(2);
+ });
+
+ it('matches names, counterparty and currency case-insensitively', () => {
+  expect(searchTrashTransactions(rows, 'milano').map((r) => r.id)).toEqual([1]);
+  expect(searchTrashTransactions(rows, 'BANK').map((r) => r.id)).toEqual([2]);
+  expect(searchTrashTransactions(rows, 'try').map((r) => r.id)).toEqual([2]);
+ });
+
+ it('matches an amount typed with a thousands separator', () => {
+  expect(searchTrashTransactions(rows, '1,500').map((r) => r.id)).toEqual([1]);
+ });
+
+ it('requires every term to match', () => {
+  expect(searchTrashTransactions(rows, 'ahmed try')).toHaveLength(0);
  });
 });

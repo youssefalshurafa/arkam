@@ -674,7 +674,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // follows the row to whatever page it lands on.
  //
  // Everything here is expressed as a drop, so it goes through the very same reorder engine as the
- // drag (onLedgerRowDrop): same same-day reflow of createdAt, same reconciliation guard, same
+ // drag (onLedgerRowDrop): same same-day re-positioning (this ledger's side only — the
+ // counterparty's order is untouched), same reconciliation guard, same
  // optimistic update. These moves are deliberately kept WITHIN one calendar day: a drag can cross
  // days because the user aims at a specific row on a specific date and is asked to confirm the
  // date change, whereas "move down"/"move to end of day" name no date at all and must not quietly
@@ -710,7 +711,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  };
 
  // Applies one of those moves. onLedgerRowDrop's optimistic setTransactions runs synchronously
- // for a same-day reflow (its reconciliation confirm short-circuits), so the reorder, the page
+ // for a same-day move (its reconciliation confirm short-circuits), so the reorder, the page
  // switch and the scroll request all batch into a single render — the row never appears to move
  // twice.
  const moveLedgerRow = (rowKey: string, ledger: ClientAccountLedger, currentPage: number, move: LedgerRowMove) => {
@@ -736,7 +737,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
    const ledger = selectedClientLedgers.find((l) => l.accountId === accountId);
    const entry = ledger?.entries.find((e) => e.transactionId === transactionId);
    if (!ledger || !entry) return;
-   // Same lock the menu's Edit/Delete respect — a move rewrites createdAt, so it is a past edit.
+   // Same lock the menu's Edit/Delete respect — re-ordering a past day counts as a past edit.
    if (lockPastEditsEnabled && isBeforeToday(entry.createdAt)) return;
    const moves = ledgerRowMoves(entry, ledger);
    const move = event.key === 'ArrowUp' ? moves?.up : moves?.down;
@@ -2206,7 +2207,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     // on a phone, holding it) offers the same move the drag would, including the
                     // ones a drag can't reach because the destination is on another page.
                     //
-                    // Behind the same lock as Edit, since a reorder rewrites this row's createdAt.
+                    // Behind the same lock as Edit, since re-ordering a past day counts as a past edit.
                     // Each item is greyed out when there is nowhere legal for it to go: a move only
                     // ever reorders rows WITHIN one calendar day, so a row already at the top or
                     // bottom of its date group has no up/down neighbour to trade places with.

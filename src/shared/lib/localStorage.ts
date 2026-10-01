@@ -21,9 +21,10 @@ export function notifySettingsChanged(): void {
  window.dispatchEvent(new Event('arkam:settings-changed'));
 }
 
-// Theme preference (Light / Dark / System). Synced per-user to the server (see
-// sharedTableSettings.ts) so it follows the user to another device/browser.
-// 'system' follows the OS via matchMedia.
+// Theme preference (Light / Dark / System). Per DEVICE: stored only in this browser's
+// localStorage and never synced to the server (see sharedTableSettings.ts), so a phone
+// set to light stays light whatever the user's PC uses. 'system' follows the OS via
+// matchMedia.
 export type ThemeChoice = 'light' | 'dark' | 'system';
 export const themeStorageKey = 'arkam:theme';
 
@@ -40,8 +41,9 @@ export function getStoredTheme(): ThemeChoice {
 export function saveStoredTheme(theme: ThemeChoice): void {
  if (typeof window === 'undefined') return;
  try {
+  // No notifySettingsChanged(): that triggers the per-user server sync, which the theme
+  // deliberately stays out of.
   window.localStorage.setItem(themeStorageKey, theme);
-  notifySettingsChanged();
  } catch {
   // Ignore write failures (private mode / quota) — theme just won't persist.
  }

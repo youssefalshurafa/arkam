@@ -17,13 +17,24 @@ type Translate = (key: string, params?: Record<string, string | number>) => stri
  * Anything the server had to leave in the Trash (its counterparty is itself deleted, or the
  * account was re-created since) is reported through the error banner rather than silently.
  */
-export async function restoreTrashBatch(
- batchId: number,
- { override = false, t, loadData }: { override?: boolean; t: Translate; loadData: () => Promise<unknown> | void },
-): Promise<boolean> {
+export function restoreTrashBatch(batchId: number, options: RestoreOptions): Promise<boolean> {
+ return runRestore({ batchId }, options);
+}
+
+/**
+ * The same, for individual transactions picked in the Trash's table rather than a whole delete.
+ * The server applies the same rules (member ownership, blocked counterparties, past-edit lock).
+ */
+export function restoreTrashTransactions(transactionIds: number[], options: RestoreOptions): Promise<boolean> {
+ return runRestore({ transactionIds }, options);
+}
+
+type RestoreOptions = { override?: boolean; t: Translate; loadData: () => Promise<unknown> | void };
+
+async function runRestore(target: { batchId: number } | { transactionIds: number[] }, { override = false, t, loadData }: RestoreOptions): Promise<boolean> {
  const { setError, showToast } = useAppStatusStore.getState();
  try {
-  const result = await accountingApi.restoreTrash({ batchId, acknowledgeReconciliationOverride: override });
+  const result = await accountingApi.restoreTrash({ ...target, acknowledgeReconciliationOverride: override });
   const blocked = describeBlockedRestore(result, t);
   setError(blocked);
   await loadData();

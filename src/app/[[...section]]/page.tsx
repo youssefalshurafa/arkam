@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useTheme } from '@/contexts/ThemeContext';
 import HomePage from '@/components/marketing/HomePage';
 import { SectionErrorBoundary } from '@/components/ui/SectionErrorBoundary';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -59,7 +58,6 @@ import {
  archiveHighlightsStorageKey,
  archiveRowSettingsStorageKey,
  notifySettingsChanged,
- getStoredTheme,
  getStoredClientsOrgOrder,
  getStoredLiveRatesInterval,
  getStoredPdfSettings,
@@ -176,7 +174,6 @@ let lastRecordedSection: string | null = null;
 function AuthenticatedHome() {
  const pathname = usePathname();
  const { language, setLanguage, isRTL } = useLanguage();
- const { setTheme } = useTheme();
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
  const numLocale = language === 'fr' ? 'en-US' : language;
@@ -919,7 +916,6 @@ function AuthenticatedHome() {
    // load) whose in-memory state was captured before this fetch resolved — they need to
    // be explicitly re-pushed into that state or the freshly-applied value stays invisible
    // until a full reload.
-   setTheme(getStoredTheme());
    const storedLanguage = window.localStorage.getItem('arkam_language');
    if (storedLanguage === 'en' || storedLanguage === 'ar' || storedLanguage === 'fr') setLanguage(storedLanguage);
    setIsSidebarCollapsed(window.localStorage.getItem('arkam:sidebar-collapsed') === 'true');
@@ -1121,10 +1117,13 @@ function AuthenticatedHome() {
   }
  }, [transactionForm.currencyId, transactionForm.accountToId, currencies, clientAccounts]);
 
- function navigateToSection(nextSection: Section) {
+ // Pushes by default so browser Back returns to where you were (e.g. Settings → back to the
+ // client ledger you came from). Pass 'replace' only for redirects away from something that no
+ // longer exists (a deleted client/organization), so Back can't land on a dead page.
+ function navigateToSection(nextSection: Section, mode: 'push' | 'replace' = 'push') {
   setSection(nextSection);
   if (nextSection === 'client-ledger' || nextSection === 'organization-clients') return;
-  setSectionUrl(nextSection === 'overview' ? '/' : `/${nextSection}`, 'replace');
+  setSectionUrl(nextSection === 'overview' ? '/' : `/${nextSection}`, mode);
  }
 
  function openOrganizationClientsPage(organization: Organization) {
