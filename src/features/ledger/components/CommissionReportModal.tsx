@@ -6,7 +6,6 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { compactFieldInputClassName, compactFieldLabelClassName, seamlessInputClassName } from '@/shared/styles';
 import { normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
-import { printHtml } from '@/lib/printHtml';
 import { getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
@@ -268,7 +267,13 @@ export default function CommissionReportModal({ ledgers, clientAccounts, onUpdat
 </body>
 </html>`;
 
-  printHtml(html, `${t('distribution_panel_title')} — ${clientName}`);
+  const printWindow = window.open('', '_blank', 'width=900,height=1000');
+  if (!printWindow) return;
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
  }
 
  function insertCommission() {
