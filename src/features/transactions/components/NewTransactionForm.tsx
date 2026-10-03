@@ -192,6 +192,18 @@ export default function NewTransactionForm({
   query: transactionForm.description,
   accountIds: [transactionForm.accountFromId, transactionForm.accountToId],
  });
+ const { suggestions: chargesDescriptionSuggestions, excludeSuggestion: excludeChargesDescriptionSuggestion } = useDescriptionSuggestions({
+  transactions,
+  query: transactionForm.chargesDescription,
+  accountIds: [transactionForm.accountFromId, transactionForm.accountToId],
+  field: 'charges',
+ });
+ const { suggestions: charges2DescriptionSuggestions, excludeSuggestion: excludeCharges2DescriptionSuggestion } = useDescriptionSuggestions({
+  transactions,
+  query: transactionForm.charges2Description,
+  accountIds: [transactionForm.accountFromId, transactionForm.accountToId],
+  field: 'charges',
+ });
 
  // Defaults the amount's currency to the first account picked (unless the user already chose
  // one), so the "1 X = ? Y" rate hint and reverse icon show up right away instead of staying on
@@ -1129,13 +1141,17 @@ export default function NewTransactionForm({
        </div>
        <div className="mt-2">
         <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
-        <input
-         type="text"
-         value={transactionForm.chargesDescription}
-         onChange={(event) => setTransactionForm((current) => ({ ...current, chargesDescription: event.target.value }))}
-         className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-         placeholder={t('charges_description_placeholder')}
-        />
+        <div className="mt-1">
+         <DescriptionSuggestField
+          value={transactionForm.chargesDescription}
+          onChange={(value) => setTransactionForm((current) => ({ ...current, chargesDescription: value }))}
+          suggestions={chargesDescriptionSuggestions}
+          onExcludeSuggestion={excludeChargesDescriptionSuggestion}
+          removeSuggestionLabel={t('transaction_description_suggestion_remove')}
+          className="w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          placeholder={t('charges_description_placeholder')}
+         />
+        </div>
        </div>
       </div>
      )}
@@ -1188,13 +1204,17 @@ export default function NewTransactionForm({
        </div>
        <div className="mt-2">
         <label className="block text-xs font-medium text-fg-faint">{t('charges_description')}</label>
-        <input
-         type="text"
-         value={transactionForm.charges2Description}
-         onChange={(event) => setTransactionForm((current) => ({ ...current, charges2Description: event.target.value }))}
-         className="mt-1 w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-         placeholder={t('charges_description_placeholder')}
-        />
+        <div className="mt-1">
+         <DescriptionSuggestField
+          value={transactionForm.charges2Description}
+          onChange={(value) => setTransactionForm((current) => ({ ...current, charges2Description: value }))}
+          suggestions={charges2DescriptionSuggestions}
+          onExcludeSuggestion={excludeCharges2DescriptionSuggestion}
+          removeSuggestionLabel={t('transaction_description_suggestion_remove')}
+          className="w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+          placeholder={t('charges_description_placeholder')}
+         />
+        </div>
        </div>
       </div>
      )}

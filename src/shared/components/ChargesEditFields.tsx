@@ -1,8 +1,11 @@
 'use client';
 
 import ChargesPayerSelects from '@/shared/components/ChargesPayerSelects';
+import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
+import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { compactFieldInputClassName, compactFieldLabelClassName } from '@/shared/styles';
 import { formatAmountInput, normalizeUnsignedDecimalInput } from '@/shared/utils/decimal';
+import type { Transaction } from '@/shared/types';
 
 type ChargesEditFieldsProps = {
  t: (key: string, params?: Record<string, string | number>) => string;
@@ -15,6 +18,10 @@ type ChargesEditFieldsProps = {
  fromLabel: string;
  toLabel: string;
  meLabel: string;
+ // Source for the description field's past-expense-description suggestions, scoped to the
+ // transaction's two accounts the same way the main description field is.
+ transactions: Transaction[];
+ accountIds: Array<number | null | undefined>;
 };
 
 // The expanded "مصاريف" (expenses/charges) editor, shared by TransactionsSection's inline
@@ -35,7 +42,11 @@ export default function ChargesEditFields({
  fromLabel,
  toLabel,
  meLabel,
+ transactions,
+ accountIds,
 }: ChargesEditFieldsProps) {
+ const { suggestions, excludeSuggestion } = useDescriptionSuggestions({ transactions, query: chargesDescription, accountIds, field: 'charges' });
+
  return (
   <div className="flex flex-wrap items-start gap-3">
    <div className="flex flex-col gap-1">
@@ -71,10 +82,12 @@ export default function ChargesEditFields({
 
    <div className="flex min-w-40 flex-1 basis-full flex-col gap-1 sm:basis-52">
     <label className={compactFieldLabelClassName}>{t('charges_description')}</label>
-    <input
-     type="text"
+    <DescriptionSuggestField
      value={chargesDescription}
-     onChange={(event) => onChargesDescriptionChange(event.target.value)}
+     onChange={onChargesDescriptionChange}
+     suggestions={suggestions}
+     onExcludeSuggestion={excludeSuggestion}
+     removeSuggestionLabel={t('transaction_description_suggestion_remove')}
      className={`${compactFieldInputClassName} w-full`}
      placeholder={t('charges_description_placeholder')}
     />

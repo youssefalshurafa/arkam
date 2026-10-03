@@ -2169,6 +2169,8 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
                          fromLabel={txn.clientFromName}
                          toLabel={txn.clientToName}
                          meLabel={t('charges_payer_me')}
+                         transactions={transactions}
+                         accountIds={[draft.accountFromId, draft.accountToId]}
                         />
                        );
                       }

@@ -3751,6 +3751,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              fromLabel={fromSideName}
                              toLabel={toSideName}
                              meLabel={t('charges_payer_me')}
+                             transactions={transactions}
+                             accountIds={[ledger.accountId, chargesDraft.counterpartyAccountId]}
                             />
                            </div>
                           </td>
