@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Dispatch, SetStateAction } from 'react';
-import { defaultLedgerColumnOrder, defaultLedgerColumnVisibility, getStoredLedgerFilter, getStoredLedgerHighlightPresets, getStoredTableZoom } from '@/shared/lib/localStorage';
-import type { LedgerColumnKey, LedgerTransactionDraft, PdfColVisibility, PdfSettings } from '@/shared/types';
+import { defaultLedgerColumnOrder, defaultLedgerColumnVisibility, getStoredLedgerFilters, getStoredLedgerHighlightPresets, getStoredTableZoom } from '@/shared/lib/localStorage';
+import type { LedgerColumnKey, LedgerFilterState, LedgerTransactionDraft, PdfColVisibility, PdfSettings } from '@/shared/types';
 
 export type PdfExportModalState = {
  accountId: number;
@@ -118,16 +118,10 @@ type LedgerStore = {
  setShowLedgerSettingsModal: Dispatch<SetStateAction<boolean>>;
  ledgerFilterOpen: boolean;
  setLedgerFilterOpen: Dispatch<SetStateAction<boolean>>;
- ledgerFilterSearch: string;
- setLedgerFilterSearch: Dispatch<SetStateAction<string>>;
- ledgerFilterWholeWord: boolean;
- setLedgerFilterWholeWord: Dispatch<SetStateAction<boolean>>;
- ledgerFilterCounterparty: string;
- setLedgerFilterCounterparty: Dispatch<SetStateAction<string>>;
- ledgerFilterDateFrom: string;
- setLedgerFilterDateFrom: Dispatch<SetStateAction<string>>;
- ledgerFilterDateTo: string;
- setLedgerFilterDateTo: Dispatch<SetStateAction<string>>;
+ // One filter bar per client, keyed by client id — searching one client's ledger must not
+ // carry over to the next client opened. Read it through useLedgerClientFilter.
+ ledgerFilters: Record<string, LedgerFilterState>;
+ setLedgerFilters: Dispatch<SetStateAction<Record<string, LedgerFilterState>>>;
  ledgerDecimals: number;
  setLedgerDecimals: Dispatch<SetStateAction<number>>;
  ledgerDateFormat: PdfSettings['dateFormat'];
@@ -227,8 +221,6 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   (updater: SetStateAction<LedgerStore[K]>) =>
    set((s) => ({ [key]: typeof updater === 'function' ? (updater as (v: LedgerStore[K]) => LedgerStore[K])(s[key]) : updater } as Pick<LedgerStore, K>));
 
- const initialLedgerFilter = getStoredLedgerFilter();
-
  return {
   clientLedgerBackSection: 'clients',
   setClientLedgerBackSection: setter('clientLedgerBackSection'),
@@ -246,16 +238,8 @@ export const useLedgerStore = create<LedgerStore>((set) => {
   setShowLedgerSettingsModal: setter('showLedgerSettingsModal'),
   ledgerFilterOpen: false,
   setLedgerFilterOpen: setter('ledgerFilterOpen'),
-  ledgerFilterSearch: initialLedgerFilter.search,
-  setLedgerFilterSearch: setter('ledgerFilterSearch'),
-  ledgerFilterWholeWord: initialLedgerFilter.wholeWord,
-  setLedgerFilterWholeWord: setter('ledgerFilterWholeWord'),
-  ledgerFilterCounterparty: initialLedgerFilter.counterparty,
-  setLedgerFilterCounterparty: setter('ledgerFilterCounterparty'),
-  ledgerFilterDateFrom: initialLedgerFilter.dateFrom,
-  setLedgerFilterDateFrom: setter('ledgerFilterDateFrom'),
-  ledgerFilterDateTo: initialLedgerFilter.dateTo,
-  setLedgerFilterDateTo: setter('ledgerFilterDateTo'),
+  ledgerFilters: getStoredLedgerFilters(),
+  setLedgerFilters: setter('ledgerFilters'),
   ledgerDecimals: 0,
   setLedgerDecimals: setter('ledgerDecimals'),
   ledgerDateFormat: 'day-month',

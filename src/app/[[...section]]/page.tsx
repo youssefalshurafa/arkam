@@ -62,7 +62,7 @@ import {
  getStoredLiveRatesInterval,
  getStoredPdfSettings,
  getStoredAiSettings,
- getStoredLedgerFilter,
+ getStoredLedgerFilters,
  getStoredTxFilter,
  getStoredArchiveFilter,
  getStoredTableZoom,
@@ -260,15 +260,7 @@ function AuthenticatedHome() {
  const showLedgerSettingsModal = useLedgerStore((s) => s.showLedgerSettingsModal);
  const setShowLedgerSettingsModal = useLedgerStore((s) => s.setShowLedgerSettingsModal);
  const setLedgerFilterOpen = useLedgerStore((s) => s.setLedgerFilterOpen);
- const ledgerFilterSearch = useLedgerStore((s) => s.ledgerFilterSearch);
- const ledgerFilterWholeWord = useLedgerStore((s) => s.ledgerFilterWholeWord);
- const setLedgerFilterSearch = useLedgerStore((s) => s.setLedgerFilterSearch);
- const ledgerFilterCounterparty = useLedgerStore((s) => s.ledgerFilterCounterparty);
- const setLedgerFilterCounterparty = useLedgerStore((s) => s.setLedgerFilterCounterparty);
- const ledgerFilterDateFrom = useLedgerStore((s) => s.ledgerFilterDateFrom);
- const setLedgerFilterDateFrom = useLedgerStore((s) => s.setLedgerFilterDateFrom);
- const ledgerFilterDateTo = useLedgerStore((s) => s.ledgerFilterDateTo);
- const setLedgerFilterDateTo = useLedgerStore((s) => s.setLedgerFilterDateTo);
+ const ledgerFilters = useLedgerStore((s) => s.ledgerFilters);
  const ledgerDecimals = useLedgerStore((s) => s.ledgerDecimals);
  const setLedgerDecimals = useLedgerStore((s) => s.setLedgerDecimals);
  const ledgerDateFormat = useLedgerStore((s) => s.ledgerDateFormat);
@@ -929,21 +921,18 @@ function AuthenticatedHome() {
     txFilterWholeWord: storedTxFilter.wholeWord,
     txFilterDateFrom: storedTxFilter.dateFrom,
     txFilterDateTo: storedTxFilter.dateTo,
+    txFilterTags: storedTxFilter.tags,
     archiveFilterSearch: storedArchiveFilter.search,
     archiveFilterWholeWord: storedArchiveFilter.wholeWord,
     archiveFilterDateFrom: storedArchiveFilter.dateFrom,
     archiveFilterDateTo: storedArchiveFilter.dateTo,
+    archiveFilterTags: storedArchiveFilter.tags,
     tableZoom: getStoredTableZoom('transactions'),
    });
    const storedLedgerPageSize = parseInt(window.localStorage.getItem('arkam:ledger-page-size') ?? '', 10);
    if ([25, 50, 100].includes(storedLedgerPageSize)) setLedgerPageSize(storedLedgerPageSize);
-   const storedLedgerFilter = getStoredLedgerFilter();
    useLedgerStore.setState({
-    ledgerFilterSearch: storedLedgerFilter.search,
-    ledgerFilterWholeWord: storedLedgerFilter.wholeWord,
-    ledgerFilterCounterparty: storedLedgerFilter.counterparty,
-    ledgerFilterDateFrom: storedLedgerFilter.dateFrom,
-    ledgerFilterDateTo: storedLedgerFilter.dateTo,
+    ledgerFilters: getStoredLedgerFilters(),
     tableZoom: getStoredTableZoom('ledger'),
    });
   }
@@ -1089,7 +1078,7 @@ function AuthenticatedHome() {
 
  useEffect(() => {
   setLedgerPageState({});
- }, [ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
+ }, [ledgerFilters]);
 
  useEffect(() => {
   if (!transactionForm.currencyId || !transactionForm.accountFromId) return;

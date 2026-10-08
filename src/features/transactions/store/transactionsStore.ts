@@ -4,7 +4,6 @@ import { getStoredArchiveFilter, getStoredArchiveTableSettings, getStoredTableZo
 import { localDateKey } from '@/shared/utils/date';
 import { emptyArchiveEntryForm, emptyTransactionForm } from '@/features/transactions/forms';
 import type { HiddenFilter } from '@/features/transactions/utils/transactionRows';
-import type { SearchTag } from '@/features/transactions/utils/searchTags';
 import type {
  ArchiveEntryForm,
  ImportClientReview,
@@ -12,6 +11,7 @@ import type {
  ImportRowOverride,
  ImportedTransactionRow,
  PendingImportData,
+ SearchTag,
  TransactionForm,
  TransactionTableDraft,
  TransactionTableRow,
@@ -106,7 +106,7 @@ type TransactionsStore = {
  setTxFilterDateTo: Dispatch<SetStateAction<string>>;
  txFilterHideExpenses: boolean;
  setTxFilterHideExpenses: Dispatch<SetStateAction<boolean>>;
- // Advanced-search tags (see searchTags.ts). Not persisted, same as txFilterClient.
+ // Search box chips (see searchTags.ts). Persisted with the search text.
  txFilterTags: SearchTag[];
  setTxFilterTags: Dispatch<SetStateAction<SearchTag[]>>;
  // Archive keeps its own full copy of the filter bar, entirely separate from the Transactions
@@ -288,7 +288,7 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setTxFilterDateTo: setter('txFilterDateTo'),
   txFilterHideExpenses: false,
   setTxFilterHideExpenses: setter('txFilterHideExpenses'),
-  txFilterTags: [],
+  txFilterTags: initialTxFilter.tags,
   setTxFilterTags: setter('txFilterTags'),
   archiveFilterOpen: false,
   setArchiveFilterOpen: setter('archiveFilterOpen'),
@@ -304,7 +304,7 @@ export const useTransactionsStore = create<TransactionsStore>((set) => {
   setArchiveFilterDateTo: setter('archiveFilterDateTo'),
   archiveFilterHideExpenses: false,
   setArchiveFilterHideExpenses: setter('archiveFilterHideExpenses'),
-  archiveFilterTags: [],
+  archiveFilterTags: initialArchiveFilter.tags,
   setArchiveFilterTags: setter('archiveFilterTags'),
   archiveHiddenFilter: 'exclude',
   setArchiveHiddenFilter: setter('archiveHiddenFilter'),

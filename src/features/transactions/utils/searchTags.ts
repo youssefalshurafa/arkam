@@ -1,13 +1,11 @@
-import type { TransactionTableRow } from '@/shared/types';
+import type { SearchTag, SearchTagKind, TransactionTableRow } from '@/shared/types';
 
 /**
- * Advanced-search tags for the Transactions/Archive filter panel. Every tag must match for a
+ * Search box chips for the Transactions/Archive filter panel. Every tag must match for a
  * row to show (AND), which is what makes combinations like "client X + client Y" (every
  * transaction between the two, either direction) or "client X + amount 500" work.
  */
-export type SearchTagKind = 'client' | 'amount' | 'description' | 'currency';
-
-export type SearchTag = { kind: SearchTagKind; value: string };
+export type { SearchTag, SearchTagKind };
 
 // Amount tags accept an exact value ("500"), an inclusive range ("100-500"), or a one-sided
 // bound (">500", "<500", ">=500", "<=500"). Thousands separators/spaces are ignored, matching

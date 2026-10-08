@@ -28,7 +28,7 @@ import { useTransactionsStore, type ArchiveExportModalState } from '@/features/t
 import { useLongPress } from '@/shared/hooks/useLongPress';
 import { useDescriptionSuggestions } from '@/shared/hooks/useDescriptionSuggestions';
 import { DescriptionSuggestField } from '@/shared/components/DescriptionSuggestField';
-import { AdvancedSearchTags } from '@/features/transactions/components/AdvancedSearchTags';
+import { SearchTagsInput } from '@/features/transactions/components/SearchTagsInput';
 import AccountSearchSelect from '@/features/transactions/components/AccountSearchSelect';
 import ArchiveExportModal from '@/features/transactions/components/ArchiveExportModal';
 import NewTransactionForm from '@/features/transactions/components/NewTransactionForm';
@@ -250,10 +250,10 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
  // another device (see saveTxFilter/saveArchiveFilter in shared/lib/localStorage.ts) — each
  // section under its own storage key so they never overwrite each other.
  useEffect(() => {
-  const filter = { search: filterSearch, wholeWord: filterWholeWord, dateFrom: filterDateFrom, dateTo: filterDateTo };
+  const filter = { search: filterSearch, wholeWord: filterWholeWord, tags: filterTags, dateFrom: filterDateFrom, dateTo: filterDateTo };
   if (isArchiveSection) saveArchiveFilter(filter);
   else saveTxFilter(filter);
- }, [isArchiveSection, filterSearch, filterWholeWord, filterDateFrom, filterDateTo]);
+ }, [isArchiveSection, filterSearch, filterWholeWord, filterTags, filterDateFrom, filterDateTo]);
  // When a row is loaded into the form for editing, bring the form into view.
  const editFormRef = useRef<HTMLDivElement | null>(null);
  const transactionFormRef = useRef<HTMLFormElement | null>(null);
@@ -1164,67 +1164,21 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
             </svg>
            </button>
            {filterOpen && (
-            <>
             <div className="flex flex-wrap items-end gap-2 border-t border-border px-3 py-3">
-             <div className="flex min-w-36 flex-1 flex-col gap-1">
+             <div className="flex min-w-60 flex-2 flex-col gap-1">
               <label className="text-xs font-medium text-fg-faint">{t('tx_filter_search')}</label>
-              <div className="relative">
-               <input
-                type="text"
-                value={filterSearch}
-                onChange={(e) => setFilterSearch(e.target.value)}
-                placeholder={t('tx_filter_search_placeholder')}
-                className={`w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
-               />
-               <div className={`absolute inset-y-0 flex items-center gap-0.5 ${isRTL ? 'left-1' : 'right-1'}`}>
-                <button
-                 type="button"
-                 onClick={() => setFilterWholeWord((w) => !w)}
-                 title={t('tx_filter_whole_word')}
-                 aria-label={t('tx_filter_whole_word')}
-                 aria-pressed={filterWholeWord}
-                 className={`flex h-5 w-6 items-center justify-center rounded text-[11px] font-semibold transition ${
-                  filterWholeWord ? 'bg-accent-weak text-accent ring-1 ring-inset ring-blue-400' : 'text-fg-faint hover:bg-surface-hover hover:text-fg-muted'
-                 }`}
-                >
-                 <span className="border-b border-current leading-none">ab</span>
-                </button>
-                {filterSearch ? (
-                 <button
-                  type="button"
-                  onClick={() => setFilterSearch('')}
-                  title={t('clear_selection')}
-                  aria-label={t('clear_selection')}
-                  className="flex h-5 w-5 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
-                 >
-                  <svg
-                   width="12"
-                   height="12"
-                   viewBox="0 0 24 24"
-                   fill="none"
-                   stroke="currentColor"
-                   strokeWidth="2"
-                   strokeLinecap="round"
-                   strokeLinejoin="round"
-                   aria-hidden
-                  >
-                   <line
-                    x1="18"
-                    y1="6"
-                    x2="6"
-                    y2="18"
-                   />
-                   <line
-                    x1="6"
-                    y1="6"
-                    x2="18"
-                    y2="18"
-                   />
-                  </svg>
-                 </button>
-                ) : null}
-               </div>
-              </div>
+              <SearchTagsInput
+               text={filterSearch}
+               onTextChange={setFilterSearch}
+               wholeWord={filterWholeWord}
+               onWholeWordChange={setFilterWholeWord}
+               tags={filterTags}
+               onTagsChange={setFilterTags}
+               clientOptions={txFilterClientOptions}
+               currencyOptions={txFilterCurrencyOptions}
+               placeholder={t('tx_adv_placeholder')}
+               hint={t('tx_adv_hint')}
+              />
              </div>
              <div className="flex min-w-36 flex-1 flex-col gap-1">
               <label className="text-xs font-medium text-fg-faint">{t('tx_filter_client')}</label>
@@ -1314,13 +1268,6 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
               </button>
              )}
             </div>
-            <AdvancedSearchTags
-             tags={filterTags}
-             onTagsChange={setFilterTags}
-             clientOptions={txFilterClientOptions}
-             currencyOptions={txFilterCurrencyOptions}
-            />
-            </>
            )}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">

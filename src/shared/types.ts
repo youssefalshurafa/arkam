@@ -602,11 +602,16 @@ export type PdfSettings = {
  showCurrencySymbol: boolean;
  highlightNetChange: boolean;
 };
+// A search box chip (see features/transactions/utils/searchTags.ts for the matching rules).
+export type SearchTagKind = 'client' | 'amount' | 'description' | 'currency';
+export type SearchTag = { kind: SearchTagKind; value: string };
 // Ledger/transactions search+date filter bar state, persisted so a user's last filter
-// survives a refresh or a new device instead of resetting to blank every time.
+// survives a refresh or a new device instead of resetting to blank every time. The ledger
+// keeps one of these per client (see getStoredLedgerFilters).
 export type LedgerFilterState = {
  search: string;
  wholeWord: boolean;
+ tags: SearchTag[];
  counterparty: string;
  dateFrom: string;
  dateTo: string;
@@ -614,6 +619,7 @@ export type LedgerFilterState = {
 export type TxFilterState = {
  search: string;
  wholeWord: boolean;
+ tags: SearchTag[];
  dateFrom: string;
  dateTo: string;
 };

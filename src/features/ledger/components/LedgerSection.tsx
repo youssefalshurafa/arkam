@@ -18,7 +18,7 @@ import { accountingApi } from '@/lib/accountingApi';
 import { panelClassName, tableWrapClassName, seamlessInputClassName, seamlessSelectClassName, editingRowRingClassName } from '@/shared/styles';
 import { SkBar, SkTablePanel, SK_LEDGER } from '@/shared/components/skeletons/Skeletons';
 import { TableZoomControl } from '@/shared/components/TableZoomControl';
-import { getStoredPdfCols, getStoredPdfDateRange, notifySettingsChanged, saveLedgerFilter, saveTableZoom } from '@/shared/lib/localStorage';
+import { getStoredPdfCols, getStoredPdfDateRange, notifySettingsChanged, saveLedgerFilters, saveTableZoom } from '@/shared/lib/localStorage';
 import { formatAmountInput, normalizeDecimalInput, normalizePlainDecimalInput } from '@/shared/utils/decimal';
 import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, highlightPenCursor } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
@@ -27,11 +27,14 @@ import { CommissionDirectionToggle } from '@/shared/components/CommissionDirecti
 import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
-import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch } from '@/features/ledger/utils/ledgerEntries';
+import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
 import { anomalyKey, type RateAnomaly, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useAiEditLedger, type AiEditLedgerReviewRow } from '@/features/ledger/hooks/useAiEditLedger';
+import { useLedgerSumDrag } from '@/features/ledger/hooks/useLedgerSumDrag';
+import { useLedgerClientFilter } from '@/features/ledger/hooks/useLedgerClientFilter';
+import { SearchTagsInput } from '@/features/transactions/components/SearchTagsInput';
 import { useSpeechToText } from '@/shared/hooks/useSpeechToText';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import type { DraftHistory } from '@/shared/hooks/useDraftHistory';
@@ -158,7 +161,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  // page's balance-chip write-off uses, applied here to gate the ledger row's "Write off" menu
  // item against the account's current overall balance (see resolveWriteOffThreshold).
  const writeOffMarginByCurrency = useMemo(() => writeOffMarginMap(writeOffMargins), [writeOffMargins]);
- const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilterSearch, setLedgerFilterSearch, ledgerFilterWholeWord, setLedgerFilterWholeWord, ledgerFilterCounterparty, setLedgerFilterCounterparty, ledgerFilterDateFrom, setLedgerFilterDateFrom, ledgerFilterDateTo, setLedgerFilterDateTo, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerRowHighlightColor, ledgerRowHighlightPresets, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed, flashLedgerEntry, setFlashLedgerEntry } = useLedgerStore();
+ const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilters, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerRowHighlightColor, ledgerRowHighlightPresets, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed, flashLedgerEntry, setFlashLedgerEntry } = useLedgerStore();
 
  // Entries are ordered oldest-first (see ledgerBalances.ts), so the most recent ones
  // sit at the bottom of the scrollable table. Jump there on open (and whenever the
@@ -170,17 +173,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
   if (el) el.scrollTop = el.scrollHeight;
  }, [selectedClientForLedger?.id, selectedLedgerAccountId]);
 
- // Persist the search/date filter bar so it survives a refresh and follows the user
- // to another device (see saveLedgerFilter in shared/lib/localStorage.ts).
+ // This client's own filter bar — each client keeps a separate one (see useLedgerClientFilter).
+ const { filter: ledgerFilter, updateFilter: updateLedgerFilter, clearFilter: clearLedgerFilter, isActive: ledgerFilterActive } = useLedgerClientFilter(selectedClientForLedger?.id);
+ const { search: ledgerFilterSearch, wholeWord: ledgerFilterWholeWord, tags: ledgerFilterTags, counterparty: ledgerFilterCounterparty, dateFrom: ledgerFilterDateFrom, dateTo: ledgerFilterDateTo } = ledgerFilter;
+
+ // Persist every client's filter bar so it survives a refresh and follows the user
+ // to another device (see saveLedgerFilters in shared/lib/localStorage.ts).
  useEffect(() => {
-  saveLedgerFilter({
-   search: ledgerFilterSearch,
-   wholeWord: ledgerFilterWholeWord,
-   counterparty: ledgerFilterCounterparty,
-   dateFrom: ledgerFilterDateFrom,
-   dateTo: ledgerFilterDateTo,
-  });
- }, [ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
+  saveLedgerFilters(ledgerFilters);
+ }, [ledgerFilters]);
 
  // The filter bar applied to one account's entries, in render order. This is THE list the user
  // sees — pagination slices it, the pager counts it, the clipboard-paste handlers index into it,
@@ -215,13 +216,25 @@ export default function LedgerSection(props: LedgerSectionProps) {
   return byAccount;
  }, [selectedClientLedgers, language]);
 
+ // Currency codes for the search box's currency chips — only offered when an account's entries
+ // actually span more than one currency (a cross-currency transaction), otherwise every row would
+ // match and the chip would just be noise.
+ const currencyOptionsByAccount = useMemo(() => {
+  const byAccount = new Map<number, string[]>();
+  for (const ledger of selectedClientLedgers) {
+   const codes = [...new Set(ledger.entries.map((entry) => entry.currencyCode).filter(Boolean))].sort();
+   byAccount.set(ledger.accountId, codes.length > 1 ? codes : []);
+  }
+  return byAccount;
+ }, [selectedClientLedgers]);
+
  const visibleEntriesCache = useMemo(
   () => new WeakMap<ClientAccountLedger['entries'], ClientAccountLedger['entries']>(),
   // These are the invalidation trigger, not inputs the factory reads, so eslint calls them
   // unnecessary. Dropping them would leave the cache serving results computed under the
   // previous filter.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [ledgerFilterDateFrom, ledgerFilterDateTo, ledgerFilterCounterparty, ledgerFilterSearch, ledgerFilterWholeWord],
+  [ledgerFilterDateFrom, ledgerFilterDateTo, ledgerFilterCounterparty, ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterTags],
  );
  const visibleLedgerEntries = useCallback(
   (entries: ClientAccountLedger['entries']) => {
@@ -232,12 +245,13 @@ export default function LedgerSection(props: LedgerSectionProps) {
     if (ledgerFilterDateTo && e.createdAt.slice(0, 10) > ledgerFilterDateTo) return false;
     if (ledgerFilterCounterparty && e.counterpartyName !== ledgerFilterCounterparty) return false;
     if (!ledgerEntryMatchesSearch(e, ledgerFilterSearch.trim(), ledgerFilterWholeWord)) return false;
+    if (!ledgerEntryMatchesSearchTags(e, ledgerFilterTags)) return false;
     return true;
    });
    visibleEntriesCache.set(entries, filtered);
    return filtered;
   },
-  [visibleEntriesCache, ledgerFilterDateFrom, ledgerFilterDateTo, ledgerFilterCounterparty, ledgerFilterSearch, ledgerFilterWholeWord],
+  [visibleEntriesCache, ledgerFilterDateFrom, ledgerFilterDateTo, ledgerFilterCounterparty, ledgerFilterSearch, ledgerFilterWholeWord, ledgerFilterTags],
  );
 
  // Right-click row actions (Edit/Reconcile/Write off/Delete) — replaces a cluster of
@@ -384,10 +398,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   // finishing here) is deliberate: consuming the request below changes this effect's own
   // dependency, so React re-runs it immediately — and any cleanup scheduled here would be torn
   // down before it could run. That is exactly what silently killed the jump before.
-  setLedgerFilterSearch('');
-  setLedgerFilterCounterparty('');
-  setLedgerFilterDateFrom('');
-  setLedgerFilterDateTo('');
+  clearLedgerFilter();
   setPendingLedgerJump({ transactionId, accountId, kind, targetPage: Math.floor(idx / ledgerPageSize) + 1 });
   setFlashLedgerEntry(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -402,7 +413,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  useEffect(() => {
   if (!pendingLedgerJump) return;
   // Wait for the filter clear to actually land, so the reset it triggers happens before we assert.
-  if (ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) return;
+  if (ledgerFilterActive) return;
   const { transactionId, accountId, kind, targetPage } = pendingLedgerJump;
   if (ledgerPageState[accountId] !== targetPage) {
    setLedgerPageState((prev) => ({ ...prev, [accountId]: targetPage }));
@@ -411,7 +422,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   setPendingLedgerScrollTarget({ rowKey: getLedgerTransactionDraftKey(transactionId, accountId), kind });
   setPendingLedgerJump(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
- }, [pendingLedgerJump, ledgerPageState, ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo]);
+ }, [pendingLedgerJump, ledgerPageState, ledgerFilterActive]);
 
  // Scrolls the target row into view, then draws the eye to it. The row usually isn't in the DOM
  // yet when this first runs — the page switch above still has to commit and paint — so this polls
@@ -823,6 +834,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
    return next;
   });
  };
+ const ledgerSumDrag = useLedgerSumDrag(ledgerSumSelection, setLedgerSumSelection, toggleLedgerSumEntry);
  // Grouped by currency so mixing e.g. USD and EUR clicks shows one total box per currency
  // instead of adding incompatible currencies together. Looks up each selected key's CURRENT
  // value from the live ledger data on every render (rather than a snapshot captured at click
@@ -1517,8 +1529,9 @@ export default function LedgerSection(props: LedgerSectionProps) {
                {/* Filter bar */}
                {(() => {
                 const counterpartyOptions = counterpartyOptionsByAccount.get(ledger.accountId) ?? [];
-                const hasFilter = !!(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo);
-                const activeCount = [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo].filter(Boolean).length;
+                const currencyOptions = currencyOptionsByAccount.get(ledger.accountId) ?? [];
+                const hasFilter = ledgerFilterActive;
+                const activeCount = [ledgerFilterSearch, ledgerFilterCounterparty, ledgerFilterDateFrom, ledgerFilterDateTo].filter(Boolean).length + ledgerFilterTags.length;
                 return (
                  <div className="mt-4 rounded border border-border bg-surface-2">
                   <button
@@ -1558,72 +1571,28 @@ export default function LedgerSection(props: LedgerSectionProps) {
                   </button>
                   {ledgerFilterOpen && (
                    <div className="flex flex-wrap items-end gap-2 border-t border-border px-3 py-3">
-                    <div className="flex min-w-36 flex-1 flex-col gap-1">
+                    <div className="flex min-w-60 flex-2 flex-col gap-1">
                      <label className="text-xs font-medium text-fg-faint">{t('tx_filter_search')}</label>
-                     <div className="relative">
-                      <input
-                       type="text"
-                       value={ledgerFilterSearch}
-                       onChange={(e) => setLedgerFilterSearch(e.target.value)}
-                       placeholder={t('tx_filter_search_placeholder')}
-                       className={`w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring ${isRTL ? 'pl-14' : 'pr-14'}`}
-                      />
-                      <div className={`absolute inset-y-0 flex items-center gap-0.5 ${isRTL ? 'left-1' : 'right-1'}`}>
-                       <button
-                        type="button"
-                        onClick={() => setLedgerFilterWholeWord((w) => !w)}
-                        title={t('tx_filter_whole_word')}
-                        aria-label={t('tx_filter_whole_word')}
-                        aria-pressed={ledgerFilterWholeWord}
-                        className={`flex h-5 w-6 items-center justify-center rounded text-[11px] font-semibold transition ${
-                         ledgerFilterWholeWord ? 'bg-accent-weak text-accent ring-1 ring-inset ring-blue-400' : 'text-fg-faint hover:bg-surface-hover hover:text-fg-muted'
-                        }`}
-                       >
-                        <span className="border-b border-current leading-none">ab</span>
-                       </button>
-                       {ledgerFilterSearch ? (
-                        <button
-                         type="button"
-                         onClick={() => setLedgerFilterSearch('')}
-                         title={t('clear_selection')}
-                         aria-label={t('clear_selection')}
-                         className="flex h-5 w-5 items-center justify-center rounded text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
-                        >
-                         <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
-                         >
-                          <line
-                           x1="18"
-                           y1="6"
-                           x2="6"
-                           y2="18"
-                          />
-                          <line
-                           x1="6"
-                           y1="6"
-                           x2="18"
-                           y2="18"
-                          />
-                         </svg>
-                        </button>
-                       ) : null}
-                      </div>
-                     </div>
+                     <SearchTagsInput
+                      text={ledgerFilterSearch}
+                      onTextChange={(search) => updateLedgerFilter({ search })}
+                      wholeWord={ledgerFilterWholeWord}
+                      onWholeWordChange={(wholeWord) => updateLedgerFilter({ wholeWord })}
+                      tags={ledgerFilterTags}
+                      onTagsChange={(tags) => updateLedgerFilter({ tags })}
+                      clientOptions={counterpartyOptions}
+                      currencyOptions={currencyOptions}
+                      placeholder={t('ledger_search_placeholder')}
+                      hint={t('ledger_search_hint')}
+                      kindLabels={{ client: t('counterparty') }}
+                     />
                     </div>
                     {counterpartyOptions.length > 0 && (
                      <div className="flex min-w-36 flex-1 flex-col gap-1">
                       <label className="text-xs font-medium text-fg-faint">{t('counterparty')}</label>
                       <select
                        value={ledgerFilterCounterparty}
-                       onChange={(e) => setLedgerFilterCounterparty(e.target.value)}
+                       onChange={(e) => updateLedgerFilter({ counterparty: e.target.value })}
                        className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
                       >
                        <option value="">{t('tx_filter_client_all')}</option>
@@ -1643,7 +1612,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      <input
                       type="date"
                       value={ledgerFilterDateFrom}
-                      onChange={(e) => setLedgerFilterDateFrom(e.target.value)}
+                      onChange={(e) => updateLedgerFilter({ dateFrom: e.target.value })}
                       className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
                      />
                     </div>
@@ -1652,20 +1621,14 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      <input
                       type="date"
                       value={ledgerFilterDateTo}
-                      onChange={(e) => setLedgerFilterDateTo(e.target.value)}
+                      onChange={(e) => updateLedgerFilter({ dateTo: e.target.value })}
                       className="rounded border border-border-strong bg-surface px-2 py-1.5 text-sm outline-none ring-blue-300 focus:ring"
                      />
                     </div>
                     {hasFilter && (
                      <button
                       type="button"
-                      onClick={() => {
-                       setLedgerFilterSearch('');
-                       setLedgerFilterWholeWord(false);
-                       setLedgerFilterCounterparty('');
-                       setLedgerFilterDateFrom('');
-                       setLedgerFilterDateTo('');
-                      }}
+                      onClick={clearLedgerFilter}
                       className="self-end rounded border border-border-strong bg-surface px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-hover"
                      >
                       {t('tx_filter_clear')}
@@ -3032,7 +2995,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                 return (
                                  <button
                                   type="button"
-                                  onClick={() => toggleLedgerSumEntry(sumKey)}
+                                  {...ledgerSumDrag.bind(sumKey, `${ledger.accountId}:amount`)}
                                   className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
                                  >
                                   {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
@@ -3477,7 +3440,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                   <>
                                    <button
                                     type="button"
-                                    onClick={() => toggleLedgerSumEntry(sumKey)}
+                                    {...ledgerSumDrag.bind(sumKey, `${ledger.accountId}:netChange`)}
                                     className={`cursor-pointer whitespace-nowrap rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
                                    >
                                     {liveNetChange.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
@@ -3514,7 +3477,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                                  return (
                                   <button
                                    type="button"
-                                   onClick={() => toggleLedgerSumEntry(sumKey)}
+                                   {...ledgerSumDrag.bind(sumKey, `${ledger.accountId}:runningBalance`)}
                                    className={`cursor-pointer rounded px-1.5 py-0.5 transition ${inSum ? 'bg-violet-bg ring-1 ring-purple-400' : 'hover:bg-violet-bg'}`}
                                   >
                                    {displayBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
@@ -3806,7 +3769,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                     );
                    });
                   })()}
-                  {(ledgerFilterSearch || ledgerFilterCounterparty || ledgerFilterDateFrom || ledgerFilterDateTo) &&
+                  {ledgerFilterActive &&
                    ledger.entries.length > 0 &&
                    (() => {
                     const visibleCount = visibleLedgerEntries(ledger.entries).length;

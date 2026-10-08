@@ -6,6 +6,8 @@ import type {
  LedgerFilterState,
  PdfColVisibility,
  PdfSettings,
+ SearchTag,
+ SearchTagKind,
  StoredLedgerSettings,
  TransactionColumnVisibility,
  TransactionTableSettings,
@@ -628,27 +630,51 @@ export function saveDescriptionSuggestionExclusions(excluded: Set<string>) {
 // Ledger and transactions search+date filter bars. Previously pure in-memory zustand
 // state (reset on every refresh); now persisted so a user's last filter follows them
 // across devices via the per-user settings sync.
+const searchTagKinds: readonly SearchTagKind[] = ['client', 'amount', 'description', 'currency'];
+// Tags come back from storage / the settings sync, so anything malformed is dropped rather
+// than trusted.
+function sanitizeSearchTags(raw: unknown): SearchTag[] {
+ if (!Array.isArray(raw)) return [];
+ return raw.filter((tag): tag is SearchTag => !!tag && typeof tag === 'object' && searchTagKinds.includes(tag.kind) && typeof tag.value === 'string' && tag.value !== '');
+}
+
+// The ledger's filter bar is per client — searching one client's ledger must not carry the
+// term over to the next client opened — so this key holds a map of client id → filter.
+// Only clients with an active filter are stored. Before the map, this key held one flat
+// filter shared by every client; that shape is simply dropped.
 export const ledgerFilterStorageKey = 'arkam:ledger-filter';
 export const defaultLedgerFilter: LedgerFilterState = {
  search: '',
  wholeWord: false,
+ tags: [],
  counterparty: '',
  dateFrom: '',
  dateTo: '',
 };
-export function getStoredLedgerFilter(): LedgerFilterState {
- if (typeof window === 'undefined') return { ...defaultLedgerFilter };
+// Whether the filter hides anything (the whole-word toggle alone doesn't).
+export function isLedgerFilterActive(filter: LedgerFilterState): boolean {
+ return !!(filter.search || filter.tags.length || filter.counterparty || filter.dateFrom || filter.dateTo);
+}
+export function getStoredLedgerFilters(): Record<string, LedgerFilterState> {
+ if (typeof window === 'undefined') return {};
  try {
   const raw = window.localStorage.getItem(ledgerFilterStorageKey);
-  if (!raw) return { ...defaultLedgerFilter };
-  return { ...defaultLedgerFilter, ...JSON.parse(raw) };
+  const parsed: unknown = raw ? JSON.parse(raw) : null;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || 'search' in parsed) return {};
+  const out: Record<string, LedgerFilterState> = {};
+  for (const [clientId, value] of Object.entries(parsed as Record<string, Partial<LedgerFilterState>>)) {
+   if (!value || typeof value !== 'object') continue;
+   out[clientId] = { ...defaultLedgerFilter, ...value, tags: sanitizeSearchTags(value.tags) };
+  }
+  return out;
  } catch {
-  return { ...defaultLedgerFilter };
+  return {};
  }
 }
-export function saveLedgerFilter(filter: LedgerFilterState) {
+export function saveLedgerFilters(filters: Record<string, LedgerFilterState>) {
  try {
-  window.localStorage.setItem(ledgerFilterStorageKey, JSON.stringify(filter));
+  const active = Object.fromEntries(Object.entries(filters).filter(([, filter]) => isLedgerFilterActive(filter) || filter.wholeWord));
+  window.localStorage.setItem(ledgerFilterStorageKey, JSON.stringify(active));
   notifySettingsChanged();
  } catch {
   /* ignore quota / privacy-mode errors */
@@ -659,6 +685,7 @@ export const txFilterStorageKey = 'arkam:tx-filter';
 export const defaultTxFilter: TxFilterState = {
  search: '',
  wholeWord: false,
+ tags: [],
  dateFrom: '',
  dateTo: '',
 };
@@ -667,7 +694,8 @@ export function getStoredTxFilter(): TxFilterState {
  try {
   const raw = window.localStorage.getItem(txFilterStorageKey);
   if (!raw) return { ...defaultTxFilter };
-  return { ...defaultTxFilter, ...JSON.parse(raw) };
+  const parsed = JSON.parse(raw);
+  return { ...defaultTxFilter, ...parsed, tags: sanitizeSearchTags(parsed?.tags) };
  } catch {
   return { ...defaultTxFilter };
  }
@@ -688,6 +716,7 @@ export const archiveFilterStorageKey = 'arkam:archive-filter';
 export const defaultArchiveFilter: TxFilterState = {
  search: '',
  wholeWord: false,
+ tags: [],
  dateFrom: '',
  dateTo: '',
 };
@@ -696,7 +725,8 @@ export function getStoredArchiveFilter(): TxFilterState {
  try {
   const raw = window.localStorage.getItem(archiveFilterStorageKey);
   if (!raw) return { ...defaultArchiveFilter };
-  return { ...defaultArchiveFilter, ...JSON.parse(raw) };
+  const parsed = JSON.parse(raw);
+  return { ...defaultArchiveFilter, ...parsed, tags: sanitizeSearchTags(parsed?.tags) };
  } catch {
   return { ...defaultArchiveFilter };
  }
