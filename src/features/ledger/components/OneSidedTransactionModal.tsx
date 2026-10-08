@@ -305,6 +305,8 @@ export default function OneSidedTransactionModal({
                fromLabel={isClientFrom ? clientName || t('transaction_account_from') : modal.counterParty.trim() || t('charges_payer_me')}
                toLabel={isClientFrom ? modal.counterParty.trim() || t('charges_payer_me') : clientName || t('transaction_account_to')}
                meLabel={t('charges_payer_me')}
+               transactions={transactions}
+               accountIds={[modal.accountId]}
               />
              </div>
             ) : null}
@@ -331,6 +333,8 @@ export default function OneSidedTransactionModal({
                fromLabel={isClientFrom ? clientName || t('transaction_account_from') : modal.counterParty.trim() || t('charges_payer_me')}
                toLabel={isClientFrom ? modal.counterParty.trim() || t('charges_payer_me') : clientName || t('transaction_account_to')}
                meLabel={t('charges_payer_me')}
+               transactions={transactions}
+               accountIds={[modal.accountId]}
               />
              </div>
             ) : null}

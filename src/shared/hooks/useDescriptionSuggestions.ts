@@ -13,7 +13,14 @@ type Scope = {
  // From/To pickers, or a ledger row's own account + counterparty). Order doesn't matter —
  // pass whatever's set; nulls/undefined are ignored. Omit entirely for an unscoped list.
  accountIds?: Array<number | null | undefined>;
+ // Which past text to learn from: the transaction's own description (default), or its expense
+ // ("مصاريف") descriptions — both charge slots pooled, since either slot holds the same kind of
+ // text ("shipping", "handling"…) and mixing them with main descriptions would just be noise.
+ field?: 'description' | 'charges';
 };
+
+const readDescriptions = (tx: Transaction, field: 'description' | 'charges'): Array<string | null | undefined> =>
+ field === 'charges' ? [tx.chargesDescription, tx.charges2Description] : [tx.description];
 
 /**
  * Ranked, deduped past-description suggestions for a transaction description field, plus a
@@ -34,7 +41,7 @@ type Scope = {
  * more-recently-used one beats an older one. This is closer to "what do I actually tend to type
  * here" than a flat most-recent-first list.
  */
-export function useDescriptionSuggestions({ transactions, query, accountIds: rawAccountIds = [] }: Scope) {
+export function useDescriptionSuggestions({ transactions, query, accountIds: rawAccountIds = [], field = 'description' }: Scope) {
  const [excluded, setExcluded] = useState<Set<string>>(() => getStoredDescriptionSuggestionExclusions());
 
  const excludeSuggestion = (desc: string) => {
@@ -55,19 +62,21 @@ export function useDescriptionSuggestions({ transactions, query, accountIds: raw
   const buildStats = (predicate: (tx: Transaction) => boolean): Map<string, Stat> => {
    const stats = new Map<string, Stat>();
    for (const tx of transactions) {
-    const desc = tx.description?.trim();
-    if (!desc) continue;
-    const key = desc.toLowerCase();
-    if (key === q || excluded.has(key)) continue;
-    if (q && !key.includes(q)) continue;
     if (!predicate(tx)) continue;
     const at = new Date(tx.createdAt).getTime();
-    const existing = stats.get(key);
-    if (existing) {
-     existing.count += 1;
-     if (at > existing.lastAt) existing.lastAt = at;
-    } else {
-     stats.set(key, { display: desc, count: 1, lastAt: at });
+    for (const raw of readDescriptions(tx, field)) {
+     const desc = raw?.trim();
+     if (!desc) continue;
+     const key = desc.toLowerCase();
+     if (key === q || excluded.has(key)) continue;
+     if (q && !key.includes(q)) continue;
+     const existing = stats.get(key);
+     if (existing) {
+      existing.count += 1;
+      if (at > existing.lastAt) existing.lastAt = at;
+     } else {
+      stats.set(key, { display: desc, count: 1, lastAt: at });
+     }
     }
    }
    return stats;
@@ -109,7 +118,7 @@ export function useDescriptionSuggestions({ transactions, query, accountIds: raw
   }
 
   return result;
- }, [transactions, query, rawAccountIds, excluded]);
+ }, [transactions, query, rawAccountIds, excluded, field]);
 
  return { suggestions, excludeSuggestion };
 }
