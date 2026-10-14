@@ -657,6 +657,8 @@
  "export_ledger_title": "تصدير كشف الحساب",
  "export_ledger_action": "تصدير كشف الحساب",
  "download": "تنزيل",
+ "pdf_number_grouping_label": "تنسيق الأرقام في PDF",
+ "pdf_number_grouping_standard": "افتراضي",
  "export_date_from": "من تاريخ",
  "export_date_to": "إلى تاريخ",
  "export_start_transaction": "ابدأ من معاملة",

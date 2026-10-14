@@ -5,6 +5,7 @@ import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { ledgerEntryKey } from '@/features/ledger/utils/ledgerEntries';
 import { isZeroMoney } from '@/shared/utils/money';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction, TransactionColumnVisibility } from '@/shared/types';
+import { formatAmount } from '@/shared/utils/numberFormat';
 
 /** Shared rendering context for the PDF/print HTML builders. */
 export type PdfContext = {
@@ -54,7 +55,7 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
     isNum: true,
     cell: (tx) =>
      tx.amount
-      ? `${tx.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(tx.currencySymbol || tx.currencyCode)}` : ''}`
+      ? `${formatAmount(tx.amount, numLocale, tx.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(tx.currencySymbol || tx.currencyCode)}` : ''}`
       : '-',
    },
    {
@@ -65,14 +66,14 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
      const chargeCells: string[] = [];
      const charge1 = chargeAmount(tx.charges);
      if (charge1) {
-      const parts = [`${charge1.toLocaleString(numLocale)}${tx.chargesCurrencyCode ? ` ${tx.chargesCurrencyCode}` : ''}`];
+      const parts = [`${formatAmount(charge1, numLocale, tx.chargesCurrencyCode)}${tx.chargesCurrencyCode ? ` ${tx.chargesCurrencyCode}` : ''}`];
       if (tx.chargesPayer) parts.push(tx.chargesPayer === 'from' ? tx.clientFromName : tx.chargesPayer === 'to' ? tx.clientToName : '');
       if (tx.chargesDescription) parts.push(tx.chargesDescription);
       chargeCells.push(parts.filter(Boolean).join(' — '));
      }
      const charge2 = chargeAmount(tx.charges2);
      if (charge2) {
-      const parts = [`${charge2.toLocaleString(numLocale)}${tx.charges2CurrencyCode ? ` ${tx.charges2CurrencyCode}` : ''}`];
+      const parts = [`${formatAmount(charge2, numLocale, tx.charges2CurrencyCode)}${tx.charges2CurrencyCode ? ` ${tx.charges2CurrencyCode}` : ''}`];
       if (tx.chargesPayer2) parts.push(tx.chargesPayer2 === 'from' ? tx.clientFromName : tx.chargesPayer2 === 'to' ? tx.clientToName : '');
       if (tx.charges2Description) parts.push(tx.charges2Description);
       chargeCells.push(parts.filter(Boolean).join(' — '));
@@ -113,7 +114,7 @@ export function generateArchiveHtml(ctx: PdfContext, archivedRows: Transaction[]
   const totalsHtml = [...totals.values()]
    .map(
     (total) =>
-     `<span class="total-item">${total.total.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` <span style="color:#64748b">${esc(total.symbol || total.code)}</span>` : ''}</span>`,
+     `<span class="total-item">${formatAmount(total.total, numLocale, total.code, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` <span style="color:#64748b">${esc(total.symbol || total.code)}</span>` : ''}</span>`,
    )
    .join('');
 
@@ -339,7 +340,7 @@ export function generateLedgerHtml(
     header: t('amount'),
     isNum: true,
     cell: (e) => {
-     const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${e.amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
+     const base = `<span class="${e.direction === 'outgoing' ? 'pos' : 'neg'}">${formatAmount(e.amount, numLocale, e.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${e.currencySymbol || e.currencyCode}` : ''}</span>`;
      // Color reflects whether the charge is in this account's favor (isChargesPayerThisAccount:
      // they bear it = red, they don't = green). The +/- sign is a different question — whether
      // the charge was added on top of or subtracted from the stated amount to reach the net
@@ -349,7 +350,7 @@ export function generateLedgerHtml(
       const cls = isChargesPayerThisAccount ? 'neg' : 'pos';
       const chargeAddsToAmount = e.direction === 'outgoing' ? !isChargesPayerThisAccount : isChargesPayerThisAccount;
       const sign = chargeAddsToAmount ? '+' : '−';
-      const val = amount.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals });
+      const val = formatAmount(amount, numLocale, e.currencyCode, { maximumFractionDigits: pdfSettings.decimals });
       const desc = description ? `<span class="charges-desc">${esc(description)}</span>` : '';
       return `<div class="charges-line"><span class="${cls}">${sign}${val}</span>${desc}</div>`;
      };
@@ -379,13 +380,13 @@ export function generateLedgerHtml(
     header: t('net_change'),
     isNum: true,
     cell: (e) =>
-     e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${e.netChange.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+     e.pendingRate ? '-' : `<span class="${e.netChange >= 0 ? 'pos' : 'neg'}">${formatAmount(e.netChange, numLocale, ledger.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    {
     key: 'runningBalance',
     header: t('running_balance'),
     isNum: true,
-    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${runBal.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
+    cell: (_e, runBal) => `<span class="${runBal >= 0 ? 'pos' : 'neg'}">${formatAmount(runBal, numLocale, ledger.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}</span>`,
    },
    { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
    { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
@@ -506,7 +507,7 @@ export function generateLedgerHtml(
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
 ${noteHtml}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${preBalance.toLocaleString(numLocale, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
+${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${formatAmount(preBalance, numLocale, ledger.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
 <table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
@@ -516,7 +517,7 @@ ${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">
  </tbody>
 </table>
 <div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${Math.abs(runningBal).toLocaleString(numLocale, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
+ <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${formatAmount(Math.abs(runningBal), numLocale, ledger.currencyCode, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
  <span class="fb-label">${isZeroMoney(runningBal) ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>
 ${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}
@@ -545,7 +546,7 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  const { cards, mainCode, mainSymbol } = params;
  const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
  // Overview cards show whole-number balances on screen, so match that here.
- const fmt = (n: number) => n.toLocaleString(numLocale, { maximumFractionDigits: 0 });
+ const fmt = (n: number, currencyCode: string = mainCode) => formatAmount(n, numLocale, currencyCode, { maximumFractionDigits: 0 });
  const sign = (n: number) => (n >= 0 ? 'pos' : 'neg');
 
  const dir = isRTL ? 'rtl' : 'ltr';
@@ -565,14 +566,14 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
    const clientRows = card.clients
     .map((c) => {
      const bal = flip ? c.balance * (rate as number) : c.balance;
-     return `<div class="row"><span class="name">${esc(c.clientName)}</span><span class="bal ${sign(bal)}">${fmt(bal)}</span></div>`;
+     return `<div class="row"><span class="name">${esc(c.clientName)}</span><span class="bal ${sign(bal)}">${fmt(bal, flip ? mainCode : card.currencyCode)}</span></div>`;
     })
     .join('');
    const totalValue = flip ? card.total * (rate as number) : card.total;
    const totalSymbol = flip ? mainSymbol : symbol;
    let convertedHtml = '';
    if (flip) {
-    convertedHtml = `<div class="converted"><span class="rate">1 ${esc(card.currencyCode)} = ${rate} ${esc(mainCode)}</span><span class="conv-total ${sign(card.total)}">${fmt(card.total)} ${esc(symbol)}</span></div>`;
+    convertedHtml = `<div class="converted"><span class="rate">1 ${esc(card.currencyCode)} = ${rate} ${esc(mainCode)}</span><span class="conv-total ${sign(card.total)}">${fmt(card.total, card.currencyCode)} ${esc(symbol)}</span></div>`;
    } else {
     const converted = !card.isMain && rate != null ? card.total * rate : null;
     if (converted != null) {
@@ -587,7 +588,7 @@ export function generateOverviewCardsHtml(ctx: PdfContext, params: { cards: Over
  <div class="card-body">${clientRows || `<div class="row muted">${esc(t('overview_no_balances'))}</div>`}</div>
  <div class="card-total">
   <span class="ct-label">${esc(t('overview_card_total'))}</span>
-  <span class="ct-value ${sign(totalValue)}">${fmt(totalValue)} ${esc(totalSymbol)}</span>
+  <span class="ct-value ${sign(totalValue)}">${fmt(totalValue, flip ? mainCode : card.currencyCode)} ${esc(totalSymbol)}</span>
  </div>
  ${convertedHtml}
 </div>`;

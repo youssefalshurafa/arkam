@@ -619,6 +619,8 @@
  "export_ledger_title": "Export ledger",
  "export_ledger_action": "Export ledger",
  "download": "Download",
+ "pdf_number_grouping_label": "Number format in PDF",
+ "pdf_number_grouping_standard": "standard",
  "export_date_from": "From Date",
  "export_date_to": "To Date",
  "export_start_transaction": "Start from transaction",

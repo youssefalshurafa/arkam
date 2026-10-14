@@ -654,6 +654,8 @@
  "export_ledger_title": "Exporter le relevé",
  "export_ledger_action": "Exporter le relevé",
  "download": "Télécharger",
+ "pdf_number_grouping_label": "Format des nombres dans le PDF",
+ "pdf_number_grouping_standard": "standard",
  "export_date_from": "Du",
  "export_date_to": "Au",
  "export_start_transaction": "Commencer à la transaction",

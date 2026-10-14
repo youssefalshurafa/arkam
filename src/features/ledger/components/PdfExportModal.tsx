@@ -10,6 +10,7 @@ import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useAiLedgerReview } from '@/features/ledger/hooks/useAiLedgerReview';
+import PdfNumberGroupingFields from '@/features/pdf/components/PdfNumberGroupingFields';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility } from '@/shared/types';
 
 type PdfExportModalProps = {
@@ -98,6 +99,11 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
              className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
             />
            </div>
+
+           <PdfNumberGroupingFields
+            t={t}
+            currencyCodes={[...new Set([ledger.currencyCode, ...selected.map((e) => e.currencyCode)].filter((code): code is string => Boolean(code)))]}
+           />
 
            {/* Shortcut: derive the range from the highlighted rows. Both boundaries are
                inclusive — the first highlighted row is the first row shown, the last
