@@ -3,12 +3,13 @@
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
+import PdfNumberGroupingFields from '@/features/pdf/components/PdfNumberGroupingFields';
 
 type Props = {
  onExportTransactionsPdf: () => void;
  onExportTransactionsExcel: () => void;
  closeTransactionExportModal: () => void;
- buildTransactionExportData: (fromDate: string, toDate: string) => { headers: string[]; rows: string[][]; count: number };
+ buildTransactionExportData: (fromDate: string, toDate: string) => { headers: string[]; rows: string[][]; count: number; currencyCodes: string[] };
 };
 
 export default function TransactionExportModal({ onExportTransactionsPdf, onExportTransactionsExcel, closeTransactionExportModal, buildTransactionExportData }: Props) {
@@ -21,6 +22,7 @@ export default function TransactionExportModal({ onExportTransactionsPdf, onExpo
  const transactionExportTo = useTransactionsStore((s) => s.transactionExportTo);
  const setTransactionExportTo = useTransactionsStore((s) => s.setTransactionExportTo);
  const isExportingTransactions = useTransactionsStore((s) => s.isExportingTransactions);
+ const exportData = buildTransactionExportData(transactionExportFrom, transactionExportTo);
 
  return (
     <div
@@ -58,8 +60,15 @@ export default function TransactionExportModal({ onExportTransactionsPdf, onExpo
       </div>
 
       <p className="mt-3 text-xs text-fg-faint">
-       {t('transactions_export_count').replace('{count}', String(buildTransactionExportData(transactionExportFrom, transactionExportTo).count))}
+       {t('transactions_export_count').replace('{count}', String(exportData.count))}
       </p>
+
+      <div className="mt-4">
+       <PdfNumberGroupingFields
+        t={t}
+        currencyCodes={exportData.currencyCodes}
+       />
+      </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3">
        <button

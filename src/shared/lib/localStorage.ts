@@ -601,6 +601,45 @@ export function saveAiSettings(settings: AiSettings) {
   /* ignore quota / privacy-mode errors */
  }
 }
+// Per-currency digit grouping for exported PDFs only (picked in the export dialogs): how many
+// digits sit in the rightmost thousands group, keyed by currency code (e.g. { IQD: 4 } prints
+// 1600540 as 160,0540). A currency absent from the map uses the normal 3. On-screen amounts never
+// read this. A personal export preference like pdfSettings, so it's per-user (sharedTableSettings).
+export const numberGroupingStorageKey = 'arkam:number-grouping';
+export const minFirstGroupSize = 3;
+export const maxFirstGroupSize = 6;
+export function getStoredNumberGrouping(): Record<string, number> {
+ if (typeof window === 'undefined') return {};
+ try {
+  const raw = window.localStorage.getItem(numberGroupingStorageKey);
+  const parsed = raw ? JSON.parse(raw) : {};
+  const out: Record<string, number> = {};
+  if (parsed && typeof parsed === 'object') {
+   for (const [code, size] of Object.entries(parsed)) {
+    const n = Number(size);
+    if (Number.isInteger(n) && n > minFirstGroupSize && n <= maxFirstGroupSize) out[code] = n;
+   }
+  }
+  return out;
+ } catch {
+  return {};
+ }
+}
+export function saveNumberGrouping(grouping: Record<string, number>) {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(numberGroupingStorageKey, JSON.stringify(grouping));
+  notifySettingsChanged();
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
+export function saveFirstGroupSize(currencyCode: string, size: number) {
+ const next = getStoredNumberGrouping();
+ if (size === minFirstGroupSize) delete next[currencyCode];
+ else next[currencyCode] = size;
+ saveNumberGrouping(next);
+}
 // Description strings the user has dismissed from the transaction description
 // autocomplete dropdown (via its per-suggestion "x"). Suggestions are derived live
 // from past transactions, so exclusions are tracked separately rather than deleting

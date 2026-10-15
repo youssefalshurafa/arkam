@@ -35,7 +35,7 @@ import {
  DEFAULT_IMPORT_ROW_OVERRIDE,
 } from '@/features/transactions/utils/import';
 import { generateArchiveHtml, generateTransactionsExportHtml } from '@/features/pdf/pdfExport';
-import { saveArchiveTableSettings, saveTransactionTableSettings, getStoredExchangeSettings } from '@/shared/lib/localStorage';
+import { saveArchiveTableSettings, saveTransactionTableSettings, getStoredExchangeSettings, getStoredNumberGrouping } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useWorkspaceResync } from '@/features/workspace/hooks/useWorkspaceResync';
 import { useTransactionsStore, type ArchiveExportModalState } from '@/features/transactions/store/transactionsStore';
@@ -64,6 +64,7 @@ import type {
  TransactionTableSettings,
  TransactionUpdateInput,
 } from '@/shared/types';
+import { formatAmount } from '@/shared/utils/numberFormat';
 
 type UseTransactionActionsParams = {
  clients: Client[];
@@ -2172,8 +2173,11 @@ const closeTransactionExportModal = () => {
  setShowTransactionExportModal(false);
 };
 
-const buildTransactionExportData = (fromDate: string, toDate: string) => {
+// `forPdf` applies the per-currency digit grouping chosen in the export dialog; the Excel export
+// and the dialog's row count share this builder and keep plain toLocaleString grouping.
+const buildTransactionExportData = (fromDate: string, toDate: string, forPdf = false) => {
  const columns = transactionTableSettings.columns;
+ const grouping = forPdf ? getStoredNumberGrouping() : {};
  const rows = displayedTransactionRows.filter((row) => {
   const day = row.createdAt.slice(0, 10);
   if (fromDate && day < fromDate) return false;
@@ -2207,18 +2211,18 @@ const buildTransactionExportData = (fromDate: string, toDate: string) => {
    );
   }
   if (columns.amount) {
-   cells.push(txn.amount ? `${txn.amount.toLocaleString(numLocale)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
+   cells.push(txn.amount ? `${formatAmount(txn.amount, numLocale, txn.currencyCode, undefined, grouping)}${pdfSettings.showCurrencySymbol ? ` ${txn.currencySymbol || txn.currencyCode}` : ''}` : '-');
   }
   if (columns.charges) {
    const chargeCells: string[] = [];
    if (txn.charges) {
-    const parts = [`${txn.charges.toLocaleString(numLocale)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
+    const parts = [`${formatAmount(txn.charges, numLocale, txn.chargesCurrencyCode, undefined, grouping)}${txn.chargesCurrencyCode ? ` ${txn.chargesCurrencyCode}` : ''}`];
     if (txn.chargesPayer) parts.push(txn.chargesPayer === 'from' ? txn.clientFromName : txn.chargesPayer === 'to' ? txn.clientToName : '');
     if (txn.chargesDescription) parts.push(txn.chargesDescription);
     chargeCells.push(parts.filter(Boolean).join(' — '));
    }
    if (txn.charges2) {
-    const parts = [`${txn.charges2.toLocaleString(numLocale)}${txn.charges2CurrencyCode ? ` ${txn.charges2CurrencyCode}` : ''}`];
+    const parts = [`${formatAmount(txn.charges2, numLocale, txn.charges2CurrencyCode, undefined, grouping)}${txn.charges2CurrencyCode ? ` ${txn.charges2CurrencyCode}` : ''}`];
     if (txn.chargesPayer2) parts.push(txn.chargesPayer2 === 'from' ? txn.clientFromName : txn.chargesPayer2 === 'to' ? txn.clientToName : '');
     if (txn.charges2Description) parts.push(txn.charges2Description);
     chargeCells.push(parts.filter(Boolean).join(' — '));
@@ -2234,7 +2238,10 @@ const buildTransactionExportData = (fromDate: string, toDate: string) => {
   return cells;
  });
 
- return { headers, rows: dataRows, count: dataRows.length };
+ // Currencies that appear in the exported amounts — the export dialog offers a grouping choice for each.
+ const currencyCodes = [...new Set(rows.flatMap((txn) => [txn.currencyCode, txn.charges ? txn.chargesCurrencyCode : null, txn.charges2 ? txn.charges2CurrencyCode : null]).filter((code): code is string => Boolean(code)))].sort();
+
+ return { headers, rows: dataRows, count: dataRows.length, currencyCodes };
 };
 
 const transactionExportFileBase = () => {
@@ -2247,7 +2254,7 @@ async function onExportTransactionsPdf() {
  if (!accountingApi) return;
  setIsExportingTransactions(true);
  try {
-  const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo);
+  const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo, true);
   const html = generateTransactionsExportHtml({ t, numLocale, isRTL, language, pdfSettings }, { section, transactionExportFrom, transactionExportTo, headers, rows });
   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `${transactionExportFileBase()}.pdf` });
   if (result.ok) setShowTransactionExportModal(false);
