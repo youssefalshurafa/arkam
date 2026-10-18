@@ -607,7 +607,7 @@ export function saveAiSettings(settings: AiSettings) {
 // read this. A personal export preference like pdfSettings, so it's per-user (sharedTableSettings).
 export const numberGroupingStorageKey = 'arkam:number-grouping';
 export const minFirstGroupSize = 3;
-export const maxFirstGroupSize = 6;
+export const maxFirstGroupSize = 4;
 export function getStoredNumberGrouping(): Record<string, number> {
  if (typeof window === 'undefined') return {};
  try {

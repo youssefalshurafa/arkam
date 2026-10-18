@@ -558,6 +558,7 @@
  "charges": "Dépenses",
  "charges_payer_placeholder": "Payé par",
  "charges_payer_to_placeholder": "À",
+ "charges_other_side_only_hint": "N'affecte pas le solde de ce client",
  "charges_payer_me": "Moi",
  "charges_payer_me_to_name": "Payé par moi à {{name}}",
  "charges_payer_name_to_me": "{{name}} m'a payé",

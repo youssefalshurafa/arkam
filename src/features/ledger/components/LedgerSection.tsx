@@ -3648,14 +3648,15 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        const entryIsPayerThisAccount = isSlot2 ? entry.isChargesPayerThisAccount2 : entry.isChargesPayerThisAccount;
                        const entryCurrencyCode = isSlot2 ? entry.charges2CurrencyCode : entry.chargesCurrencyCode;
                        const entryDescription = isSlot2 ? entry.charges2Description : entry.chargesDescription;
-                       // An org-settled charge only affects the one named client, so it is editable
-                       // from that client's ledger but not the other side's. Everything else is
-                       // editable here — including a charge still being added (charges <= 0) with no
-                       // payer picked yet. Gate on the saved effect, not the live draft, so the section
-                       // doesn't vanish mid-edit while the user is changing the dropdown.
-                       const chargesBelongHere = entryAmount <= 0 || entryAffectsThisAccount;
+                       // An org-settled charge between "me" and the OTHER client (e.g. me→B while in
+                       // A's ledger) doesn't touch this account, so its view-mode sub-row is hidden
+                       // here. While editing the transaction it is still shown and editable — it's part
+                       // of the transaction being edited, and the draft round-trips it either way — with
+                       // a note that it doesn't affect this client's balance. Judged on the saved
+                       // effect, not the live draft, so the note doesn't flicker mid-edit.
+                       const chargeIsOtherSidesOnly = entryAmount > 0 && !entryAffectsThisAccount;
 
-                       if (isEditingThisRow && chargesDraft && chargesBelongHere) {
+                       if (isEditingThisRow && chargesDraft) {
                         const isZero = parseFloat(draftAmount) === 0;
                         const expanded = ledgerExpensesExpandedKeys.has(chargesRowKey);
                         if (isZero && !expanded) {
@@ -3717,6 +3718,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                              transactions={transactions}
                              accountIds={[ledger.accountId, chargesDraft.counterpartyAccountId]}
                             />
+                            {chargeIsOtherSidesOnly ? <span className="mt-6 text-xs italic text-fg-faint">{t('charges_other_side_only_hint')}</span> : null}
                            </div>
                           </td>
                          </tr>
