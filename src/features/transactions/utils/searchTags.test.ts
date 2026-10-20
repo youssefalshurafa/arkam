@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseAmountQuery, rowMatchesSearchTags } from './searchTags';
+import { parseAmountQuery, rowMatchesSearchTags, sameSearchTag } from './searchTags';
 import { filterDisplayedTransactionRows } from './transactionRows';
 import type { TransactionTableRow } from '@/shared/types';
 
@@ -56,6 +56,16 @@ describe('parseAmountQuery', () => {
 });
 
 describe('rowMatchesSearchTags', () => {
+ it('ignores case for every chip kind', () => {
+  expect(ids([{ kind: 'client', value: 'ahmed' }, { kind: 'client', value: 'OMAR' }])).toEqual([1, 2]);
+  expect(ids([{ kind: 'currency', value: 'eur' }])).toEqual([3]);
+  expect(ids([{ kind: 'description', value: 'RENT' }])).toEqual([2, 4]);
+ });
+
+ it('treats chips differing only in case as the same chip', () => {
+  expect(sameSearchTag({ kind: 'description', value: 'Rent' }, { kind: 'description', value: 'rent' })).toBe(true);
+ });
+
  it('two client tags find transactions between them, both directions', () => {
   expect(ids([{ kind: 'client', value: 'Ahmed' }, { kind: 'client', value: 'Omar' }])).toEqual([1, 2]);
  });

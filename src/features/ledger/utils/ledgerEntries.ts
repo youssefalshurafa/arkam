@@ -1,5 +1,5 @@
 import type { ClientLedgerEntry, SearchTag } from '@/shared/types';
-import { parseAmountQuery } from '@/features/transactions/utils/searchTags';
+import { parseAmountQuery, sameText } from '@/features/transactions/utils/searchTags';
 import { amountMatchesSearch, textMatchesSearch } from '@/shared/utils/searchMatch';
 
 // Stable identifier for a ledger entry (used to pick exact start/end boundaries for PDF export).
@@ -24,7 +24,7 @@ export function ledgerEntryMatchesSearch(entry: ClientLedgerEntry, query: string
 // them" (ANDing them could never match). Every other chip must match, as on Transactions.
 export function ledgerEntryMatchesSearchTags(entry: ClientLedgerEntry, tags: SearchTag[]): boolean {
  const clients = tags.filter((tag) => tag.kind === 'client');
- if (clients.length && !clients.some((tag) => entry.counterpartyName === tag.value)) return false;
+ if (clients.length && !clients.some((tag) => sameText(entry.counterpartyName, tag.value))) return false;
  return tags.every((tag) => {
   switch (tag.kind) {
    case 'client':
@@ -36,7 +36,7 @@ export function ledgerEntryMatchesSearchTags(entry: ClientLedgerEntry, tags: Sea
    case 'description':
     return (entry.description ?? '').toLowerCase().includes(tag.value.toLowerCase());
    case 'currency':
-    return entry.currencyCode === tag.value;
+    return sameText(entry.currencyCode, tag.value);
   }
  });
 }
