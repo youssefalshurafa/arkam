@@ -561,6 +561,7 @@
  "charges": "مصاريف",
  "charges_payer_placeholder": "يدفعها",
  "charges_payer_to_placeholder": "إلى",
+ "charges_other_side_only_hint": "لا يؤثر على رصيد هذا العميل",
  "charges_payer_me": "أنا",
  "charges_payer_me_to_name": "يدفعها أنا لـ {{name}}",
  "charges_payer_name_to_me": "{{name}} يدفعها لي",

@@ -13,7 +13,7 @@ type Props = {
 };
 
 // Export dialogs: per currency, where the thousands separators fall in the exported PDF only —
-// 123,456,789 (normal) or 12,345,6789 (rightmost group of 4, then 3s), etc. The choice is remembered
+// 12,345,678 (normal) or 1,234,5678 (rightmost group of 4, then 3s), etc. The choice is remembered
 // per currency for every later PDF export; the app's own screens always keep the normal grouping.
 export default function PdfNumberGroupingFields({ t, currencyCodes }: Props) {
  const [grouping, setGrouping] = useState(getStoredNumberGrouping);
@@ -52,7 +52,7 @@ export default function PdfNumberGroupingFields({ t, currencyCodes }: Props) {
         key={size}
         value={size}
        >
-        {groupDigits('123456789', size, ',')}
+        {groupDigits('12345678', size, ',')}
         {size === minFirstGroupSize ? ` (${t('pdf_number_grouping_standard')})` : ''}
        </option>
       ))}

@@ -36,10 +36,15 @@ export function parseAmountQuery(raw: string): ((amount: number) => boolean) | n
  return null;
 }
 
+// Every search in the app ignores case, chips included.
+export function sameText(a: string | null | undefined, b: string): boolean {
+ return a != null && a.toLowerCase() === b.toLowerCase();
+}
+
 function tagMatches(row: TransactionTableRow, tag: SearchTag): boolean {
  switch (tag.kind) {
   case 'client':
-   return row.clientFromName === tag.value || row.clientToName === tag.value;
+   return sameText(row.clientFromName, tag.value) || sameText(row.clientToName, tag.value);
   case 'amount': {
    const matches = parseAmountQuery(tag.value);
    // Amounts may be negative for some one-sided rows; the user thinks in magnitudes.
@@ -51,7 +56,7 @@ function tagMatches(row: TransactionTableRow, tag: SearchTag): boolean {
    return [row.description, row.descriptionFrom, row.descriptionTo].some((text) => !!text && text.toLowerCase().includes(needle));
   }
   case 'currency':
-   return row.currencyCode === tag.value;
+   return sameText(row.currencyCode, tag.value);
  }
 }
 
@@ -60,5 +65,5 @@ export function rowMatchesSearchTags(row: TransactionTableRow, tags: SearchTag[]
 }
 
 export function sameSearchTag(a: SearchTag, b: SearchTag): boolean {
- return a.kind === b.kind && a.value === b.value;
+ return a.kind === b.kind && sameText(a.value, b.value);
 }

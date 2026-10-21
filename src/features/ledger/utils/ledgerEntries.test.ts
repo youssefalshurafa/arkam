@@ -32,6 +32,11 @@ describe('ledgerEntryMatchesSearchTags', () => {
   expect(ids([{ kind: 'client', value: 'Omar' }])).toEqual([1, 3]);
  });
 
+ it('ignores case for counterparty and currency chips', () => {
+  expect(ids([{ kind: 'client', value: 'omar' }])).toEqual([1, 3]);
+  expect(ids([{ kind: 'currency', value: 'eur' }])).toEqual([3]);
+ });
+
  it('ORs several counterparties, since a row only has one', () => {
   expect(ids([{ kind: 'client', value: 'Omar' }, { kind: 'client', value: 'Sami' }])).toEqual([1, 2, 3]);
  });
