@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -8,13 +9,19 @@ import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal
 import { emptyClientForm, createNewClientAccountDraft } from '@/features/clients/forms';
 import { emptyOrganizationForm } from '@/features/organizations/forms';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
+import AddCurrencyDialog from '@/features/currencies/components/AddCurrencyDialog';
 import type { Client, ClientAccount, Currency, Organization, OrganizationForm } from '@/shared/types';
+
+// Sentinel <option> value in the currency selects that opens the add-currency dialog.
+const ADD_CURRENCY_OPTION = '__add_currency__';
 
 type ClientsSectionProps = {
  clients: Client[];
  organizations: Organization[];
  clientAccounts: ClientAccount[];
  enabledCurrencies: Currency[];
+ /** Full catalog (enabled or not) — feeds the inline "add a currency" dialog. */
+ localizedCurrencies: Currency[];
  sortedClients: Client[];
  paginatedClients: Client[];
  clampedClientsPage: number;
@@ -36,7 +43,7 @@ type ClientsSectionProps = {
 };
 
 export default function ClientsSection({
- clients, organizations, clientAccounts, enabledCurrencies, sortedClients, paginatedClients,
+ clients, organizations, clientAccounts, enabledCurrencies, localizedCurrencies, sortedClients, paginatedClients,
  clampedClientsPage, totalClientPages, accountsClient, clientSortHeader,
  onClientSubmit, isSubmittingClient, onDeleteClient, onAddClientAccount, onDeleteClientAccount, onToggleAccountDormant, onToggleAllAccountsDormant, onMoveAccountTransactions,
  onSaveEditAccount, openClientLedger, setShowCreateOrgDialog, setOrganizationForm,
@@ -47,6 +54,20 @@ export default function ClientsSection({
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
  const numLocale = language === 'fr' ? 'en-US' : language;
  const { clientForm, setClientForm, clientSearch, setClientSearch, setClientsPage, clientsPageSize, setClientsPageSize, newAccountCurrencyId, setNewAccountCurrencyId, newAccountStartingBalance, setNewAccountStartingBalance, newAccountBalanceType, setNewAccountBalanceType, showAddAccountForm, setShowAddAccountForm, editingAccountId, setEditingAccountId, editingAccountCurrencyId, setEditingAccountCurrencyId, editingAccountBalance, setEditingAccountBalance, editingAccountBalanceType, setEditingAccountBalanceType, moveTargetAccountId, setMoveTargetAccountId, isMovingAccount, openAccountOnCreate, setOpenAccountOnCreate, newClientAccountDrafts, setNewClientAccountDrafts } = useClientsStore();
+ // Which currency <select> opened the "add a currency" dialog, so the new currency lands in it.
+ const [addCurrencyTarget, setAddCurrencyTarget] = useState<{ kind: 'draft'; index: number } | { kind: 'new-account' } | { kind: 'edit-account' } | null>(null);
+
+ const onCurrencyAdded = (currencyId: number) => {
+  if (!addCurrencyTarget) return;
+  if (addCurrencyTarget.kind === 'draft') {
+   const { index } = addCurrencyTarget;
+   setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, currencyId } : row)));
+  } else if (addCurrencyTarget.kind === 'new-account') {
+   setNewAccountCurrencyId(currencyId);
+  } else {
+   setEditingAccountCurrencyId(currencyId);
+  }
+ };
 
  return (
   <section className="grid gap-6 xl:grid-cols-[380px_1fr]">
@@ -224,6 +245,10 @@ export default function ClientsSection({
             <select
              value={draft.currencyId ?? ''}
              onChange={(event) => {
+              if (event.target.value === ADD_CURRENCY_OPTION) {
+               setAddCurrencyTarget({ kind: 'draft', index });
+               return;
+              }
               const currencyId = event.target.value ? Number(event.target.value) : null;
               setNewClientAccountDrafts((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, currencyId } : row)));
              }}
@@ -240,6 +265,7 @@ export default function ClientsSection({
                 {currency.code} - {currency.name}
                </option>
               ))}
+             <option value={ADD_CURRENCY_OPTION}>{t('client_account_currency_add')}</option>
             </select>
            </div>
            <div className="mt-2">
@@ -390,7 +416,13 @@ export default function ClientsSection({
              <div className="flex flex-col gap-3">
               <select
                value={editingAccountCurrencyId ?? ''}
-               onChange={(event) => setEditingAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+               onChange={(event) => {
+                if (event.target.value === ADD_CURRENCY_OPTION) {
+                 setAddCurrencyTarget({ kind: 'edit-account' });
+                 return;
+                }
+                setEditingAccountCurrencyId(event.target.value ? Number(event.target.value) : null);
+               }}
                className="w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
               >
                <option value="">{t('client_account_currency_placeholder')}</option>
@@ -402,6 +434,7 @@ export default function ClientsSection({
                  {cur.code} · {cur.name}
                 </option>
                ))}
+               <option value={ADD_CURRENCY_OPTION}>{t('client_account_currency_add')}</option>
               </select>
               <div>
                <p className="text-xs font-medium text-fg-faint">{t('starting_balance')}</p>
@@ -529,7 +562,13 @@ export default function ClientsSection({
         <div className="flex flex-col gap-3">
          <select
           value={newAccountCurrencyId ?? ''}
-          onChange={(event) => setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null)}
+          onChange={(event) => {
+           if (event.target.value === ADD_CURRENCY_OPTION) {
+            setAddCurrencyTarget({ kind: 'new-account' });
+            return;
+           }
+           setNewAccountCurrencyId(event.target.value ? Number(event.target.value) : null);
+          }}
           className="w-full rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
          >
           <option value="">{t('client_account_currency_placeholder')}</option>
@@ -543,6 +582,7 @@ export default function ClientsSection({
              {cur.code} · {cur.name}
             </option>
            ))}
+          <option value={ADD_CURRENCY_OPTION}>{t('client_account_currency_add')}</option>
          </select>
          <div>
           <p className="text-xs font-medium text-fg-faint">{t('starting_balance')}</p>
@@ -849,6 +889,13 @@ export default function ClientsSection({
      ) : null}
     </div>
    </div>
+   {addCurrencyTarget ? (
+    <AddCurrencyDialog
+     localizedCurrencies={localizedCurrencies}
+     onClose={() => setAddCurrencyTarget(null)}
+     onAdded={onCurrencyAdded}
+    />
+   ) : null}
   </section>
  );
 }

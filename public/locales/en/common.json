@@ -201,6 +201,8 @@
  "client_organization": "Organization",
  "client_organization_placeholder": "Select an organization",
  "client_organization_create": "+ Create new organization",
+ "client_account_currency_add": "+ Add new currency",
+ "currency_add_dialog_title": "Add a currency",
  "client_currency": "Account currency",
  "client_currency_placeholder": "Select a currency",
  "client_currency_required": "Please select a currency to open an account for this client.",

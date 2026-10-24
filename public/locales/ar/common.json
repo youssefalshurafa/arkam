@@ -202,6 +202,8 @@
  "client_organization": "الشركة",
  "client_organization_placeholder": "اختر شركة",
  "client_organization_create": "➕ إنشاء شركة جديدة",
+ "client_account_currency_add": "➕ إضافة عملة جديدة",
+ "currency_add_dialog_title": "إضافة عملة",
  "client_currency": "عملة الحساب",
  "client_currency_placeholder": "اختر عملة",
  "client_currency_required": "الرجاء اختيار عملة لفتح حساب لهذا العميل.",

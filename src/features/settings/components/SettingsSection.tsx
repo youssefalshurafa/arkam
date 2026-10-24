@@ -326,6 +326,7 @@ export default function SettingsSection({
      organizations={organizations}
      clientAccounts={clientAccounts}
      enabledCurrencies={enabledCurrencies}
+     localizedCurrencies={localizedCurrencies}
      sortedClients={sortedClients}
      paginatedClients={paginatedClients}
      clampedClientsPage={clampedClientsPage}

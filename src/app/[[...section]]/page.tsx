@@ -2474,6 +2474,7 @@ function AuthenticatedHome() {
       navigateToSection={navigateToSection}
       activeSectionMeta={activeSectionMeta}
       shellMetrics={shellMetrics}
+      isLoading={isLoading}
       userWorkspaces={userWorkspaces}
       activeWorkspaceId={activeWorkspaceId}
       onSwitchWorkspace={onSwitchWorkspace}
