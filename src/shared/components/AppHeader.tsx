@@ -8,6 +8,7 @@ import { accountingApi } from '@/lib/accountingApi';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { renderIcon } from '@/shared/utils/icons';
 import WorkspaceSwitcher from '@/shared/components/WorkspaceSwitcher';
+import { SkBar } from '@/shared/components/skeletons/Skeletons';
 import type { IconName, Section } from '@/shared/types';
 
 type SidebarItem = { id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void };
@@ -18,6 +19,8 @@ type AppHeaderProps = {
  navigateToSection: (section: Section) => void;
  activeSectionMeta: { title: string; description: string };
  shellMetrics: Array<{ label: string; value: number }>;
+ /** Workspace data still loading: show skeleton bars instead of misleading zero counts. */
+ isLoading: boolean;
  userWorkspaces: Array<{ id: string; name: string; role: string }>;
  activeWorkspaceId: string | null;
  onSwitchWorkspace: (id: string) => void;
@@ -25,7 +28,7 @@ type AppHeaderProps = {
 };
 
 export default function AppHeader({
- sidebarItems, section, navigateToSection, activeSectionMeta, shellMetrics, userWorkspaces, activeWorkspaceId, onSwitchWorkspace, onManageWorkspaces,
+ sidebarItems, section, navigateToSection, activeSectionMeta, shellMetrics, isLoading, userWorkspaces, activeWorkspaceId, onSwitchWorkspace, onManageWorkspaces,
 }: AppHeaderProps) {
  const { language, setLanguage } = useLanguage();
  const { t } = useTranslation(language);
@@ -139,7 +142,17 @@ export default function AppHeader({
          className="text-right"
         >
          <p className="text-xs text-fg-faint">{metric.label}</p>
-         <p className="text-sm font-semibold text-fg">{metric.value}</p>
+         {isLoading ? (
+          // Same 20px line box as the number, so nothing shifts when the counts arrive. ml-auto
+          // (physical, like the text-right above) keeps the bar where the number will be in RTL too.
+          <div className="flex h-5 items-center">
+           <div className="ml-auto">
+            <SkBar w="w-8" />
+           </div>
+          </div>
+         ) : (
+          <p className="text-sm font-semibold text-fg">{metric.value}</p>
+         )}
         </div>
        ))}
       </div>

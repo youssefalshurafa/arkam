@@ -200,6 +200,8 @@
  "client_organization": "Organisation",
  "client_organization_placeholder": "Sélectionner une organisation",
  "client_organization_create": "+ Créer une nouvelle organisation",
+ "client_account_currency_add": "+ Ajouter une nouvelle devise",
+ "currency_add_dialog_title": "Ajouter une devise",
  "client_currency": "Devise du compte",
  "client_currency_placeholder": "Sélectionner une devise",
  "client_currency_required": "Veuillez sélectionner une devise pour ouvrir un compte à ce client.",
