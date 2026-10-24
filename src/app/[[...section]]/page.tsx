@@ -647,6 +647,11 @@ function AuthenticatedHome() {
   window.location.reload();
  };
 
+ const onManageWorkspaces = () => {
+  setSettingsTab('team');
+  navigateToSection('settings');
+ };
+
  useEffect(() => {
   const resolved = getSectionFromPath(pathname).section;
   // Harvest is super-admin-only: a non-admin deep-linking to /harvest falls back to
@@ -2457,12 +2462,23 @@ function AuthenticatedHome() {
      userWorkspaces={userWorkspaces}
      activeWorkspaceId={activeWorkspaceId}
      onSwitchWorkspace={onSwitchWorkspace}
+     onManageWorkspaces={onManageWorkspaces}
      navigateToSection={navigateToSection}
      section={section}
     />
 
     <div className="flex min-w-0 flex-1 flex-col overflow-auto">
-     <AppHeader sidebarItems={sidebarItems} section={section} navigateToSection={navigateToSection} activeSectionMeta={activeSectionMeta} shellMetrics={shellMetrics} />
+     <AppHeader
+      sidebarItems={sidebarItems}
+      section={section}
+      navigateToSection={navigateToSection}
+      activeSectionMeta={activeSectionMeta}
+      shellMetrics={shellMetrics}
+      userWorkspaces={userWorkspaces}
+      activeWorkspaceId={activeWorkspaceId}
+      onSwitchWorkspace={onSwitchWorkspace}
+      onManageWorkspaces={onManageWorkspaces}
+     />
 
      {showSubscriptionBanner ? (
       <div className="flex items-center justify-between gap-3 border-b border-amber-300 bg-warn-bg px-4 py-2 text-sm font-medium text-warn-text">

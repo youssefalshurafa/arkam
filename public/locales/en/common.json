@@ -1210,6 +1210,8 @@
  "team_workspace_delete_message": "\"{name}\" has {count} transaction(s). This will permanently delete the workspace and everything in it. This cannot be undone.",
  "team_workspace_delete_failed": "Failed to delete workspace.",
  "workspace_label": "Workspace",
+ "workspace_switch": "Switch workspace",
+ "workspace_manage": "Manage workspaces",
  "admin_brand_sub": "Super Admin",
  "admin_nav_group_main": "Manage",
  "admin_nav_group_site": "Site & audit",

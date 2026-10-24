@@ -10,6 +10,7 @@ import { accountingApi } from '@/lib/accountingApi';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { renderIcon } from '@/shared/utils/icons';
 import { notifySettingsChanged } from '@/shared/lib/localStorage';
+import WorkspaceSwitcher from '@/shared/components/WorkspaceSwitcher';
 import type { IconName, Section } from '@/shared/types';
 
 type SidebarItem = { id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void };
@@ -39,13 +40,14 @@ type SidebarProps = {
  userWorkspaces: Workspace[];
  activeWorkspaceId: string | null;
  onSwitchWorkspace: (id: string) => void;
+ onManageWorkspaces: () => void;
  navigateToSection: (section: Section) => void;
  section: Section;
 };
 
 export default function Sidebar({
  sidebarItems, isSidebarCollapsed, setIsSidebarCollapsed, userWorkspaces, activeWorkspaceId, onSwitchWorkspace,
- navigateToSection, section,
+ onManageWorkspaces, navigateToSection, section,
 }: SidebarProps) {
  const { language, setLanguage, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -101,6 +103,18 @@ export default function Sidebar({
        {isSidebarCollapsed ? (isRTL ? '<' : '>') : isRTL ? '>' : '<'}
       </button>
      </div>
+     {/* Workspace switcher — top of the sidebar so it's one click away from anywhere */}
+     {userWorkspaces.length > 1 ? (
+      <div className={`flex border-b border-white/10 py-2 ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'}`}>
+       <WorkspaceSwitcher
+        workspaces={userWorkspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        onSwitch={onSwitchWorkspace}
+        onManage={onManageWorkspaces}
+        variant={isSidebarCollapsed ? 'sidebar-collapsed' : 'sidebar'}
+       />
+      </div>
+     ) : null}
      {/* Navigation */}
      <nav className="flex-1 py-1">
       {sidebarItems.map((item) => {
@@ -164,25 +178,6 @@ export default function Sidebar({
        <span className="shrink-0">{renderIcon('auth', 'h-4 w-4')}</span>
        {isSidebarCollapsed ? null : <span>{t('sign_out')}</span>}
       </button>
-      {!isSidebarCollapsed && userWorkspaces.length > 1 ? (
-       <div className="px-3 pb-1 pt-1">
-        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-blue-300">{t('workspace_label')}</label>
-        <select
-         value={activeWorkspaceId ?? ''}
-         onChange={(event) => onSwitchWorkspace(event.target.value)}
-         className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-blue-100 outline-none transition focus:border-blue-300"
-        >
-         {userWorkspaces.map((workspace) => (
-          <option
-           key={workspace.id}
-           value={workspace.id}
-          >
-           {workspace.name}
-          </option>
-         ))}
-        </select>
-       </div>
-      ) : null}
       {isSidebarCollapsed ? (
        <div className="flex justify-center px-2 pb-2 pt-1">
         <select

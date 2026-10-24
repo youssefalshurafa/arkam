@@ -1209,6 +1209,8 @@
  "team_workspace_delete_message": "« {name} » contient {count} transaction(s). Cela supprimera définitivement l'espace de travail et tout son contenu. Cette action est irréversible.",
  "team_workspace_delete_failed": "Échec de la suppression de l'espace de travail.",
  "workspace_label": "Espace de travail",
+ "workspace_switch": "Changer d'espace de travail",
+ "workspace_manage": "Gérer les espaces de travail",
  "admin_brand_sub": "Super administration",
  "admin_nav_group_main": "Gestion",
  "admin_nav_group_site": "Site et journal",
