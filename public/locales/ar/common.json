@@ -1212,6 +1212,8 @@
  "team_workspace_delete_message": "تحتوي \"{name}\" على {count} معاملة. سيؤدي هذا إلى حذف مساحة العمل وكل ما فيها نهائياً. لا يمكن التراجع عن هذا الإجراء.",
  "team_workspace_delete_failed": "فشل حذف مساحة العمل.",
  "workspace_label": "مساحة العمل",
+ "workspace_switch": "تبديل مساحة العمل",
+ "workspace_manage": "إدارة مساحات العمل",
  "admin_brand_sub": "لوحة المشرف العام",
  "admin_nav_group_main": "الإدارة",
  "admin_nav_group_site": "الموقع والسجل",

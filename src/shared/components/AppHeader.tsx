@@ -7,6 +7,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { renderIcon } from '@/shared/utils/icons';
+import WorkspaceSwitcher from '@/shared/components/WorkspaceSwitcher';
 import type { IconName, Section } from '@/shared/types';
 
 type SidebarItem = { id: string; label: string; icon: IconName; isActive: boolean; onClick: () => void };
@@ -17,9 +18,15 @@ type AppHeaderProps = {
  navigateToSection: (section: Section) => void;
  activeSectionMeta: { title: string; description: string };
  shellMetrics: Array<{ label: string; value: number }>;
+ userWorkspaces: Array<{ id: string; name: string; role: string }>;
+ activeWorkspaceId: string | null;
+ onSwitchWorkspace: (id: string) => void;
+ onManageWorkspaces: () => void;
 };
 
-export default function AppHeader({ sidebarItems, section, navigateToSection, activeSectionMeta, shellMetrics }: AppHeaderProps) {
+export default function AppHeader({
+ sidebarItems, section, navigateToSection, activeSectionMeta, shellMetrics, userWorkspaces, activeWorkspaceId, onSwitchWorkspace, onManageWorkspaces,
+}: AppHeaderProps) {
  const { language, setLanguage } = useLanguage();
  const { t } = useTranslation(language);
 
@@ -46,6 +53,15 @@ export default function AppHeader({ sidebarItems, section, navigateToSection, ac
       />
      </span>
      <div className="flex shrink-0 items-center gap-1">
+      {userWorkspaces.length > 1 ? (
+       <WorkspaceSwitcher
+        workspaces={userWorkspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        onSwitch={onSwitchWorkspace}
+        onManage={onManageWorkspaces}
+        variant="compact"
+       />
+      ) : null}
       {sidebarItems.map((item) => {
        const isActive = item.isActive;
        return (
