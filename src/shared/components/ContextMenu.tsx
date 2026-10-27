@@ -113,7 +113,7 @@ export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<type
      }}
      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40 ${toneClassName[item.tone ?? 'default']}`}
     >
-     {item.icon}
+     {item.icon && <span className="flex shrink-0">{item.icon}</span>}
      {item.label}
     </button>
    ))}

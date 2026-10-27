@@ -27,7 +27,7 @@ import { CommissionDirectionToggle } from '@/shared/components/CommissionDirecti
 import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
-import { getLedgerTransactionDraftKey, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
+import { getLedgerTransactionDraftKey, highlightedExportRange, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
 import { anomalyKey, type RateAnomaly, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useStableSession } from '@/hooks/useStableSession';
@@ -999,8 +999,11 @@ export default function LedgerSection(props: LedgerSectionProps) {
                const today = localDateKey();
                const firstEntry = targetLedger.entries[0]?.createdAt.slice(0, 10) ?? today;
                const lastEntry = targetLedger.entries[targetLedger.entries.length - 1]?.createdAt.slice(0, 10) ?? today;
-               // Reuse the last "from" date chosen for this account, if any, but always
-               // default "to" to the newest transaction so freshly added rows aren't cut off.
+               // Highlighted rows win: they pin the exact row range, same as the dialog's
+               // "use highlighted rows" button. Otherwise reuse the last "from" date chosen for
+               // this account, if any, but always default "to" to the newest transaction so
+               // freshly added rows aren't cut off.
+               const highlightRange = highlightedExportRange(targetLedger.entries, targetLedger.accountId, highlightedLedgerRows);
                const storedRange = getStoredPdfDateRange(targetLedger.accountId);
                setPdfExportModal({
                 accountId: targetLedger.accountId,
@@ -1008,6 +1011,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                 toDate: lastEntry,
                 fromEntryKey: null,
                 toEntryKey: null,
+                ...highlightRange,
                 cols: getStoredPdfCols(targetLedger.accountId),
                });
               }}

@@ -20,6 +20,7 @@ import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
+import { renderIcon } from '@/shared/utils/icons';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import EditableField from '@/shared/components/EditableField';
@@ -294,13 +295,20 @@ export default function TransactionsSection(props: TransactionsSectionProps) {
   const rowLocked = lockPastEditsEnabled && !txn.isArchived && isBeforeToday(txn.createdAt);
   setContextMenuRowId(txn.id);
   rowContextMenu.open(event, [
-   { key: 'edit', label: t('edit'), onSelect: () => (txn.isArchived ? onEditArchiveEntryInForm(txn) : onEditTransactionInForm(txn)), disabled: rowLocked },
-   { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(txn.id) },
-   { key: 'copy', label: t('copy_transaction'), onSelect: () => onCopyTransactionRow(txn) },
+   { key: 'edit', label: t('edit'), icon: renderIcon('edit', 'h-4 w-4'), onSelect: () => (txn.isArchived ? onEditArchiveEntryInForm(txn) : onEditTransactionInForm(txn)), disabled: rowLocked },
+   { key: 'info', label: t('transaction_more_info_action'), icon: renderIcon('info', 'h-4 w-4'), onSelect: () => setInfoTransactionId(txn.id) },
+   { key: 'copy', label: t('copy_transaction'), icon: renderIcon('copy', 'h-4 w-4'), onSelect: () => onCopyTransactionRow(txn) },
    ...(section === 'archive'
-    ? [{ key: 'archive-hidden', label: t(txn.archiveHidden ? 'tx_unhide_from_archive' : 'tx_hide_from_archive'), onSelect: () => void onToggleTransactionArchiveHidden(txn) }]
+    ? [
+       {
+        key: 'archive-hidden',
+        label: t(txn.archiveHidden ? 'tx_unhide_from_archive' : 'tx_hide_from_archive'),
+        icon: renderIcon(txn.archiveHidden ? 'eye' : 'eye-off', 'h-4 w-4'),
+        onSelect: () => void onToggleTransactionArchiveHidden(txn),
+       },
+      ]
     : []),
-   { key: 'delete', label: t('delete'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const, disabled: rowLocked },
+   { key: 'delete', label: t('delete'), icon: renderIcon('trash', 'h-4 w-4'), onSelect: () => void onDeleteTransactionTableRow(txn), tone: 'danger' as const, disabled: rowLocked },
   ]);
  };
  const closeRowMenu = () => {

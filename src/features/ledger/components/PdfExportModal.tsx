@@ -7,7 +7,7 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
 import { formatDateValue } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
-import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
+import { ledgerEntryKey, highlightedExportRange } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useAiLedgerReview } from '@/features/ledger/hooks/useAiLedgerReview';
 import PdfNumberGroupingFields from '@/features/pdf/components/PdfNumberGroupingFields';
@@ -108,28 +108,18 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            {/* Shortcut: derive the range from the highlighted rows. Both boundaries are
                inclusive — the first highlighted row is the first row shown, the last
                highlighted row is the final row shown. Everything before the first highlight
-               is rolled into the opening (pre-)balance. A single highlighted row exports just
-               that row (it's both the first and the last). */}
+               is rolled into the opening (pre-)balance. The Download button already opens
+               the dialog on this range; the button restores it after the dates were changed. */}
            {(() => {
-            const highlightedEntries = ledger.entries.filter((e) => highlightedLedgerRows.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)));
-            if (highlightedEntries.length < 1) return null;
+            const highlightRange = highlightedExportRange(ledger.entries, ledger.accountId, highlightedLedgerRows);
+            if (!highlightRange) return null;
             return (
              <div className="flex flex-col gap-1">
               <button
                type="button"
                onClick={() => {
-                const last = highlightedEntries[highlightedEntries.length - 1];
-                // With 2+ highlights the range runs between the last two; with a single
-                // highlight that row is both boundaries, so the PDF holds just that one row.
-                const first = highlightedEntries.length >= 2 ? highlightedEntries[highlightedEntries.length - 2] : last;
-                // Both highlighted rows are included in the export: start AT the first
-                // highlight (not the row after it), end AT the last highlight.
-                const newFrom = first.createdAt.slice(0, 10);
-                const newTo = last.createdAt.slice(0, 10);
-                savePdfDateRange(pdfExportModal.accountId, newFrom, newTo);
-                setPdfExportModal((prev) =>
-                 prev ? { ...prev, fromDate: newFrom, toDate: newTo, fromEntryKey: ledgerEntryKey(first), toEntryKey: ledgerEntryKey(last) } : prev,
-                );
+                savePdfDateRange(pdfExportModal.accountId, highlightRange.fromDate, highlightRange.toDate);
+                setPdfExportModal((prev) => (prev ? { ...prev, ...highlightRange } : prev));
                }}
                className="cursor-pointer rounded border border-amber-400 bg-warn-bg px-3 py-2 text-sm font-semibold text-warn-text transition hover:bg-warn-bg"
               >
