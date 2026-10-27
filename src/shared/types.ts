@@ -627,7 +627,9 @@ export type TxFilterState = {
 export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf' | 'live-rates' | 'treasury' | 'ai' | 'writeoff' | 'review' | 'trash';
 
 export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury' | 'harvest';
-export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest';
+export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest'
+ // Row action-menu icons (ContextMenu items).
+ | 'edit' | 'info' | 'copy' | 'eye' | 'eye-off' | 'trash';
 
 // A normalized live FX/gold quote, as returned by the /api/live-rates proxy.
 export type LiveRate = {

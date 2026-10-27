@@ -45,3 +45,20 @@ export function ledgerEntryMatchesSearchTags(entry: ClientLedgerEntry, tags: Sea
 export function getLedgerTransactionDraftKey(transactionId: number, ledgerAccountId: number) {
  return `${transactionId}:${ledgerAccountId}`;
 }
+
+// The export range the ledger's highlighted rows define, or null when the account has none.
+// With 2+ highlights it runs between the last two (both rows included); a single highlight is
+// both boundaries, so the export holds just that row. Shared by the Download button (which
+// opens the export dialog pre-scoped to this) and the dialog's own "use highlighted rows".
+export function highlightedExportRange(entries: ClientLedgerEntry[], ledgerAccountId: number, highlightedRows: Map<string, string>) {
+ const highlighted = entries.filter((e) => highlightedRows.has(getLedgerTransactionDraftKey(e.transactionId, ledgerAccountId)));
+ if (highlighted.length === 0) return null;
+ const last = highlighted[highlighted.length - 1];
+ const first = highlighted.length >= 2 ? highlighted[highlighted.length - 2] : last;
+ return {
+  fromDate: first.createdAt.slice(0, 10),
+  toDate: last.createdAt.slice(0, 10),
+  fromEntryKey: ledgerEntryKey(first),
+  toEntryKey: ledgerEntryKey(last),
+ };
+}

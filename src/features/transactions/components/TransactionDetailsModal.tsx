@@ -271,17 +271,24 @@ export default function TransactionDetailsModal({ transactions, clientAccounts, 
     <div className="flex items-start justify-between gap-4 py-1.5">
      <span className="flex shrink-0 items-center gap-1 text-xs font-medium uppercase tracking-wide text-fg-faint">
       {t('exchange_rate')}
-      <button
-       type="button"
-       title={t('reverse_rate')}
-       onClick={opts.onToggleReversed}
-       className="inline-flex items-center rounded p-0.5 text-fg-faint transition hover:bg-surface-hover hover:text-fg"
-      >
-       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M7 4 3 8l4 4M3 8h13.5" />
-        <path d="M17 20l4-4-4-4m4 4H7.5" />
-       </svg>
-      </button>
+      {/* Same rule as the ledger's rate cell: a side in the transaction's own currency is
+          pinned to 1, and 1 reads the same either way, so there is nothing to reverse. */}
+      {opts.currencyCode && tx.currencyCode && opts.currencyCode !== tx.currencyCode ? (
+       <button
+        type="button"
+        title={t('reverse_rate')}
+        onClick={opts.onToggleReversed}
+        className="inline-flex items-center gap-0.5 rounded p-0.5 text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+       >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+         <path d="M7 4 3 8l4 4M3 8h13.5" />
+         <path d="M17 20l4-4-4-4m4 4H7.5" />
+        </svg>
+        <span className="text-xs font-semibold normal-case" aria-hidden>
+         {opts.reversed ? '÷' : '×'}
+        </span>
+       </button>
+      ) : null}
      </span>
      <span className="min-w-0 break-words text-right text-sm font-medium text-fg">
       <EditableField
