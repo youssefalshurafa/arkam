@@ -207,5 +207,95 @@ export function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="M10 11v6M14 11v6" />
     </svg>
    );
+  case 'check-circle':
+   return (
+    <svg {...commonProps}>
+     <circle
+      cx="12"
+      cy="12"
+      r="9"
+     />
+     <path d="m8.5 12 2.5 2.5 4.5-5" />
+    </svg>
+   );
+  case 'x-circle':
+   return (
+    <svg {...commonProps}>
+     <circle
+      cx="12"
+      cy="12"
+      r="9"
+     />
+     <path d="m15 9-6 6M9 9l6 6" />
+    </svg>
+   );
+  case 'percent':
+   return (
+    <svg {...commonProps}>
+     <path d="M19 5 5 19" />
+     <circle
+      cx="6.5"
+      cy="6.5"
+      r="2.5"
+     />
+     <circle
+      cx="17.5"
+      cy="17.5"
+      r="2.5"
+     />
+    </svg>
+   );
+  case 'eraser':
+   return (
+    <svg {...commonProps}>
+     <path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L11 21" />
+     <path d="M22 21H7" />
+     <path d="m5 11 9 9" />
+    </svg>
+   );
+  case 'arrow-up':
+   return (
+    <svg {...commonProps}>
+     <path d="M12 19V5" />
+     <path d="m5 12 7-7 7 7" />
+    </svg>
+   );
+  case 'arrow-down':
+   return (
+    <svg {...commonProps}>
+     <path d="M12 5v14" />
+     <path d="m19 12-7 7-7-7" />
+    </svg>
+   );
+  case 'arrow-up-to-line':
+   return (
+    <svg {...commonProps}>
+     <path d="M5 3h14" />
+     <path d="m18 13-6-6-6 6" />
+     <path d="M12 7v14" />
+    </svg>
+   );
+  case 'arrow-down-to-line':
+   return (
+    <svg {...commonProps}>
+     <path d="M12 17V3" />
+     <path d="m6 11 6 6 6-6" />
+     <path d="M19 21H5" />
+    </svg>
+   );
+  case 'note':
+   return (
+    <svg {...commonProps}>
+     <path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9Z" />
+     <path d="M15 3v6h6" />
+     <path d="M7 13h6M7 17h4" />
+    </svg>
+   );
+  case 'plus':
+   return (
+    <svg {...commonProps}>
+     <path d="M12 5v14M5 12h14" />
+    </svg>
+   );
  }
 }

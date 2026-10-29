@@ -629,7 +629,9 @@ export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appear
 export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury' | 'harvest';
 export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest'
  // Row action-menu icons (ContextMenu items).
- | 'edit' | 'info' | 'copy' | 'eye' | 'eye-off' | 'trash';
+ | 'edit' | 'info' | 'copy' | 'eye' | 'eye-off' | 'trash'
+ | 'check-circle' | 'x-circle' | 'percent' | 'eraser' | 'note' | 'plus'
+ | 'arrow-up' | 'arrow-down' | 'arrow-up-to-line' | 'arrow-down-to-line';
 
 // A normalized live FX/gold quote, as returned by the /api/live-rates proxy.
 export type LiveRate = {

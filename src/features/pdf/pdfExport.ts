@@ -474,8 +474,11 @@ export function generateLedgerHtml(
  .pre-balance .pb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: bold; font-variant-numeric: tabular-nums; }
  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
  thead tr { background: #e2e8f0; }
- th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; }
- td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+ /* nowrap: a header like "الرصيد التراكمي" or an amount like "2,000,000 AED" must stay on one
+    line — the columns size to their content instead. A table wider than the page is shrunk to
+    fit by Chromium's print scaling rather than wrapped. */
+ th { padding: 8px 10px; font-size: ${pdfSettings.headFontSize}px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; text-align: center; border-bottom: 2px solid #94a3b8; white-space: nowrap; }
+ td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap; }
  tbody tr:nth-child(odd) { background: #f1f5f9; }
  tbody tr:nth-child(even) { background: #ffffff; }
  td.num { font-variant-numeric: tabular-nums; }
