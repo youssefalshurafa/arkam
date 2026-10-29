@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useStableSession } from '@/hooks/useStableSession';
-import { savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
-import { formatDateValue } from '@/shared/utils/date';
+import { getStoredPdfDateRange, savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
+import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { ledgerEntryKey, highlightedExportRange } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
@@ -105,24 +105,62 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
             currencyCodes={[...new Set([ledger.currencyCode, ...selected.map((e) => e.currencyCode)].filter((code): code is string => Boolean(code)))]}
            />
 
-           {/* Shortcut: derive the range from the highlighted rows. Both boundaries are
+           {/* Toggle: derive the range from the highlighted rows. Both boundaries are
                inclusive — the first highlighted row is the first row shown, the last
                highlighted row is the final row shown. Everything before the first highlight
-               is rolled into the opening (pre-)balance. The Download button already opens
-               the dialog on this range; the button restores it after the dates were changed. */}
+               is rolled into the opening (pre-)balance. The Download button opens the dialog
+               with this ON; it reads as on for as long as the dialog's range still matches the
+               highlights, so editing a date/row picker flips it off on its own. Turning it off
+               falls back to the same default range Download uses when nothing is highlighted.
+               The highlight range is deliberately NOT saved as the remembered "from" date, so
+               that fallback still lands on the user's own last-picked range. */}
            {(() => {
             const highlightRange = highlightedExportRange(ledger.entries, ledger.accountId, highlightedLedgerRows);
             if (!highlightRange) return null;
+            const isActive =
+             pdfExportModal.fromDate === highlightRange.fromDate &&
+             pdfExportModal.toDate === highlightRange.toDate &&
+             pdfExportModal.fromEntryKey === highlightRange.fromEntryKey &&
+             pdfExportModal.toEntryKey === highlightRange.toEntryKey;
             return (
              <div className="flex flex-col gap-1">
               <button
                type="button"
+               role="switch"
+               aria-checked={isActive}
                onClick={() => {
-                savePdfDateRange(pdfExportModal.accountId, highlightRange.fromDate, highlightRange.toDate);
-                setPdfExportModal((prev) => (prev ? { ...prev, ...highlightRange } : prev));
+                if (isActive) {
+                 const today = localDateKey();
+                 const storedRange = getStoredPdfDateRange(ledger.accountId);
+                 setPdfExportModal((prev) =>
+                  prev
+                   ? {
+                      ...prev,
+                      fromDate: storedRange?.fromDate ?? ledger.entries[0]?.createdAt.slice(0, 10) ?? today,
+                      toDate: ledger.entries[ledger.entries.length - 1]?.createdAt.slice(0, 10) ?? today,
+                      fromEntryKey: null,
+                      toEntryKey: null,
+                     }
+                   : prev,
+                 );
+                } else {
+                 setPdfExportModal((prev) => (prev ? { ...prev, ...highlightRange } : prev));
+                }
                }}
-               className="cursor-pointer rounded border border-amber-400 bg-warn-bg px-3 py-2 text-sm font-semibold text-warn-text transition hover:bg-warn-bg"
+               className={`flex cursor-pointer items-center gap-2.5 rounded border px-3 py-2 text-start text-sm font-semibold transition ${
+                isActive ? 'border-warn bg-warn-bg text-warn-text ring-2 ring-warn/40' : 'border-border-strong bg-surface text-fg-muted hover:bg-surface-hover'
+               }`}
               >
+               <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition ${isActive ? 'border-warn bg-warn text-white' : 'border-border-strong bg-surface'}`}
+                aria-hidden
+               >
+                {isActive ? (
+                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m5 12 5 5 9-10" />
+                 </svg>
+                ) : null}
+               </span>
                {t('export_use_highlights')}
               </button>
               <p className="text-xs text-fg-faint">{t('export_use_highlights_hint')}</p>

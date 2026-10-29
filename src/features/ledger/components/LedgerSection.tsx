@@ -26,6 +26,7 @@ import { getCommissionAmount } from '@/shared/utils/commission';
 import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
+import { renderIcon } from '@/shared/utils/icons';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { getLedgerTransactionDraftKey, highlightedExportRange, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
 import { anomalyKey, type RateAnomaly, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
@@ -46,6 +47,7 @@ import type {
  ClientAccountLedger,
  ClientLedgerEntry,
  Currency,
+ IconName,
  LedgerColumnKey,
  LedgerEditFieldKey,
  LedgerTransactionDraft,
@@ -1259,6 +1261,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         {
                          key: 'ignore',
                          label: t('ignore_anomaly_confirm_button'),
+                         icon: renderIcon('eye-off', 'h-4 w-4'),
                          onSelect: () => onIgnoreAnomaly('pendingRate', entry.transactionId, ledger.accountId),
                         },
                        ]);
@@ -1428,8 +1431,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                type="button"
                onClick={(e) =>
                 addMenu.open(e, [
-                 { key: 'note', label: t('ledger_add_menu_note'), onSelect: () => beginEditNote(ledger) },
-                 { key: 'new-transaction', label: t('ledger_add_menu_new_transaction'), onSelect: () => openNewTransactionModal(ledger.accountId) },
+                 { key: 'note', label: t('ledger_add_menu_note'), icon: renderIcon('note', 'h-4 w-4'), onSelect: () => beginEditNote(ledger) },
+                 { key: 'new-transaction', label: t('ledger_add_menu_new_transaction'), icon: renderIcon('plus', 'h-4 w-4'), onSelect: () => openNewTransactionModal(ledger.accountId) },
                 ])
                }
                title={t('ledger_add_menu')}
@@ -2097,8 +2100,8 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      // menu targets just this row.
                      if (selectedLedgerEntryKeys.size > 1 && selectedLedgerEntryKeys.has(rowKeyForMenu)) {
                       rowContextMenu.open(event, [
-                       { key: 'edit-selected', label: `${t('edit')} (${selectedLedgerEntryKeys.size})`, onSelect: () => onEditSelectedLedgerEntries() },
-                       { key: 'delete-selected', label: `${t('delete')} (${selectedLedgerEntryKeys.size})`, onSelect: () => void onDeleteSelectedLedgerEntries(), tone: 'danger' as const },
+                       { key: 'edit-selected', label: `${t('edit')} (${selectedLedgerEntryKeys.size})`, icon: renderIcon('edit', 'h-4 w-4'), onSelect: () => onEditSelectedLedgerEntries() },
+                       { key: 'delete-selected', label: `${t('delete')} (${selectedLedgerEntryKeys.size})`, icon: renderIcon('trash', 'h-4 w-4'), onSelect: () => void onDeleteSelectedLedgerEntries(), tone: 'danger' as const },
                       ]);
                       return;
                      }
@@ -2137,11 +2140,12 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      const writeOffEligible =
                       !!ledgerAccount && entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= resolveWriteOffThreshold(ledgerAccount.currencyId, writeOffMarginByCurrency);
                      rowContextMenu.open(event, [
-                      { key: 'edit', label: t('edit'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
-                      { key: 'info', label: t('transaction_more_info_action'), onSelect: () => setInfoTransactionId(entry.transactionId) },
+                      { key: 'edit', label: t('edit'), icon: renderIcon('edit', 'h-4 w-4'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
+                      { key: 'info', label: t('transaction_more_info_action'), icon: renderIcon('info', 'h-4 w-4'), onSelect: () => setInfoTransactionId(entry.transactionId) },
                       {
                        key: 'copy',
                        label: t('copy_transaction'),
+                       icon: renderIcon('copy', 'h-4 w-4'),
                        onSelect: () => {
                         const transaction = transactions.find((tx) => tx.id === entry.transactionId);
                         if (!transaction) return;
@@ -2150,23 +2154,24 @@ export default function LedgerSection(props: LedgerSectionProps) {
                        },
                       },
                       entry.reconciledMark
-                       ? { key: 'unreconcile', label: t('reconcile_remove_action'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
-                       : { key: 'reconcile', label: t('reconcile_action'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
+                       ? { key: 'unreconcile', label: t('reconcile_remove_action'), icon: renderIcon('x-circle', 'h-4 w-4'), onSelect: () => onRemoveReconciliation(entry, ledger.accountId), tone: 'success' as const }
+                       : { key: 'reconcile', label: t('reconcile_action'), icon: renderIcon('check-circle', 'h-4 w-4'), onSelect: () => onReconcileLedgerEntry(entry, ledger.accountId) },
                       ...(selectedClientForLedger?.distributionCommissionEnabled && hasHighlightsForAccount
-                       ? [{ key: 'commission-range', label: t('distribution_panel_use_highlights'), onSelect: openCommissionModalFromHighlights }]
+                       ? [{ key: 'commission-range', label: t('distribution_panel_use_highlights'), icon: renderIcon('percent', 'h-4 w-4'), onSelect: openCommissionModalFromHighlights }]
                        : []),
                       ...(writeOffEligible
                        ? [
                           {
                            key: 'write-off',
                            label: t('write_off_button'),
+                           icon: renderIcon('eraser', 'h-4 w-4'),
                            // Dated the same day as this entry (not today) so the adjustment lands
                            // right after it in the ledger instead of jumping to the bottom.
                            onSelect: () => onWriteOffBalance(ledger.accountId, entry.runningBalance, entry.createdAt.slice(0, 10)),
                           },
                          ]
                        : []),
-                      { key: 'delete', label: t('delete'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
+                      { key: 'delete', label: t('delete'), icon: renderIcon('trash', 'h-4 w-4'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
                      ]);
                     };
                     // Reordering without dragging, hung off the drag handle itself rather than the
@@ -2187,19 +2192,20 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      const rowLocked = lockPastEditsEnabled && isBeforeToday(entry.createdAt);
                      const moves = ledgerRowMoves(entry, ledger);
                      setContextMenuRowKey(rowKeyForMenu);
-                     const moveItem = (key: string, labelKey: string, move: LedgerRowMove | null | undefined) => ({
+                     const moveItem = (key: string, labelKey: string, iconName: IconName, move: LedgerRowMove | null | undefined) => ({
                       key,
                       label: t(labelKey),
+                      icon: renderIcon(iconName, 'h-4 w-4'),
                       disabled: rowLocked || !moves || !move,
                       onSelect: () => {
                        if (moves && move) moveLedgerRow(rowKeyForMenu, ledger, moves.currentPage, move);
                       },
                      });
                      rowContextMenu.open(event, [
-                      moveItem('move-up', 'ledger_move_up', moves?.up),
-                      moveItem('move-down', 'ledger_move_down', moves?.down),
-                      moveItem('move-day-start', 'ledger_move_day_start', moves?.dayStart),
-                      moveItem('move-day-end', 'ledger_move_day_end', moves?.dayEnd),
+                      moveItem('move-up', 'ledger_move_up', 'arrow-up', moves?.up),
+                      moveItem('move-down', 'ledger_move_down', 'arrow-down', moves?.down),
+                      moveItem('move-day-start', 'ledger_move_day_start', 'arrow-up-to-line', moves?.dayStart),
+                      moveItem('move-day-end', 'ledger_move_day_end', 'arrow-down-to-line', moves?.dayEnd),
                      ]);
                     };
                     // The row binds its own long-press to the row menu, and touch events from the
