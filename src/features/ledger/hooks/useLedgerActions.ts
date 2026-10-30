@@ -25,6 +25,7 @@ import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedger
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import { isSameTransactionUpdate, transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
+import { buildExportFileName, exportDateRangeLabel } from '@/features/pdf/exportFileName';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, parseLocalWallClock } from '@/shared/utils/date';
 import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt';
@@ -1558,6 +1559,11 @@ async function confirmIfLedgerPendingPricing(entries: ClientLedgerEntry[]): Prom
  });
 }
 
+// "Statement - Ahmed - USD - 2026-10-01 to 2026-10-29", in the UI language.
+function ledgerExportFileName(ledger: ClientAccountLedger, fromDate: string, toDate: string, extension: 'pdf' | 'xlsx') {
+ return buildExportFileName([t('export_file_ledger'), selectedClientForLedger?.name, ledger.currencyCode, exportDateRangeLabel(t, fromDate, toDate)], extension);
+}
+
 async function onExportLedgerPdf(
  ledger: ClientAccountLedger,
  fromDate: string,
@@ -1572,9 +1578,7 @@ async function onExportLedgerPdf(
   if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
   if (!(await confirmIfLedgerPendingPricing(selected))) return;
   const html = generateLedgerHtml({ t, numLocale, isRTL, language, pdfSettings }, { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectedClientForLedger, transactions, ledgerColumnOrder });
-  const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
-  const defaultFileName = `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.pdf`;
-  const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
+  const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: ledgerExportFileName(ledger, fromDate, toDate, 'pdf') });
   if (result.ok) setPdfExportModal(null);
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_save'));
@@ -1623,8 +1627,7 @@ async function onExportLedgerExcel(
   const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
   const workbook = xlsxModule.utils.book_new();
   xlsxModule.utils.book_append_sheet(workbook, worksheet, 'Ledger');
-  const clientName = (selectedClientForLedger?.name ?? 'client').replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_|_$/g, '');
-  xlsxModule.writeFile(workbook, `${clientName}_${ledger.currencyCode}_${fromDate}_${toDate}.xlsx`);
+  xlsxModule.writeFile(workbook, ledgerExportFileName(ledger, fromDate, toDate, 'xlsx'));
   setPdfExportModal(null);
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_save'));

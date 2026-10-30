@@ -35,6 +35,7 @@ import {
  DEFAULT_IMPORT_ROW_OVERRIDE,
 } from '@/features/transactions/utils/import';
 import { generateArchiveHtml, generateTransactionsExportHtml } from '@/features/pdf/pdfExport';
+import { buildExportFileName, exportDateRangeLabel } from '@/features/pdf/exportFileName';
 import { saveArchiveTableSettings, saveTransactionTableSettings, getStoredExchangeSettings, getStoredNumberGrouping } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useWorkspaceResync } from '@/features/workspace/hooks/useWorkspaceResync';
@@ -2116,8 +2117,8 @@ async function onExportArchivePdf(range?: ArchiveExportModalState) {
  try {
   const rows = range ? selectArchiveExportRows(displayedTransactionRows, range) : displayedTransactionRows;
   const html = generateArchiveHtml({ t, numLocale, isRTL, language, pdfSettings }, rows, transactionTableSettings.columns);
-  const exportDate = new Date().toISOString().slice(0, 10);
-  const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `archive_${exportDate}.pdf` });
+  const defaultFileName = buildExportFileName([t('archive_title'), exportDateRangeLabel(t, range?.fromDate, range?.toDate)], 'pdf');
+  const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
   if (!result.ok) setError(t('error_failed_save'));
   else setArchiveExportModal(null);
  } catch (e) {
@@ -2244,11 +2245,8 @@ const buildTransactionExportData = (fromDate: string, toDate: string, forPdf = f
  return { headers, rows: dataRows, count: dataRows.length, currencyCodes };
 };
 
-const transactionExportFileBase = () => {
- const range = [transactionExportFrom, transactionExportTo].filter(Boolean).join('_');
- const sectionLabel = section === 'archive' ? 'archive' : 'transactions';
- return range ? `${sectionLabel}_${range}` : `${sectionLabel}_${new Date().toISOString().slice(0, 10)}`;
-};
+const transactionExportFileName = (extension: 'pdf' | 'xlsx') =>
+ buildExportFileName([t(section === 'archive' ? 'archive_title' : 'transactions_title'), exportDateRangeLabel(t, transactionExportFrom, transactionExportTo)], extension);
 
 async function onExportTransactionsPdf() {
  if (!accountingApi) return;
@@ -2256,7 +2254,7 @@ async function onExportTransactionsPdf() {
  try {
   const { headers, rows } = buildTransactionExportData(transactionExportFrom, transactionExportTo, true);
   const html = generateTransactionsExportHtml({ t, numLocale, isRTL, language, pdfSettings }, { section, transactionExportFrom, transactionExportTo, headers, rows });
-  const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `${transactionExportFileBase()}.pdf` });
+  const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: transactionExportFileName('pdf') });
   if (result.ok) setShowTransactionExportModal(false);
   else setError(t('error_failed_save'));
  } catch (e) {
@@ -2274,7 +2272,7 @@ async function onExportTransactionsExcel() {
   const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
   const workbook = xlsxModule.utils.book_new();
   xlsxModule.utils.book_append_sheet(workbook, worksheet, section === 'archive' ? 'Archive' : 'Transactions');
-  xlsxModule.writeFile(workbook, `${transactionExportFileBase()}.xlsx`);
+  xlsxModule.writeFile(workbook, transactionExportFileName('xlsx'));
   setShowTransactionExportModal(false);
  } catch (e) {
   setError(e instanceof Error ? e.message : t('error_failed_save'));
