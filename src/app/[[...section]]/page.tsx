@@ -101,6 +101,7 @@ import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useLiveRatesSettingsStore } from '@/features/live-rates/store/liveRatesSettingsStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
+import { buildExportFileName, exportDateRangeLabel } from '@/features/pdf/exportFileName';
 import { computeClientLedgers } from '@/features/ledger/utils/ledgerBalances';
 import {
  buildRateSamples,
@@ -1565,8 +1566,7 @@ function AuthenticatedHome() {
   if (!accountingApi || cards.length === 0) return;
   try {
    const html = generateOverviewCardsHtml({ t, numLocale, isRTL, language, pdfSettings }, { cards, mainCode, mainSymbol });
-   const exportDate = new Date().toISOString().slice(0, 10);
-   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: `overview_${exportDate}.pdf` });
+   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: buildExportFileName([t('export_file_overview'), exportDateRangeLabel(t)], 'pdf') });
    if (!result.ok) setError(t('error_failed_save'));
   } catch (e) {
    setError(e instanceof Error ? e.message : t('error_failed_save'));
