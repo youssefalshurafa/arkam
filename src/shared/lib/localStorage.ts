@@ -537,6 +537,15 @@ export const defaultPdfSettings: PdfSettings = {
  showGeneratedOn: true,
  showCurrencySymbol: true,
  highlightNetChange: true,
+ fileNameParts: [
+  { key: 'type', enabled: true },
+  { key: 'company', enabled: false },
+  { key: 'client', enabled: true },
+  { key: 'currency', enabled: true },
+  { key: 'range', enabled: true },
+ ],
+ fileNameSeparator: ' - ',
+ fileNameDateStyle: 'iso',
 };
 export function getStoredPdfSettings(): PdfSettings {
  if (typeof window === 'undefined') return defaultPdfSettings;
