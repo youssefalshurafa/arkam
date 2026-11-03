@@ -10,6 +10,13 @@ export type PdfExportModalState = {
  fromEntryKey: string | null;
  toEntryKey: string | null;
  cols: PdfColVisibility;
+ // Set when the dialog was opened from sum mode's "export selected rows": the export holds
+ // exactly these entries (ledgerEntryKey), not a date range, and ends in their totals instead
+ // of a balance. fromDate/toDate then only span the selection, for the period card and file name.
+ selectionKeys?: string[] | null;
+ // Selection exports: also total each amount currency (e.g. AED amounts on a MAD ledger), not
+ // just the net change in the ledger's currency.
+ showCurrencyTotals?: boolean;
 };
 
 // A transaction with only one real party — the client whose ledger

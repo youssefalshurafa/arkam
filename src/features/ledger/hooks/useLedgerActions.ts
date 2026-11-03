@@ -19,7 +19,7 @@ import {
 } from '@/lib/pendingTransactionWrites';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { NEW_ROW_REF_ID, marksAffectedByReorder, type LockBoundary } from '@/features/ledger/utils/reconciliation';
-import { ledgerEntryKey, getLedgerTransactionDraftKey } from '@/features/ledger/utils/ledgerEntries';
+import { getLedgerTransactionDraftKey, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { spreadLedgerPositions, timeOfDayMs, withLedgerPosition } from '@/features/ledger/utils/ledgerOrder';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
@@ -1486,23 +1486,6 @@ async function onLedgerRowDrop(draggedKeys: string[], targetKey: string, dropHal
  }
 }
 
-function selectLedgerEntriesForRange(
- ledger: ClientAccountLedger,
- fromDate: string,
- toDate: string,
- fromEntryKey?: string | null,
- toEntryKey?: string | null,
-): ClientLedgerEntry[] {
- const candidates = ledger.entries.filter((e) => {
-  const d = e.createdAt.slice(0, 10);
-  return d >= fromDate && d <= toDate;
- });
- const startIdx = fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey)) : 0;
- const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
- const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
- return startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
-}
-
 // A last-line-of-defense "second accountant" check before a ledger leaves the app: flags
 // exchange rates that deviate sharply from other transactions in the same currency pair
 // (most notably a ×/÷ toggle mistake, which is off by 10s-to-100s-x), plus exchange-transaction
@@ -1572,13 +1555,15 @@ async function onExportLedgerPdf(
  colVisibility: PdfColVisibility,
  fromEntryKey?: string | null,
  toEntryKey?: string | null,
+ selectionKeys?: string[] | null,
+ showCurrencyTotals?: boolean,
 ) {
  if (!accountingApi) return;
  try {
-  const selected = selectLedgerEntriesForRange(ledger, fromDate, toDate, fromEntryKey, toEntryKey);
+  const selected = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys });
   if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
   if (!(await confirmIfLedgerPendingPricing(selected))) return;
-  const html = generateLedgerHtml({ t, numLocale, isRTL, language, pdfSettings }, { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectedClientForLedger, transactions, ledgerColumnOrder });
+  const html = generateLedgerHtml({ t, numLocale, isRTL, language, pdfSettings }, { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder });
   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: ledgerExportFileName(ledger, fromDate, toDate, 'pdf') });
   if (result.ok) setPdfExportModal(null);
  } catch (e) {
@@ -1593,9 +1578,11 @@ async function onExportLedgerExcel(
  colVisibility: PdfColVisibility,
  fromEntryKey?: string | null,
  toEntryKey?: string | null,
+ selectionKeys?: string[] | null,
+ showCurrencyTotals?: boolean,
 ) {
  try {
-  const selected = selectLedgerEntriesForRange(ledger, fromDate, toDate, fromEntryKey, toEntryKey);
+  const selected = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys });
   if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
   if (!(await confirmIfLedgerPendingPricing(selected))) return;
 
@@ -1616,14 +1603,35 @@ async function onExportLedgerExcel(
   const visibleCols = ledgerColumnOrder
    .map((key) => allCols.find((col) => col.key === key))
    .filter((col): col is ExcelColDef => Boolean(col))
-   .filter((col) => col.key === 'runningBalance' || colVisibility[col.key]);
-  if (!visibleCols.some((col) => col.key === 'runningBalance')) {
+   .filter((col) => (col.key === 'runningBalance' && !selectionKeys) || colVisibility[col.key]);
+  // A selection export (see generateLedgerHtml) makes the balance column optional and ends in a
+  // totals row instead.
+  if (!selectionKeys && !visibleCols.some((col) => col.key === 'runningBalance')) {
    const rbCol = allCols.find((col) => col.key === 'runningBalance');
    if (rbCol) visibleCols.push(rbCol);
   }
 
   const headers = visibleCols.map((col) => col.header);
-  const rows = selected.map((entry) => visibleCols.map((col) => col.cell(entry)));
+  const rows: Array<Array<string | number>> = selected.map((entry) => visibleCols.map((col) => col.cell(entry)));
+  if (selectionKeys) {
+   // Amounts are only summed within a currency; a mixed-currency sum would be meaningless. One
+   // currency fits on the totals row itself; several (or the per-currency option) get a row each.
+   const amountTotals = new Map<string, number>();
+   for (const e of selected) amountTotals.set(e.currencyCode, (amountTotals.get(e.currencyCode) ?? 0) + e.amount);
+   const amountOnTotalsRow = amountTotals.size === 1 && !showCurrencyTotals;
+   rows.push(
+    visibleCols.map((col, index) => {
+     if (col.key === 'netChange') return selected.reduce((sum, e) => sum + (e.pendingRate ? 0 : e.netChange), 0);
+     if (col.key === 'amount' && amountOnTotalsRow) return [...amountTotals.values()][0];
+     return index === 0 ? `${t('export_selection_total')} (${selected.length})` : '';
+    }),
+   );
+   if (!amountOnTotalsRow) {
+    for (const [code, total] of amountTotals) {
+     rows.push(visibleCols.map((col, index) => (col.key === 'amount' ? total : index === 0 ? `${t('export_selection_amount_total')} ${code}` : '')));
+    }
+   }
+  }
   const xlsxModule = await import('xlsx');
   const worksheet = xlsxModule.utils.aoa_to_sheet([headers, ...rows]);
   const workbook = xlsxModule.utils.book_new();
