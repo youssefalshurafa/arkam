@@ -62,3 +62,25 @@ export function highlightedExportRange(entries: ClientLedgerEntry[], ledgerAccou
   toEntryKey: ledgerEntryKey(last),
  };
 }
+
+// The entries a ledger export holds. A sum-mode selection (selectionKeys) is exactly those rows,
+// in ledger order. Otherwise it's the date range, narrowed by the start/end transaction pickers
+// (handy when a day has many transactions). Shared by the export dialog, PDF and Excel so the
+// count the dialog shows is the row count the file gets.
+export function selectLedgerExportEntries(
+ entries: ClientLedgerEntry[],
+ range: { fromDate: string; toDate: string; fromEntryKey?: string | null; toEntryKey?: string | null; selectionKeys?: string[] | null },
+): ClientLedgerEntry[] {
+ if (range.selectionKeys) {
+  const keys = new Set(range.selectionKeys);
+  return entries.filter((e) => keys.has(ledgerEntryKey(e)));
+ }
+ const candidates = entries.filter((e) => {
+  const d = e.createdAt.slice(0, 10);
+  return d >= range.fromDate && d <= range.toDate;
+ });
+ const startIdx = range.fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === range.fromEntryKey)) : 0;
+ const endIdxRaw = range.toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === range.toEntryKey) : -1;
+ const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
+ return startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
+}

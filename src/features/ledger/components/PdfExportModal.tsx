@@ -7,7 +7,7 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { getStoredPdfDateRange, savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
-import { ledgerEntryKey, highlightedExportRange } from '@/features/ledger/utils/ledgerEntries';
+import { ledgerEntryKey, highlightedExportRange, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useAiLedgerReview } from '@/features/ledger/hooks/useAiLedgerReview';
 import PdfNumberGroupingFields from '@/features/pdf/components/PdfNumberGroupingFields';
@@ -17,8 +17,8 @@ type PdfExportModalProps = {
  selectedClientLedgers: ClientAccountLedger[];
  selectedClientForLedger: Client | null;
  pdfAllColumns: Array<{ key: LedgerColumnKey; label: string }>;
- onExportLedgerPdf: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null) => void;
- onExportLedgerExcel: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null) => void;
+ onExportLedgerPdf: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean) => void;
+ onExportLedgerExcel: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean) => void;
 };
 
 export default function PdfExportModal({ selectedClientLedgers, selectedClientForLedger, pdfAllColumns, onExportLedgerPdf, onExportLedgerExcel }: PdfExportModalProps) {
@@ -43,20 +43,19 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
     ? (() => {
        const ledger = selectedClientLedgers.find((l) => l.accountId === pdfExportModal.accountId);
        if (!ledger) return null;
-       const candidates = ledger.entries.filter((e) => {
-        const d = e.createdAt.slice(0, 10);
-        return d >= pdfExportModal.fromDate && d <= pdfExportModal.toDate;
-       });
-       const startIdx = pdfExportModal.fromEntryKey ? Math.max(0, candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)) : 0;
-       const endIdxRaw = pdfExportModal.toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === pdfExportModal.toEntryKey) : -1;
-       const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
-       const selected = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
+       const selected = selectLedgerExportEntries(ledger.entries, pdfExportModal);
+       // Opened from sum mode's "export selected rows": the rows are fixed, so the range
+       // controls are hidden and the balance column becomes optional (see generateLedgerHtml).
+       const isSelection = Boolean(pdfExportModal.selectionKeys);
+       const exportDisabled = isSelection
+        ? selected.length === 0
+        : !pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate;
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto rounded bg-surface p-6 shadow-2xl">
           <div className="flex items-start justify-between gap-2">
            <div>
-            <h3 className="text-lg font-semibold text-fg">{t('export_ledger_title')}</h3>
+            <h3 className="text-lg font-semibold text-fg">{t(isSelection ? 'export_selection_title' : 'export_ledger_title')}</h3>
             <p className="mt-1 text-sm text-fg-faint">
              {selectedClientForLedger?.name} &mdash; {ledger.currencyName}
             </p>
@@ -75,30 +74,35 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
           </div>
 
           <div className="mt-5 flex flex-col gap-4">
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_date_from')}</label>
-            <input
-             type="date"
-             value={pdfExportModal.fromDate}
-             onChange={(e) => {
-              savePdfDateRange(pdfExportModal.accountId, e.target.value, pdfExportModal.toDate);
-              setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev));
-             }}
-             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            />
-           </div>
-           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_date_to')}</label>
-            <input
-             type="date"
-             value={pdfExportModal.toDate}
-             onChange={(e) => {
-              savePdfDateRange(pdfExportModal.accountId, pdfExportModal.fromDate, e.target.value);
-              setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev));
-             }}
-             className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
-            />
-           </div>
+           {isSelection ? <p className="text-sm text-fg-muted">{t('export_selection_hint')}</p> : null}
+           {isSelection ? null : (
+            <>
+             <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_date_from')}</label>
+              <input
+               type="date"
+               value={pdfExportModal.fromDate}
+               onChange={(e) => {
+                savePdfDateRange(pdfExportModal.accountId, e.target.value, pdfExportModal.toDate);
+                setPdfExportModal((prev) => (prev ? { ...prev, fromDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev));
+               }}
+               className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              />
+             </div>
+             <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('export_date_to')}</label>
+              <input
+               type="date"
+               value={pdfExportModal.toDate}
+               onChange={(e) => {
+                savePdfDateRange(pdfExportModal.accountId, pdfExportModal.fromDate, e.target.value);
+                setPdfExportModal((prev) => (prev ? { ...prev, toDate: e.target.value, fromEntryKey: null, toEntryKey: null } : prev));
+               }}
+               className="rounded border border-border-strong px-3 py-2 text-sm outline-none ring-blue-300 focus:ring"
+              />
+             </div>
+            </>
+           )}
 
            <PdfNumberGroupingFields
             t={t}
@@ -116,7 +120,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
                that fallback still lands on the user's own last-picked range. */}
            {(() => {
             const highlightRange = highlightedExportRange(ledger.entries, ledger.accountId, highlightedLedgerRows);
-            if (!highlightRange) return null;
+            if (!highlightRange || isSelection) return null;
             const isActive =
              pdfExportModal.fromDate === highlightRange.fromDate &&
              pdfExportModal.toDate === highlightRange.toDate &&
@@ -172,7 +176,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            {(() => {
             const startCandidates = ledger.entries.filter((e) => e.createdAt.slice(0, 10) === pdfExportModal.fromDate);
             const endCandidates = ledger.entries.filter((e) => e.createdAt.slice(0, 10) === pdfExportModal.toDate);
-            if (startCandidates.length === 0 && endCandidates.length === 0) return null;
+            if (isSelection || (startCandidates.length === 0 && endCandidates.length === 0)) return null;
             const startKey =
              pdfExportModal.fromEntryKey && startCandidates.some((e) => ledgerEntryKey(e) === pdfExportModal.fromEntryKey)
               ? pdfExportModal.fromEntryKey
@@ -231,12 +235,24 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
             );
            })()}
 
+           {isSelection ? (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+             <input
+              type="checkbox"
+              checked={pdfExportModal.showCurrencyTotals ?? false}
+              onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, showCurrencyTotals: e.target.checked } : prev))}
+              className="h-4 w-4 cursor-pointer accent-blue-600"
+             />
+             {t('export_selection_currency_totals')}
+            </label>
+           ) : null}
+
            {/* Column toggles */}
            <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('pdf_columns_label')}</label>
             <div className="mt-2 flex flex-wrap gap-1.5">
              {pdfAllColumns.map((col) => {
-              const isRunningBal = col.key === 'runningBalance';
+              const isRunningBal = col.key === 'runningBalance' && !isSelection;
               const isOn = isRunningBal || pdfExportModal.cols[col.key];
               return (
                <button
@@ -265,12 +281,14 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
             const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
             const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
             const count = selected.length;
+            const netTotal = selected.reduce((sum, e) => sum + (e.pendingRate ? 0 : e.netChange), 0);
+            const [summaryLabel, summaryValue] = isSelection ? [t('export_selection_net_total'), netTotal] : [t('export_pre_balance'), preBalance];
             return (
              <div className="rounded border border-border bg-surface-2 px-4 py-3 text-sm">
               <div className="flex justify-between">
-               <span className="text-fg-faint">{t('export_pre_balance')}</span>
-               <span className={`font-semibold ${preBalance >= 0 ? 'text-good-text' : 'text-bad-text'}`}>
-                {preBalance.toLocaleString(numLocale, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
+               <span className="text-fg-faint">{summaryLabel}</span>
+               <span className={`font-semibold ${summaryValue >= 0 ? 'text-good-text' : 'text-bad-text'}`}>
+                {summaryValue.toLocaleString(numLocale, { maximumFractionDigits: 2 })} {ledger.currencySymbol || ledger.currencyCode}
                </span>
               </div>
               <div className="mt-1 flex justify-between">
@@ -320,9 +338,9 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            <button
             type="button"
             onClick={() =>
-             void onExportLedgerExcel(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)
+             void onExportLedgerExcel(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey, pdfExportModal.selectionKeys, pdfExportModal.showCurrencyTotals)
             }
-            disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
+            disabled={exportDisabled}
             className="flex items-center gap-1.5 rounded border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
            >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -335,9 +353,9 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            <button
             type="button"
             onClick={() =>
-             void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey)
+             void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey, pdfExportModal.selectionKeys, pdfExportModal.showCurrencyTotals)
             }
-            disabled={!pdfExportModal.fromDate || !pdfExportModal.toDate || pdfExportModal.fromDate > pdfExportModal.toDate}
+            disabled={exportDisabled}
             className="flex items-center gap-1.5 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
            >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

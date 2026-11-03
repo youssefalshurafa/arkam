@@ -28,7 +28,7 @@ import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/acco
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import { renderIcon } from '@/shared/utils/icons';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
-import { getLedgerTransactionDraftKey, highlightedExportRange, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
+import { getLedgerTransactionDraftKey, highlightedExportRange, ledgerEntryKey, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
 import { anomalyKey, type RateAnomaly, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useStableSession } from '@/hooks/useStableSession';
@@ -860,6 +860,28 @@ export default function LedgerSection(props: LedgerSectionProps) {
   bucket.count += 1;
   ledgerSumByCurrency.set(code || '', bucket);
  }
+ // Sum mode doubles as a row picker for export: every row with any of its values summed (amount,
+ // net change or balance) goes into a table of just those rows, in ledger order.
+ const openLedgerSelectionExport = (ledger: ClientAccountLedger) => {
+  const transactionIds = new Set<number>();
+  for (const sumKey of ledgerSumSelection) {
+   const [transactionIdRaw, accountIdRaw] = sumKey.split(':');
+   if (Number(accountIdRaw) === ledger.accountId) transactionIds.add(Number(transactionIdRaw));
+  }
+  const entries = ledger.entries.filter((e) => transactionIds.has(e.transactionId));
+  if (entries.length === 0) return;
+  setPdfExportModal({
+   accountId: ledger.accountId,
+   fromDate: entries[0].createdAt.slice(0, 10),
+   toDate: entries[entries.length - 1].createdAt.slice(0, 10),
+   fromEntryKey: null,
+   toEntryKey: null,
+   selectionKeys: entries.map(ledgerEntryKey),
+   showCurrencyTotals: true,
+   // The balance column starts off: beside a hand-picked set of rows it reads as if it added up.
+   cols: { ...getStoredPdfCols(ledger.accountId), runningBalance: false },
+  });
+ };
 
  if (isLoading) {
   return (
@@ -4023,6 +4045,32 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      <span className="font-semibold text-fg">{bucket.total.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}</span>
                     </span>
                    ))}
+                   {ledgerSumMode && [...ledgerSumSelection].some((sumKey) => Number(sumKey.split(':')[1]) === ledger.accountId) ? (
+                    <button
+                     type="button"
+                     title={t('export_selection_action')}
+                     aria-label={t('export_selection_action')}
+                     onClick={() => openLedgerSelectionExport(ledger)}
+                     className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-purple-300 px-2 py-1.5 text-sm font-semibold text-violet-text transition hover:bg-violet-bg"
+                    >
+                     <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                     >
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <path d="M12 18v-6M9 15l3 3 3-3" />
+                     </svg>
+                     {t('download')}
+                    </button>
+                   ) : null}
                    <span className="text-xs text-fg-muted">
                     {(currentLedgerPage - 1) * ledgerPageSize + 1}–{Math.min(currentLedgerPage * ledgerPageSize, visibleCount)} {t('pagination_of')} {visibleCount}
                    </span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ledgerEntryMatchesSearchTags } from './ledgerEntries';
+import { ledgerEntryMatchesSearchTags, selectLedgerExportEntries } from './ledgerEntries';
 import type { ClientLedgerEntry, SearchTag } from '@/shared/types';
 
 function entry(transactionId: number, fields: Partial<ClientLedgerEntry>): ClientLedgerEntry {
@@ -54,5 +54,24 @@ describe('ledgerEntryMatchesSearchTags', () => {
  it('matches description case-insensitively', () => {
   expect(ids([{ kind: 'description', value: 'RENT' }])).toEqual([2, 4]);
   expect(ids([{ kind: 'description', value: 'rent' }, { kind: 'amount', value: '500' }])).toEqual([4]);
+ });
+});
+
+describe('selectLedgerExportEntries', () => {
+ const dated = [
+  entry(1, { createdAt: '2026-10-01T10:00:00.000Z' }),
+  entry(2, { createdAt: '2026-10-02T10:00:00.000Z' }),
+  entry(3, { createdAt: '2026-10-02T11:00:00.000Z' }),
+  entry(4, { createdAt: '2026-10-03T10:00:00.000Z' }),
+ ];
+ const pick = (range: Parameters<typeof selectLedgerExportEntries>[1]) => selectLedgerExportEntries(dated, range).map((e) => e.transactionId);
+
+ it('takes the date range, narrowed by the start/end pickers', () => {
+  expect(pick({ fromDate: '2026-10-02', toDate: '2026-10-03' })).toEqual([2, 3, 4]);
+  expect(pick({ fromDate: '2026-10-02', toDate: '2026-10-03', fromEntryKey: 't-3' })).toEqual([3, 4]);
+ });
+
+ it('takes exactly the selected rows, in ledger order, ignoring the dates', () => {
+  expect(pick({ fromDate: '2026-10-02', toDate: '2026-10-02', selectionKeys: ['t-4', 't-1'] })).toEqual([1, 4]);
  });
 });

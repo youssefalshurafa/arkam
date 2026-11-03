@@ -2,7 +2,7 @@ import { formatDateValue } from '@/shared/utils/date';
 import { chargeAmount } from '@/shared/utils/commission';
 import { formatRateValue } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { ledgerEntryKey } from '@/features/ledger/utils/ledgerEntries';
+import { ledgerEntryKey, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { isZeroMoney } from '@/shared/utils/money';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction, TransactionColumnVisibility } from '@/shared/types';
 import { formatAmount } from '@/shared/utils/numberFormat';
@@ -271,29 +271,23 @@ export function generateLedgerHtml(
   colVisibility: PdfColVisibility;
   fromEntryKey?: string | null;
   toEntryKey?: string | null;
+  selectionKeys?: string[] | null;
+  // Selection exports only: the closing box lists every amount currency's total next to the net
+  // change total, instead of the net change alone.
+  showCurrencyTotals?: boolean;
   selectedClientForLedger: Client | null;
   transactions: Transaction[];
   ledgerColumnOrder: LedgerColumnKey[];
  },
 ): string {
  const { t, numLocale, isRTL, language, pdfSettings } = ctx;
- const { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectedClientForLedger, transactions, ledgerColumnOrder } = params;
+ const { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder } = params;
   const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
-  // Candidates are the entries within the chosen date range; the start/end transaction
-  // pickers then narrow the exact boundaries (handy when a day has many transactions).
-  const candidates = ledger.entries.filter((e) => {
-   const d = e.createdAt.slice(0, 10);
-   return d >= fromDate && d <= toDate;
-  });
-  const startIdx = fromEntryKey
-   ? Math.max(
-      0,
-      candidates.findIndex((e) => ledgerEntryKey(e) === fromEntryKey),
-     )
-   : 0;
-  const endIdxRaw = toEntryKey ? candidates.findIndex((e) => ledgerEntryKey(e) === toEntryKey) : -1;
-  const endIdx = endIdxRaw === -1 ? candidates.length - 1 : endIdxRaw;
-  const filteredEntries = startIdx <= endIdx ? candidates.slice(startIdx, endIdx + 1) : [];
+  const filteredEntries = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys });
+  // A selection export is a table of hand-picked rows, not a statement: rows in between are
+  // missing, so an opening balance and a balance carried row to row would both be fiction. It
+  // shows each row's real ledger balance (when that column is on) and ends in the rows' totals.
+  const isSelection = Boolean(selectionKeys);
 
   // Pre-balance includes everything chronologically before the first selected entry
   // (entries before the date range, plus same-range entries skipped by the start picker).
@@ -403,9 +397,9 @@ export function generateLedgerHtml(
   const visibleCols = ledgerColumnOrder
    .map((key) => allCols.find((col) => col.key === key))
    .filter((col): col is ColDef => Boolean(col))
-   .filter((col) => col.key === 'runningBalance' || colVisibility[col.key]);
+   .filter((col) => (col.key === 'runningBalance' && !isSelection) || colVisibility[col.key]);
   // Ensure runningBalance is always present (append if somehow missing from order)
-  if (!visibleCols.some((col) => col.key === 'runningBalance')) {
+  if (!isSelection && !visibleCols.some((col) => col.key === 'runningBalance')) {
    const rbCol = allCols.find((col) => col.key === 'runningBalance');
    if (rbCol) visibleCols.push(rbCol);
   }
@@ -418,14 +412,57 @@ export function generateLedgerHtml(
     const cells = visibleCols
      .map((col) => {
       const classes = [col.isNum ? 'num' : '', col.key === 'netChange' && pdfSettings.highlightNetChange ? 'hl' : ''].filter(Boolean).join(' ');
-      return `<td${classes ? ` class="${classes}"` : ''}>${col.cell(e, runningBal)}</td>`;
+      return `<td${classes ? ` class="${classes}"` : ''}>${col.cell(e, isSelection ? e.runningBalance : runningBal)}</td>`;
      })
      .join('');
     return `<tr>${cells}</tr>`;
    })
    .join('');
 
+  // Selection totals: amounts are summed per currency (a client's rows can mix currencies);
+  // net change is always in the ledger's currency. Rows still awaiting a rate add nothing to
+  // the net change, same as the running balance.
+  const selectionNetTotal = filteredEntries.reduce((sum, e) => sum + (e.pendingRate ? 0 : e.netChange), 0);
+  const selectionAmountTotals = new Map<string, { total: number; symbol: string }>();
+  for (const e of filteredEntries) {
+   const bucket = selectionAmountTotals.get(e.currencyCode) ?? { total: 0, symbol: e.currencySymbol || e.currencyCode };
+   bucket.total += e.amount;
+   selectionAmountTotals.set(e.currencyCode, bucket);
+  }
+  const totalsRow = isSelection
+   ? `<tr class="totals">${visibleCols
+      .map((col, index) => {
+       const cls = col.isNum ? ' class="num"' : '';
+       if (col.key === 'amount') {
+        const lines = [...selectionAmountTotals.entries()].map(
+         ([code, bucket]) => `<div>${formatAmount(bucket.total, numLocale, code, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(bucket.symbol)}` : ''}</div>`,
+        );
+        return `<td${cls}>${lines.join('')}</td>`;
+       }
+       if (col.key === 'netChange') {
+        return `<td${cls}><span class="${selectionNetTotal >= 0 ? 'pos' : 'neg'}">${formatAmount(selectionNetTotal, numLocale, ledger.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}</span></td>`;
+       }
+       return `<td${cls}>${index === 0 ? `${esc(t('export_selection_total'))} (${filteredEntries.length})` : ''}</td>`;
+      })
+      .join('')}</tr>`
+   : '';
+  const fbItem = (label: string, value: number, code: string, symbol: string) =>
+   `<span class="fb-item"><span class="fb-label">${esc(label)}</span><span class="fb-value ${value >= 0 ? 'pos' : 'neg'}">${formatAmount(value, numLocale, code, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${esc(symbol)}` : ''}</span></span>`;
+  const selectionSummaryItems = [
+   ...(showCurrencyTotals ? [...selectionAmountTotals.entries()].map(([code, bucket]) => fbItem(`${t('export_selection_amount_total')} ${code}`, bucket.total, code, bucket.symbol)) : []),
+   fbItem(t('export_selection_net_total'), selectionNetTotal, ledger.currencyCode, ledger.currencySymbol || ledger.currencyCode),
+  ];
+
   const headerCells = visibleCols.map((col) => `<th${col.isNum ? ' class="num"' : ''}>${col.header}</th>`).join('');
+
+  // "Page 1 of 2" in the printed page's bottom margin. The translation's {{page}}/{{pages}}
+  // placeholders become CSS page counters, so the label keeps each language's word order.
+  const cssString = (value: string) => `"${value.replace(/["\\]/g, '\\$&')}"`;
+  const pageLabelContent = t('pdf_page_of', { page: '\u0001', pages: '\u0002' })
+   .split(/(\u0001|\u0002)/)
+   .filter(Boolean)
+   .map((part) => (part === '\u0001' ? 'counter(page)' : part === '\u0002' ? 'counter(pages)' : cssString(part)))
+   .join(' ');
 
   const dir = isRTL ? 'rtl' : 'ltr';
   const logoUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/logo/arkam-logo.png`;
@@ -494,6 +531,13 @@ export function generateLedgerHtml(
  th.num { }
  td.hl { background: #eff6ff; }
  tr:last-child td { border-bottom: none; }
+ /* The totals row sits in tbody, not tfoot: Chromium repeats a tfoot at the bottom of every
+    printed page, and the totals belong only after the last row. */
+ tbody tr.totals td { background: #e2e8f0; border-top: 2px solid #94a3b8; font-weight: 700; font-variant-numeric: tabular-nums; }
+ tbody tr.totals, .final-balance { break-inside: avoid; }
+ .final-balance .fb-item { display: inline-flex; align-items: center; gap: 10px; }
+ /* Explicit margins: the page number lives in the bottom margin, which a zero margin would erase. */
+ @page { margin: 10mm 10mm 12mm; @bottom-center { content: ${pageLabelContent}; font-family: ${pdfSettings.fontFamily}; font-size: 9px; color: #94a3b8; } }
  .final-balance { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 16px; padding: 12px 20px; border: 2px solid #1e293b; border-radius: 6px; background: #f8fafc; }
  .final-balance .fb-label { font-size: calc(${pdfSettings.fontSize}px + 1px); font-weight: 700; color: #1e293b; }
  .final-balance .fb-value { font-size: calc(${pdfSettings.fontSize}px + 2px); font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -511,7 +555,7 @@ export function generateLedgerHtml(
   <img class="brand-logo" src="${logoUrl}" alt="Arkam" />
   <div>
    ${companyNameHtml}
-   <p>${t('client_ledger_statement')}</p>
+   <p>${t('client_ledger_statement')}${isSelection ? ` — ${esc(t('export_selection_subtitle'))}` : ''}</p>
    <p class="brand-url">www.arkam.app</p>
   </div>
  </div>
@@ -519,19 +563,23 @@ export function generateLedgerHtml(
 </div>
 ${metaColCount > 0 ? `<div class="meta">${metaCards.join('')}</div>` : ''}
 ${noteHtml}
-${pdfSettings.showPreBalance ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${formatAmount(preBalance, numLocale, ledger.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
-<table${pdfSettings.showPreBalance ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
+${pdfSettings.showPreBalance && !isSelection ? `<div class="pre-balance"><span class="pb-label">${t('export_pre_balance')}</span><span class="pb-value ${preBalance >= 0 ? 'pos' : 'neg'}">${formatAmount(preBalance, numLocale, ledger.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span></div>` : ''}
+<table${pdfSettings.showPreBalance && !isSelection ? ' style="margin-top:0;border-top:1px solid #e2e8f0"' : ''}>
  <thead>
   <tr>${headerCells}</tr>
  </thead>
  <tbody>
-  ${rows}
+  ${rows}${totalsRow}
  </tbody>
 </table>
-<div class="final-balance">
+${
+ isSelection
+  ? `<div class="final-balance" style="flex-wrap:wrap;column-gap:40px;row-gap:8px">${selectionSummaryItems.join('')}</div>`
+  : `<div class="final-balance">
  <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${formatAmount(Math.abs(runningBal), numLocale, ledger.currencyCode, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
  <span class="fb-label">${isZeroMoney(runningBal) ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
-</div>
+</div>`
+}
 ${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}
 </body>
 </html>`;
