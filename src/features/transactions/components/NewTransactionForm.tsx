@@ -44,6 +44,9 @@ type NewTransactionFormProps = {
  // the modal after a successful save. Omitted elsewhere (Transactions page), which keeps the
  // single always-stays-open button unchanged.
  onSaveAndClose?: () => void;
+ // Ledger-modal only: called after a successful "Save & add another" create, once the shared
+ // draft has been cleared, so the modal can pre-pick its client's account again for the next entry.
+ onSaveAndNew?: () => void;
 };
 
 /**
@@ -64,6 +67,7 @@ export default function NewTransactionForm({
  onTransactionSubmit,
  formRef,
  onSaveAndClose,
+ onSaveAndNew,
 }: NewTransactionFormProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -321,11 +325,11 @@ export default function NewTransactionForm({
  // two ledger-modal buttons (see below) can share one <form onSubmit> instead of needing
  // separate handlers. Only the "keep open" button's value opts out of `onSaveAndClose`; every
  // other case — the "close" button, or pressing Enter in a field (submitter is null then) —
- // closes after saving.
+ // closes after saving. The "keep open" button instead re-seeds the draft via `onSaveAndNew`.
  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
   const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-  const closeAfter = onSaveAndClose && submitter?.value !== 'new' ? onSaveAndClose : undefined;
-  onTransactionSubmit(event, closeAfter);
+  const afterCreate = onSaveAndClose && submitter?.value !== 'new' ? onSaveAndClose : onSaveAndNew;
+  onTransactionSubmit(event, afterCreate);
  };
 
  return (

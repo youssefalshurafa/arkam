@@ -25,7 +25,7 @@ import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedger
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 import { isSameTransactionUpdate, transactionUpdateSnapshot } from '@/features/ledger/utils/transactionUpdate';
 import { generateLedgerHtml } from '@/features/pdf/pdfExport';
-import { buildExportFileName, exportDateRangeLabel } from '@/features/pdf/exportFileName';
+import { buildExportFileName } from '@/features/pdf/exportFileName';
 import { formatRateValue } from '@/shared/utils/format';
 import { formatDateValue, localDateKey, parseLocalWallClock } from '@/shared/utils/date';
 import { resolveCreatedAt, nextCreatedAtForDate } from '@/shared/utils/createdAt';
@@ -1559,9 +1559,10 @@ async function confirmIfLedgerPendingPricing(entries: ClientLedgerEntry[]): Prom
  });
 }
 
-// "Statement - Ahmed - USD - 2026-10-01 to 2026-10-29", in the UI language.
+// "Statement - Ahmed - USD - 2026-10-01 to 2026-10-29" by default, in the UI language; the parts
+// and their order come from Settings → PDF → File name.
 function ledgerExportFileName(ledger: ClientAccountLedger, fromDate: string, toDate: string, extension: 'pdf' | 'xlsx') {
- return buildExportFileName([t('export_file_ledger'), selectedClientForLedger?.name, ledger.currencyCode, exportDateRangeLabel(t, fromDate, toDate)], extension);
+ return buildExportFileName(t, pdfSettings, { type: t('export_file_ledger'), client: selectedClientForLedger?.name, currency: ledger.currencyCode, fromDate, toDate }, extension);
 }
 
 async function onExportLedgerPdf(

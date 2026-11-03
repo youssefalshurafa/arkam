@@ -601,7 +601,13 @@ export type PdfSettings = {
  showGeneratedOn: boolean;
  showCurrencySymbol: boolean;
  highlightNetChange: boolean;
+ // Suggested name for exported PDF/Excel files (see features/pdf/exportFileName.ts): the parts in
+ // order, each switchable, joined by the separator.
+ fileNameParts: Array<{ key: ExportFileNamePart; enabled: boolean }>;
+ fileNameSeparator: ' - ' | '_' | ' ';
+ fileNameDateStyle: 'iso' | 'dmy';
 };
+export type ExportFileNamePart = 'type' | 'company' | 'client' | 'currency' | 'range';
 // A search box chip (see features/transactions/utils/searchTags.ts for the matching rules).
 export type SearchTagKind = 'client' | 'amount' | 'description' | 'currency';
 export type SearchTag = { kind: SearchTagKind; value: string };

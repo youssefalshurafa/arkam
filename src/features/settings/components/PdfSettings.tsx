@@ -4,7 +4,10 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import CustomSelect from '@/shared/components/CustomSelect';
 import { panelClassName } from '@/shared/styles';
-import type { PdfSettings } from '@/shared/types';
+import { defaultPdfSettings } from '@/shared/lib/localStorage';
+import { renderIcon } from '@/shared/utils/icons';
+import { buildExportFileName, normalizeFileNameParts } from '@/features/pdf/exportFileName';
+import type { ExportFileNamePart, PdfSettings } from '@/shared/types';
 import { useSettingsStore } from '../store/settingsStore';
 
 const selectClassName =
@@ -32,11 +35,58 @@ const DATE_FORMAT_OPTIONS: { value: PdfSettings['dateFormat']; label: string }[]
  { value: 'month-year', label: '06/2026 (MM/YYYY)' },
 ];
 
+const FILE_NAME_PART_LABEL_KEYS: Record<ExportFileNamePart, { labelKey: string; hintKey: string }> = {
+ type: { labelKey: 'pdf_file_name_part_type', hintKey: 'pdf_file_name_part_type_hint' },
+ company: { labelKey: 'pdf_file_name_part_company', hintKey: 'pdf_file_name_part_company_hint' },
+ client: { labelKey: 'pdf_file_name_part_client', hintKey: 'pdf_file_name_part_client_hint' },
+ currency: { labelKey: 'pdf_file_name_part_currency', hintKey: 'pdf_file_name_part_currency_hint' },
+ range: { labelKey: 'pdf_file_name_part_range', hintKey: 'pdf_file_name_part_range_hint' },
+};
+
+const SEPARATOR_OPTIONS: { value: PdfSettings['fileNameSeparator']; labelKey: string }[] = [
+ { value: ' - ', labelKey: 'pdf_file_name_separator_dash' },
+ { value: '_', labelKey: 'pdf_file_name_separator_underscore' },
+ { value: ' ', labelKey: 'pdf_file_name_separator_space' },
+];
+
+const FILE_NAME_DATE_STYLE_OPTIONS: { value: PdfSettings['fileNameDateStyle']; label: string }[] = [
+ { value: 'iso', label: '2026-10-29 (YYYY-MM-DD)' },
+ { value: 'dmy', label: '29-10-2026 (DD-MM-YYYY)' },
+];
+
+const PREVIEW_LTR_RUN = /(\d{2,4}-\d{2}-\d{2,4}(?:\.pdf)?|\.pdf$)/;
+
+const isoDay = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
 export default function PdfSettingsTab() {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  const pdfSettings = useSettingsStore((s) => s.pdfSettings);
  const updatePdfSettings = useSettingsStore((s) => s.updatePdfSettings);
+
+ const fileNameParts = normalizeFileNameParts(pdfSettings.fileNameParts);
+ const moveFileNamePart = (index: number, offset: -1 | 1) => {
+  const next = [...fileNameParts];
+  const [part] = next.splice(index, 1);
+  next.splice(index + offset, 0, part);
+  updatePdfSettings({ fileNameParts: next });
+ };
+ const toggleFileNamePart = (key: ExportFileNamePart, enabled: boolean) =>
+  updatePdfSettings({ fileNameParts: fileNameParts.map((part) => (part.key === key ? { ...part, enabled } : part)) });
+ // A sample statement for the current month, so the preview reads like a real export.
+ const today = new Date();
+ const fileNamePreview = buildExportFileName(
+  t,
+  pdfSettings,
+  {
+   type: t('export_file_ledger'),
+   client: t('pdf_file_name_sample_client'),
+   currency: 'USD',
+   fromDate: isoDay(new Date(today.getFullYear(), today.getMonth(), 1)),
+   toDate: isoDay(today),
+  },
+  'pdf',
+ );
 
  return (
   <section className="flex flex-col gap-6">
@@ -174,6 +224,120 @@ export default function PdfSettingsTab() {
         </div>
        </label>
       ))}
+     </div>
+    </div>
+   </div>
+
+   {/* File name of exported PDF / Excel files */}
+   <div className={panelClassName}>
+    <div className="flex items-start justify-between gap-4">
+     <div>
+      <h2 className="text-2xl font-semibold">{t('pdf_file_name_title')}</h2>
+      <p className="mt-2 text-sm text-fg-muted">{t('pdf_file_name_description')}</p>
+     </div>
+     <button
+      type="button"
+      onClick={() =>
+       updatePdfSettings({
+        fileNameParts: defaultPdfSettings.fileNameParts,
+        fileNameSeparator: defaultPdfSettings.fileNameSeparator,
+        fileNameDateStyle: defaultPdfSettings.fileNameDateStyle,
+       })
+      }
+      className="shrink-0 rounded border border-border-strong px-3 py-1.5 text-xs font-medium text-fg-muted hover:bg-surface-hover"
+     >
+      {t('pdf_file_name_reset')}
+     </button>
+    </div>
+
+    {/* Live preview */}
+    <div className="mt-4 rounded border border-border bg-surface-2 px-4 py-3">
+     <p className="text-xs font-medium text-fg-faint">{t('pdf_file_name_preview')}</p>
+     <p className="mt-1 break-all font-mono text-sm text-fg" dir="auto">
+      {/* In an Arabic name the bidi algorithm reorders "2026-11-02" into "02-11-2026", so each
+          date (and the extension) is isolated left-to-right — display only, the name is unchanged. */}
+      {fileNamePreview.split(PREVIEW_LTR_RUN).map((chunk, i) =>
+       i % 2 ? (
+        <bdi key={i} dir="ltr">
+         {chunk}
+        </bdi>
+       ) : (
+        chunk
+       ),
+      )}
+     </p>
+    </div>
+
+    {/* Parts: switch on/off and reorder */}
+    <div className="mt-6">
+     <h3 className="text-sm font-semibold text-fg">{t('pdf_file_name_parts_label')}</h3>
+     <p className="mt-1 text-xs text-fg-faint">{t('pdf_file_name_parts_hint')}</p>
+     <ul className="mt-3 flex flex-col gap-2">
+      {fileNameParts.map((part, index) => {
+       const { labelKey, hintKey } = FILE_NAME_PART_LABEL_KEYS[part.key];
+       return (
+        <li key={part.key} className="flex items-center gap-3 rounded border border-border bg-surface-2 px-4 py-2.5">
+         <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+          <input
+           type="checkbox"
+           checked={part.enabled}
+           onChange={(e) => toggleFileNamePart(part.key, e.target.checked)}
+           className="mt-0.5 h-4 w-4 rounded border-border-strong text-accent accent-blue-600"
+          />
+          <div className="min-w-0">
+           <p className={`text-sm font-medium ${part.enabled ? 'text-fg' : 'text-fg-faint'}`}>{t(labelKey)}</p>
+           <p className="text-xs text-fg-faint">{t(hintKey)}</p>
+          </div>
+         </label>
+         <div className="flex shrink-0 items-center gap-1">
+          <button
+           type="button"
+           onClick={() => moveFileNamePart(index, -1)}
+           disabled={index === 0}
+           aria-label={t('pdf_file_name_move_up')}
+           title={t('pdf_file_name_move_up')}
+           className="rounded p-1.5 text-fg-muted hover:bg-surface-hover disabled:opacity-30"
+          >
+           {renderIcon('arrow-up', 'h-4 w-4')}
+          </button>
+          <button
+           type="button"
+           onClick={() => moveFileNamePart(index, 1)}
+           disabled={index === fileNameParts.length - 1}
+           aria-label={t('pdf_file_name_move_down')}
+           title={t('pdf_file_name_move_down')}
+           className="rounded p-1.5 text-fg-muted hover:bg-surface-hover disabled:opacity-30"
+          >
+           {renderIcon('arrow-down', 'h-4 w-4')}
+          </button>
+         </div>
+        </li>
+       );
+      })}
+     </ul>
+    </div>
+
+    {/* Separator + date style */}
+    <div className="mt-6 grid gap-4 sm:grid-cols-2">
+     <div>
+      <h3 className="text-sm font-semibold text-fg">{t('pdf_file_name_separator_label')}</h3>
+      <p className="mt-1 text-xs text-fg-faint">{t('pdf_file_name_separator_hint')}</p>
+      <CustomSelect
+       value={pdfSettings.fileNameSeparator}
+       onChange={(value) => updatePdfSettings({ fileNameSeparator: value })}
+       options={SEPARATOR_OPTIONS.map(({ value, labelKey }) => ({ value, label: t(labelKey) }))}
+       className={selectClassName}
+      />
+     </div>
+     <div>
+      <h3 className="text-sm font-semibold text-fg">{t('pdf_file_name_date_style_label')}</h3>
+      <p className="mt-1 text-xs text-fg-faint">{t('pdf_file_name_date_style_hint')}</p>
+      <CustomSelect
+       value={pdfSettings.fileNameDateStyle}
+       onChange={(value) => updatePdfSettings({ fileNameDateStyle: value })}
+       options={FILE_NAME_DATE_STYLE_OPTIONS}
+       className={selectClassName}
+      />
      </div>
     </div>
    </div>

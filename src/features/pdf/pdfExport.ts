@@ -374,7 +374,16 @@ export function generateLedgerHtml(
      return formatRateValue(e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate);
     },
    },
-   { key: 'commission', header: t('commission'), isNum: true, cell: (e) => (!e.commission ? '-' : formatRateValue(e.commission)) },
+   {
+    key: 'commission',
+    header: t('commission'),
+    isNum: true,
+    // Same rendering as the on-screen ledger: a percentage with 2–3 decimals, colored by direction.
+    cell: (e) =>
+     !e.commission
+      ? '-'
+      : `<span class="${e.commission < 0 ? 'neg' : 'pos'}">${e.commission.toLocaleString(numLocale, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}%</span>`,
+   },
    {
     key: 'netChange',
     header: t('net_change'),

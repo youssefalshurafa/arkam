@@ -35,7 +35,7 @@ import {
  DEFAULT_IMPORT_ROW_OVERRIDE,
 } from '@/features/transactions/utils/import';
 import { generateArchiveHtml, generateTransactionsExportHtml } from '@/features/pdf/pdfExport';
-import { buildExportFileName, exportDateRangeLabel } from '@/features/pdf/exportFileName';
+import { buildExportFileName } from '@/features/pdf/exportFileName';
 import { saveArchiveTableSettings, saveTransactionTableSettings, getStoredExchangeSettings, getStoredNumberGrouping } from '@/shared/lib/localStorage';
 import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActions';
 import { useWorkspaceResync } from '@/features/workspace/hooks/useWorkspaceResync';
@@ -2117,7 +2117,7 @@ async function onExportArchivePdf(range?: ArchiveExportModalState) {
  try {
   const rows = range ? selectArchiveExportRows(displayedTransactionRows, range) : displayedTransactionRows;
   const html = generateArchiveHtml({ t, numLocale, isRTL, language, pdfSettings }, rows, transactionTableSettings.columns);
-  const defaultFileName = buildExportFileName([t('archive_title'), exportDateRangeLabel(t, range?.fromDate, range?.toDate)], 'pdf');
+  const defaultFileName = buildExportFileName(t, pdfSettings, { type: t('archive_title'), fromDate: range?.fromDate, toDate: range?.toDate }, 'pdf');
   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName });
   if (!result.ok) setError(t('error_failed_save'));
   else setArchiveExportModal(null);
@@ -2246,7 +2246,7 @@ const buildTransactionExportData = (fromDate: string, toDate: string, forPdf = f
 };
 
 const transactionExportFileName = (extension: 'pdf' | 'xlsx') =>
- buildExportFileName([t(section === 'archive' ? 'archive_title' : 'transactions_title'), exportDateRangeLabel(t, transactionExportFrom, transactionExportTo)], extension);
+ buildExportFileName(t, pdfSettings, { type: t(section === 'archive' ? 'archive_title' : 'transactions_title'), fromDate: transactionExportFrom, toDate: transactionExportTo }, extension);
 
 async function onExportTransactionsPdf() {
  if (!accountingApi) return;

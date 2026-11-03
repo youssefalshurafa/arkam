@@ -20,6 +20,7 @@ type NewTransactionModalProps = {
  lockPastEditsEnabled: boolean;
  onTransactionSubmit: (event: FormEvent<HTMLFormElement>, onCreated?: () => void) => void;
  closeNewTransactionModal: () => void;
+ openNewTransactionModal: (accountId: number) => void;
  // Same clipboard slot + fill logic as the Transactions page's copy/paste (see
  // onCopyTransactionRow/onPasteCopiedTransaction in useTransactionActions.ts) — copying happens
  // on a ledger row (LedgerSection.tsx), pasting happens here since this modal hosts the same
@@ -48,6 +49,7 @@ export default function NewTransactionModal({
  lockPastEditsEnabled,
  onTransactionSubmit,
  closeNewTransactionModal,
+ openNewTransactionModal,
  copiedTransaction,
  onPasteCopiedTransaction,
 }: NewTransactionModalProps) {
@@ -137,6 +139,9 @@ export default function NewTransactionModal({
      onTransactionSubmit={onTransactionSubmit}
      formRef={formRef}
      onSaveAndClose={closeNewTransactionModal}
+     // A successful create clears the shared draft, account pickers included; seed it again
+     // exactly as opening the modal does so the next entry starts with this client picked.
+     onSaveAndNew={() => openNewTransactionModal(accountId)}
     />
    </div>
   </div>
