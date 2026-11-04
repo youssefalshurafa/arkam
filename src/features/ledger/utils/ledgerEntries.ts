@@ -63,6 +63,13 @@ export function highlightedExportRange(entries: ClientLedgerEntry[], ledgerAccou
  };
 }
 
+// Whether a ledger export leaves this row out: the owner flagged it "Hide from PDF" and the
+// workspace's switch for that is on. Its balance still counts — the exports keep each shown
+// row's real running balance, so the column jumps where a hidden row was.
+export function isHiddenFromExport(entry: ClientLedgerEntry, pdfRowHidingEnabled: boolean): boolean {
+ return pdfRowHidingEnabled && !!entry.pdfHidden;
+}
+
 // The entries a ledger export holds. A sum-mode selection (selectionKeys) is exactly those rows,
 // in ledger order. Otherwise it's the date range, narrowed by the start/end transaction pickers
 // (handy when a day has many transactions). Shared by the export dialog, PDF and Excel so the

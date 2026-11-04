@@ -2,7 +2,7 @@
 
 import type { Dispatch, FormEvent, SetStateAction } from 'react';
 import { useRef } from 'react';
-import { confirmDialog } from '@/components/ui/AppDialog';
+import { confirmDialog, promptDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
@@ -15,6 +15,9 @@ import { offerTrashUndo, restoreTrashBatch } from '@/features/trash/utils/restor
 import { clientsOrgOrderStorageKey, notifySettingsChanged } from '@/shared/lib/localStorage';
 import { nextCreatedAtForDate } from '@/shared/utils/createdAt';
 import { localDateKey } from '@/shared/utils/date';
+import { normalizeDecimalInput } from '@/shared/utils/decimal';
+import { isZeroMoney } from '@/shared/utils/money';
+import { suggestRoundedBalance } from '@/shared/utils/accountBalances';
 import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliationLocks';
 import { NEW_ROW_REF_ID } from '@/features/ledger/utils/reconciliation';
 import type { Client, ClientAccount, Currency, Reconciliation, Section, Transaction } from '@/shared/types';
@@ -274,17 +277,69 @@ async function onWriteOffBalance(accountId: number, balance: number, dateKey: st
  });
  if (!confirmed) return;
 
- // balance > 0 means this account is owed money — a write-off must move the balance DOWN
- // toward zero, i.e. net negatively, which is the "to" side's sign (see
- // computeTransactionSideNetChange); balance < 0 is the mirror "from" side case.
- const accountFromId = balance > 0 ? null : accountId;
- const accountToId = balance > 0 ? accountId : null;
+ await createBalanceAdjustment(account, -balance, dateKey, t('write_off_description'));
+}
+
+// Ledger row "Round balance": moves the running balance at that row to a clean figure the user
+// picks (default: suggestRoundedBalance) so the other party can settle with a round number —
+// e.g. -5,407,978 → -5,408,000 adds a 22 adjustment. Same one-sided adjustment and same-day
+// placement as the row write-off; it just targets a chosen balance instead of zero. The target
+// is typed as a magnitude and keeps the row's sign, since that's how the user reads the figure.
+async function onRoundBalance(accountId: number, balance: number, dateKey: string = localDateKey()) {
+ if (!accountingApi) {
+  setError(t('error_bridge'));
+  return;
+ }
+ if (isZeroMoney(balance)) return;
+
+ const account = clientAccounts.find((a) => a.id === accountId);
+ if (!account) return;
+ const currency = account.currencySymbol || account.currencyCode;
+ const format = (value: number) => `${value.toLocaleString(numLocale, { maximumFractionDigits: 2 })} ${currency}`;
+
+ const input = await promptDialog({
+  title: t('round_balance_title'),
+  message: t('round_balance_message'),
+  balanceChanges: [{ from: format(balance), fromNegative: balance < 0 }],
+  defaultValue: Math.abs(suggestRoundedBalance(balance)).toLocaleString('en-US', { maximumFractionDigits: 2 }),
+  confirmText: t('round_balance_next'),
+ });
+ if (input === null) return;
+
+ const magnitude = Math.abs(parseFloat(normalizeDecimalInput(input)));
+ if (!Number.isFinite(magnitude)) {
+  setError(t('round_balance_invalid'));
+  return;
+ }
+ const target = Math.sign(balance) * magnitude;
+ const delta = target - balance;
+ if (isZeroMoney(delta)) return;
+
+ const confirmed = await confirmDialog({
+  title: t('round_balance_confirm_title'),
+  balanceChanges: [{ from: format(balance), to: format(target), fromNegative: balance < 0, toNegative: target < 0 }],
+  note: t('round_balance_confirm_note').replace('{amount}', format(Math.abs(delta))),
+  confirmText: t('round_balance_confirm_button'),
+ });
+ if (!confirmed) return;
+
+ await createBalanceAdjustment(account, delta, dateKey, t('round_balance_description'));
+}
+
+// Inserts a one-sided adjustment that moves `account`'s balance by `delta` (in its own
+// currency), placed at the end of `dateKey`. Shared by write-off (delta = -balance) and
+// rounding (delta = target - balance).
+async function createBalanceAdjustment(account: ClientAccount, delta: number, dateKey: string, description: string) {
+ if (!accountingApi) return;
+ // A positive delta moves the balance UP, which is the "from" side's sign (see
+ // computeTransactionSideNetChange); a negative delta is the mirror "to" side case.
+ const accountFromId = delta > 0 ? account.id : null;
+ const accountToId = delta > 0 ? null : account.id;
  const createdAt = nextCreatedAtForDate(dateKey, transactions);
 
  if (blockedByPastEditLock([createdAt])) return;
- // Reconciliation guard: a write-off creates a new row, same as any other create path — one
- // dated at or before a lock line rewrites reconciled history. This was previously the one
- // create path in the app with no lock-aware warning at all.
+ // Reconciliation guard: an adjustment creates a new row, same as any other create path — one
+ // dated at or before a lock line rewrites reconciled history.
  const lock = await checkLockForNewRow([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID);
  if (!lock.proceed) return;
 
@@ -294,7 +349,7 @@ async function onWriteOffBalance(accountId: number, balance: number, dateKey: st
    accountToId,
    acknowledgeReconciliationOverride: lock.overrode,
    currencyId: account.currencyId,
-   amount,
+   amount: Math.abs(delta),
    type: 'adjustment',
    isArchived: false,
    exchangeRateFrom: 1,
@@ -308,7 +363,7 @@ async function onWriteOffBalance(accountId: number, balance: number, dateKey: st
    chargesPayer: '',
    chargesExchangeRate: 1,
    chargesDescription: '',
-   description: t('write_off_description'),
+   description,
    descriptionFrom: '',
    descriptionTo: '',
    exchangeActualAmount: null,
@@ -463,6 +518,7 @@ function onClientsOrgDrop(targetKey: string) {
   onDeleteClient,
   onDeleteAllClients,
   onWriteOffBalance,
+  onRoundBalance,
   onAddClientAccount,
   onSaveEditAccount,
   onDeleteClientAccount,

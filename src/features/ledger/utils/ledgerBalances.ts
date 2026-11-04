@@ -160,6 +160,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          distributionLocationName: transaction.distributionLocationName,
          distributionLocationKind: transaction.distributionLocationKind,
          isLocked: isReconciledMember(transaction.createdAt, transaction.id, boundary),
+         pdfHidden: !!transaction.pdfHiddenFrom,
         },
        ];
       }
@@ -211,6 +212,7 @@ export function computeClientLedgers({ selectedClientForLedger, section, pdfExpo
          distributionLocationName: transaction.distributionLocationName,
          distributionLocationKind: transaction.distributionLocationKind,
          isLocked: isReconciledMember(transaction.createdAt, transaction.id, boundary),
+         pdfHidden: !!transaction.pdfHiddenTo,
         },
        ];
       }

@@ -28,7 +28,7 @@ import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/acco
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import { renderIcon } from '@/shared/utils/icons';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
-import { getLedgerTransactionDraftKey, highlightedExportRange, ledgerEntryKey, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
+import { getLedgerTransactionDraftKey, highlightedExportRange, isHiddenFromExport, ledgerEntryKey, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
 import { anomalyKey, type RateAnomaly, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useStableSession } from '@/hooks/useStableSession';
@@ -120,8 +120,13 @@ type LedgerSectionProps = {
  navigateToSection: (section: Section) => void;
  loadData: () => Promise<void> | void;
  lockPastEditsEnabled: boolean;
+ // Owner-only "Hide from PDF": the workspace switch, whether this viewer may flag rows, and the toggle.
+ pdfRowHidingEnabled: boolean;
+ isWorkspaceOwner: boolean;
+ onToggleLedgerRowPdfHidden: (entry: ClientLedgerEntry, accountId: number) => void;
  writeOffMargins: WriteOffMargin[];
  onWriteOffBalance: (accountId: number, balance: number, dateKey?: string) => void;
+ onRoundBalance: (accountId: number, balance: number, dateKey?: string) => void;
 };
 
 // Deep-link ("jump to this flagged row") safety bounds — see the two effects that use them.
@@ -142,7 +147,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
-  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
+  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, pdfRowHidingEnabled, isWorkspaceOwner, onToggleLedgerRowPdfHidden, writeOffMargins, onWriteOffBalance, onRoundBalance,
  } = props;
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
@@ -2193,6 +2198,30 @@ export default function LedgerSection(props: LedgerSectionProps) {
                           },
                          ]
                        : []),
+                      // Rounding offers the same row-anchored adjustment for any balance, not just
+                      // near-zero ones: it moves this row's running balance to a clean figure the
+                      // user picks, so the other party has a round number to settle.
+                      ...(entry.runningBalance !== 0
+                       ? [
+                          {
+                           key: 'round-balance',
+                           label: t('round_balance_action'),
+                           icon: renderIcon('round', 'h-4 w-4'),
+                           onSelect: () => onRoundBalance(ledger.accountId, entry.runningBalance, entry.createdAt.slice(0, 10)),
+                          },
+                         ]
+                       : []),
+                      // Owner-only, and only while the workspace switch is on (Settings).
+                      ...(pdfRowHidingEnabled && isWorkspaceOwner
+                       ? [
+                          {
+                           key: 'pdf-hidden',
+                           label: t(entry.pdfHidden ? 'pdf_row_show_action' : 'pdf_row_hide_action'),
+                           icon: renderIcon(entry.pdfHidden ? 'eye' : 'eye-off', 'h-4 w-4'),
+                           onSelect: () => void onToggleLedgerRowPdfHidden(entry, ledger.accountId),
+                          },
+                         ]
+                       : []),
                       { key: 'delete', label: t('delete'), icon: renderIcon('trash', 'h-4 w-4'), onSelect: () => void onDeleteLedgerEntry(entry, ledger.accountId), tone: 'danger' as const, disabled: rowLocked },
                      ]);
                     };
@@ -2460,6 +2489,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               <circle cx="12" cy="19" r="1.8" />
                              </svg>
                             </button>
+                            {/* Marks a row the exported statement will leave out, so whoever
+                                exports isn't surprised by a missing line. */}
+                            {isHiddenFromExport(entry, pdfRowHidingEnabled) ? (
+                             <span
+                              title={t('pdf_row_hidden_badge')}
+                              aria-label={t('pdf_row_hidden_badge')}
+                              className="text-warn-text"
+                             >
+                              {renderIcon('eye-off', 'h-3.5 w-3.5')}
+                             </span>
+                            ) : null}
                            </div>
                           )}
                          </td>

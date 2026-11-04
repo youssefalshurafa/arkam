@@ -84,6 +84,8 @@ const writeActions = new Set([
  'createTransaction',
  'updateTransaction',
  'setTransactionArchiveHidden',
+ // Per-row "hide from PDF" flag: owner-only (gated further below).
+ 'setTransactionPdfHidden',
  // Same-day ledger reorder: one ledger's side only (see db.js). Open to members like the drag
  // always was; db.js applies the member write rules and the past-edit lock per row.
  'setLedgerPositions',
@@ -113,6 +115,8 @@ const writeActions = new Set([
  'saveTreasuryEnabled',
  // Second Accountant (entry-review engine) configuration: owner OR admin (gated further below).
  'saveReviewEngineSettings',
+ // "Hide rows from the PDF" feature switch: owner-only (gated further below).
+ 'savePdfRowHidingEnabled',
 ]);
 
 /**
@@ -283,6 +287,12 @@ export async function POST(request: NextRequest) {
   // Only the workspace owner may change the shared UI settings (toggle or push).
   if (action === 'saveWorkspaceSettings' && role !== 'owner') {
    return NextResponse.json({ error: 'Only the workspace owner can change shared settings.' }, { status: 403 });
+  }
+
+  // Hiding rows from the exported statement changes what a client is shown, so both the feature
+  // switch and the per-row flag are the owner's alone — not an admin's.
+  if ((action === 'savePdfRowHidingEnabled' || action === 'setTransactionPdfHidden') && role !== 'owner') {
+   return NextResponse.json({ error: 'Only the workspace owner can hide rows from the PDF.' }, { status: 403 });
   }
 
   // The past-edit lock toggle is settable by the owner or an admin, but not a plain member/viewer.
@@ -507,6 +517,9 @@ export async function POST(request: NextRequest) {
    case 'setTransactionArchiveHidden':
     await db.setTransactionArchiveHidden(appLike, payload);
     return NextResponse.json({ ok: true });
+   case 'setTransactionPdfHidden':
+    await db.setTransactionPdfHidden(appLike, payload);
+    return NextResponse.json({ ok: true });
    case 'deleteTransaction':
     return NextResponse.json(await db.deleteTransaction(appLike, payload));
    case 'deleteTransactionsBulk':
@@ -577,6 +590,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.saveWorkspacePastEditLock(appLike, payload));
    case 'saveTreasuryEnabled':
     return NextResponse.json(await db.saveTreasuryEnabled(appLike, payload));
+   case 'savePdfRowHidingEnabled':
+    return NextResponse.json(await db.savePdfRowHidingEnabled(appLike, payload));
    case 'saveReviewEngineSettings':
     return NextResponse.json(await db.saveReviewEngineSettings(appLike, payload));
    case 'getUserTableSettings':

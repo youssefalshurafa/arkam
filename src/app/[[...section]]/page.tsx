@@ -790,6 +790,23 @@ function AuthenticatedHome() {
   }
  }
 
+ // --- Hide rows from the PDF (owner-only) -----------------------------------
+ // When on, the owner can flag ledger rows to be left out of the exported statement (PDF and
+ // Excel). Off, the flags are kept but ignored. Enforced server-side as owner-only (route.ts).
+ const pdfRowHidingEnabled = workspaceSettingsQuery.data?.pdfRowHidingEnabled ?? false;
+
+ async function setPdfRowHidingEnabled(enabled: boolean) {
+  try {
+   const result = await accountingApi.savePdfRowHidingEnabled(enabled);
+   queryClient.setQueryData(queryKeys.workspaceSettings(activeWorkspaceId), (current: typeof workspaceSettingsQuery.data) =>
+    current ? { ...current, pdfRowHidingEnabled: result.pdfRowHidingEnabled } : current,
+   );
+   void workspaceSettingsQuery.refetch();
+  } catch (error) {
+   setError(error instanceof Error ? error.message : t('error_failed_save'));
+  }
+ }
+
  // --- Second Accountant (entry-review engine) ------------------------------
  // The workspace's configuration for the engine that checks entries against their own history
  // (ledgerAnomalies.ts). Resolved through resolveReviewSettings so a workspace that has never
@@ -1677,6 +1694,7 @@ function AuthenticatedHome() {
   onDeleteClient,
   onDeleteAllClients,
   onWriteOffBalance,
+  onRoundBalance,
   onAddClientAccount,
   onSaveEditAccount,
   onDeleteClientAccount,
@@ -2148,6 +2166,7 @@ function AuthenticatedHome() {
    onLedgerRowDrop,
    onExportLedgerPdf,
    onExportLedgerExcel,
+   onToggleLedgerRowPdfHidden,
    combinedLedgerHistory,
   } = useLedgerActions({
    clientAccounts,
@@ -2167,6 +2186,7 @@ function AuthenticatedHome() {
    pushUserTableSettings,
    ledgerHistory,
    lockPastEditsEnabled,
+   pdfRowHidingEnabled,
   });
 
  const transactionsPager = (() => {
@@ -2404,6 +2424,8 @@ function AuthenticatedHome() {
    setWorkspaceSharedSettingsEnabled={setWorkspaceSharedSettingsEnabled}
    lockPastEditsEnabled={lockPastEditsEnabled}
    setWorkspacePastEditLock={setWorkspacePastEditLock}
+   pdfRowHidingEnabled={pdfRowHidingEnabled}
+   setPdfRowHidingEnabled={setPdfRowHidingEnabled}
    treasuryEnabled={treasuryEnabled}
    setTreasuryEnabled={setTreasuryEnabled}
    sessionUserId={sessionUserId}
@@ -2726,6 +2748,9 @@ function AuthenticatedHome() {
         <LedgerSection
          isLoading={isLoading}
          lockPastEditsEnabled={lockPastEditsEnabled}
+         pdfRowHidingEnabled={pdfRowHidingEnabled}
+         isWorkspaceOwner={isWorkspaceOwner}
+         onToggleLedgerRowPdfHidden={onToggleLedgerRowPdfHidden}
          clients={clients}
          clientAccounts={clientAccounts}
          transactions={transactions}
@@ -2773,6 +2798,7 @@ function AuthenticatedHome() {
          setClientAccounts={setClientAccounts}
          writeOffMargins={writeOffMargins}
          onWriteOffBalance={onWriteOffBalance}
+         onRoundBalance={onRoundBalance}
          setLedgerRowClickMode={setLedgerRowClickMode}
          toggleLedgerRowHighlight={toggleLedgerRowHighlight}
          selectLedgerRowHighlightPreset={selectLedgerRowHighlightPreset}
@@ -2962,7 +2988,7 @@ function AuthenticatedHome() {
     onPasteCopiedTransaction={onPasteCopiedTransaction}
    />
 
-   <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} />
+   <PdfExportModal selectedClientLedgers={selectedClientLedgers} selectedClientForLedger={selectedClientForLedger} pdfAllColumns={pdfAllColumns} onExportLedgerPdf={onExportLedgerPdf} onExportLedgerExcel={onExportLedgerExcel} pdfRowHidingEnabled={pdfRowHidingEnabled} />
    <AiChatPanel />
 
    <CommissionReportModal

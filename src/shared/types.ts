@@ -188,6 +188,11 @@ export type Transaction = {
  // reordered independently, so dragging a row in one ledger never moves it in the other.
  ledgerPosFrom?: number | null;
  ledgerPosTo?: number | null;
+ // Left out of that side's exported ledger statement (PDF/Excel) — per side, so the
+ // counterparty's statement still shows it. Only honoured while the workspace's owner-only
+ // "Hide rows from PDF" switch is on. Never affects balances.
+ pdfHiddenFrom?: boolean;
+ pdfHiddenTo?: boolean;
  createdAt: string;
 };
 
@@ -393,6 +398,9 @@ export type ClientLedgerEntry = {
  // True when this row is at or before the account's newest reconciliation (the lock
  // line), so editing/reordering/deleting it triggers a warning.
  isLocked?: boolean;
+ // This side's "Hide from PDF" flag (Transaction.pdfHiddenFrom/To). Stored state only — whether
+ // exports honour it depends on the workspace switch (see isHiddenFromExport).
+ pdfHidden?: boolean;
  // Dormant (see the same fields on Transaction) — never part of netChange/runningBalance.
  distributionLocationId: number | null;
  distributionLocationName: string | null;
@@ -636,7 +644,7 @@ export type Section = 'overview' | 'settings' | 'organizations' | 'organization-
 export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest'
  // Row action-menu icons (ContextMenu items).
  | 'edit' | 'info' | 'copy' | 'eye' | 'eye-off' | 'trash'
- | 'check-circle' | 'x-circle' | 'percent' | 'eraser' | 'note' | 'plus'
+ | 'check-circle' | 'x-circle' | 'percent' | 'eraser' | 'round' | 'note' | 'plus'
  | 'arrow-up' | 'arrow-down' | 'arrow-up-to-line' | 'arrow-down-to-line';
 
 // A normalized live FX/gold quote, as returned by the /api/live-rates proxy.

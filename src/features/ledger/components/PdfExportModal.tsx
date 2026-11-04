@@ -7,7 +7,7 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { getStoredPdfDateRange, savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
-import { ledgerEntryKey, highlightedExportRange, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
+import { ledgerEntryKey, highlightedExportRange, isHiddenFromExport, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useAiLedgerReview } from '@/features/ledger/hooks/useAiLedgerReview';
 import PdfNumberGroupingFields from '@/features/pdf/components/PdfNumberGroupingFields';
@@ -19,9 +19,10 @@ type PdfExportModalProps = {
  pdfAllColumns: Array<{ key: LedgerColumnKey; label: string }>;
  onExportLedgerPdf: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean) => void;
  onExportLedgerExcel: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean) => void;
+ pdfRowHidingEnabled: boolean;
 };
 
-export default function PdfExportModal({ selectedClientLedgers, selectedClientForLedger, pdfAllColumns, onExportLedgerPdf, onExportLedgerExcel }: PdfExportModalProps) {
+export default function PdfExportModal({ selectedClientLedgers, selectedClientForLedger, pdfAllColumns, onExportLedgerPdf, onExportLedgerExcel, pdfRowHidingEnabled }: PdfExportModalProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
@@ -43,7 +44,11 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
     ? (() => {
        const ledger = selectedClientLedgers.find((l) => l.accountId === pdfExportModal.accountId);
        if (!ledger) return null;
-       const selected = selectLedgerExportEntries(ledger.entries, pdfExportModal);
+       const inRange = selectLedgerExportEntries(ledger.entries, pdfExportModal);
+       // What the file will actually list: rows the owner hid from the PDF are left out (the
+       // pre-balance below still starts from the range's first row, hidden or not).
+       const selected = inRange.filter((e) => !isHiddenFromExport(e, pdfRowHidingEnabled));
+       const hiddenCount = inRange.length - selected.length;
        // Opened from sum mode's "export selected rows": the rows are fixed, so the range
        // controls are hidden and the balance column becomes optional (see generateLedgerHtml).
        const isSelection = Boolean(pdfExportModal.selectionKeys);
@@ -277,7 +282,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            </div>
 
            {(() => {
-            const firstSelected = selected[0];
+            const firstSelected = inRange[0];
             const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
             const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
             const count = selected.length;
@@ -295,6 +300,12 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
                <span className="text-fg-faint">{t('client_page_transaction_count')}</span>
                <span className="font-semibold text-fg">{count}</span>
               </div>
+              {hiddenCount > 0 ? (
+               <div className="mt-1 flex justify-between">
+                <span className="text-fg-faint">{t('export_hidden_rows_count')}</span>
+                <span className="font-semibold text-fg-muted">{hiddenCount}</span>
+               </div>
+              ) : null}
              </div>
             );
            })()}

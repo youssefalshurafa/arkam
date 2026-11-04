@@ -292,6 +292,8 @@ export const accountingApi = {
  },
  setTransactionArchiveHidden: async (payload: { id: number; hidden: boolean }, opts?: { silent?: boolean }) =>
   request<{ ok: true }>({ action: 'setTransactionArchiveHidden', payload: { ...payload, id: await resolveTransactionId(payload.id) }, silent: opts?.silent }),
+ setTransactionPdfHidden: async (payload: { id: number; accountId: number; hidden: boolean }) =>
+  request<{ ok: true }>({ action: 'setTransactionPdfHidden', payload: { ...payload, id: await resolveTransactionId(payload.id) } }),
  deleteTransaction: async (transactionId: number, opts?: { acknowledgeReconciliationOverride?: boolean }) =>
   request<TrashDeleteResult>({
    action: 'deleteTransaction',
@@ -465,6 +467,7 @@ export const accountingApi = {
   request<WorkspaceSharedSettings>({ action: 'saveWorkspaceSettings', payload }),
  saveWorkspacePastEditLock: (enabled: boolean) => request<{ lockPastEditsEnabled: boolean }>({ action: 'saveWorkspacePastEditLock', payload: enabled }),
  saveTreasuryEnabled: (enabled: boolean) => request<{ treasuryEnabled: boolean }>({ action: 'saveTreasuryEnabled', payload: enabled }),
+ savePdfRowHidingEnabled: (enabled: boolean) => request<{ pdfRowHidingEnabled: boolean }>({ action: 'savePdfRowHidingEnabled', payload: enabled }),
  saveReviewEngineSettings: (settings: ReviewEngineSettings) => request<{ reviewEngine: unknown }>({ action: 'saveReviewEngineSettings', payload: settings }),
  getUserTableSettings: () => request<Record<string, string>>({ action: 'getUserTableSettings' }),
  saveUserTableSettings: (settings: Record<string, string>) => request<{ ok: true }>({ action: 'saveUserTableSettings', payload: settings }),
@@ -478,6 +481,8 @@ export type WorkspaceSharedSettings = {
  version: number;
  lockPastEditsEnabled: boolean;
  treasuryEnabled: boolean;
+ // Owner-only switch for the ledger's "Hide from PDF" row flag (see Transaction.pdfHiddenFrom).
+ pdfRowHidingEnabled: boolean;
  // Raw Second Accountant configuration as stored. Deliberately untyped here: the server keeps
  // it opaque, and resolveReviewSettings is the single place that gives it a shape, filling in
  // and clamping whatever an older version (or a hand-edited row) left behind.
