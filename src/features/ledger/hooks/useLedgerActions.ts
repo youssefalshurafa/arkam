@@ -19,7 +19,7 @@ import {
 } from '@/lib/pendingTransactionWrites';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { NEW_ROW_REF_ID, marksAffectedByReorder, type LockBoundary } from '@/features/ledger/utils/reconciliation';
-import { getLedgerTransactionDraftKey, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
+import { getLedgerTransactionDraftKey, isHiddenFromExport, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { spreadLedgerPositions, timeOfDayMs, withLedgerPosition } from '@/features/ledger/utils/ledgerOrder';
 import { buildRateSamples, checkLedgerEntry, buildCommissionSamples, checkLedgerEntryCommission } from '@/features/ledger/utils/ledgerAnomalies';
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
@@ -86,6 +86,8 @@ type UseLedgerActionsParams = {
  pushUserTableSettings: () => void;
  ledgerHistory: DraftHistory;
  lockPastEditsEnabled: boolean;
+ // Owner-only workspace switch: exports leave out rows flagged "Hide from PDF".
+ pdfRowHidingEnabled: boolean;
 };
 
 /**
@@ -115,6 +117,7 @@ export function useLedgerActions({
  pushUserTableSettings,
  ledgerHistory,
  lockPastEditsEnabled,
+ pdfRowHidingEnabled,
 }: UseLedgerActionsParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
@@ -1557,16 +1560,43 @@ async function onExportLedgerPdf(
  toEntryKey?: string | null,
  selectionKeys?: string[] | null,
  showCurrencyTotals?: boolean,
+ roundFinalBalance?: boolean,
 ) {
  if (!accountingApi) return;
  try {
-  const selected = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys });
+  const selected = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys }).filter((e) => !isHiddenFromExport(e, pdfRowHidingEnabled));
   if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
   if (!(await confirmIfLedgerPendingPricing(selected))) return;
-  const html = generateLedgerHtml({ t, numLocale, isRTL, language, pdfSettings }, { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder });
+  const html = generateLedgerHtml(
+   { t, numLocale, isRTL, language, pdfSettings },
+   { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder, pdfRowHidingEnabled, roundFinalBalance },
+  );
   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: ledgerExportFileName(ledger, fromDate, toDate, 'pdf') });
   if (result.ok) setPdfExportModal(null);
  } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_save'));
+ }
+}
+
+// Owner-only "Hide from PDF" toggle for one ledger row. Flips this side's flag optimistically —
+// it's display-only, so there's no balance to recompute — and puts it back if the save fails.
+async function onToggleLedgerRowPdfHidden(entry: ClientLedgerEntry, accountId: number) {
+ if (!accountingApi) return;
+ const hidden = !entry.pdfHidden;
+ const apply = (value: boolean) =>
+  setTransactions((prev) =>
+   prev.map((tx) => {
+    if (tx.id !== entry.transactionId) return tx;
+    if (tx.accountFromId === accountId) return { ...tx, pdfHiddenFrom: value };
+    if (tx.accountToId === accountId) return { ...tx, pdfHiddenTo: value };
+    return tx;
+   }),
+  );
+ apply(hidden);
+ try {
+  await accountingApi.setTransactionPdfHidden({ id: entry.transactionId, accountId, hidden });
+ } catch (e) {
+  apply(!hidden);
   setError(e instanceof Error ? e.message : t('error_failed_save'));
  }
 }
@@ -1582,7 +1612,9 @@ async function onExportLedgerExcel(
  showCurrencyTotals?: boolean,
 ) {
  try {
-  const selected = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys });
+  // Hidden rows are simply dropped: each Excel row carries its own real running balance, so
+  // the ones left keep their true values without walking through the hidden ones.
+  const selected = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys }).filter((e) => !isHiddenFromExport(e, pdfRowHidingEnabled));
   if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
   if (!(await confirmIfLedgerPendingPricing(selected))) return;
 
@@ -1670,6 +1702,7 @@ async function onExportLedgerExcel(
   onLedgerRowDrop,
   onExportLedgerPdf,
   onExportLedgerExcel,
+  onToggleLedgerRowPdfHidden,
   combinedLedgerHistory,
  };
 }

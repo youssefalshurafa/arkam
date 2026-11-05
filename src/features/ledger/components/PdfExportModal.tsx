@@ -7,7 +7,8 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { getStoredPdfDateRange, savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
-import { ledgerEntryKey, highlightedExportRange, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
+import { suggestRoundedBalance } from '@/shared/utils/accountBalances';
+import { ledgerEntryKey, highlightedExportRange, isHiddenFromExport, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useAiLedgerReview } from '@/features/ledger/hooks/useAiLedgerReview';
 import PdfNumberGroupingFields from '@/features/pdf/components/PdfNumberGroupingFields';
@@ -17,12 +18,13 @@ type PdfExportModalProps = {
  selectedClientLedgers: ClientAccountLedger[];
  selectedClientForLedger: Client | null;
  pdfAllColumns: Array<{ key: LedgerColumnKey; label: string }>;
- onExportLedgerPdf: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean) => void;
+ onExportLedgerPdf: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean, roundFinalBalance?: boolean) => void;
  onExportLedgerExcel: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean) => void;
+ pdfRowHidingEnabled: boolean;
 };
 
-export default function PdfExportModal({ selectedClientLedgers, selectedClientForLedger, pdfAllColumns, onExportLedgerPdf, onExportLedgerExcel }: PdfExportModalProps) {
- const { language } = useLanguage();
+export default function PdfExportModal({ selectedClientLedgers, selectedClientForLedger, pdfAllColumns, onExportLedgerPdf, onExportLedgerExcel, pdfRowHidingEnabled }: PdfExportModalProps) {
+ const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
  // French uses 'en-US' grouping (comma thousands, period decimal) instead of the
  // official fr-FR narrow-no-break-space separator, which renders as near-invisible.
@@ -43,7 +45,16 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
     ? (() => {
        const ledger = selectedClientLedgers.find((l) => l.accountId === pdfExportModal.accountId);
        if (!ledger) return null;
-       const selected = selectLedgerExportEntries(ledger.entries, pdfExportModal);
+       const inRange = selectLedgerExportEntries(ledger.entries, pdfExportModal);
+       // What the file will actually list: rows the owner hid from the PDF are left out (the
+       // pre-balance below still starts from the range's first row, hidden or not).
+       const selected = inRange.filter((e) => !isHiddenFromExport(e, pdfRowHidingEnabled));
+       const hiddenCount = inRange.length - selected.length;
+       const firstSelected = inRange[0];
+       const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
+       const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
+       // The statement's closing balance, as the PDF computes it: hidden rows still count.
+       const closingBalance = preBalance + inRange.reduce((sum, e) => sum + e.netChange, 0);
        // Opened from sum mode's "export selected rows": the rows are fixed, so the range
        // controls are hidden and the balance column becomes optional (see generateLedgerHtml).
        const isSelection = Boolean(pdfExportModal.selectionKeys);
@@ -247,6 +258,51 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
             </label>
            ) : null}
 
+           {/* Statement exports only: rounds the big closing figure at the bottom of the PDF so
+               the other party has a clean number to pay. Nothing is written to the ledger and
+               every row keeps its real balance; Excel is unaffected. */}
+           {isSelection
+            ? null
+            : (() => {
+               const rounded = suggestRoundedBalance(closingBalance);
+               const format = (value: number) => `${value.toLocaleString(numLocale, { maximumFractionDigits: 2 })} ${ledger.currencySymbol || ledger.currencyCode}`;
+               return (
+                <div className="flex flex-col gap-1">
+                 <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+                  <input
+                   type="checkbox"
+                   checked={pdfExportModal.roundFinalBalance ?? false}
+                   onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, roundFinalBalance: e.target.checked } : prev))}
+                   className="h-4 w-4 cursor-pointer accent-blue-600"
+                  />
+                  {t('export_round_final_balance')}
+                 </label>
+                 {pdfExportModal.roundFinalBalance && inRange.length > 0 ? (
+                  <p className="flex flex-wrap items-center gap-2 ps-6 text-sm font-semibold">
+                   <span className={closingBalance < 0 ? 'text-bad-text' : 'text-good-text'}>{format(closingBalance)}</span>
+                   <span
+                    className="text-fg-faint"
+                    aria-hidden
+                   >
+                    {isRTL ? '←' : '→'}
+                   </span>
+                   <span className={rounded < 0 ? 'text-bad-text' : 'text-good-text'}>{format(rounded)}</span>
+                  </p>
+                 ) : null}
+                 {pdfExportModal.roundFinalBalance && inRange.length > 0 ? (
+                  <p className="flex flex-wrap items-center gap-2 ps-6 text-sm">
+                   <span className="text-fg-muted">{t('export_round_final_balance_difference')}</span>
+                   <span className={`font-semibold ${rounded - closingBalance < 0 ? 'text-bad-text' : 'text-good-text'}`}>
+                    {rounded - closingBalance > 0 ? '‎+' : ''}
+                    {format(rounded - closingBalance)}
+                   </span>
+                  </p>
+                 ) : null}
+                 <p className="ps-6 text-xs text-fg-faint">{t('export_round_final_balance_hint')}</p>
+                </div>
+               );
+              })()}
+
            {/* Column toggles */}
            <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-fg-faint">{t('pdf_columns_label')}</label>
@@ -277,9 +333,6 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            </div>
 
            {(() => {
-            const firstSelected = selected[0];
-            const cutoffIndex = firstSelected ? ledger.entries.findIndex((e) => ledgerEntryKey(e) === ledgerEntryKey(firstSelected)) : ledger.entries.length;
-            const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
             const count = selected.length;
             const netTotal = selected.reduce((sum, e) => sum + (e.pendingRate ? 0 : e.netChange), 0);
             const [summaryLabel, summaryValue] = isSelection ? [t('export_selection_net_total'), netTotal] : [t('export_pre_balance'), preBalance];
@@ -295,6 +348,12 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
                <span className="text-fg-faint">{t('client_page_transaction_count')}</span>
                <span className="font-semibold text-fg">{count}</span>
               </div>
+              {hiddenCount > 0 ? (
+               <div className="mt-1 flex justify-between">
+                <span className="text-fg-faint">{t('export_hidden_rows_count')}</span>
+                <span className="font-semibold text-fg-muted">{hiddenCount}</span>
+               </div>
+              ) : null}
              </div>
             );
            })()}
@@ -353,7 +412,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            <button
             type="button"
             onClick={() =>
-             void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey, pdfExportModal.selectionKeys, pdfExportModal.showCurrencyTotals)
+             void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey, pdfExportModal.selectionKeys, pdfExportModal.showCurrencyTotals, pdfExportModal.roundFinalBalance)
             }
             disabled={exportDisabled}
             className="flex items-center gap-1.5 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"

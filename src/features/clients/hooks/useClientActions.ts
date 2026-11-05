@@ -274,17 +274,22 @@ async function onWriteOffBalance(accountId: number, balance: number, dateKey: st
  });
  if (!confirmed) return;
 
- // balance > 0 means this account is owed money — a write-off must move the balance DOWN
- // toward zero, i.e. net negatively, which is the "to" side's sign (see
- // computeTransactionSideNetChange); balance < 0 is the mirror "from" side case.
- const accountFromId = balance > 0 ? null : accountId;
- const accountToId = balance > 0 ? accountId : null;
+ await createBalanceAdjustment(account, -balance, dateKey, t('write_off_description'));
+}
+
+// Inserts a one-sided adjustment that moves `account`'s balance by `delta` (in its own
+// currency), placed at the end of `dateKey`. Used by the row write-off (delta = -balance).
+async function createBalanceAdjustment(account: ClientAccount, delta: number, dateKey: string, description: string) {
+ if (!accountingApi) return;
+ // A positive delta moves the balance UP, which is the "from" side's sign (see
+ // computeTransactionSideNetChange); a negative delta is the mirror "to" side case.
+ const accountFromId = delta > 0 ? account.id : null;
+ const accountToId = delta > 0 ? null : account.id;
  const createdAt = nextCreatedAtForDate(dateKey, transactions);
 
  if (blockedByPastEditLock([createdAt])) return;
- // Reconciliation guard: a write-off creates a new row, same as any other create path — one
- // dated at or before a lock line rewrites reconciled history. This was previously the one
- // create path in the app with no lock-aware warning at all.
+ // Reconciliation guard: an adjustment creates a new row, same as any other create path — one
+ // dated at or before a lock line rewrites reconciled history.
  const lock = await checkLockForNewRow([accountFromId, accountToId], createdAt, NEW_ROW_REF_ID);
  if (!lock.proceed) return;
 
@@ -294,7 +299,7 @@ async function onWriteOffBalance(accountId: number, balance: number, dateKey: st
    accountToId,
    acknowledgeReconciliationOverride: lock.overrode,
    currencyId: account.currencyId,
-   amount,
+   amount: Math.abs(delta),
    type: 'adjustment',
    isArchived: false,
    exchangeRateFrom: 1,
@@ -308,7 +313,7 @@ async function onWriteOffBalance(accountId: number, balance: number, dateKey: st
    chargesPayer: '',
    chargesExchangeRate: 1,
    chargesDescription: '',
-   description: t('write_off_description'),
+   description,
    descriptionFrom: '',
    descriptionTo: '',
    exchangeActualAmount: null,

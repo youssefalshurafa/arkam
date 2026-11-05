@@ -2,8 +2,9 @@ import { formatDateValue } from '@/shared/utils/date';
 import { chargeAmount } from '@/shared/utils/commission';
 import { formatRateValue } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
-import { ledgerEntryKey, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
+import { isHiddenFromExport, ledgerEntryKey, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { isZeroMoney } from '@/shared/utils/money';
+import { suggestRoundedBalance } from '@/shared/utils/accountBalances';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction, TransactionColumnVisibility } from '@/shared/types';
 import { formatAmount } from '@/shared/utils/numberFormat';
 
@@ -278,16 +279,25 @@ export function generateLedgerHtml(
   selectedClientForLedger: Client | null;
   transactions: Transaction[];
   ledgerColumnOrder: LedgerColumnKey[];
+  // Workspace "Hide rows from PDF" switch: rows flagged pdfHidden are left out of the table.
+  pdfRowHidingEnabled?: boolean;
+  // Statement exports: print the big closing balance rounded (suggestRoundedBalance) so the other
+  // party has a clean figure to pay. Display only — every row keeps its real running balance.
+  roundFinalBalance?: boolean;
  },
 ): string {
  const { t, numLocale, isRTL, language, pdfSettings } = ctx;
- const { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder } = params;
+ const { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder, pdfRowHidingEnabled = false, roundFinalBalance = false } = params;
   const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
   const filteredEntries = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys });
   // A selection export is a table of hand-picked rows, not a statement: rows in between are
   // missing, so an opening balance and a balance carried row to row would both be fiction. It
   // shows each row's real ledger balance (when that column is on) and ends in the rows' totals.
   const isSelection = Boolean(selectionKeys);
+  // Rows the owner hid from the statement are only left out of what's printed. They stay in
+  // filteredEntries so the running balance still walks through them and every shown row (and
+  // the closing balance) keeps its real ledger value.
+  const shownEntries = filteredEntries.filter((e) => !isHiddenFromExport(e, pdfRowHidingEnabled));
 
   // Pre-balance includes everything chronologically before the first selected entry
   // (entries before the date range, plus same-range entries skipped by the start picker).
@@ -409,6 +419,7 @@ export function generateLedgerHtml(
   const rows = filteredEntries
    .map((e) => {
     runningBal += e.netChange;
+    if (isHiddenFromExport(e, pdfRowHidingEnabled)) return '';
     const cells = visibleCols
      .map((col) => {
       const classes = [col.isNum ? 'num' : '', col.key === 'netChange' && pdfSettings.highlightNetChange ? 'hl' : ''].filter(Boolean).join(' ');
@@ -418,13 +429,14 @@ export function generateLedgerHtml(
     return `<tr>${cells}</tr>`;
    })
    .join('');
+  const finalBalance = roundFinalBalance ? suggestRoundedBalance(runningBal) : runningBal;
 
   // Selection totals: amounts are summed per currency (a client's rows can mix currencies);
   // net change is always in the ledger's currency. Rows still awaiting a rate add nothing to
   // the net change, same as the running balance.
-  const selectionNetTotal = filteredEntries.reduce((sum, e) => sum + (e.pendingRate ? 0 : e.netChange), 0);
+  const selectionNetTotal = shownEntries.reduce((sum, e) => sum + (e.pendingRate ? 0 : e.netChange), 0);
   const selectionAmountTotals = new Map<string, { total: number; symbol: string }>();
-  for (const e of filteredEntries) {
+  for (const e of shownEntries) {
    const bucket = selectionAmountTotals.get(e.currencyCode) ?? { total: 0, symbol: e.currencySymbol || e.currencyCode };
    bucket.total += e.amount;
    selectionAmountTotals.set(e.currencyCode, bucket);
@@ -442,7 +454,7 @@ export function generateLedgerHtml(
        if (col.key === 'netChange') {
         return `<td${cls}><span class="${selectionNetTotal >= 0 ? 'pos' : 'neg'}">${formatAmount(selectionNetTotal, numLocale, ledger.currencyCode, { maximumFractionDigits: pdfSettings.decimals })}</span></td>`;
        }
-       return `<td${cls}>${index === 0 ? `${esc(t('export_selection_total'))} (${filteredEntries.length})` : ''}</td>`;
+       return `<td${cls}>${index === 0 ? `${esc(t('export_selection_total'))} (${shownEntries.length})` : ''}</td>`;
       })
       .join('')}</tr>`
    : '';
@@ -576,8 +588,8 @@ ${
  isSelection
   ? `<div class="final-balance" style="flex-wrap:wrap;column-gap:40px;row-gap:8px">${selectionSummaryItems.join('')}</div>`
   : `<div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${formatAmount(Math.abs(runningBal), numLocale, ledger.currencyCode, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
- <span class="fb-label">${isZeroMoney(runningBal) ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
+ <span class="fb-value ${finalBalance >= 0 ? 'pos' : 'neg'}">${formatAmount(Math.abs(finalBalance), numLocale, ledger.currencyCode, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
+ <span class="fb-label">${isZeroMoney(finalBalance) ? t('pdf_balance_zero') : finalBalance < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>`
 }
 ${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}

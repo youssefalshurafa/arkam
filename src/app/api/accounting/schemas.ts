@@ -114,6 +114,8 @@ export const actionSchemas: Record<string, z.ZodType> = {
 
  setTransactionArchiveHidden: z.object({ id, hidden: opt(looseBoolean) }),
 
+ setTransactionPdfHidden: z.object({ id, accountId: id, hidden: opt(looseBoolean) }),
+
  createClientAccount: z.object({
   clientId: nullableId,
   currencyId: nullableId,

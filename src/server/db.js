@@ -608,6 +608,8 @@ async function getTreasuryLedgerData(app) {
             dloc.kind AS "distributionLocationKind",
             t.ledger_pos_from AS "ledgerPosFrom",
             t.ledger_pos_to AS "ledgerPosTo",
+            t.pdf_hidden_from AS "pdfHiddenFrom",
+            t.pdf_hidden_to AS "pdfHiddenTo",
             t.created_at AS "createdAt"
         FROM ${schema}.transactions t
         LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
@@ -1098,6 +1100,8 @@ async function listTransactions(app) {
                 dloc.kind AS "distributionLocationKind",
                 t.ledger_pos_from AS "ledgerPosFrom",
                 t.ledger_pos_to AS "ledgerPosTo",
+                t.pdf_hidden_from AS "pdfHiddenFrom",
+                t.pdf_hidden_to AS "pdfHiddenTo",
                 t.created_at AS "createdAt"
             FROM ${schema}.transactions t
             LEFT JOIN ${schema}.client_accounts ca_from ON ca_from.id = t.account_from_id
@@ -1658,6 +1662,26 @@ async function setTransactionArchiveHidden(app, { id, hidden }) {
     }
     await assertMemberCanWriteTransaction(app, { accountFromId: existingRow.accountFromId, accountToId: existingRow.accountToId });
     await query(`UPDATE ${schema}.transactions SET archive_hidden = $1 WHERE id = $2 AND deleted_at IS NULL`, [Boolean(hidden), id]);
+}
+
+// Marks one side of a transaction as hidden (or not) from that side's exported ledger
+// statement. A display flag like archive_hidden: it never touches balance-affecting fields, so
+// it skips updateTransaction and the past-edit lock. Owner-only, enforced in route.ts.
+async function setTransactionPdfHidden(app, { id, accountId, hidden }) {
+    if (!id || !accountId) {
+        throw new Error('Transaction id and account id are required.');
+    }
+    const { schema } = await getSchemaInfo(app);
+    const existing = await query(`SELECT account_from_id AS "accountFromId", account_to_id AS "accountToId" FROM ${schema}.transactions WHERE id = $1 AND deleted_at IS NULL`, [id]);
+    const existingRow = existing.rows[0];
+    if (!existingRow) {
+        throw new Error('Transaction not found.');
+    }
+    const column = Number(existingRow.accountFromId) === Number(accountId) ? 'pdf_hidden_from' : Number(existingRow.accountToId) === Number(accountId) ? 'pdf_hidden_to' : null;
+    if (!column) {
+        throw new Error("This transaction is not in that account's ledger.");
+    }
+    await query(`UPDATE ${schema}.transactions SET ${column} = $1 WHERE id = $2 AND deleted_at IS NULL`, [Boolean(hidden), id]);
 }
 
 async function deleteTransaction(app, payload) {
@@ -2784,12 +2808,13 @@ async function bulkImportTransactions(app, { transactions = [] } = {}) {
 async function getWorkspaceSettings(app) {
     const { schema } = await getSchemaInfo(app);
     const result = await query(
-        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits", treasury_enabled AS "treasuryEnabled", review_engine AS "reviewEngine"
+        `SELECT shared_enabled AS "sharedEnabled", settings, version, lock_past_edits AS "lockPastEdits", treasury_enabled AS "treasuryEnabled", review_engine AS "reviewEngine",
+                pdf_row_hiding AS "pdfRowHiding"
          FROM ${schema}.workspace_settings WHERE id = 1`,
     );
     const row = result.rows[0];
     if (!row) {
-        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false, treasuryEnabled: false, reviewEngine: {} };
+        return { sharedEnabled: false, settings: {}, version: 0, lockPastEditsEnabled: false, treasuryEnabled: false, reviewEngine: {}, pdfRowHidingEnabled: false };
     }
     return {
         sharedEnabled: Boolean(row.sharedEnabled),
@@ -2799,6 +2824,7 @@ async function getWorkspaceSettings(app) {
         treasuryEnabled: Boolean(row.treasuryEnabled),
         // Passed through as stored; resolveReviewSettings on the client fills in and clamps it.
         reviewEngine: row.reviewEngine && typeof row.reviewEngine === 'object' ? row.reviewEngine : {},
+        pdfRowHidingEnabled: Boolean(row.pdfRowHiding),
     };
 }
 
@@ -2827,6 +2853,20 @@ async function saveTreasuryEnabled(app, enabled) {
         [Boolean(enabled)],
     );
     return { treasuryEnabled: Boolean(enabled) };
+}
+
+// Toggles the owner-only "hide rows from the PDF" feature (route.ts gates it to the owner).
+// Turning it off doesn't clear the per-row flags: exports just stop honouring them, and the
+// same rows come back hidden if the owner turns it on again.
+async function savePdfRowHidingEnabled(app, enabled) {
+    const { schema } = await getSchemaInfo(app);
+    await query(
+        `INSERT INTO ${schema}.workspace_settings (id, pdf_row_hiding, updated_at)
+         VALUES (1, $1, NOW())
+         ON CONFLICT (id) DO UPDATE SET pdf_row_hiding = $1, updated_at = NOW()`,
+        [Boolean(enabled)],
+    );
+    return { pdfRowHidingEnabled: Boolean(enabled) };
 }
 
 // Saves the Second Accountant configuration (Settings > Second Accountant) — settable by owner
@@ -3122,6 +3162,7 @@ module.exports = {
     createTransaction,
     updateTransaction,
     setTransactionArchiveHidden,
+    setTransactionPdfHidden,
     setLedgerPositions,
     deleteTransaction,
     listTransactionHistory,
@@ -3149,6 +3190,7 @@ module.exports = {
     saveWorkspaceSettings,
     saveWorkspacePastEditLock,
     saveTreasuryEnabled,
+    savePdfRowHidingEnabled,
     saveReviewEngineSettings,
     getUserTableSettings,
     saveUserTableSettings,

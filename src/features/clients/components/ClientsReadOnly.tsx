@@ -6,11 +6,10 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
-import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
+import { isWriteOffEligible, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import type { Client, ClientAccount, Section, SettingsTab, WriteOffMargin } from '@/shared/types';
 import type { ClientOrgGroup } from '@/features/clients/utils/clientsView';
 import type { ClientBalanceEntry } from '@/features/clients/utils/clientBalances';
-import { isZeroMoney } from '@/shared/utils/money';
 import { clientMatchesBalanceRange, emptyBalanceRangeFilter, isBalanceRangeActive, type BalanceDirection } from '@/features/clients/utils/clientBalanceFilter';
 
 type ClientsReadOnlyProps = {
@@ -93,7 +92,7 @@ export default function ClientsReadOnly({
      <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}>
       {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
      </span>
-     {!isZeroMoney(balance) && Math.abs(balance) <= resolveWriteOffThreshold(currencyId, writeOffMarginByCurrency) ? (
+     {isWriteOffEligible(balance, currencyId, writeOffMarginByCurrency) ? (
       <button
        type="button"
        title={t('write_off_button')}
@@ -375,7 +374,7 @@ export default function ClientsReadOnly({
                <span className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${balance >= 0 ? 'bg-good-bg text-good-text' : 'bg-bad-bg text-bad-text'}`}>
                 {currencySymbol || currencyCode} {balance.toLocaleString(numLocale, { maximumFractionDigits: 0 })}
                </span>
-               {!isZeroMoney(balance) && Math.abs(balance) <= resolveWriteOffThreshold(currencyId, writeOffMarginByCurrency) ? (
+               {isWriteOffEligible(balance, currencyId, writeOffMarginByCurrency) ? (
                 <button
                  type="button"
                  title={t('write_off_button')}

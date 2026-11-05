@@ -887,6 +887,14 @@ async function ensureWorkspaceSchema(workspaceId) {
                 -- Throttle for the lazy 30-day Trash purge: at most one run per workspace per day,
                 -- claimed atomically so concurrent server instances don't both run it.
                 ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS trash_purged_at TIMESTAMPTZ;
+
+                -- "Hide from PDF": a row the owner left out of the exported ledger statement (PDF and
+                -- Excel). Per side, like ledger_pos_from/to, so hiding a row from one client's
+                -- statement leaves it in the counterparty's. Only honoured while the workspace's
+                -- owner-controlled pdf_row_hiding switch is on; never affects balances.
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS pdf_hidden_from BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE ${schema}.transactions ADD COLUMN IF NOT EXISTS pdf_hidden_to BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE ${schema}.workspace_settings ADD COLUMN IF NOT EXISTS pdf_row_hiding BOOLEAN NOT NULL DEFAULT FALSE;
             `);
 
             // One-time data migration: fold the legacy client_adjustments table into

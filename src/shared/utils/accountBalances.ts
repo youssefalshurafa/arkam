@@ -79,6 +79,27 @@ export function resolveWriteOffThreshold(currencyId: number, marginByCurrency: M
  return marginByCurrency.get(currencyId) ?? SMALL_BALANCE_THRESHOLD;
 }
 
+// Below one unit a balance already reads as 0 everywhere it's shown (balances display without
+// decimals), so there is nothing for the user to write off. Shared by the Clients page chips
+// and the ledger row menu so both offer the button for the same balances.
+export const MIN_WRITE_OFF_BALANCE = 1;
+
+export function isWriteOffEligible(balance: number, currencyId: number, marginByCurrency: Map<number, number>): boolean {
+ const magnitude = Math.abs(balance);
+ return magnitude >= MIN_WRITE_OFF_BALANCE && magnitude <= resolveWriteOffThreshold(currencyId, marginByCurrency);
+}
+
 export function writeOffMarginMap(margins: Array<{ currencyId: number; threshold: number }>): Map<number, number> {
  return new Map(margins.map((margin) => [margin.currencyId, margin.threshold]));
+}
+
+// A "round" figure near `balance` for the ledger's round-balance action to offer as its default
+// target, so the other party can settle with a clean number (-5,407,978 → -5,408,000). The step
+// stays small (10 below 1,000, otherwise 100) so the adjustment is the smallest one that cleans
+// the figure up: -2,793,612.76 should become -2,793,600, not jump 387 to -2,794,000. Sign is
+// kept; the user can still type any target they like.
+export function suggestRoundedBalance(balance: number): number {
+ const magnitude = Math.abs(balance);
+ const step = magnitude < 1_000 ? 10 : 100;
+ return Math.sign(balance) * Math.round(magnitude / step) * step;
 }

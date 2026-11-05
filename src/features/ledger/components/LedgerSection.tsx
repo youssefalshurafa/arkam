@@ -24,11 +24,11 @@ import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, highlightPenCurso
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
-import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
+import { isWriteOffEligible, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import { renderIcon } from '@/shared/utils/icons';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
-import { getLedgerTransactionDraftKey, highlightedExportRange, ledgerEntryKey, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
+import { getLedgerTransactionDraftKey, highlightedExportRange, isHiddenFromExport, ledgerEntryKey, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
 import { anomalyKey, type RateAnomaly, type CommissionAnomaly } from '@/features/ledger/utils/ledgerAnomalies';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useStableSession } from '@/hooks/useStableSession';
@@ -120,6 +120,10 @@ type LedgerSectionProps = {
  navigateToSection: (section: Section) => void;
  loadData: () => Promise<void> | void;
  lockPastEditsEnabled: boolean;
+ // Owner-only "Hide from PDF": the workspace switch, whether this viewer may flag rows, and the toggle.
+ pdfRowHidingEnabled: boolean;
+ isWorkspaceOwner: boolean;
+ onToggleLedgerRowPdfHidden: (entry: ClientLedgerEntry, accountId: number) => void;
  writeOffMargins: WriteOffMargin[];
  onWriteOffBalance: (accountId: number, balance: number, dateKey?: string) => void;
 };
@@ -142,7 +146,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
-  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, writeOffMargins, onWriteOffBalance,
+  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, pdfRowHidingEnabled, isWorkspaceOwner, onToggleLedgerRowPdfHidden, writeOffMargins, onWriteOffBalance,
  } = props;
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
@@ -161,7 +165,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
  // Per-currency write-off eligibility margin (Settings > Write-off) — same map the Clients
  // page's balance-chip write-off uses, applied here to gate the ledger row's "Write off" menu
- // item against the account's current overall balance (see resolveWriteOffThreshold).
+ // item against the account's current overall balance (see isWriteOffEligible).
  const writeOffMarginByCurrency = useMemo(() => writeOffMarginMap(writeOffMargins), [writeOffMargins]);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilters, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerRowHighlightColor, ledgerRowHighlightPresets, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed, flashLedgerEntry, setFlashLedgerEntry } = useLedgerStore();
 
@@ -2160,7 +2164,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      // pretending to zero the account outright.
                      const ledgerAccount = clientAccounts.find((a) => a.id === ledger.accountId);
                      const writeOffEligible =
-                      !!ledgerAccount && entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= resolveWriteOffThreshold(ledgerAccount.currencyId, writeOffMarginByCurrency);
+                      !!ledgerAccount && isWriteOffEligible(entry.runningBalance, ledgerAccount.currencyId, writeOffMarginByCurrency);
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), icon: renderIcon('edit', 'h-4 w-4'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       { key: 'info', label: t('transaction_more_info_action'), icon: renderIcon('info', 'h-4 w-4'), onSelect: () => setInfoTransactionId(entry.transactionId) },
@@ -2190,6 +2194,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            // Dated the same day as this entry (not today) so the adjustment lands
                            // right after it in the ledger instead of jumping to the bottom.
                            onSelect: () => onWriteOffBalance(ledger.accountId, entry.runningBalance, entry.createdAt.slice(0, 10)),
+                          },
+                         ]
+                       : []),
+                      // Owner-only, and only while the workspace switch is on (Settings).
+                      ...(pdfRowHidingEnabled && isWorkspaceOwner
+                       ? [
+                          {
+                           key: 'pdf-hidden',
+                           label: t(entry.pdfHidden ? 'pdf_row_show_action' : 'pdf_row_hide_action'),
+                           icon: renderIcon(entry.pdfHidden ? 'eye' : 'eye-off', 'h-4 w-4'),
+                           onSelect: () => void onToggleLedgerRowPdfHidden(entry, ledger.accountId),
                           },
                          ]
                        : []),
@@ -2460,6 +2475,17 @@ export default function LedgerSection(props: LedgerSectionProps) {
                               <circle cx="12" cy="19" r="1.8" />
                              </svg>
                             </button>
+                            {/* Marks a row the exported statement will leave out, so whoever
+                                exports isn't surprised by a missing line. */}
+                            {isHiddenFromExport(entry, pdfRowHidingEnabled) ? (
+                             <span
+                              title={t('pdf_row_hidden_badge')}
+                              aria-label={t('pdf_row_hidden_badge')}
+                              className="text-warn-text"
+                             >
+                              {renderIcon('eye-off', 'h-3.5 w-3.5')}
+                             </span>
+                            ) : null}
                            </div>
                           )}
                          </td>
