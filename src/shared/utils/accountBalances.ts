@@ -79,6 +79,16 @@ export function resolveWriteOffThreshold(currencyId: number, marginByCurrency: M
  return marginByCurrency.get(currencyId) ?? SMALL_BALANCE_THRESHOLD;
 }
 
+// Below one unit a balance already reads as 0 everywhere it's shown (balances display without
+// decimals), so there is nothing for the user to write off. Shared by the Clients page chips
+// and the ledger row menu so both offer the button for the same balances.
+export const MIN_WRITE_OFF_BALANCE = 1;
+
+export function isWriteOffEligible(balance: number, currencyId: number, marginByCurrency: Map<number, number>): boolean {
+ const magnitude = Math.abs(balance);
+ return magnitude >= MIN_WRITE_OFF_BALANCE && magnitude <= resolveWriteOffThreshold(currencyId, marginByCurrency);
+}
+
 export function writeOffMarginMap(margins: Array<{ currencyId: number; threshold: number }>): Map<number, number> {
  return new Map(margins.map((margin) => [margin.currencyId, margin.threshold]));
 }

@@ -24,7 +24,7 @@ import { formatRateValue, ledgerFieldWidth, ledgerSelectWidth, highlightPenCurso
 import { formatDateValue, localDateKey, isBeforeToday } from '@/shared/utils/date';
 import { getCommissionAmount } from '@/shared/utils/commission';
 import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
-import { resolveWriteOffThreshold, writeOffMarginMap } from '@/shared/utils/accountBalances';
+import { isWriteOffEligible, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
 import { renderIcon } from '@/shared/utils/icons';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
@@ -165,7 +165,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
  const setCopiedTransaction = useTransactionsStore((s) => s.setCopiedTransaction);
  // Per-currency write-off eligibility margin (Settings > Write-off) — same map the Clients
  // page's balance-chip write-off uses, applied here to gate the ledger row's "Write off" menu
- // item against the account's current overall balance (see resolveWriteOffThreshold).
+ // item against the account's current overall balance (see isWriteOffEligible).
  const writeOffMarginByCurrency = useMemo(() => writeOffMarginMap(writeOffMargins), [writeOffMargins]);
  const { clientLedgerBackSection, editingLedgerRowKeys, setEditingLedgerRowKeys, editAllLedgerAccountIds, selectedLedgerEntryKeys, setSelectedLedgerEntryKeys, ledgerSumMode, setLedgerSumMode, ledgerSumSelection, setLedgerSumSelection, setShowLedgerSettingsModal, ledgerFilterOpen, setLedgerFilterOpen, ledgerFilters, ledgerDecimals, ledgerDateFormat, ledgerHighlightNetChange, ledgerNetChangeHighlightColor, ledgerRowClickHighlight, ledgerRowClickActive, highlightedLedgerRows, ledgerRowHighlightColor, ledgerRowHighlightPresets, ledgerStartingBalanceDrafts, setLedgerStartingBalanceDrafts, editingStartingBalanceIds, setEditingStartingBalanceIds, ledgerPageState, setLedgerPageState, ledgerPageSize, setLedgerPageSize, ledgerExpensesExpandedKeys, setLedgerExpensesExpandedKeys, draggedLedgerColumn, setDraggedLedgerColumn, dragLedgerRowKey, setDragLedgerRowKey, dragOverLedgerRowKey, setDragOverLedgerRowKey, dragOverLedgerHalf, setDragOverLedgerHalf, ledgerColumnVisibility, setLedgerTransactionDrafts, setPdfExportModal, setCommissionModal, ledgerCounterpartyOpen, setLedgerCounterpartyOpen, ledgerCounterpartyQuery, setLedgerCounterpartyQuery, ledgerCounterpartyExpandedClient, setLedgerCounterpartyExpandedClient, ledgerSelfAccountOpen, setLedgerSelfAccountOpen, ledgerSelfAccountQuery, setLedgerSelfAccountQuery, ledgerSelfAccountExpandedClient, setLedgerSelfAccountExpandedClient, ledgerRateReversed, setLedgerRateReversed, ledgerDisplayRateReversed, setLedgerDisplayRateReversed, flashLedgerEntry, setFlashLedgerEntry } = useLedgerStore();
 
@@ -2164,7 +2164,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      // pretending to zero the account outright.
                      const ledgerAccount = clientAccounts.find((a) => a.id === ledger.accountId);
                      const writeOffEligible =
-                      !!ledgerAccount && entry.runningBalance !== 0 && Math.abs(entry.runningBalance) <= resolveWriteOffThreshold(ledgerAccount.currencyId, writeOffMarginByCurrency);
+                      !!ledgerAccount && isWriteOffEligible(entry.runningBalance, ledgerAccount.currencyId, writeOffMarginByCurrency);
                      rowContextMenu.open(event, [
                       { key: 'edit', label: t('edit'), icon: renderIcon('edit', 'h-4 w-4'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       { key: 'info', label: t('transaction_more_info_action'), icon: renderIcon('info', 'h-4 w-4'), onSelect: () => setInfoTransactionId(entry.transactionId) },
