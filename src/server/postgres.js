@@ -669,7 +669,9 @@ async function ensureWorkspaceSchema(workspaceId) {
 
                 -- 'row' (the original behaviour) dismisses one row; 'description' also marks that
                 -- row's rate as normal for other rows sharing its description, which is how a
-                -- group too small to form its own reference ever stops being flagged.
+                -- group too small to form its own reference ever stops being flagged. 'market'
+                -- (rates only) records that the market moved, vouching for the pair's other rows
+                -- recorded around the same time.
                 ALTER TABLE ${schema}.ignored_anomalies ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'row';
 
                 -- Daily FX reference rates for حصاد اليوم (Today's Harvest) and Overview's

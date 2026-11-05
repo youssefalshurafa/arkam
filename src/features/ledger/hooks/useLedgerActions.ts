@@ -1067,20 +1067,27 @@ async function onIgnoreAnomaly(kind: 'rate' | 'commission' | 'pendingRate', tran
  // The offer is explicit rather than inferred, because it changes how OTHER rows are judged, and it
  // teaches rather than exempts: a row in the group at a genuinely wrong value still flags (see
  // buildAcceptedRates / buildAcceptedCommissions).
+ //
+ // A rate flag always offers one more: "the market rate changed". Often the rate is neither special
+ // to this row nor to its label — the currency simply moved, for every row of the pair. That answer
+ // makes the row confirmed evidence of the move, which clears the pair's other rows from the same
+ // period across every label and client (see explainedByMarketMove), so it is offered even on an
+ // unlabelled row.
  const groupLabel = kind === 'rate' || kind === 'commission' ? (description ?? '').trim() : '';
- let scope: 'row' | 'description' = 'row';
- if (groupLabel) {
+ let scope: IgnoredAnomaly['scope'] = 'row';
+ if (groupLabel || kind === 'rate') {
   // The rate wording asks about "this rate"; the commission flag needs its own sentence.
-  const scopeHintKey = kind === 'commission' ? 'ignore_anomaly_scope_hint_commission' : 'ignore_anomaly_scope_hint';
+  const scopeHintKey = kind === 'commission' ? 'ignore_anomaly_scope_hint_commission' : groupLabel ? 'ignore_anomaly_scope_hint' : 'ignore_anomaly_scope_hint_market';
+  const choices: Array<{ key: IgnoredAnomaly['scope']; label: string }> = [{ key: 'row', label: t('ignore_anomaly_scope_row') }];
+  if (groupLabel) choices.push({ key: 'description', label: t('ignore_anomaly_scope_description', { description: groupLabel }) });
+  if (kind === 'rate') choices.push({ key: 'market', label: t('ignore_anomaly_scope_market') });
   const answer = await choiceDialog({
    message: `${message}\n\n${t(scopeHintKey, { description: groupLabel })}`,
-   choices: [
-    { key: 'row', label: t('ignore_anomaly_scope_row') },
-    { key: 'description', label: t('ignore_anomaly_scope_description', { description: groupLabel }) },
-   ],
+   choices,
   });
-  if (answer !== 'row' && answer !== 'description') return;
-  scope = answer;
+  const chosen = choices.find((choice) => choice.key === answer);
+  if (!chosen) return;
+  scope = chosen.key;
  } else if (!(await confirmDialog({ message, confirmText: t('ignore_anomaly_confirm_button') }))) {
   return;
  }
@@ -1499,7 +1506,7 @@ async function confirmIfLedgerAnomalies(entries: ClientLedgerEntry[], ledgerCurr
  // hints without an interruption on the way out, or the reverse. The checks below would return
  // nothing anyway when the engine is off, but returning early keeps the intent explicit.
  if (!reviewSettings.enabled || !reviewSettings.warnOnExport) return true;
- const rateSamples = buildRateSamples(transactions, reviewSettings);
+ const rateSamples = buildRateSamples(transactions, reviewSettings, ignoredAnomalies);
  const commissionSamples = buildCommissionSamples(transactions, reviewSettings);
  const flaggedRates = entries
   .map((entry) => ({ entry, anomaly: checkLedgerEntry(entry, ledgerCurrencyCode, rateSamples) }))
@@ -1560,7 +1567,7 @@ async function onExportLedgerPdf(
  toEntryKey?: string | null,
  selectionKeys?: string[] | null,
  showCurrencyTotals?: boolean,
- roundFinalBalance?: boolean,
+ finalBalanceDifference?: number | null,
 ) {
  if (!accountingApi) return;
  try {
@@ -1569,7 +1576,7 @@ async function onExportLedgerPdf(
   if (!(await confirmIfLedgerPendingPricing(selected))) return;
   const html = generateLedgerHtml(
    { t, numLocale, isRTL, language, pdfSettings },
-   { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder, pdfRowHidingEnabled, roundFinalBalance },
+   { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder, pdfRowHidingEnabled, finalBalanceDifference },
   );
   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: ledgerExportFileName(ledger, fromDate, toDate, 'pdf') });
   if (result.ok) setPdfExportModal(null);

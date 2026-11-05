@@ -39,6 +39,30 @@ const RATE_FLOOR_MARGIN = 0.02;
 // the cross-currency check, so it needs no reference pool and fires unconditionally.
 const SAME_CURRENCY_TOLERANCE = 1e-6;
 
+// The band above is drawn from a pair's whole history, which says nothing about WHEN each rate
+// was recorded. When the market itself moves — a currency dropping several percent in a week —
+// every description group flags its first row at the new price, one after another, and a large
+// pool keeps flagging until ~2% of its entire history sits at the new level (dozens of rows).
+// The trouble is that a genuine move and the mistake this check exists for (a rate borrowed from
+// another currency, ~10% off) are the same size, so no margin can tell them apart. Context can:
+// when the market moves, the OTHER rows of the pair recorded around the same time moved by the
+// same ratio, across other labels and other clients; when a rate is borrowed, they did not.
+// So a rate that fails the band gets one more look — see explainedByMarketMove.
+//
+// "Around the same time" is the pair's nearest rows in time rather than a fixed calendar window,
+// because pairs trade at wildly different volumes: a busy pair has dozens of rows a day, while a
+// quiet one (observed live: SAR->MAD, ~2 rows a week, climbing 2.56 -> 2.77 over six weeks) would
+// never fill a one-week window and so never be heard. The cap on distance keeps a pair with no
+// recent activity from being "corroborated" by rows from another season.
+const RATE_MARKET_PEERS = 6;
+const RATE_MARKET_MAX_GAP_MS = 30 * 24 * 60 * 60 * 1000;
+// How much corroboration that look demands before it believes the market moved. Several rows, and
+// from more than one account: the same wrong rate typed three times into one client's ledger is a
+// repeated slip, not a market. A user-confirmed move (an ignore answered "the market rate changed")
+// needs no such quorum — it is the owner stating outright what these thresholds try to infer.
+const MIN_MARKET_PEERS = 3;
+const MIN_MARKET_ACCOUNTS = 2;
+
 export type RateAnomaly = {
  transactionId: number;
  pairKey: string;
@@ -47,7 +71,9 @@ export type RateAnomaly = {
  sampleSize: number;
 };
 
-type RateSample = { transactionId: number; rate: number };
+// `ts` is NaN for a transaction without a readable date, which keeps it out of every time-based
+// comparison (NaN compares false) — an undated history simply never gets the market look.
+type RateSample = { transactionId: number; accountId: number; rate: number; ts: number; descriptionKey: string; confirmedMove: boolean };
 
 // Which side of a transaction a leg sits on: 'from' (it sent/converted out) or 'to' (it received).
 type LegSide = 'from' | 'to';
@@ -122,24 +148,35 @@ export type RateReference = {
  settings: ReviewEngineSettings;
 };
 
-export function buildRateSamples(transactions: Transaction[], settings: ReviewEngineSettings = DEFAULT_REVIEW_SETTINGS): RateReference {
+// `ignored` is read only for the rows the user dismissed as "the market rate changed"
+// (`scope: 'market'`), which become confirmed evidence of a move — see explainedByMarketMove.
+export function buildRateSamples(transactions: Transaction[], settings: ReviewEngineSettings = DEFAULT_REVIEW_SETTINGS, ignored: IgnoredAnomaly[] = []): RateReference {
  const samples = new Map<string, RateSample[]>();
+ const confirmedMoves = new Set(ignored.filter((entry) => entry.kind === 'rate' && entry.scope === 'market').map((entry) => `${entry.transactionId}:${entry.accountId}`));
  // Every leg lands in two buckets: the pair-wide pool, and the pair narrowed to its own
  // description. referenceRateFor prefers the narrower one when it has enough history to speak
  // for itself and falls back to the wide one otherwise, so a workspace that types nothing keeps
  // exactly the behaviour it had.
- const addLeg = (fromCode: string, toCode: string, side: LegSide, tx: Transaction, rate: number) => {
-  const sample = { transactionId: tx.id, rate };
+ const addLeg = (fromCode: string, toCode: string, side: LegSide, accountId: number, tx: Transaction, rate: number) => {
+  const descriptionKey = sideDescription(tx, side);
+  const sample: RateSample = {
+   transactionId: tx.id,
+   accountId,
+   rate,
+   ts: new Date(tx.createdAt).getTime(),
+   descriptionKey,
+   confirmedMove: confirmedMoves.has(`${tx.id}:${accountId}`),
+  };
   addSample(samples, pairKey(fromCode, toCode), sample);
-  addSample(samples, pairDescriptionKey(fromCode, toCode, sideDescription(tx, side)), sample);
+  addSample(samples, pairDescriptionKey(fromCode, toCode, descriptionKey), sample);
  };
  for (const tx of transactions) {
   if (tx.isArchived) continue;
   if (tx.accountFromId != null && tx.currencyCode !== tx.accountFromCurrencyCode && tx.exchangeRateFrom > 0) {
-   addLeg(tx.currencyCode, tx.accountFromCurrencyCode, 'from', tx, tx.exchangeRateFrom);
+   addLeg(tx.currencyCode, tx.accountFromCurrencyCode, 'from', tx.accountFromId, tx, tx.exchangeRateFrom);
   }
   if (tx.accountToId != null && tx.currencyCode !== tx.accountToCurrencyCode && tx.exchangeRateTo > 0) {
-   addLeg(tx.currencyCode, tx.accountToCurrencyCode, 'to', tx, tx.exchangeRateTo);
+   addLeg(tx.currencyCode, tx.accountToCurrencyCode, 'to', tx.accountToId, tx, tx.exchangeRateTo);
   }
  }
  return { buckets: samples, settings };
@@ -182,23 +219,113 @@ export function referenceRateFor(
  excludeTransactionId: number,
  descriptionKey = '',
 ): { rate: number; sampleSize: number; low: number; high: number; scopedToDescription: boolean } | null {
+ const pool = selectRatePool(reference, fromCode, toCode, descriptionKey, (s) => s.transactionId !== excludeTransactionId);
+ if (!pool) return null;
+ return { ...rateBand(pool.sorted), sampleSize: pool.sorted.length, scopedToDescription: pool.scopedToDescription };
+}
+
+// The rates a row is judged against, narrowed to the samples `keep` admits, sorted ascending.
+// The row's own description group speaks for it when it has enough history of its own; only
+// then does the pair-wide pool step aside. A group below the threshold has no signal to offer,
+// so falling back is what keeps a brand-new label from being unjudged entirely.
+function selectRatePool(
+ reference: RateReference,
+ fromCode: string,
+ toCode: string,
+ descriptionKey: string,
+ keep: (sample: RateSample) => boolean,
+): { sorted: number[]; scopedToDescription: boolean } | null {
  const minSamples = reference.settings.rate.minSamples;
- const others = (key: string) => (reference.buckets.get(key) ?? []).filter((s) => s.transactionId !== excludeTransactionId).map((s) => s.rate);
- // The row's own description group speaks for it when it has enough history of its own; only
- // then does the pair-wide pool step aside. A group below the threshold has no signal to offer,
- // so falling back is what keeps a brand-new label from being unjudged entirely.
- const grouped = descriptionKey ? others(pairDescriptionKey(fromCode, toCode, descriptionKey)) : [];
+ const rates = (key: string) => (reference.buckets.get(key) ?? []).filter(keep).map((s) => s.rate);
+ const grouped = descriptionKey ? rates(pairDescriptionKey(fromCode, toCode, descriptionKey)) : [];
  const scopedToDescription = grouped.length >= minSamples;
- const pool = scopedToDescription ? grouped : others(pairKey(fromCode, toCode));
+ const pool = scopedToDescription ? grouped : rates(pairKey(fromCode, toCode));
  if (pool.length < minSamples) return null;
- const sorted = [...pool].sort((a, b) => a - b);
- return {
-  rate: median(sorted),
-  sampleSize: sorted.length,
-  low: percentile(sorted, RATE_LOW_PERCENTILE),
-  high: percentile(sorted, RATE_HIGH_PERCENTILE),
-  scopedToDescription,
+ return { sorted: pool.sort((a, b) => a - b), scopedToDescription };
+}
+
+function rateBand(sorted: number[]): { rate: number; low: number; high: number } {
+ return { rate: median(sorted), low: percentile(sorted, RATE_LOW_PERCENTILE), high: percentile(sorted, RATE_HIGH_PERCENTILE) };
+}
+
+// Room left around a band before a rate falls outside it — see RATE_SPREAD_MARGIN.
+function rateMargin(band: { rate: number; low: number; high: number }, settings: ReviewEngineSettings): number {
+ const sensitivity = SENSITIVITY_MULTIPLIER[settings.rate.sensitivity];
+ return Math.max((band.high - band.low) * RATE_SPREAD_MARGIN * sensitivity, band.rate * RATE_FLOOR_MARGIN * sensitivity);
+}
+
+/**
+ * Whether a rate that fell outside its band is explained by the whole market having moved — see
+ * RATE_MARKET_PEERS. Only ever consulted for a rate already flagged, so it can clear a warning
+ * but never raise one.
+ *
+ * The pair's rows nearest in time to this one (any label, any client) are its peers, and
+ * everything is measured against history from BEFORE the earliest of them — the level the move is
+ * being judged against. Each peer says how far it sits from its own group's level then; the
+ * typical ratio across them is how far the market moved. The row passes if it sits close to its
+ * own group's earlier level carried along by that ratio. Measuring every peer against its OWN group is what keeps the
+ * mix of labels out of it: a stretch that happens to hold mostly an expensive label's rows is not
+ * a market move.
+ *
+ * Each account casts one vote and the median is taken across accounts, so one client's ledger —
+ * however many of the peers it holds — is one voice. That is what keeps a borrowed
+ * rate typed into several rows of the same ledger from vouching for itself.
+ */
+function explainedByMarketMove(reference: RateReference, fromCode: string, toCode: string, transactionId: number, descriptionKey: string, enteredRate: number): boolean {
+ const pairSamples = reference.buckets.get(pairKey(fromCode, toCode)) ?? [];
+ // A row absent from the samples is an unsaved one being previewed, which is happening now.
+ const at = pairSamples.find((s) => s.transactionId === transactionId)?.ts ?? Date.now();
+ if (!Number.isFinite(at)) return false;
+ const peers = pairSamples
+  .filter((s) => s.transactionId !== transactionId && Math.abs(s.ts - at) <= RATE_MARKET_MAX_GAP_MS)
+  .sort((a, b) => Math.abs(a.ts - at) - Math.abs(b.ts - at))
+  .slice(0, RATE_MARKET_PEERS);
+ if (peers.length === 0) return false;
+ const before = Math.min(at, ...peers.map((s) => s.ts));
+ const priorHistory = (s: RateSample) => s.ts < before;
+ const baseline = selectRatePool(reference, fromCode, toCode, descriptionKey, priorHistory);
+ if (!baseline) return false;
+
+ const groupLevels = new Map<string, number | null>();
+ const levelFor = (groupKey: string) => {
+  let level = groupLevels.get(groupKey);
+  if (level === undefined) {
+   const pool = selectRatePool(reference, fromCode, toCode, groupKey, priorHistory);
+   level = pool ? median(pool.sorted) : null;
+   groupLevels.set(groupKey, level);
+  }
+  return level;
  };
+ // One vote per account, cast by its row nearest in time (peers are already in that order). The
+ // nearest rather than an average, because a move is most visible in the latest rows: averaging an
+ // account's just-moved row with its older ones would water the move down exactly when it matters.
+ const moveByAccount = new Map<number, number>();
+ const confirmedMoves: number[] = [];
+ let peerCount = 0;
+ for (const peer of peers) {
+  const level = levelFor(peer.descriptionKey);
+  if (level == null) continue;
+  const move = peer.rate / level;
+  if (peer.confirmedMove) confirmedMoves.push(move);
+  if (!moveByAccount.has(peer.accountId)) moveByAccount.set(peer.accountId, move);
+  peerCount++;
+ }
+ let move: number;
+ if (confirmedMoves.length > 0) {
+  move = median(confirmedMoves);
+ } else {
+  if (peerCount < MIN_MARKET_PEERS || moveByAccount.size < MIN_MARKET_ACCOUNTS) return false;
+  move = median([...moveByAccount.values()]);
+ }
+ // A "move" the size of a ×/÷ mixup is not a market; whatever produced it, it explains nothing.
+ if (!(move <= MAX_RATE_RATIO && move >= MIN_RATE_RATIO)) return false;
+ // Where this group's rate should sit now: its usual level carried along by the move. Judged
+ // against that one point with only the floor share of room — NOT by scaling the group's whole
+ // band. On a pair that has been climbing for months the band already spans the climb, so scaling
+ // it by the climb counts the trend twice (observed live: a USD row typed at 10.70 on a day every
+ // other USD row was 10.23, waved through by a band stretched up to ~10.95).
+ const expected = median(baseline.sorted) * move;
+ return Math.abs(enteredRate - expected) <= expected * RATE_FLOOR_MARGIN * SENSITIVITY_MULTIPLIER[reference.settings.rate.sensitivity];
 }
 
 // Core check, reused by both the export gate and the ledger-row badge.
@@ -225,8 +352,7 @@ export function checkRate(
  // Widen the pair's observed range before comparing — see RATE_SPREAD_MARGIN. Both bounds are
  // checked (not just the low one) so a rate borrowed from a stronger currency is caught the same
  // way as one borrowed from a weaker one.
- const sensitivity = SENSITIVITY_MULTIPLIER[settings.rate.sensitivity];
- const margin = Math.max((ref.high - ref.low) * RATE_SPREAD_MARGIN * sensitivity, ref.rate * RATE_FLOOR_MARGIN * sensitivity);
+ const margin = rateMargin(ref, settings);
  const outsideObservedRange = enteredRate < ref.low - margin || enteredRate > ref.high + margin;
  if (!grosslyOff && !outsideObservedRange) return null;
  // Last word goes to what the user explicitly accepted for this description group. Judged against
@@ -235,6 +361,7 @@ export function checkRate(
  // 9.50 among a group of 10.10s — still gets flagged.
  const accepted = descriptionKey ? acceptedRates?.get(pairDescriptionKey(fromCode, toCode, descriptionKey)) : undefined;
  if (accepted?.some((rate) => Math.abs(enteredRate - rate) <= margin)) return null;
+ if (explainedByMarketMove(reference, fromCode, toCode, transactionId, descriptionKey, enteredRate)) return null;
  return { transactionId, pairKey: pairKey(fromCode, toCode), enteredRate, referenceRate: ref.rate, sampleSize: ref.sampleSize };
 }
 
@@ -716,7 +843,7 @@ export function buildWorkspaceAnomalies(
 ): FlaggedAnomaly[] {
  // Switched off means the review queue is empty, not merely hidden — the whole scan is skipped.
  if (!settings.enabled) return [];
- const rateSamples = buildRateSamples(transactions, settings);
+ const rateSamples = buildRateSamples(transactions, settings, ignoredAnomalies);
  const commissionSamples = buildCommissionSamples(transactions, settings);
  const acceptedRates = buildAcceptedRates(transactions, ignoredAnomalies);
  const acceptedCommissions = buildAcceptedCommissions(transactions, ignoredAnomalies);

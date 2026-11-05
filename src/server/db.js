@@ -2404,7 +2404,7 @@ async function createIgnoredAnomaly(app, { kind, transactionId, accountId, scope
     if (kind !== 'rate' && kind !== 'commission' && kind !== 'pendingRate') throw new Error('Invalid anomaly kind.');
     if (!transactionId) throw new Error('A transaction is required.');
     if (!accountId) throw new Error('An account is required.');
-    const resolvedScope = scope === 'description' ? 'description' : 'row';
+    const resolvedScope = scope === 'description' || (scope === 'market' && kind === 'rate') ? scope : 'row';
     await assertMemberCanWriteAccount(app, accountId);
     await assertAccountsLive(schema, [accountId]);
     await assertTransactionLive(schema, transactionId);

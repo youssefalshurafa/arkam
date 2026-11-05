@@ -8,6 +8,7 @@ import { getStoredPdfDateRange, savePdfCols, savePdfDateRange } from '@/shared/l
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { suggestRoundedBalance } from '@/shared/utils/accountBalances';
+import { formatAmountInput, normalizeDecimalInput } from '@/shared/utils/decimal';
 import { ledgerEntryKey, highlightedExportRange, isHiddenFromExport, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import { useAiLedgerReview } from '@/features/ledger/hooks/useAiLedgerReview';
@@ -18,7 +19,7 @@ type PdfExportModalProps = {
  selectedClientLedgers: ClientAccountLedger[];
  selectedClientForLedger: Client | null;
  pdfAllColumns: Array<{ key: LedgerColumnKey; label: string }>;
- onExportLedgerPdf: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean, roundFinalBalance?: boolean) => void;
+ onExportLedgerPdf: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean, finalBalanceDifference?: number | null) => void;
  onExportLedgerExcel: (ledger: ClientAccountLedger, fromDate: string, toDate: string, colVisibility: PdfColVisibility, fromEntryKey?: string | null, toEntryKey?: string | null, selectionKeys?: string[] | null, showCurrencyTotals?: boolean) => void;
  pdfRowHidingEnabled: boolean;
 };
@@ -55,6 +56,13 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
        const preBalance = ledger.startingBalance + ledger.entries.slice(0, cutoffIndex < 0 ? 0 : cutoffIndex).reduce((sum, e) => sum + e.netChange, 0);
        // The statement's closing balance, as the PDF computes it: hidden rows still count.
        const closingBalance = preBalance + inRange.reduce((sum, e) => sum + e.netChange, 0);
+       // Rounding prints the closing balance plus a difference: the suggested one until the user
+       // types their own — e.g. trimming just the 0.6 off -550,080.6 rather than adding the
+       // suggested -19.4 to reach -550,100. Kept to cents so the printed figure has no float residue.
+       const suggestedDifference = Math.round((suggestRoundedBalance(closingBalance) - closingBalance) * 100) / 100;
+       const typedDifference = pdfExportModal.roundDifference == null ? null : parseFloat(normalizeDecimalInput(pdfExportModal.roundDifference));
+       const roundDifference = typedDifference == null ? suggestedDifference : Number.isFinite(typedDifference) ? typedDifference : 0;
+       const roundedBalance = Math.round((closingBalance + roundDifference) * 100) / 100;
        // Opened from sum mode's "export selected rows": the rows are fixed, so the range
        // controls are hidden and the balance column becomes optional (see generateLedgerHtml).
        const isSelection = Boolean(pdfExportModal.selectionKeys);
@@ -264,7 +272,6 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            {isSelection
             ? null
             : (() => {
-               const rounded = suggestRoundedBalance(closingBalance);
                const format = (value: number) => `${value.toLocaleString(numLocale, { maximumFractionDigits: 2 })} ${ledger.currencySymbol || ledger.currencyCode}`;
                return (
                 <div className="flex flex-col gap-1">
@@ -286,17 +293,32 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
                    >
                     {isRTL ? '←' : '→'}
                    </span>
-                   <span className={rounded < 0 ? 'text-bad-text' : 'text-good-text'}>{format(rounded)}</span>
+                   <span className={roundedBalance < 0 ? 'text-bad-text' : 'text-good-text'}>{format(roundedBalance)}</span>
                   </p>
                  ) : null}
                  {pdfExportModal.roundFinalBalance && inRange.length > 0 ? (
-                  <p className="flex flex-wrap items-center gap-2 ps-6 text-sm">
+                  <div className="flex flex-wrap items-center gap-2 ps-6 text-sm">
                    <span className="text-fg-muted">{t('export_round_final_balance_difference')}</span>
-                   <span className={`font-semibold ${rounded - closingBalance < 0 ? 'text-bad-text' : 'text-good-text'}`}>
-                    {rounded - closingBalance > 0 ? '‎+' : ''}
-                    {format(rounded - closingBalance)}
-                   </span>
-                  </p>
+                   <input
+                    type="text"
+                    inputMode="decimal"
+                    dir="ltr"
+                    value={pdfExportModal.roundDifference ?? formatAmountInput(String(suggestedDifference))}
+                    onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, roundDifference: formatAmountInput(e.target.value) } : prev))}
+                    aria-label={t('export_round_final_balance_difference')}
+                    className={`w-28 rounded border border-border-strong bg-surface px-2 py-1 text-sm font-semibold outline-none ring-blue-300 focus:ring ${roundDifference < 0 ? 'text-bad-text' : 'text-good-text'}`}
+                   />
+                   <span className="text-fg-faint">{ledger.currencySymbol || ledger.currencyCode}</span>
+                   {pdfExportModal.roundDifference != null ? (
+                    <button
+                     type="button"
+                     onClick={() => setPdfExportModal((prev) => (prev ? { ...prev, roundDifference: null } : prev))}
+                     className="text-xs font-medium text-accent hover:underline"
+                    >
+                     {t('export_round_final_balance_reset')}
+                    </button>
+                   ) : null}
+                  </div>
                  ) : null}
                  <p className="ps-6 text-xs text-fg-faint">{t('export_round_final_balance_hint')}</p>
                 </div>
@@ -412,7 +434,7 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
            <button
             type="button"
             onClick={() =>
-             void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey, pdfExportModal.selectionKeys, pdfExportModal.showCurrencyTotals, pdfExportModal.roundFinalBalance)
+             void onExportLedgerPdf(ledger, pdfExportModal.fromDate, pdfExportModal.toDate, pdfExportModal.cols, pdfExportModal.fromEntryKey, pdfExportModal.toEntryKey, pdfExportModal.selectionKeys, pdfExportModal.showCurrencyTotals, pdfExportModal.roundFinalBalance && !isSelection ? roundDifference : null)
             }
             disabled={exportDisabled}
             className="flex items-center gap-1.5 rounded bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"

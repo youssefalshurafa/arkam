@@ -200,6 +200,112 @@ describe('exchange-rate anomaly detection', () => {
    expect(buildAcceptedRates(rows, [rowScoped]).size).toBe(0);
   });
  });
+
+ // The reported nuisance (2026-11-05): the workspace's main currency dropped sharply within a week,
+ // so every description group flagged its first row at the new price — "Jeddah" usually ~2.574,
+ // this row 2.77. Neither "this row only" nor "normal for Jeddah" was true; the market had moved.
+ describe('when the whole market moved', () => {
+  const NOW = Date.parse('2026-11-03T12:00:00.000Z');
+  const DAY = 24 * 60 * 60 * 1000;
+  // A leg credited to `accountId` at `daysAgo` before NOW.
+  const dated = (currencyCode: string, rate: number, description: string, accountId: number, daysAgo: number): Transaction =>
+   ({ ...tx(currencyCode, rate, description), accountToId: accountId, createdAt: new Date(NOW - daysAgo * DAY).toISOString() }) as Transaction;
+  const marketConfirmed = (row: Transaction): IgnoredAnomaly => ({ id: row.id, kind: 'rate', transactionId: row.id, accountId: row.accountToId as number, scope: 'market', createdAt: '2026-11-03T00:00:00.000Z' });
+
+  // Months of history at the old level, each label at its own price.
+  const oldHistory = () => [
+   ...[2.57, 2.574, 2.578, 2.572, 2.576, 2.574, 2.575].map((r, i) => dated('SAR', r, 'Jeddah', 10, 30 + i * 5)),
+   ...Array.from({ length: 20 }, (_, i) => dated('SAR', 2.59 + (i % 5) / 200, 'Riyadh', 11, 20 + i * 3)),
+   ...Array.from({ length: 20 }, (_, i) => dated('SAR', 2.54 + (i % 5) / 200, 'Makkah', 12, 20 + i * 3)),
+  ];
+  const check = (rows: Transaction[], row: Transaction, ignored: IgnoredAnomaly[] = []) =>
+   checkRate(row.exchangeRateTo, 'SAR', 'MAD', row.id, buildRateSamples(rows, DEFAULT_REVIEW_SETTINGS, ignored), 'jeddah');
+
+  it('flags the first row at the new price when nothing else corroborates it', () => {
+   const row = dated('SAR', 2.77, 'Jeddah', 10, 0);
+   expect(check([...oldHistory(), row], row)).not.toBeNull();
+  });
+
+  it('clears it once other labels and clients moved by the same ratio this week', () => {
+   const recent = [dated('SAR', 2.8, 'Riyadh', 11, 2), dated('SAR', 2.745, 'Makkah', 12, 1), dated('SAR', 2.79, 'Riyadh', 13, 3)];
+   const row = dated('SAR', 2.77, 'Jeddah', 10, 0);
+   expect(check([...oldHistory(), ...recent, row], row)).toBeNull();
+  });
+
+  it('still flags a rate the market did not move to', () => {
+   const recent = [dated('SAR', 2.8, 'Riyadh', 11, 2), dated('SAR', 2.745, 'Makkah', 12, 1), dated('SAR', 2.79, 'Riyadh', 13, 3)];
+   const row = dated('SAR', 3.05, 'Jeddah', 10, 0);
+   expect(check([...oldHistory(), ...recent, row], row)).not.toBeNull();
+  });
+
+  // One client's ledger is one voice, however many rows it holds in the window.
+  it('does not take several rows from a single account as the market', () => {
+   const recent = [dated('SAR', 2.8, 'Riyadh', 11, 2), dated('SAR', 2.79, 'Riyadh', 11, 1), dated('SAR', 2.81, 'Riyadh', 11, 3)];
+   const row = dated('SAR', 2.77, 'Jeddah', 10, 0);
+   expect(check([...oldHistory(), ...recent, row], row)).not.toBeNull();
+  });
+
+  // The incident the band exists for (2026-09-04) must survive: a EUR row given the USDT rate,
+  // while the EUR rows around it — the market — stayed where they were. Two copies of the same
+  // slip in the row's own ledger must not vouch for it either.
+  it('still flags a EUR row given the USDT rate, even repeated in the same ledger', () => {
+   const rows = [
+    ...Array.from({ length: 300 }, (_, i) => dated('EUR', 10.7 + (i % 5) / 20, 'Roma', 11 + (i % 2), 20 + i)),
+    dated('EUR', 10.8, 'Roma', 11, 2),
+    dated('EUR', 9.67, 'Roma', 10, 1),
+    dated('EUR', 9.67, 'Roma', 10, 1),
+   ];
+   const row = dated('EUR', 9.67, 'Roma', 10, 0);
+   rows.push(row);
+   expect(checkRate(9.67, 'EUR', 'MAD', row.id, buildRateSamples(rows), 'roma')).not.toBeNull();
+  });
+
+  // A large pool's 98th percentile only moves once ~2% of its whole history sits at the new level;
+  // corroboration is what spares the dozens of rows in between.
+  it('clears a new-level row in a large pool once the move is corroborated', () => {
+   const old = Array.from({ length: 2000 }, (_, i) => dated('EUR', 10.75 + (i % 11) / 100, '', 11 + (i % 3), 10 + (i % 300)));
+   const recent = [dated('EUR', 11.6, '', 11, 1), dated('EUR', 11.62, '', 12, 2), dated('EUR', 11.58, '', 13, 3)];
+   const row = dated('EUR', 11.6, '', 10, 0);
+   const samples = buildRateSamples([...old, ...recent, row]);
+   expect(checkRate(11.6, 'EUR', 'MAD', row.id, samples)).toBeNull();
+   const alone = buildRateSamples([...old, row]);
+   expect(checkRate(11.6, 'EUR', 'MAD', row.id, alone)).not.toBeNull();
+  });
+
+  // Shaped after the live SAR->MAD pool that prompted this (2026-11-05): ~2 rows a week, every
+  // label following one market that climbed 2.56 -> 2.77 over six weeks. Jeddah's own history was
+  // all from before the climb, while the latest rows of other labels sat right beside 2.77.
+  it('follows a slow climb on a quiet pair', () => {
+   const climb: Array<[number, string, number, number]> = [
+    [2.628, 'Makkah', 263, 35], [2.627, 'Makkah', 337, 34], [2.65, 'Makkah', 337, 31], [2.67, 'Makkah', 337, 24],
+    [2.67, 'Makkah', 263, 24], [2.69, 'Makkah', 337, 19], [2.693, 'Almadinah', 263, 18], [2.71, 'Almadinah', 263, 15],
+    [2.71, 'Makkah', 337, 13], [2.728, 'Makkah', 263, 11], [2.775, 'Makkah', 337, 6],
+   ];
+   const rows = [
+    ...[2.54, 2.56, 2.58, 2.6, 2.574, 2.563, 2.584].map((r, i) => dated('SAR', r, 'Jeddah', 263, 95 - i * 7)),
+    ...Array.from({ length: 14 }, (_, i) => dated('SAR', 2.53 + (i % 4) / 100, 'Makkah', 337, 120 - i * 6)),
+    ...climb.map(([r, label, account, daysAgo]) => dated('SAR', r, label, account, daysAgo)),
+   ];
+   const row = dated('SAR', 2.77, 'Jeddah', 267, 0);
+   expect(check([...rows, row], row)).toBeNull();
+   // …while a Jeddah row nowhere near where the market went still flags.
+   const wrong = dated('SAR', 2.95, 'Jeddah', 267, 0);
+   expect(check([...rows, wrong], wrong)).not.toBeNull();
+  });
+
+  // "The market rate changed" is the owner stating the move outright: one such answer vouches for
+  // the pair's other rows around that time with no quorum — but not for rows a season away.
+  it('lets a confirmed market move clear other labels nearby in time only', () => {
+   const confirmed = dated('SAR', 2.8, 'Riyadh', 11, 1);
+   const sameWeek = dated('SAR', 2.77, 'Jeddah', 10, 0);
+   const rows = [...oldHistory(), confirmed, sameWeek];
+   expect(check(rows, sameWeek)).not.toBeNull();
+   expect(check(rows, sameWeek, [marketConfirmed(confirmed)])).toBeNull();
+
+   const weeksLater = dated('SAR', 2.77, 'Jeddah', 10, -45);
+   expect(check([...oldHistory(), confirmed, weeksLater], weeksLater, [marketConfirmed(confirmed)])).not.toBeNull();
+  });
+ });
 });
 
 

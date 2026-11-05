@@ -436,7 +436,10 @@ export type IgnoredAnomaly = {
  // 'row' dismisses just this row. 'description' additionally accepts this row's rate as normal
  // for other rows carrying the same description — see buildAcceptedRates in ledgerAnomalies.ts.
  // It never switches the check off for the group; a row far from every accepted rate still flags.
- scope: 'row' | 'description';
+ // 'market' (rates only) says the market itself moved: the row becomes confirmed evidence of that
+ // move for every other row of its currency pair recorded around the same time — see
+ // explainedByMarketMove in ledgerAnomalies.ts.
+ scope: 'row' | 'description' | 'market';
  createdAt: string;
 };
 

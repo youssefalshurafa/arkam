@@ -2057,7 +2057,7 @@ function AuthenticatedHome() {
  // would still fire. That last set is what makes an ignore reversible — without it a dismissed
  // warning leaves no trace anywhere, so there is no row to go back to and nothing to click.
  const ledgerAnomalyState = useMemo(() => {
-  const rateSamples = buildRateSamples(transactions, reviewSettings);
+  const rateSamples = buildRateSamples(transactions, reviewSettings, ignoredAnomalies);
   const commissionSamples = buildCommissionSamples(transactions, reviewSettings);
   const acceptedRates = buildAcceptedRates(transactions, ignoredAnomalies);
   const acceptedCommissions = buildAcceptedCommissions(transactions, ignoredAnomalies);
