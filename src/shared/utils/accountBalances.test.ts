@@ -2,14 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { isWriteOffEligible, suggestRoundedBalance } from './accountBalances';
 
 describe('suggestRoundedBalance', () => {
- it('rounds large balances to the nearest hundred, keeping the sign', () => {
-  expect(suggestRoundedBalance(-5_407_978)).toBe(-5_408_000);
-  expect(suggestRoundedBalance(-2_793_612.76)).toBe(-2_793_600);
-  expect(suggestRoundedBalance(432_022)).toBe(432_000);
- });
-
- it('uses a smaller step for smaller balances', () => {
-  expect(suggestRoundedBalance(12_345)).toBe(12_300);
+ // The smallest clean-up, at any size — the user's own examples.
+ it('rounds to the nearest ten, keeping the sign', () => {
+  expect(suggestRoundedBalance(-8_079_071.57)).toBe(-8_079_070);
+  expect(suggestRoundedBalance(-550_080.6)).toBe(-550_080);
+  expect(suggestRoundedBalance(-2_793_612.76)).toBe(-2_793_610);
+  expect(suggestRoundedBalance(432_026)).toBe(432_030);
   expect(suggestRoundedBalance(-747)).toBe(-750);
  });
 
