@@ -85,10 +85,11 @@ export function writeOffMarginMap(margins: Array<{ currencyId: number; threshold
 
 // A "round" figure near `balance` for the ledger's round-balance action to offer as its default
 // target, so the other party can settle with a clean number (-5,407,978 → -5,408,000). The step
-// grows with the balance's size — rounding 750 to the nearest thousand would change it by more
-// than anyone means by "rounding". Sign is kept; the user can still type any target they like.
+// stays small (10 below 1,000, otherwise 100) so the adjustment is the smallest one that cleans
+// the figure up: -2,793,612.76 should become -2,793,600, not jump 387 to -2,794,000. Sign is
+// kept; the user can still type any target they like.
 export function suggestRoundedBalance(balance: number): number {
  const magnitude = Math.abs(balance);
- const step = magnitude < 1_000 ? 10 : magnitude < 100_000 ? 100 : 1_000;
+ const step = magnitude < 1_000 ? 10 : 100;
  return Math.sign(balance) * Math.round(magnitude / step) * step;
 }

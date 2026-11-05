@@ -1694,7 +1694,6 @@ function AuthenticatedHome() {
   onDeleteClient,
   onDeleteAllClients,
   onWriteOffBalance,
-  onRoundBalance,
   onAddClientAccount,
   onSaveEditAccount,
   onDeleteClientAccount,
@@ -2798,7 +2797,6 @@ function AuthenticatedHome() {
          setClientAccounts={setClientAccounts}
          writeOffMargins={writeOffMargins}
          onWriteOffBalance={onWriteOffBalance}
-         onRoundBalance={onRoundBalance}
          setLedgerRowClickMode={setLedgerRowClickMode}
          toggleLedgerRowHighlight={toggleLedgerRowHighlight}
          selectLedgerRowHighlightPreset={selectLedgerRowHighlightPreset}

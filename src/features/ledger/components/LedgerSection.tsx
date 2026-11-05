@@ -126,7 +126,6 @@ type LedgerSectionProps = {
  onToggleLedgerRowPdfHidden: (entry: ClientLedgerEntry, accountId: number) => void;
  writeOffMargins: WriteOffMargin[];
  onWriteOffBalance: (accountId: number, balance: number, dateKey?: string) => void;
- onRoundBalance: (accountId: number, balance: number, dateKey?: string) => void;
 };
 
 // Deep-link ("jump to this flagged row") safety bounds — see the two effects that use them.
@@ -147,7 +146,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
-  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, pdfRowHidingEnabled, isWorkspaceOwner, onToggleLedgerRowPdfHidden, writeOffMargins, onWriteOffBalance, onRoundBalance,
+  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, pdfRowHidingEnabled, isWorkspaceOwner, onToggleLedgerRowPdfHidden, writeOffMargins, onWriteOffBalance,
  } = props;
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
@@ -2195,19 +2194,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
                            // Dated the same day as this entry (not today) so the adjustment lands
                            // right after it in the ledger instead of jumping to the bottom.
                            onSelect: () => onWriteOffBalance(ledger.accountId, entry.runningBalance, entry.createdAt.slice(0, 10)),
-                          },
-                         ]
-                       : []),
-                      // Rounding offers the same row-anchored adjustment for any balance, not just
-                      // near-zero ones: it moves this row's running balance to a clean figure the
-                      // user picks, so the other party has a round number to settle.
-                      ...(entry.runningBalance !== 0
-                       ? [
-                          {
-                           key: 'round-balance',
-                           label: t('round_balance_action'),
-                           icon: renderIcon('round', 'h-4 w-4'),
-                           onSelect: () => onRoundBalance(ledger.accountId, entry.runningBalance, entry.createdAt.slice(0, 10)),
                           },
                          ]
                        : []),

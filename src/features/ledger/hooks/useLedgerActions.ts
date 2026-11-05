@@ -1560,6 +1560,7 @@ async function onExportLedgerPdf(
  toEntryKey?: string | null,
  selectionKeys?: string[] | null,
  showCurrencyTotals?: boolean,
+ roundFinalBalance?: boolean,
 ) {
  if (!accountingApi) return;
  try {
@@ -1568,7 +1569,7 @@ async function onExportLedgerPdf(
   if (!(await confirmIfLedgerPendingPricing(selected))) return;
   const html = generateLedgerHtml(
    { t, numLocale, isRTL, language, pdfSettings },
-   { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder, pdfRowHidingEnabled },
+   { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder, pdfRowHidingEnabled, roundFinalBalance },
   );
   const result = await accountingApi.exportLedgerPdf({ html, defaultFileName: ledgerExportFileName(ledger, fromDate, toDate, 'pdf') });
   if (result.ok) setPdfExportModal(null);

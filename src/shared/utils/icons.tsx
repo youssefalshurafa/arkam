@@ -253,14 +253,6 @@ export function renderIcon(icon: IconName, className = 'h-5 w-5') {
      <path d="m5 11 9 9" />
     </svg>
    );
-  case 'round':
-   // A "≈" mark: the balance is being moved to a nearby round figure.
-   return (
-    <svg {...commonProps}>
-     <path d="M4 9c2.5-2.5 5.5-2.5 8 0s5.5 2.5 8 0" />
-     <path d="M4 15c2.5-2.5 5.5-2.5 8 0s5.5 2.5 8 0" />
-    </svg>
-   );
   case 'arrow-up':
    return (
     <svg {...commonProps}>

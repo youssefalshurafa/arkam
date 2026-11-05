@@ -644,7 +644,7 @@ export type Section = 'overview' | 'settings' | 'organizations' | 'organization-
 export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest'
  // Row action-menu icons (ContextMenu items).
  | 'edit' | 'info' | 'copy' | 'eye' | 'eye-off' | 'trash'
- | 'check-circle' | 'x-circle' | 'percent' | 'eraser' | 'round' | 'note' | 'plus'
+ | 'check-circle' | 'x-circle' | 'percent' | 'eraser' | 'note' | 'plus'
  | 'arrow-up' | 'arrow-down' | 'arrow-up-to-line' | 'arrow-down-to-line';
 
 // A normalized live FX/gold quote, as returned by the /api/live-rates proxy.

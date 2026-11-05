@@ -17,6 +17,8 @@ export type PdfExportModalState = {
  // Selection exports: also total each amount currency (e.g. AED amounts on a MAD ledger), not
  // just the net change in the ledger's currency.
  showCurrencyTotals?: boolean;
+ // Statement exports: print the closing balance rounded to a clean figure (PDF only).
+ roundFinalBalance?: boolean;
 };
 
 // A transaction with only one real party — the client whose ledger

@@ -4,6 +4,7 @@ import { formatRateValue } from '@/shared/utils/format';
 import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
 import { isHiddenFromExport, ledgerEntryKey, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { isZeroMoney } from '@/shared/utils/money';
+import { suggestRoundedBalance } from '@/shared/utils/accountBalances';
 import type { Client, ClientAccountLedger, ClientLedgerEntry, LedgerColumnKey, PdfColVisibility, PdfSettings, Section, Transaction, TransactionColumnVisibility } from '@/shared/types';
 import { formatAmount } from '@/shared/utils/numberFormat';
 
@@ -280,10 +281,13 @@ export function generateLedgerHtml(
   ledgerColumnOrder: LedgerColumnKey[];
   // Workspace "Hide rows from PDF" switch: rows flagged pdfHidden are left out of the table.
   pdfRowHidingEnabled?: boolean;
+  // Statement exports: print the big closing balance rounded (suggestRoundedBalance) so the other
+  // party has a clean figure to pay. Display only — every row keeps its real running balance.
+  roundFinalBalance?: boolean;
  },
 ): string {
  const { t, numLocale, isRTL, language, pdfSettings } = ctx;
- const { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder, pdfRowHidingEnabled = false } = params;
+ const { ledger, fromDate, toDate, colVisibility, fromEntryKey, toEntryKey, selectionKeys, showCurrencyTotals, selectedClientForLedger, transactions, ledgerColumnOrder, pdfRowHidingEnabled = false, roundFinalBalance = false } = params;
   const esc = (value: string) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string);
   const filteredEntries = selectLedgerExportEntries(ledger.entries, { fromDate, toDate, fromEntryKey, toEntryKey, selectionKeys });
   // A selection export is a table of hand-picked rows, not a statement: rows in between are
@@ -425,6 +429,7 @@ export function generateLedgerHtml(
     return `<tr>${cells}</tr>`;
    })
    .join('');
+  const finalBalance = roundFinalBalance ? suggestRoundedBalance(runningBal) : runningBal;
 
   // Selection totals: amounts are summed per currency (a client's rows can mix currencies);
   // net change is always in the ledger's currency. Rows still awaiting a rate add nothing to
@@ -583,8 +588,8 @@ ${
  isSelection
   ? `<div class="final-balance" style="flex-wrap:wrap;column-gap:40px;row-gap:8px">${selectionSummaryItems.join('')}</div>`
   : `<div class="final-balance">
- <span class="fb-value ${runningBal >= 0 ? 'pos' : 'neg'}">${formatAmount(Math.abs(runningBal), numLocale, ledger.currencyCode, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
- <span class="fb-label">${isZeroMoney(runningBal) ? t('pdf_balance_zero') : runningBal < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
+ <span class="fb-value ${finalBalance >= 0 ? 'pos' : 'neg'}">${formatAmount(Math.abs(finalBalance), numLocale, ledger.currencyCode, { minimumFractionDigits: pdfSettings.decimals, maximumFractionDigits: pdfSettings.decimals })}${pdfSettings.showCurrencySymbol ? ` ${ledger.currencySymbol || ledger.currencyCode}` : ''}</span>
+ <span class="fb-label">${isZeroMoney(finalBalance) ? t('pdf_balance_zero') : finalBalance < 0 ? t('pdf_balance_ours') : t('pdf_balance_theirs')}</span>
 </div>`
 }
 ${pdfSettings.showFooter ? `<div class="footer">www.arkam.app &middot; ${t('export_generated_on')} ${exportDate}</div>` : ''}
