@@ -19,6 +19,9 @@ export type PdfExportModalState = {
  showCurrencyTotals?: boolean;
  // Statement exports: print the closing balance rounded to a clean figure (PDF only).
  roundFinalBalance?: boolean;
+ // The difference the user typed in place of the suggested one, as typed; null/absent means the
+ // suggestion (suggestRoundedBalance) stands.
+ roundDifference?: string | null;
 };
 
 // A transaction with only one real party — the client whose ledger
