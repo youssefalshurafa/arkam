@@ -467,6 +467,19 @@ export type WriteOffMargin = {
  threshold: number;
 };
 
+export type StickyNoteColor = 'yellow' | 'pink' | 'blue' | 'green' | 'purple';
+
+// A workspace-wide reminder shown on the Transactions and Home pages (see StickyNotesBoard).
+export type StickyNote = {
+ id: number;
+ content: string;
+ color: StickyNoteColor;
+ createdBy: string | null;
+ updatedBy: string | null;
+ createdAt: string;
+ updatedAt: string;
+};
+
 export type ClientAccountLedger = {
  accountId: number;
  currencyName: string;
@@ -643,8 +656,8 @@ export type TxFilterState = {
 
 export type SettingsTab = 'account' | 'team' | 'database' | 'language' | 'appearance' | 'clients' | 'organizations' | 'currencies' | 'danger' | 'pdf' | 'live-rates' | 'treasury' | 'ai' | 'writeoff' | 'review' | 'trash';
 
-export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'treasury' | 'harvest';
-export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'treasury' | 'harvest'
+export type Section = 'overview' | 'settings' | 'organizations' | 'organization-clients' | 'clients' | 'client-ledger' | 'currencies' | 'transactions' | 'archive' | 'live-rates' | 'price-calculator' | 'treasury' | 'harvest';
+export type IconName = 'home' | 'organizations' | 'clients' | 'currencies' | 'transactions' | 'settings' | 'database' | 'auth' | 'archive' | 'rates' | 'calculator' | 'treasury' | 'harvest'
  // Row action-menu icons (ContextMenu items).
  | 'edit' | 'info' | 'copy' | 'eye' | 'eye-off' | 'trash'
  | 'check-circle' | 'x-circle' | 'percent' | 'eraser' | 'note' | 'plus'

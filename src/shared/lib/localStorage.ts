@@ -175,6 +175,57 @@ export function saveLiveRatesInterval(value: number) {
   /* ignore quota / privacy-mode errors */
  }
 }
+
+// The Price Calculator page's last-typed inputs, per user (synced across devices — see
+// USER_ONLY_EXACT_KEYS in sharedTableSettings.ts). Values are kept as the raw typed strings
+// so the fields come back exactly as left. The foreign-per-USD rate is remembered per
+// currency code; the commission and the main-currency rate are shared across currencies.
+export const priceCalculatorStorageKey = 'arkam:price-calculator';
+
+export type StoredPriceCalculator = {
+ foreignCode: string;
+ amount: string;
+ commissionPct: string;
+ mainPerUsd: string;
+ foreignRates: Record<string, string>;
+};
+
+const emptyPriceCalculator: StoredPriceCalculator = { foreignCode: '', amount: '', commissionPct: '', mainPerUsd: '', foreignRates: {} };
+
+export function getStoredPriceCalculator(): StoredPriceCalculator {
+ if (typeof window === 'undefined') return emptyPriceCalculator;
+ try {
+  const raw = window.localStorage.getItem(priceCalculatorStorageKey);
+  if (!raw) return emptyPriceCalculator;
+  const parsed = JSON.parse(raw) as Partial<StoredPriceCalculator> | null;
+  if (!parsed || typeof parsed !== 'object') return emptyPriceCalculator;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  const foreignRates: Record<string, string> = {};
+  if (parsed.foreignRates && typeof parsed.foreignRates === 'object') {
+   for (const [code, rate] of Object.entries(parsed.foreignRates)) {
+    if (typeof rate === 'string') foreignRates[code] = rate;
+   }
+  }
+  return {
+   foreignCode: str(parsed.foreignCode),
+   amount: str(parsed.amount),
+   commissionPct: str(parsed.commissionPct),
+   mainPerUsd: str(parsed.mainPerUsd),
+   foreignRates,
+  };
+ } catch {
+  return emptyPriceCalculator;
+ }
+}
+
+export function savePriceCalculator(value: StoredPriceCalculator) {
+ try {
+  window.localStorage.setItem(priceCalculatorStorageKey, JSON.stringify(value));
+  notifySettingsChanged();
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
 // Remembers the last ledger account the user viewed per client, so refreshing the
 // page (or revisiting the client) restores that account instead of jumping to the first.
 export const ledgerLastAccountStorageKeyPrefix = 'arkam:ledger-last-account:';

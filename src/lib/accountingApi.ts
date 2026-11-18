@@ -1,6 +1,6 @@
 import { isTempTransactionId, resolveTransactionId, resolveTransactionIds } from '@/lib/pendingTransactionWrites';
 import { localDateKey } from '@/shared/utils/date';
-import type { SystemClient, TreasuryBalanceEntry, WriteOffMargin } from '@/shared/types';
+import type { StickyNote, StickyNoteColor, SystemClient, TreasuryBalanceEntry, WriteOffMargin } from '@/shared/types';
 import type { ReviewEngineSettings } from '@/features/ledger/utils/reviewSettings';
 
 const activeWorkspaceStorageKey = 'arkam.activeWorkspaceId';
@@ -340,6 +340,12 @@ export const accountingApi = {
  listWriteOffMargins: () => request<WriteOffMargin[]>({ action: 'listWriteOffMargins' }),
  saveWriteOffMargin: (payload: { currencyId: number; threshold: number }) =>
   request<{ ok: true; deleted?: boolean; row?: WriteOffMargin }>({ action: 'saveWriteOffMargin', payload }),
+ listStickyNotes: () => request<StickyNote[]>({ action: 'listStickyNotes' }),
+ createStickyNote: (payload: { content?: string; color?: StickyNoteColor }) => request<StickyNote>({ action: 'createStickyNote', payload }),
+ // Silent: typing saves in the background, the loading bar shouldn't flicker on every pause.
+ updateStickyNote: (payload: { id: number; content?: string; color?: StickyNoteColor }) =>
+  request<StickyNote>({ action: 'updateStickyNote', payload, silent: true }),
+ deleteStickyNote: (id: number) => request<{ ok: true }>({ action: 'deleteStickyNote', payload: { id } }),
  listWorkspaces: () =>
   fetch('/api/workspaces', { method: 'GET', credentials: 'include' }).then(async (response) => {
    const data = await response.json();

@@ -29,6 +29,7 @@ import { useOverviewStore } from '../store/overviewStore';
 import { computeOverviewBalances } from '../utils/overviewBalances';
 import { resolveHarvestRate } from '@/features/harvest/utils/harvestRateResolver';
 import { isZeroMoney } from '@/shared/utils/money';
+import StickyNotesBoard from '@/features/sticky-notes/components/StickyNotesBoard';
 
 type OverviewSectionProps = {
  organizations: Organization[];
@@ -42,6 +43,8 @@ type OverviewSectionProps = {
  navigateToSection: (section: Section) => void;
  openClientLedger: (client: Client, origin?: 'clients' | 'organization-clients', accountId?: number | null) => void;
  onExportOverviewPdf: (cards: OverviewPdfCard[], mainCode: string, mainSymbol: string) => void;
+ /** Viewers see the workspace's sticky notes but can't change them. */
+ stickyNotesReadOnly: boolean;
 };
 
 export default function OverviewSection({
@@ -56,6 +59,7 @@ export default function OverviewSection({
  navigateToSection,
  openClientLedger,
  onExportOverviewPdf,
+ stickyNotesReadOnly,
 }: OverviewSectionProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -311,6 +315,11 @@ export default function OverviewSection({
            ))}
           </div>
          </div>
+
+         <StickyNotesBoard
+          variant="home"
+          readOnly={stickyNotesReadOnly}
+         />
 
          {(() => {
           const mainCode = mainCurrency?.code ?? '';

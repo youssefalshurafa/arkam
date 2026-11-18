@@ -63,6 +63,9 @@ export const queryKeys = {
  liveRates: () => [...queryKeys.all, 'liveRates'] as const,
  // Workspace-wide shared UI settings (owner-controlled), scoped per workspace.
  workspaceSettings: (workspaceId: string | null | undefined) => [...queryKeys.all, 'workspaceSettings', workspaceId ?? '__none__'] as const,
+ // Workspace sticky notes (Transactions + Home), per user AND workspace like workspaceData.
+ stickyNotes: (userId: string | null | undefined, workspaceId: string | null | undefined) =>
+  [...queryKeys.all, 'stickyNotes', userId ?? '__anon__', workspaceId ?? '__none__'] as const,
  // This user's own persisted table-layout settings, scoped per user AND workspace.
  userTableSettings: (userId: string | null | undefined, workspaceId: string | null | undefined) =>
   [...queryKeys.all, 'userTableSettings', userId ?? '__anon__', workspaceId ?? '__none__'] as const,

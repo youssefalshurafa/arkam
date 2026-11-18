@@ -88,6 +88,7 @@ import { ensureCacheOwner } from '@/shared/lib/cacheOwner';
 import { panelClassName, tableWrapClassName } from '@/shared/styles';
 import OverviewSection from '@/features/overview/components/OverviewSection';
 import LiveRatesSection from '@/features/live-rates/components/LiveRatesSection';
+import PriceCalculatorSection from '@/features/price-calculator/components/PriceCalculatorSection';
 import TreasurySection from '@/features/treasury/components/TreasurySection';
 import HarvestSection from '@/features/harvest/components/HarvestSection';
 import CurrenciesReadOnly from '@/features/currencies/components/CurrenciesReadOnly';
@@ -128,6 +129,7 @@ import { useTransactionsStore } from '@/features/transactions/store/transactions
 import { useDraftHistory } from '@/shared/hooks/useDraftHistory';
 import { useCombinedHistory } from '@/shared/hooks/useCombinedHistory';
 import TransactionsSection from '@/features/transactions/components/TransactionsSection';
+import StickyNotesBoard from '@/features/sticky-notes/components/StickyNotesBoard';
 import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
 import LedgerSection from '@/features/ledger/components/LedgerSection';
 import ImportWizard from '@/features/transactions/components/ImportWizard';
@@ -1598,6 +1600,7 @@ function AuthenticatedHome() {
   { key: 'transactions', label: t('nav_transactions'), icon: 'transactions' },
   { key: 'archive', label: t('nav_archive'), icon: 'archive' },
   { key: 'live-rates', label: t('nav_live_rates'), icon: 'rates' },
+  { key: 'price-calculator', label: t('nav_price_calculator'), icon: 'calculator' },
   ...(treasuryEnabled ? [{ key: 'treasury' as const, label: t('nav_treasury'), icon: 'treasury' as IconName }] : []),
   ...(isSuperAdminUser ? [{ key: 'harvest' as const, label: t('nav_harvest'), icon: 'harvest' as IconName }] : []),
  ];
@@ -2308,6 +2311,11 @@ function AuthenticatedHome() {
    description: t('live_rates_description'),
    accent: t('nav_live_rates'),
   },
+  'price-calculator': {
+   title: t('price_calculator_title'),
+   description: t('price_calculator_description'),
+   accent: t('nav_price_calculator'),
+  },
   treasury: {
    title: t('treasury_title'),
    description: t('treasury_description'),
@@ -2648,6 +2656,7 @@ function AuthenticatedHome() {
          navigateToSection={navigateToSection}
          openClientLedger={openClientLedger}
          onExportOverviewPdf={onExportOverviewPdf}
+         stickyNotesReadOnly={currentWorkspaceRole === 'viewer'}
         />
        ) : null}
 
@@ -2823,6 +2832,7 @@ function AuthenticatedHome() {
        ) : null}
 
        {section === 'live-rates' ? <LiveRatesSection /> : null}
+       {section === 'price-calculator' ? <PriceCalculatorSection currencies={localizedCurrencies} /> : null}
        {section === 'treasury' ? (
         <TreasurySection
          sessionUserId={sessionUserId}
@@ -2850,6 +2860,13 @@ function AuthenticatedHome() {
          onSaveRate={onSavePendingPricingRate}
          ignoredAnomalySet={ignoredAnomalySet}
          onIgnoreAnomaly={onIgnoreAnomaly}
+        />
+       ) : null}
+
+       {section === 'transactions' ? (
+        <StickyNotesBoard
+         variant="transactions"
+         readOnly={currentWorkspaceRole === 'viewer'}
         />
        ) : null}
 

@@ -152,6 +152,11 @@ export const actionSchemas: Record<string, z.ZodType> = {
 
  saveWriteOffMargin: z.object({ currencyId: id, threshold: looseNumber }),
 
+ /** db.js normalizes color to a known key and caps content length; these only reject wrong types. */
+ createStickyNote: z.object({ content: opt(z.string()), color: opt(z.string()) }),
+ updateStickyNote: z.object({ id, content: z.string().optional(), color: z.string().optional() }),
+ deleteStickyNote: z.object({ id }),
+
  listTransactionHistory: z.object({ transactionId: id }),
 
  /** A position is milliseconds into the row's day; it can dip below 0 when rows share 00:00:00. */
