@@ -178,9 +178,14 @@ export function saveLiveRatesInterval(value: number) {
 
 // The Price Calculator page's last-typed inputs, per user (synced across devices — see
 // USER_ONLY_EXACT_KEYS in sharedTableSettings.ts). Values are kept as the raw typed strings
-// so the fields come back exactly as left. The foreign-per-USD rate is remembered per
-// currency code; the commission and the main-currency rate are shared across currencies.
+// so the fields come back exactly as left. The rate, its quote direction and the (signed)
+// commission are remembered per currency code — AED is typically +0.5 at "1 USD = 3.67",
+// CHF −3.7 at "1 CHF = 1.1862 USD" — while the main-currency rate is shared. `commissionPct`
+// is the older single shared commission, kept only as the fallback for a currency with no
+// entry of its own yet.
 export const priceCalculatorStorageKey = 'arkam:price-calculator';
+
+export type PriceCalculatorQuote = 'foreign-per-usd' | 'usd-per-foreign';
 
 export type StoredPriceCalculator = {
  foreignCode: string;
@@ -188,9 +193,32 @@ export type StoredPriceCalculator = {
  commissionPct: string;
  mainPerUsd: string;
  foreignRates: Record<string, string>;
+ foreignQuotes: Record<string, PriceCalculatorQuote>;
+ commissions: Record<string, string>;
 };
 
-const emptyPriceCalculator: StoredPriceCalculator = { foreignCode: '', amount: '', commissionPct: '', mainPerUsd: '', foreignRates: {} };
+const emptyPriceCalculator: StoredPriceCalculator = {
+ foreignCode: '',
+ amount: '',
+ commissionPct: '',
+ mainPerUsd: '',
+ foreignRates: {},
+ foreignQuotes: {},
+ commissions: {},
+};
+
+function readStringMap<T extends string>(value: unknown, accept: (v: unknown) => v is T): Record<string, T> {
+ const out: Record<string, T> = {};
+ if (value && typeof value === 'object') {
+  for (const [key, entry] of Object.entries(value)) {
+   if (accept(entry)) out[key] = entry;
+  }
+ }
+ return out;
+}
+
+const isString = (v: unknown): v is string => typeof v === 'string';
+const isPriceCalculatorQuote = (v: unknown): v is PriceCalculatorQuote => v === 'foreign-per-usd' || v === 'usd-per-foreign';
 
 export function getStoredPriceCalculator(): StoredPriceCalculator {
  if (typeof window === 'undefined') return emptyPriceCalculator;
@@ -200,18 +228,14 @@ export function getStoredPriceCalculator(): StoredPriceCalculator {
   const parsed = JSON.parse(raw) as Partial<StoredPriceCalculator> | null;
   if (!parsed || typeof parsed !== 'object') return emptyPriceCalculator;
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
-  const foreignRates: Record<string, string> = {};
-  if (parsed.foreignRates && typeof parsed.foreignRates === 'object') {
-   for (const [code, rate] of Object.entries(parsed.foreignRates)) {
-    if (typeof rate === 'string') foreignRates[code] = rate;
-   }
-  }
   return {
    foreignCode: str(parsed.foreignCode),
    amount: str(parsed.amount),
    commissionPct: str(parsed.commissionPct),
    mainPerUsd: str(parsed.mainPerUsd),
-   foreignRates,
+   foreignRates: readStringMap(parsed.foreignRates, isString),
+   foreignQuotes: readStringMap(parsed.foreignQuotes, isPriceCalculatorQuote),
+   commissions: readStringMap(parsed.commissions, isString),
   };
  } catch {
   return emptyPriceCalculator;

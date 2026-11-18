@@ -100,6 +100,7 @@ import { useReconciliationLocks } from '@/features/ledger/hooks/useReconciliatio
 import SettingsSection from '@/features/settings/components/SettingsSection';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { useLiveRatesSettingsStore } from '@/features/live-rates/store/liveRatesSettingsStore';
+import { usePriceCalculatorStore } from '@/features/price-calculator/store/priceCalculatorStore';
 import { useAppStatusStore } from '@/shared/store/appStatusStore';
 import { generateOverviewCardsHtml, type OverviewPdfCard } from '@/features/pdf/pdfExport';
 import { buildExportFileName } from '@/features/pdf/exportFileName';
@@ -938,6 +939,7 @@ function AuthenticatedHome() {
    setIsSidebarCollapsed(window.localStorage.getItem('arkam:sidebar-collapsed') === 'true');
    setClientsOrgOrder(getStoredClientsOrgOrder());
    useLiveRatesSettingsStore.setState({ intervalSec: getStoredLiveRatesInterval() });
+   usePriceCalculatorStore.getState().hydrate();
    useSettingsStore.setState({ pdfSettings: getStoredPdfSettings(), aiSettings: getStoredAiSettings() });
    const storedTxFilter = getStoredTxFilter();
    const storedArchiveFilter = getStoredArchiveFilter();
