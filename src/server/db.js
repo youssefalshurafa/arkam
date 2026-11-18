@@ -2574,7 +2574,7 @@ async function deleteTransactionsBulk(app, payload) {
 // distribution_locations), and keeping them means a restored backup reproduces the Trash exactly,
 // with the 30-day countdown continuing from each row's original deleted_at. Older backups predate
 // the soft-delete columns, so their rows simply import as live.
-const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'distribution_locations', 'transactions', 'reconciliations', 'harvest_rates', 'user_table_settings', 'trash_batches'];
+const BACKUP_TABLES = ['organizations', 'currencies', 'clients', 'client_accounts', 'distribution_locations', 'transactions', 'reconciliations', 'harvest_rates', 'user_table_settings', 'trash_batches', 'sticky_notes'];
 
 const BACKUP_FORMAT = 'arkam-backup';
 const BACKUP_VERSION = 1;
@@ -3121,7 +3121,84 @@ async function saveUserTableSettings(app, userId, settings) {
     return { ok: true };
 }
 
+// ---- Sticky notes ---------------------------------------------------------------------------
+//
+// Workspace-wide free-text reminders (Transactions + Home pages). Any non-viewer may create,
+// edit or delete any note — they are a shared scratch pad, not records anyone owns. Last write
+// wins: two people typing into the same note at once is not worth a merge story.
+
+const STICKY_NOTE_COLORS = ['yellow', 'pink', 'blue', 'green', 'purple'];
+const STICKY_NOTE_MAX_LENGTH = 2000;
+// A runaway client (or a held-down "add" button) shouldn't be able to fill the board without end.
+const STICKY_NOTE_LIMIT = 50;
+
+const STICKY_NOTE_SELECT = `id, content, color, created_by AS "createdBy", updated_by AS "updatedBy",
+    created_at AS "createdAt", updated_at AS "updatedAt"`;
+
+function normalizeStickyNoteColor(color) {
+    return STICKY_NOTE_COLORS.includes(color) ? color : 'yellow';
+}
+
+function normalizeStickyNoteContent(content) {
+    return typeof content === 'string' ? content.slice(0, STICKY_NOTE_MAX_LENGTH) : '';
+}
+
+async function listStickyNotes(app) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(`SELECT ${STICKY_NOTE_SELECT} FROM ${schema}.sticky_notes ORDER BY id ASC`);
+    return result.rows;
+}
+
+async function createStickyNote(app, { content, color } = {}) {
+    const { schema } = await getSchemaInfo(app);
+    const count = await query(`SELECT COUNT(*)::int AS n FROM ${schema}.sticky_notes`);
+    if ((count.rows[0]?.n ?? 0) >= STICKY_NOTE_LIMIT) {
+        throw new Error(`A workspace can hold at most ${STICKY_NOTE_LIMIT} sticky notes. Delete one to add another.`);
+    }
+    const userId = app?.userId || null;
+    const result = await query(
+        `INSERT INTO ${schema}.sticky_notes (content, color, created_by, updated_by)
+         VALUES ($1, $2, $3, $3)
+         RETURNING ${STICKY_NOTE_SELECT}`,
+        [normalizeStickyNoteContent(content), normalizeStickyNoteColor(color), userId],
+    );
+    return result.rows[0];
+}
+
+// Only the fields present in the payload change, so a color pick never clobbers text that
+// another member saved in the meantime (and vice versa).
+async function updateStickyNote(app, { id, content, color }) {
+    const { schema } = await getSchemaInfo(app);
+    const result = await query(
+        `UPDATE ${schema}.sticky_notes
+         SET content = COALESCE($2, content),
+             color = COALESCE($3, color),
+             updated_by = $4,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING ${STICKY_NOTE_SELECT}`,
+        [
+            id,
+            content === undefined ? null : normalizeStickyNoteContent(content),
+            color === undefined ? null : normalizeStickyNoteColor(color),
+            app?.userId || null,
+        ],
+    );
+    if (!result.rows[0]) throw new Error('This sticky note no longer exists — someone may have deleted it.');
+    return result.rows[0];
+}
+
+async function deleteStickyNote(app, { id }) {
+    const { schema } = await getSchemaInfo(app);
+    await query(`DELETE FROM ${schema}.sticky_notes WHERE id = $1`, [id]);
+    return { ok: true };
+}
+
 module.exports = {
+    listStickyNotes,
+    createStickyNote,
+    updateStickyNote,
+    deleteStickyNote,
     getDbInfo,
     setDbDirectory,
     countWorkspaceTransactions,

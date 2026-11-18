@@ -52,6 +52,8 @@ const readOnlyActions = new Set([
  // including viewers — it's a UI preference, not workspace financial data.
  'getUserTableSettings',
  'saveUserTableSettings',
+ // Workspace sticky notes (Transactions + Home): everyone in the workspace reads them.
+ 'listStickyNotes',
 ]);
 
 const writeActions = new Set([
@@ -117,6 +119,10 @@ const writeActions = new Set([
  'saveReviewEngineSettings',
  // "Hide rows from the PDF" feature switch: owner-only (gated further below).
  'savePdfRowHidingEnabled',
+ // Sticky notes: any non-viewer may add/edit/remove any note — a shared scratch pad.
+ 'createStickyNote',
+ 'updateStickyNote',
+ 'deleteStickyNote',
 ]);
 
 /**
@@ -598,6 +604,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(await db.getUserTableSettings(appLike, userId));
    case 'saveUserTableSettings':
     return NextResponse.json(await db.saveUserTableSettings(appLike, userId, payload));
+   case 'listStickyNotes':
+    return NextResponse.json(await db.listStickyNotes(appLike));
+   case 'createStickyNote':
+    return NextResponse.json(await db.createStickyNote(appLike, payload));
+   case 'updateStickyNote':
+    return NextResponse.json(await db.updateStickyNote(appLike, payload));
+   case 'deleteStickyNote':
+    return NextResponse.json(await db.deleteStickyNote(appLike, payload));
    case 'getBackupInfo':
     return NextResponse.json(await authDb.getWorkspaceBackupInfo(workspaceId));
    case 'recordBackup':
