@@ -178,36 +178,50 @@ export function saveLiveRatesInterval(value: number) {
 
 // The Price Calculator page's last-typed inputs, per user (synced across devices — see
 // USER_ONLY_EXACT_KEYS in sharedTableSettings.ts). Values are kept as the raw typed strings
-// so the fields come back exactly as left. The rate, its quote direction and the (signed)
-// commission are remembered per currency code — AED is typically +0.5 at "1 USD = 3.67",
-// CHF −3.7 at "1 CHF = 1.1862 USD" — while the main-currency rate is shared. `commissionPct`
-// is the older single shared commission, kept only as the fallback for a currency with no
-// entry of its own yet.
+// so the fields come back exactly as left.
+// - `bridges`: the currency each foreign currency is priced THROUGH (default USD; the main
+//   currency's own code means "direct").
+// - `rates`: one entry per currency PAIR, keyed without direction (see priceCalculatorPairKey),
+//   as "1 <base> = <value> <the other>". Being directionless, "1 USD = 10.45 MAD" is the same
+//   entry whether it is the main-currency leg of a USD route or USD's own direct rate.
+// - `commissions`: the signed commission per route, keyed "<foreign>><bridge>" (priceCalculatorRouteKey)
+//   — AED through USD is typically +0.5, CHF through USD −3.7.
+// - `mainPerUsd` / `commissionPct`: the older single values, kept only as the fallback for the
+//   MAD/USD-style pair and the USD routes until they get an entry of their own.
 export const priceCalculatorStorageKey = 'arkam:price-calculator';
 
-export type PriceCalculatorQuote = 'foreign-per-usd' | 'usd-per-foreign';
+export type PriceCalculatorRate = { base: string; value: string };
 
 export type StoredPriceCalculator = {
  foreignCode: string;
  amount: string;
- commissionPct: string;
- mainPerUsd: string;
- foreignRates: Record<string, string>;
- foreignQuotes: Record<string, PriceCalculatorQuote>;
+ /** Decimals shown on the final price. */
+ decimals: number;
+ bridges: Record<string, string>;
+ rates: Record<string, PriceCalculatorRate>;
  commissions: Record<string, string>;
+ mainPerUsd: string;
+ commissionPct: string;
 };
+
+export const PRICE_CALCULATOR_DEFAULT_DECIMALS = 3;
+export const PRICE_CALCULATOR_MAX_DECIMALS = 8;
+
+export const priceCalculatorPairKey = (a: string, b: string) => [a, b].sort().join('|');
+export const priceCalculatorRouteKey = (foreign: string, bridge: string) => `${foreign}>${bridge}`;
 
 const emptyPriceCalculator: StoredPriceCalculator = {
  foreignCode: '',
  amount: '',
- commissionPct: '',
- mainPerUsd: '',
- foreignRates: {},
- foreignQuotes: {},
+ decimals: PRICE_CALCULATOR_DEFAULT_DECIMALS,
+ bridges: {},
+ rates: {},
  commissions: {},
+ mainPerUsd: '',
+ commissionPct: '',
 };
 
-function readStringMap<T extends string>(value: unknown, accept: (v: unknown) => v is T): Record<string, T> {
+function readMap<T>(value: unknown, accept: (v: unknown) => v is T): Record<string, T> {
  const out: Record<string, T> = {};
  if (value && typeof value === 'object') {
   for (const [key, entry] of Object.entries(value)) {
@@ -218,24 +232,44 @@ function readStringMap<T extends string>(value: unknown, accept: (v: unknown) =>
 }
 
 const isString = (v: unknown): v is string => typeof v === 'string';
-const isPriceCalculatorQuote = (v: unknown): v is PriceCalculatorQuote => v === 'foreign-per-usd' || v === 'usd-per-foreign';
+const isPriceCalculatorRate = (v: unknown): v is PriceCalculatorRate =>
+ !!v && typeof v === 'object' && typeof (v as PriceCalculatorRate).base === 'string' && typeof (v as PriceCalculatorRate).value === 'string';
+const readDecimals = (v: unknown) =>
+ typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= PRICE_CALCULATOR_MAX_DECIMALS ? v : PRICE_CALCULATOR_DEFAULT_DECIMALS;
 
 export function getStoredPriceCalculator(): StoredPriceCalculator {
  if (typeof window === 'undefined') return emptyPriceCalculator;
  try {
   const raw = window.localStorage.getItem(priceCalculatorStorageKey);
   if (!raw) return emptyPriceCalculator;
-  const parsed = JSON.parse(raw) as Partial<StoredPriceCalculator> | null;
+  const parsed = JSON.parse(raw) as Record<string, unknown> | null;
   if (!parsed || typeof parsed !== 'object') return emptyPriceCalculator;
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
+
+  const rates = readMap(parsed.rates, isPriceCalculatorRate);
+  const commissions: Record<string, string> = {};
+  // Saves from before the bridge currency was selectable: everything went through USD, with
+  // rates and quote directions per foreign code and commissions keyed by the bare code.
+  const legacyRates = readMap(parsed.foreignRates, isString);
+  const legacyQuotes = readMap(parsed.foreignQuotes, isString);
+  for (const code of new Set([...Object.keys(legacyRates), ...Object.keys(legacyQuotes)])) {
+   const key = priceCalculatorPairKey(code, 'USD');
+   if (!rates[key]) rates[key] = { base: legacyQuotes[code] === 'usd-per-foreign' ? code : 'USD', value: legacyRates[code] ?? '' };
+  }
+  for (const [key, value] of Object.entries(readMap(parsed.commissions, isString))) {
+   const route = key.includes('>') ? key : priceCalculatorRouteKey(key, 'USD');
+   if (key.includes('>') || !(route in commissions)) commissions[route] = value;
+  }
+
   return {
    foreignCode: str(parsed.foreignCode),
    amount: str(parsed.amount),
-   commissionPct: str(parsed.commissionPct),
+   decimals: readDecimals(parsed.decimals),
+   bridges: readMap(parsed.bridges, isString),
+   rates,
+   commissions,
    mainPerUsd: str(parsed.mainPerUsd),
-   foreignRates: readStringMap(parsed.foreignRates, isString),
-   foreignQuotes: readStringMap(parsed.foreignQuotes, isPriceCalculatorQuote),
-   commissions: readStringMap(parsed.commissions, isString),
+   commissionPct: str(parsed.commissionPct),
   };
  } catch {
   return emptyPriceCalculator;

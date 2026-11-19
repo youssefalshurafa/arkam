@@ -28,20 +28,14 @@ type CommissionDirectionToggleProps = {
  // colouring already carries the direction.
  showLabel?: boolean;
  className?: string;
- // Wording for contexts where "for him / from him" doesn't fit — e.g. the price calculator,
- // where + adds the commission and − deducts it. Used for both the tooltip and the inline
- // label. Omitted everywhere else, which keeps the client-direction wording.
- labels?: { positive: string; negative: string };
 };
 
-export function CommissionDirectionToggle({ value, onChange, t, showLabel = true, className, labels }: CommissionDirectionToggleProps) {
+export function CommissionDirectionToggle({ value, onChange, t, showLabel = true, className }: CommissionDirectionToggleProps) {
  const fromClient = isCommissionFromClient(value);
- const title = labels ? (fromClient ? labels.negative : labels.positive) : fromClient ? t('commission_from_him') : t('commission_for_him');
- const inlineLabel = labels ? (fromClient ? labels.negative : labels.positive) : fromClient ? t('commission_dir_from') : t('commission_dir_for');
  return (
   <button
    type="button"
-   title={title}
+   title={fromClient ? t('commission_from_him') : t('commission_for_him')}
    onClick={() => onChange(toggleCommissionSign(value))}
    className={
     className ??
@@ -52,7 +46,7 @@ export function CommissionDirectionToggle({ value, onChange, t, showLabel = true
     <path d="M7 4 3 8l4 4M3 8h13.5" />
     <path d="M17 20l4-4-4-4m4 4H7.5" />
    </svg>
-   {showLabel ? <span className="text-[10px] font-semibold uppercase">{inlineLabel}</span> : null}
+   {showLabel ? <span className="text-[10px] font-semibold uppercase">{fromClient ? t('commission_dir_from') : t('commission_dir_for')}</span> : null}
   </button>
  );
 }
