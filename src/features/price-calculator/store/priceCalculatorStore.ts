@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import { getStoredPriceCalculator, savePriceCalculator, type PriceCalculatorQuote, type StoredPriceCalculator } from '@/shared/lib/localStorage';
+import {
+ getStoredPriceCalculator,
+ priceCalculatorPairKey,
+ priceCalculatorRouteKey,
+ savePriceCalculator,
+ type PriceCalculatorRate,
+ type StoredPriceCalculator,
+} from '@/shared/lib/localStorage';
 
 /**
  * The Price Calculator's inputs, held in a store (not component state) for the same reason as
@@ -15,21 +22,23 @@ import { getStoredPriceCalculator, savePriceCalculator, type PriceCalculatorQuot
 type PriceCalculatorStore = StoredPriceCalculator & {
  setForeignCode: (code: string) => void;
  setAmount: (value: string) => void;
- setMainPerUsd: (value: string) => void;
- setForeignRate: (code: string, value: string) => void;
- setForeignQuote: (code: string, quote: PriceCalculatorQuote) => void;
- setCommission: (code: string, value: string) => void;
+ setDecimals: (value: number) => void;
+ setBridge: (foreign: string, bridge: string) => void;
+ /** The rate between two currencies, as "1 rate.base = rate.value <the other>". */
+ setRate: (a: string, b: string, rate: PriceCalculatorRate) => void;
+ setCommission: (foreign: string, bridge: string, value: string) => void;
  hydrate: () => void;
 };
 
 const pickPersisted = (s: StoredPriceCalculator): StoredPriceCalculator => ({
  foreignCode: s.foreignCode,
  amount: s.amount,
- commissionPct: s.commissionPct,
- mainPerUsd: s.mainPerUsd,
- foreignRates: s.foreignRates,
- foreignQuotes: s.foreignQuotes,
+ decimals: s.decimals,
+ bridges: s.bridges,
+ rates: s.rates,
  commissions: s.commissions,
+ mainPerUsd: s.mainPerUsd,
+ commissionPct: s.commissionPct,
 });
 
 export const usePriceCalculatorStore = create<PriceCalculatorStore>((set, get) => {
@@ -41,10 +50,10 @@ export const usePriceCalculatorStore = create<PriceCalculatorStore>((set, get) =
   ...getStoredPriceCalculator(),
   setForeignCode: (code) => update({ foreignCode: code }),
   setAmount: (value) => update({ amount: value }),
-  setMainPerUsd: (value) => update({ mainPerUsd: value }),
-  setForeignRate: (code, value) => update({ foreignRates: { ...get().foreignRates, [code]: value } }),
-  setForeignQuote: (code, quote) => update({ foreignQuotes: { ...get().foreignQuotes, [code]: quote } }),
-  setCommission: (code, value) => update({ commissions: { ...get().commissions, [code]: value } }),
+  setDecimals: (value) => update({ decimals: value }),
+  setBridge: (foreign, bridge) => update({ bridges: { ...get().bridges, [foreign]: bridge } }),
+  setRate: (a, b, rate) => update({ rates: { ...get().rates, [priceCalculatorPairKey(a, b)]: rate } }),
+  setCommission: (foreign, bridge, value) => update({ commissions: { ...get().commissions, [priceCalculatorRouteKey(foreign, bridge)]: value } }),
   // Re-read from localStorage without saving back (used after the server settings are applied).
   hydrate: () => set(getStoredPriceCalculator()),
  };
