@@ -3,8 +3,6 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendWorkspaceInviteEmail } = require('@/server/mailer');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,64 +30,8 @@ export async function GET(_request: NextRequest, context: Context) {
  }
 }
 
-type AddMemberBody = {
- name?: string;
- email?: string;
- role?: 'admin' | 'member' | 'viewer';
-};
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// Invite a teammate (or add an existing user) to the workspace. `email` may be a
-// plain username instead of a real address — some workspace members have no email
-// (mirrors the super-admin no-email user creation flow). We only ever attempt to
-// send mail when the identifier is actually email-shaped; otherwise the admin has
-// to hand the identifier to the person directly and point them at /set-password.
-export async function POST(request: NextRequest, context: Context) {
- const session = await getServerSession(authOptions);
- const userId = session?.user?.id;
-
- if (!userId) {
-  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
- }
-
- const { workspaceId } = await context.params;
-
- try {
-  const body = (await request.json()) as AddMemberBody;
-  const result = await authDb.inviteWorkspaceMember({
-   workspaceId,
-   name: body.name,
-   email: body.email,
-   role: body.role,
-   invitedByUserId: userId,
-  });
-
-  let emailSent = false;
-
-  if ((result.status === 'invited' || result.status === 'added') && result.rawToken && EMAIL_PATTERN.test(result.email)) {
-   try {
-    const workspaces = await authDb.listUserWorkspaces(userId);
-    const workspaceName = workspaces.find((w: { id: string; name: string }) => w.id === workspaceId)?.name || '';
-    await sendWorkspaceInviteEmail({
-     to: result.email,
-     name: body.name || '',
-     inviterName: session.user?.name || '',
-     workspaceName,
-     inviteUrl: `${request.nextUrl.origin}/reset-password/${result.rawToken}`,
-    });
-    emailSent = true;
-   } catch (mailError) {
-    console.error('[workspaces/members] Invite email failed:', mailError);
-   }
-  }
-
-  return NextResponse.json({ ok: true, status: result.status, emailSent });
- } catch (error) {
-  const message = error instanceof Error ? error.message : 'Failed to add member.';
-  return NextResponse.json({ error: message }, { status: 400 });
- }
-}
+// Adding people now goes through single-use invitation links:
+// POST /api/workspaces/[workspaceId]/invitations (see that route).
 
 type UpdateRoleBody = {
  targetUserId?: string;

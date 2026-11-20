@@ -3,6 +3,9 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import VerificationCodeForm from '@/components/auth/VerificationCodeForm';
+import SecuritySettings from '@/components/account/SecuritySettings';
+import { passwordProblem } from '@/shared/lib/passwordRules';
 
 type AccountInfo = {
  email: string;
@@ -10,6 +13,11 @@ type AccountInfo = {
  status: 'pending' | 'approved' | 'rejected';
  subscriptionStartedAt: string | null;
  subscriptionEndsAt: string | null;
+ emailIsAddress?: boolean;
+ emailVerified?: boolean;
+ hasPassword?: boolean;
+ googleLinked?: boolean;
+ mfaEnabled?: boolean;
  pendingRenewal: { id: string; plan: string; amount: string; createdAt: string } | null;
 };
 
@@ -34,6 +42,8 @@ const MAX_PROOF_BYTES = 5 * 1024 * 1024;
 const ALLOWED_PROOF_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 const panelClass = 'rounded-lg border border-border bg-surface p-5 shadow-sm';
+const inputClass =
+ 'w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500';
 
 export default function AccountSettings({ hideSubscription = false }: { hideSubscription?: boolean }) {
  const { language } = useLanguage();
@@ -44,8 +54,8 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
  // Change email state
  const [emailOpen, setEmailOpen] = useState(false);
  const [newEmail, setNewEmail] = useState('');
- const [confirmEmail, setConfirmEmail] = useState('');
  const [emailPassword, setEmailPassword] = useState('');
+ const [emailPending, setEmailPending] = useState<{ pendingId: string; email: string } | null>(null);
  const [emailError, setEmailError] = useState('');
  const [emailSuccess, setEmailSuccess] = useState('');
  const [emailSubmitting, setEmailSubmitting] = useState(false);
@@ -119,6 +129,29 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
  const formatDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString(language, { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
+ const postJson = async (url: string, body: unknown) => {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; pendingId?: string; email?: string; purpose?: string };
+  if (!res.ok || !data.ok) throw new Error(data.error || t('account_email_failed'));
+  return data;
+ };
+
+ // Legacy accounts: prove the address already on file.
+ const onStartVerify = async () => {
+  setEmailError('');
+  setEmailSuccess('');
+  setEmailSubmitting(true);
+  try {
+   const data = await postJson('/api/account/email', { mode: 'verify' });
+   setEmailPending({ pendingId: String(data.pendingId), email: String(data.email) });
+  } catch (err) {
+   setEmailError(err instanceof Error ? err.message : t('account_email_failed'));
+  } finally {
+   setEmailSubmitting(false);
+  }
+ };
+
+ // Change: re-authenticate, then the NEW address must confirm a code before anything changes.
  const onChangeEmail = async (event: FormEvent) => {
   event.preventDefault();
   setEmailError('');
@@ -128,27 +161,12 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
    setEmailError(t('account_email_invalid'));
    return;
   }
-  if (newEmail.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
-   setEmailError(t('account_email_mismatch'));
-   return;
-  }
 
   setEmailSubmitting(true);
   try {
-   const res = await fetch('/api/auth/change-email', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ currentPassword: emailPassword, newEmail: newEmail.trim() }),
-   });
-   const data = (await res.json()) as { ok?: boolean; error?: string };
-   if (!res.ok || !data.ok) {
-    throw new Error(data.error || t('account_email_failed'));
-   }
-   setEmailSuccess(t('account_email_changed'));
-   setNewEmail('');
-   setConfirmEmail('');
+   const data = await postJson('/api/account/email', { mode: 'change', currentPassword: emailPassword, newEmail: newEmail.trim() });
+   setEmailPending({ pendingId: String(data.pendingId), email: String(data.email) });
    setEmailPassword('');
-   void fetchInfo();
   } catch (err) {
    setEmailError(err instanceof Error ? err.message : t('account_email_failed'));
   } finally {
@@ -156,13 +174,30 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
   }
  };
 
+ const onConfirmEmailCode = async (code: string) => {
+  if (!emailPending) return;
+  const data = await postJson('/api/account/email/confirm', { pendingId: emailPending.pendingId, code });
+  setEmailPending(null);
+  setEmailOpen(false);
+  setNewEmail('');
+  setEmailError('');
+  setEmailSuccess(data.purpose === 'email_change' ? t('account_email_changed_verified') : t('account_email_verified_done'));
+  void fetchInfo();
+ };
+
+ const onResendEmailCode = async () => {
+  if (!emailPending) return;
+  await postJson('/api/account/email/resend', { pendingId: emailPending.pendingId });
+ };
+
  const onChangePassword = async (event: FormEvent) => {
   event.preventDefault();
   setPwdError('');
   setPwdSuccess('');
 
-  if (newPassword.length < 8) {
-   setPwdError(t('account_password_too_short'));
+  const problem = passwordProblem(newPassword);
+  if (problem) {
+   setPwdError(t(problem));
    return;
   }
   if (newPassword !== confirmPassword) {
@@ -181,7 +216,7 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
    if (!res.ok || !data.ok) {
     throw new Error(data.error || t('account_password_failed'));
    }
-   setPwdSuccess(t('account_password_changed'));
+   setPwdSuccess(t('account_password_changed_others_signed_out'));
    setCurrentPassword('');
    setNewPassword('');
    setConfirmPassword('');
@@ -445,87 +480,119 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
    </div>
    )}
 
-   {/* Change email */}
+   {/* Email: verification status, verify (legacy accounts), change via code */}
    <div className={panelClass}>
     <h2 className="text-2xl font-semibold">{t('account_email_title')}</h2>
     <p className="mt-2 text-sm text-fg-muted">{t('account_email_desc')}</p>
     {info?.email ? (
-     <p className="mt-2 text-sm text-fg">
-      <span className="font-mono">{info.email}</span>
+     <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-fg">
+      <span className="font-mono" dir="ltr">{info.email}</span>
+      {info.emailIsAddress ? (
+       <span
+        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${info.emailVerified ? 'bg-good-bg text-good-text' : 'bg-warn-bg text-warn-text'}`}
+       >
+        {info.emailVerified ? t('account_email_verified') : t('account_email_unverified')}
+       </span>
+      ) : null}
      </p>
     ) : null}
 
-    {!emailOpen ? (
-     <button
-      type="button"
-      onClick={() => setEmailOpen(true)}
-      className="mt-5 rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
-     >
-      {t('account_email_change')}
-     </button>
+    {emailPending ? (
+     <div className="mt-5 max-w-sm">
+      <VerificationCodeForm
+       email={emailPending.email}
+       onSubmit={onConfirmEmailCode}
+       onResend={onResendEmailCode}
+       onBack={() => setEmailPending(null)}
+       compact
+      />
+     </div>
     ) : (
-     <form onSubmit={(e) => void onChangeEmail(e)} className="mt-5 max-w-sm space-y-4">
-      <div>
-       <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_email_new')}</label>
-       <input
-        type="email"
-        value={newEmail}
-        onChange={(e) => setNewEmail(e.target.value)}
-        className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-        autoComplete="email"
-        required
-       />
-      </div>
-      <div>
-       <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_email_confirm')}</label>
-       <input
-        type="email"
-        value={confirmEmail}
-        onChange={(e) => setConfirmEmail(e.target.value)}
-        className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-        autoComplete="email"
-        required
-       />
-      </div>
-      <div>
-       <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('account_current_password')}</label>
-       <input
-        type="password"
-        value={emailPassword}
-        onChange={(e) => setEmailPassword(e.target.value)}
-        className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-        autoComplete="current-password"
-       />
-      </div>
+     <>
+      {info?.emailIsAddress && !info.emailVerified ? (
+       <div className="mt-4 rounded border border-amber-200 bg-warn-bg px-4 py-3 text-sm text-warn-text">
+        <p>{t('account_email_verify_prompt')}</p>
+        <button
+         type="button"
+         onClick={() => void onStartVerify()}
+         disabled={emailSubmitting}
+         className="mt-2 rounded border border-amber-400 bg-surface px-3 py-1 text-xs font-semibold text-warn-text transition hover:bg-warn-bg disabled:opacity-60"
+        >
+         {t('account_email_verify_button')}
+        </button>
+       </div>
+      ) : null}
 
-      {emailError && <p className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{emailError}</p>}
-      {emailSuccess && <p className="rounded border border-green-300 bg-good-bg px-3 py-2 text-sm text-good-text">{emailSuccess}</p>}
-
-      <div className="flex items-center gap-3">
-       <button
-        type="submit"
-        disabled={emailSubmitting}
-        className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-       >
-        {emailSubmitting ? t('account_email_saving') : t('account_email_save')}
-       </button>
+      {info && !info.hasPassword ? (
+       <p className="mt-4 text-sm text-fg-faint">{t('account_email_google_managed')}</p>
+      ) : !emailOpen ? (
        <button
         type="button"
-        onClick={() => {
-         setEmailOpen(false);
-         setEmailError('');
-         setEmailSuccess('');
-         setNewEmail('');
-         setConfirmEmail('');
-         setEmailPassword('');
-        }}
-        className="text-sm font-semibold text-fg-faint transition hover:text-fg-muted"
+        onClick={() => setEmailOpen(true)}
+        className="mt-5 rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
        >
-        {t('cancel')}
+        {t('account_email_change')}
        </button>
-      </div>
-     </form>
+      ) : (
+       <form onSubmit={(e) => void onChangeEmail(e)} className="mt-5 max-w-sm space-y-4">
+        <div>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted" htmlFor="account-new-email">
+          {t('account_email_new')}
+         </label>
+         <input
+          id="account-new-email"
+          type="email"
+          value={newEmail}
+          onChange={(e) => setNewEmail(e.target.value)}
+          className={inputClass}
+          autoComplete="email"
+          dir="ltr"
+          required
+         />
+        </div>
+        <div>
+         <label className="mb-1 block text-xs font-semibold text-fg-muted" htmlFor="account-email-password">
+          {t('account_current_password')}
+         </label>
+         <input
+          id="account-email-password"
+          type="password"
+          value={emailPassword}
+          onChange={(e) => setEmailPassword(e.target.value)}
+          className={inputClass}
+          autoComplete="current-password"
+          required
+         />
+        </div>
+        <p className="text-xs text-fg-faint">{t('account_email_code_hint')}</p>
+
+        <div className="flex items-center gap-3">
+         <button
+          type="submit"
+          disabled={emailSubmitting}
+          className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+         >
+          {emailSubmitting ? t('account_email_saving') : t('account_email_send_code')}
+         </button>
+         <button
+          type="button"
+          onClick={() => {
+           setEmailOpen(false);
+           setEmailError('');
+           setNewEmail('');
+           setEmailPassword('');
+          }}
+          className="text-sm font-semibold text-fg-faint transition hover:text-fg-muted"
+         >
+          {t('cancel')}
+         </button>
+        </div>
+       </form>
+      )}
+     </>
     )}
+    {emailSuccess && <p className="mt-4 rounded border border-green-300 bg-good-bg px-3 py-2 text-sm text-good-text">{emailSuccess}</p>}
+    {emailError && <p role="alert" className="mt-4 rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{emailError}</p>}
    </div>
 
    {/* Change password */}
@@ -533,7 +600,9 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
     <h2 className="text-2xl font-semibold">{t('account_password_title')}</h2>
     <p className="mt-2 text-sm text-fg-muted">{t('account_password_desc')}</p>
 
-    {!passwordOpen ? (
+    {info && !info.hasPassword ? (
+     <p className="mt-4 text-sm text-fg-faint">{t('account_password_google_only')}</p>
+    ) : !passwordOpen ? (
      <button
       type="button"
       onClick={() => setPasswordOpen(true)}
@@ -630,6 +699,8 @@ export default function AccountSettings({ hideSubscription = false }: { hideSubs
      )}
     </div>
    </div>
+
+   <SecuritySettings hasPassword={info?.hasPassword !== false} />
   </section>
  );
 }

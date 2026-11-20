@@ -116,7 +116,12 @@ async function request<T>({ action, payload, silent }: ApiOptions, hasRetried = 
   }
 
   if (!response.ok) {
-   throw new Error(data?.error || 'Request failed.');
+   // Carry the server's machine-readable code (e.g. WORKSPACE_SUBSCRIPTION_EXPIRED) so the UI
+   // can react to it instead of just printing the message.
+   const failure = new Error(data?.error || 'Request failed.') as Error & { code?: string; ownerName?: string };
+   if (typeof data?.code === 'string') failure.code = data.code;
+   if (typeof data?.ownerName === 'string') failure.ownerName = data.ownerName;
+   throw failure;
   }
 
   return data as T;
@@ -404,18 +409,53 @@ export const accountingApi = {
    }
    return data as { members: WorkspaceMember[] };
   }),
- inviteWorkspaceMember: ({ workspaceId, name, email, role }: { workspaceId: string; name: string; email: string; role: WorkspaceRole }) =>
-  fetch(`/api/workspaces/${workspaceId}/members`, {
+ // Creates a single-use invitation link (emailed too when `identifier` is an email address).
+ inviteWorkspaceMember: ({ workspaceId, name, identifier, role }: { workspaceId: string; name: string; identifier: string; role: WorkspaceRole }) =>
+  fetch(`/api/workspaces/${workspaceId}/invitations`, {
    method: 'POST',
    credentials: 'include',
    headers: { 'Content-Type': 'application/json' },
-   body: JSON.stringify({ name, email, role }),
+   body: JSON.stringify({ name, identifier, role }),
   }).then(async (response) => {
    const data = await response.json();
    if (!response.ok) {
     throw new Error(data?.error || 'Failed to invite member.');
    }
-   return data as { ok: true; status: 'invited' | 'added'; emailSent: boolean };
+   return data as { ok: true; invitationId: string; inviteUrl: string; emailSent: boolean; expiresAt: string };
+  }),
+ listWorkspaceInvitations: (workspaceId: string) =>
+  fetch(`/api/workspaces/${workspaceId}/invitations`, { credentials: 'include' }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to list invitations.');
+   }
+   return data as { invitations: WorkspaceInvitation[] };
+  }),
+ revokeWorkspaceInvitation: ({ workspaceId, invitationId }: { workspaceId: string; invitationId: string }) =>
+  fetch(`/api/workspaces/${workspaceId}/invitations`, {
+   method: 'DELETE',
+   credentials: 'include',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ invitationId }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to revoke invitation.');
+   }
+   return data as { ok: true };
+  }),
+ createMemberSetupLink: ({ workspaceId, targetUserId }: { workspaceId: string; targetUserId: string }) =>
+  fetch(`/api/workspaces/${workspaceId}/members/setup-link`, {
+   method: 'POST',
+   credentials: 'include',
+   headers: { 'Content-Type': 'application/json' },
+   body: JSON.stringify({ targetUserId }),
+  }).then(async (response) => {
+   const data = await response.json();
+   if (!response.ok) {
+    throw new Error(data?.error || 'Failed to create setup link.');
+   }
+   return data as { ok: true; setupUrl: string };
   }),
  updateWorkspaceMemberRole: ({ workspaceId, targetUserId, role }: { workspaceId: string; targetUserId: string; role: WorkspaceRole }) =>
   fetch(`/api/workspaces/${workspaceId}/members`, {
@@ -637,6 +677,18 @@ export type WorkspaceMember = {
  image: string | null;
  role: 'owner' | 'admin' | 'member' | 'viewer';
  addedAt: string;
+ // Legacy teammate who never set a password (created by the old invite flow).
+ setupPending?: boolean;
+};
+
+export type WorkspaceInvitation = {
+ id: string;
+ role: 'admin' | 'member' | 'viewer';
+ identifier: string | null;
+ name: string | null;
+ createdAt: string;
+ expiresAt: string;
+ invitedByName: string | null;
 };
 
 export type WorkspaceBackup = {

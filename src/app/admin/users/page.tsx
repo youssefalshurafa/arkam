@@ -6,11 +6,13 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { alertDialog, confirmDialog } from '@/components/ui/AppDialog';
 import { useAdminI18n } from '../_ui/useAdminI18n';
 import { Icon } from '../_ui/icons';
-import { Avatar, AuthBadge, RoleBadge, RowMenu, Modal, StateBlock, SubscriptionBadge, Check } from '../_ui/primitives';
+import { Avatar, AuthBadge, RoleBadge, RowMenu, Modal, StateBlock, SubscriptionBadge, Check, LinkDialog } from '../_ui/primitives';
 import { formatDate, ROLE_RANK } from '../_lib/format';
 import type { AdminUser } from '../_lib/types';
 
-function AddUserModal({ onCancel, onCreated }: { onCancel: () => void; onCreated: () => void }) {
+type SetupLinks = { title: string; description: string; links: Array<{ label?: string; url: string }> };
+
+function AddUserModal({ onCancel, onCreated }: { onCancel: () => void; onCreated: (setupUrl: string | null, identifier: string) => void }) {
  const { t } = useAdminI18n();
  const [name, setName] = useState('');
  const [email, setEmail] = useState('');
@@ -39,16 +41,12 @@ function AddUserModal({ onCancel, onCreated }: { onCancel: () => void; onCreated
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: name.trim(), email: trimmedEmail, durationDays: days, phone: phone.trim() }),
    });
-   const data = (await res.json()) as { error?: string };
+   const data = (await res.json()) as { error?: string; setupUrl?: string };
    if (!res.ok) {
     setError(data.error || t('admin_au_failed'));
     return;
    }
-   await alertDialog({
-    title: t('admin_au_created_title'),
-    message: t('admin_au_created_msg').replace('{email}', trimmedEmail),
-   });
-   onCreated();
+   onCreated(data.setupUrl || null, trimmedEmail);
   } catch {
    setError(t('admin_err_network'));
   } finally {
@@ -211,6 +209,7 @@ export default function AdminUsersPage() {
  const [showAddUser, setShowAddUser] = useState(false);
  const [sel, setSel] = useState<Set<string>>(new Set());
  const [bulkBusy, setBulkBusy] = useState(false);
+ const [setupLinks, setSetupLinks] = useState<SetupLinks | null>(null);
 
  const fetchUsers = useCallback(async () => {
   setLoading(true);
@@ -268,16 +267,22 @@ export default function AdminUsersPage() {
   });
   if (!confirmed) return;
   try {
-   const res = await fetch(`/api/admin/users/${user.id}`, { method: 'POST' });
-   const data = (await res.json()) as { ok?: boolean; error?: string };
+   const res = await fetch(`/api/admin/users/${user.id}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'reset_password' }),
+   });
+   const data = (await res.json()) as { ok?: boolean; error?: string; setupUrl?: string };
    if (!res.ok || !data.ok) {
     await alertDialog({ title: t('admin_err_title'), message: data.error || t('admin_rp_failed') });
     return;
    }
-   await alertDialog({
+   setSetupLinks({
     title: t('admin_rp_done_title'),
-    message: t('admin_rp_done_msg').replace(/\{name\}/g, user.name).replace(/\{email\}/g, user.email),
+    description: t('admin_rp_done_msg').replace(/\{name\}/g, user.name).replace(/\{email\}/g, user.email),
+    links: data.setupUrl ? [{ url: data.setupUrl }] : [],
    });
+   void fetchUsers();
   } catch {
    await alertDialog({ title: t('admin_err_title'), message: t('admin_err_network') });
   }
@@ -365,24 +370,34 @@ export default function AdminUsersPage() {
   if (ids.length === 0) return;
   if (!(await confirmDialog({ title: t('admin_rp_title'), message: t('admin_bulk_reset_confirm').replace('{count}', String(ids.length)) }))) return;
   setBulkBusy(true);
-  let done = 0;
+  const links: Array<{ label?: string; url: string }> = [];
   for (const id of ids) {
    try {
-    const res = await fetch(`/api/admin/users/${id}`, { method: 'POST' });
-    const d = (await res.json()) as { ok?: boolean };
-    if (res.ok && d.ok) done += 1;
+    const res = await fetch(`/api/admin/users/${id}`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ action: 'reset_password' }),
+    });
+    const d = (await res.json()) as { ok?: boolean; setupUrl?: string };
+    const u = users.find((x) => x.id === id);
+    if (res.ok && d.ok && d.setupUrl) links.push({ label: u ? `${u.name} (${u.email})` : id, url: d.setupUrl });
    } catch {
     /* counted as not-done */
    }
   }
   setBulkBusy(false);
   clearSel();
-  await bulkReport('admin_reset_password', done, ids.length);
+  setSetupLinks({
+   title: t('admin_reset_password'),
+   description: `${t('admin_bulk_done').replace('{done}', String(links.length)).replace('{total}', String(ids.length))} ${t('admin_setup_link_desc')}`,
+   links,
+  });
+  void fetchUsers();
  };
 
  const exportCsv = () => {
   const rows = [['Name', 'Email', 'Auth', 'Joined', 'Workspaces']];
-  for (const u of users) rows.push([u.name, u.email, u.authProvider === 'oauth' ? 'Google' : 'Password', u.createdAt, String(u.workspaceCount)]);
+  for (const u of users) rows.push([u.name, u.email, u.authProvider === 'oauth' ? 'Google' : u.authProvider === 'none' ? 'Setup pending' : 'Password', u.createdAt, String(u.workspaceCount)]);
   const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   const a = document.createElement('a');
@@ -495,12 +510,18 @@ export default function AdminUsersPage() {
    {showAddUser && (
     <AddUserModal
      onCancel={() => setShowAddUser(false)}
-     onCreated={() => {
+     onCreated={(setupUrl, identifier) => {
       setShowAddUser(false);
+      setSetupLinks({
+       title: t('admin_au_created_title'),
+       description: t('admin_au_created_msg').replace('{email}', identifier),
+       links: setupUrl ? [{ url: setupUrl }] : [],
+      });
       void fetchUsers();
      }}
     />
    )}
+   {setupLinks && <LinkDialog title={setupLinks.title} description={setupLinks.description} links={setupLinks.links} onClose={() => setSetupLinks(null)} />}
   </>
  );
 }

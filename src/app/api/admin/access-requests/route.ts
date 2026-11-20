@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
+import { getAppBaseUrl } from '@/server/app-url';
+import { readJson } from '@/server/http';
 import { isSuperAdmin, isAdminPanelUnlocked } from '@/server/permissions';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
@@ -13,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
@@ -25,11 +27,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
- const { id, userId, action, note, days, durationDays } = (await request.json()) as {
+ const { id, userId, action, note, days, durationDays } = (await readJson(request)) as {
   id?: string;
   userId?: string;
   action?: 'approve' | 'reject' | 'renew' | 'setDays';
@@ -60,7 +62,7 @@ export async function POST(request: NextRequest) {
      await sendAccessApprovedEmail({
       to: result.email,
       name: result.name,
-      loginUrl: `${request.nextUrl.origin}/login`,
+      loginUrl: `${getAppBaseUrl()}/login`,
      });
     }
    } catch (mailError) {
@@ -113,7 +115,7 @@ export async function POST(request: NextRequest) {
      await sendAccessApprovedEmail({
       to: result.email,
       name: result.name,
-      loginUrl: `${request.nextUrl.origin}/login`,
+      loginUrl: `${getAppBaseUrl()}/login`,
      });
     } else {
      await sendAccessRejectedEmail({ to: result.email, name: result.name, note });

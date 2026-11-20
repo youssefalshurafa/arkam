@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { signOut } from 'next-auth/react';
+import { signOutCleanly } from '@/shared/lib/signOut';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { accountingApi } from '@/lib/accountingApi';
@@ -38,7 +38,7 @@ export default function AppHeader({
    return;
   }
   accountingApi.setActiveWorkspaceId(null);
-  void signOut({ callbackUrl: '/login' });
+  void signOutCleanly('/login');
  };
 
  return (

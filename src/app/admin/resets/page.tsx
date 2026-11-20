@@ -7,40 +7,9 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { alertDialog, confirmDialog } from '@/components/ui/AppDialog';
 import { useAdminI18n } from '../_ui/useAdminI18n';
 import { Icon } from '../_ui/icons';
-import { RequestStatusBadge, Modal, StateBlock } from '../_ui/primitives';
+import { RequestStatusBadge, LinkDialog, StateBlock } from '../_ui/primitives';
 import { formatDate, formatDateTime } from '../_lib/format';
 import type { PasswordResetRequest } from '../_lib/types';
-
-function ResetLinkDialog({ link, onClose }: { link: string; onClose: () => void }) {
- const { t } = useAdminI18n();
- const [copied, setCopied] = useState(false);
- const copy = async () => {
-  try {
-   await navigator.clipboard.writeText(link);
-   setCopied(true);
-   setTimeout(() => setCopied(false), 2000);
-  } catch {
-   /* user can still select manually */
-  }
- };
- return (
-  <Modal onClose={onClose} maxWidth={520}>
-   <h2>{t('admin_reset_link_title')}</h2>
-   <p className="sub">{t('admin_reset_link_desc')}</p>
-   <div className="acp-row" style={{ gap: 8 }}>
-    <input className="acp-input" readOnly value={link} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1 }} />
-    <button className="acp-btn primary" onClick={() => void copy()}>
-     {copied ? t('admin_copied') : t('admin_copy')}
-    </button>
-   </div>
-   <div className="acp-modal-actions">
-    <button className="acp-btn" onClick={onClose}>
-     {t('admin_done')}
-    </button>
-   </div>
-  </Modal>
- );
-}
 
 export default function AdminResetsPage() {
  const { status } = useStableSession();
@@ -192,7 +161,9 @@ export default function AdminResetsPage() {
     )}
    </div>
 
-   {resetLink && <ResetLinkDialog link={resetLink} onClose={() => setResetLink(null)} />}
+   {resetLink && (
+    <LinkDialog title={t('admin_reset_link_title')} description={t('admin_reset_link_desc')} links={[{ url: resetLink }]} onClose={() => setResetLink(null)} />
+   )}
   </>
  );
 }

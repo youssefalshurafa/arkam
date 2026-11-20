@@ -37,6 +37,23 @@ export function purgeUserScopedCaches(): void {
 }
 
 /**
+ * Sign-out purge: drops the cached workspace DATA (the sessionStorage snapshot and the
+ * active workspace id) so nothing of this account survives in the tab after sign-out —
+ * the half-second flash of the previous user's overview came from exactly these. Per-device
+ * preferences in localStorage (theme, column widths, …) are kept: they aren't account data,
+ * and ensureCacheOwner() still wipes them if a *different* user signs in here.
+ */
+export function purgeSessionDataCaches(): void {
+ if (typeof window === 'undefined') return;
+ try {
+  purgeStorage(window.sessionStorage);
+  window.localStorage.removeItem('arkam.activeWorkspaceId');
+ } catch {
+  /* ignore storage / privacy-mode errors */
+ }
+}
+
+/**
  * Ensures the browser's caches belong to `userId`. If the recorded owner differs
  * (a different account signed in on this browser) or is absent, purges all
  * app-owned caches first and records the new owner. Returns true when a purge

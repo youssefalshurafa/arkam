@@ -1,6 +1,9 @@
 // Shared types for the admin panel, consolidated so the route screens
 // (users / requests / resets / user-detail) and the shell all agree on shape.
 
+// 'none' = no password and no Google login yet: an account waiting on its one-time setup link.
+export type AuthProvider = 'credentials' | 'oauth' | 'none';
+
 export type Workspace = {
  id: string;
  name: string;
@@ -14,7 +17,11 @@ export type AdminUser = {
  email: string;
  name: string;
  image: string | null;
- authProvider: 'credentials' | 'oauth';
+ authProvider: AuthProvider;
+ hasPassword?: boolean;
+ googleLinked?: boolean;
+ emailVerified?: boolean;
+ mfaEnabled?: boolean;
  createdAt: string;
  status: 'pending' | 'approved' | 'rejected' | null;
  phone: string | null;
@@ -86,7 +93,11 @@ export type UserDetail = {
  email: string;
  name: string;
  image: string | null;
- authProvider: 'credentials' | 'oauth';
+ authProvider: AuthProvider;
+ hasPassword?: boolean;
+ googleLinked?: boolean;
+ emailVerified?: boolean;
+ mfaEnabled?: boolean;
  createdAt: string;
  status: 'pending' | 'approved' | 'rejected';
  phone: string;

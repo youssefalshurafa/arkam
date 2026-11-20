@@ -2,10 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
 import { isSuperAdmin, isAdminPanelUnlocked } from '@/server/permissions';
+import { getAppBaseUrl } from '@/server/app-url';
+import { errorResponse, parseBody } from '@/server/http';
+import { adminUserActionSchema, adminUserPatchSchema } from '@/server/auth-schemas';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const db = require('@/server/db');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const mfa = require('@/server/mfa');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const security = require('@/server/security');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,7 +27,7 @@ type Context = {
 export async function GET(request: NextRequest, context: Context) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
@@ -69,30 +76,50 @@ export async function GET(request: NextRequest, context: Context) {
  });
 }
 
-// Super-admin resets a user's password by clearing it, so the user can set a new one from the
-// sign-in page's "Set your password" link. This is the recovery path for username-only accounts
-// that the /forgot-password email flow can't reach.
+// Two actions, both returning a one-time /setup/[token] link for the admin to hand over:
+//   action 'reset_password' (default) — clears the password and signs the user out everywhere.
+//     The recovery path for username-only accounts the /forgot-password email can't reach.
+//   action 'setup_link' — mints a fresh link for an account that has no password yet (its
+//     first link expired or was lost); the account itself is untouched.
+//   action 'reset_mfa' — turns off two-factor for a user who lost their authenticator and
+//     their backup codes (after the admin verified them out-of-band). Signs them out too.
 export async function POST(request: NextRequest, context: Context) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
  const { userId } = await context.params;
 
- // Prevent the admin from clearing their own password and locking themselves out mid-session.
- if (session?.user?.id === userId) {
+ const parsed = await parseBody(request, adminUserActionSchema);
+ if (parsed.response) return parsed.response;
+ const { action } = parsed.data;
+
+ // Prevent the admin from clearing their own password / 2FA and locking themselves out.
+ if (session?.user?.id === userId && action !== 'setup_link') {
   return NextResponse.json({ error: 'You cannot reset your own password here.' }, { status: 400 });
  }
 
  try {
-  const { email } = await authDb.clearUserPassword({ userId });
+  if (action === 'reset_mfa') {
+   await mfa.disableMfa({ userId });
+   await authDb.bumpSessionVersion(userId);
+   await authDb.logAdminAction({ actorEmail: session?.user?.email, action: 'reset_mfa', targetUserId: userId });
+   await security.logSecurityEvent({ userId, event: 'mfa_disabled', headers: request.headers, meta: { by: 'admin' } });
+   return NextResponse.json({ ok: true });
+  }
+  if (action === 'setup_link') {
+   const { setupToken } = await authDb.createSetupToken(userId);
+   await authDb.logAdminAction({ actorEmail: session?.user?.email, action: 'setup_link', targetUserId: userId });
+   return NextResponse.json({ ok: true, setupUrl: `${getAppBaseUrl()}/setup/${setupToken}` });
+  }
+
+  const { email, setupToken } = await authDb.clearUserPassword({ userId });
   await authDb.logAdminAction({ actorEmail: session?.user?.email, action: 'reset_password', targetUserId: userId, targetEmail: email });
-  return NextResponse.json({ ok: true, email });
+  return NextResponse.json({ ok: true, email, setupUrl: `${getAppBaseUrl()}/setup/${setupToken}` });
  } catch (error) {
-  const message = error instanceof Error ? error.message : 'Failed to reset password.';
-  return NextResponse.json({ error: message }, { status: 400 });
+  return errorResponse(error, 'Failed to reset password.', 400, 'admin/users/[userId]');
  }
 }
 
@@ -102,12 +129,14 @@ export async function POST(request: NextRequest, context: Context) {
 export async function PATCH(request: NextRequest, context: Context) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
  const { userId } = await context.params;
- const { phone, aiEnabled } = (await request.json()) as { phone?: string; aiEnabled?: boolean };
+ const parsedPatch = await parseBody(request, adminUserPatchSchema);
+ if (parsedPatch.response) return parsedPatch.response;
+ const { phone, aiEnabled } = parsedPatch.data;
 
  try {
   if (typeof phone === 'string') {
@@ -119,6 +148,12 @@ export async function PATCH(request: NextRequest, context: Context) {
   if (typeof phone !== 'string' && typeof aiEnabled !== 'boolean') {
    return NextResponse.json({ error: 'Nothing to update.' }, { status: 400 });
   }
+  await authDb.logAdminAction({
+   actorEmail: session?.user?.email,
+   action: typeof aiEnabled === 'boolean' ? 'set_ai_access' : 'update_contact',
+   targetUserId: userId,
+   meta: typeof aiEnabled === 'boolean' ? { aiEnabled } : undefined,
+  });
   return NextResponse.json({
    ok: true,
    ...(typeof phone === 'string' ? { phone: phone.trim() } : {}),

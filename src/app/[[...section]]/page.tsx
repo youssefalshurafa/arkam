@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { signOut } from 'next-auth/react';
+import { signOutCleanly } from '@/shared/lib/signOut';
 import { useStableSession } from '@/hooks/useStableSession';
 import { useLanguage } from '@/contexts/LanguageContext';
 import HomePage from '@/components/marketing/HomePage';
@@ -143,6 +143,7 @@ import { useTransactionActions } from '@/features/transactions/hooks/useTransact
 import ToastHost from '@/shared/components/ToastHost';
 import Sidebar from '@/shared/components/Sidebar';
 import AppHeader from '@/shared/components/AppHeader';
+import WorkspaceSubscriptionExpired from '@/shared/components/WorkspaceSubscriptionExpired';
 import LedgerSettingsModal from '@/features/ledger/components/LedgerSettingsModal';
 import OneSidedTransactionModal from '@/features/ledger/components/OneSidedTransactionModal';
 import NewTransactionModal from '@/features/ledger/components/NewTransactionModal';
@@ -507,6 +508,11 @@ function AuthenticatedHome() {
   await invalidateWorkspace();
  }, [invalidateWorkspace]);
 
+ // The workspace owner's subscription lapsed (teammate view): show the dedicated notice
+ // instead of an error banner over an empty workspace.
+ const workspaceQueryError = workspaceQuery.error as (Error & { code?: string; ownerName?: string }) | null;
+ const workspaceExpired = workspaceQuery.isError && workspaceQueryError?.code === 'WORKSPACE_SUBSCRIPTION_EXPIRED' ? { ownerName: workspaceQueryError.ownerName } : null;
+
  // Surface load failures and clear the banner on each successful (re)fetch —
  // mirrors the setError handling that used to live inside loadData.
  useEffect(() => {
@@ -616,9 +622,7 @@ function AuthenticatedHome() {
  useEffect(() => {
   if (subscriptionDaysLeft === null || subscriptionDaysLeft > 0) return;
   const email = authSession?.user?.email;
-  void signOut({ redirect: false }).then(() => {
-   window.location.href = `/login?authError=SUBSCRIPTION_EXPIRED${email ? `&authEmail=${encodeURIComponent(email)}` : ''}`;
-  });
+  void signOutCleanly(`/login?authError=SUBSCRIPTION_EXPIRED${email ? `&authEmail=${encodeURIComponent(email)}` : ''}`);
  }, [subscriptionDaysLeft, authSession]);
 
  // Re-check dismissal (keyed by the current end date, so renewing resets it) whenever
@@ -661,6 +665,12 @@ function AuthenticatedHome() {
   // Harvest is super-admin-only: a non-admin deep-linking to /harvest falls back to
   // overview so they never see the section header or an empty page.
   setSection(resolved === 'harvest' && !isSuperAdminUser ? 'overview' : resolved);
+  // /settings/account and /settings/team deep-link straight to that tab (used by the
+  // admin panel's "turn on two-factor" gate and invite flows).
+  if (resolved === 'settings') {
+   const tab = pathname.split('/').filter(Boolean)[1];
+   if (tab === 'account' || tab === 'team') setSettingsTab(tab);
+  }
  }, [pathname, isSuperAdminUser]);
 
  // Records a "section visit" activity event whenever the active section changes (covers
@@ -2553,7 +2563,15 @@ function AuthenticatedHome() {
       <SectionErrorBoundary key="settings">{settingsSection}</SectionErrorBoundary>
      ) : null}
 
-     {section !== 'settings' ? (
+     {section !== 'settings' && workspaceExpired ? (
+      <WorkspaceSubscriptionExpired
+       ownerName={workspaceExpired.ownerName}
+       hasOtherWorkspaces={userWorkspaces.length > 1}
+       onManageWorkspaces={onManageWorkspaces}
+      />
+     ) : null}
+
+     {section !== 'settings' && !workspaceExpired ? (
       <SectionErrorBoundary key={section}>
        <div className="flex flex-col gap-4 p-4">
        {error ? (

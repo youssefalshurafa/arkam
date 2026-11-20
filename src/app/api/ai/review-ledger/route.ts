@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const security = require('@/server/security');
 import { GoogleGenAI } from '@google/genai';
 import * as z from 'zod/v4';
 import { authOptions } from '@/server/auth-options';
@@ -107,6 +109,15 @@ export async function POST(request: NextRequest) {
  // alone would just be a bypassable UI decoration.
  if (session.user.aiEnabled !== true) {
   return NextResponse.json({ error: 'AI features are not enabled for this account.' }, { status: 403 });
+ }
+
+ // Per-user hourly budget: every call spends paid Gemini quota.
+ const aiBudget = await security.hit('aiUser', session.user.id);
+ if (!aiBudget.allowed) {
+  return NextResponse.json(
+   { error: 'AI request limit reached. Please try again later.' },
+   { status: 429, headers: { 'Retry-After': String(aiBudget.retryAfterSeconds) } },
+  );
  }
 
  if (!GEMINI_API_KEY) {

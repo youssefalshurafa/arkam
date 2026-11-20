@@ -391,6 +391,94 @@ async function ensurePublicSchema() {
                     );
 
                     CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at DESC);
+
+                    -- ---- Auth hardening (2026-11) -------------------------------------
+                    -- When the address in users.email was proven to belong to the user (signup
+                    -- code, emailed reset link, or a Google sign-in Google itself verified).
+                    -- NULL = unverified: legacy self-signups, admin-created usernames.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+                    -- Google's stable account id. Google sign-ins resolve by this first; linking
+                    -- by email alone is what let a pre-registered account capture a Google login.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL;
+                    -- Bumped to revoke every outstanding session (password change/reset, admin
+                    -- reset, sign-out-everywhere). The JWT carries the value it was minted with
+                    -- and the jwt callback rejects a mismatch on its next claims refresh.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+                    -- 'reset' = emailed reset/invite link (clicking it proves the address);
+                    -- 'setup' = one-time link an admin/owner hands over out-of-band.
+                    ALTER TABLE password_reset_tokens ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'reset';
+                    -- TOTP two-factor. The secret is AES-256-GCM encrypted (AUTH_ENCRYPTION_KEY);
+                    -- it is written at enrollment start and only counts once mfa_enabled_at is set.
+                    -- mfa_last_step is the last accepted 30s time-step, so a code can't be replayed.
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret_enc TEXT;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled_at TIMESTAMPTZ;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_last_step BIGINT;
+
+                    CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        code_hash TEXT NOT NULL,
+                        used_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_mfa_backup_codes_user ON mfa_backup_codes(user_id);
+
+                    -- Fixed-window rate limit counters (src/server/security.js). key is
+                    -- "<budget>:<scope>", e.g. "loginPair:alice|1.2.3.4".
+                    CREATE TABLE IF NOT EXISTS rate_limits (
+                        key TEXT PRIMARY KEY,
+                        count INTEGER NOT NULL DEFAULT 0,
+                        window_start TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+
+                    -- Security-relevant events (logins, failures, password/email/2FA changes,
+                    -- invites, admin unlocks). user_id is NOT a foreign key so the trail
+                    -- survives account deletion, same as admin_audit.
+                    CREATE TABLE IF NOT EXISTS security_events (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id TEXT,
+                        identifier TEXT,
+                        event TEXT NOT NULL,
+                        ip TEXT,
+                        user_agent TEXT,
+                        meta JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_security_events_user ON security_events(user_id, created_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(created_at DESC);
+
+                    -- Pending email verifications: signup (no user row exists until the code is
+                    -- confirmed), legacy-account verification and email change. The code is
+                    -- stored as an HMAC, never in clear.
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'signup';
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS user_id TEXT;
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS password_hash TEXT;
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS code_hash TEXT;
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS last_sent_at TIMESTAMPTZ;
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS send_count INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE email_verification_tokens ADD COLUMN IF NOT EXISTS decoy BOOLEAN NOT NULL DEFAULT FALSE;
+
+                    -- Workspace invitations: a single-use link the owner/admin shares. Accepting
+                    -- it is the only way to join a workspace (no more silent auto-add, no
+                    -- passwordless accounts created on someone else's behalf).
+                    CREATE TABLE IF NOT EXISTS workspace_invitations (
+                        id TEXT PRIMARY KEY,
+                        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                        token_hash TEXT NOT NULL UNIQUE,
+                        role TEXT NOT NULL CHECK (role IN ('admin', 'member', 'viewer')),
+                        invited_identifier TEXT,
+                        invited_name TEXT,
+                        invited_by TEXT,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        accepted_at TIMESTAMPTZ,
+                        accepted_by TEXT,
+                        revoked_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_workspace_invitations_workspace ON workspace_invitations(workspace_id, created_at DESC);
                 `);
             });
         })().catch((error) => {

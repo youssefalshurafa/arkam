@@ -1,14 +1,34 @@
 'use client';
 
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { getProviders, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useStableSession } from '@/hooks/useStableSession';
 import SiteLayout from '@/components/marketing/SiteLayout';
+import VerificationCodeForm from '@/components/auth/VerificationCodeForm';
+import PasswordVisibilityToggle from '@/components/auth/PasswordVisibilityToggle';
 import { COUNTRY_DIAL_CODES, DEFAULT_DIAL_CODE } from '@/shared/constants/countryDialCodes';
+import { passwordProblem } from '@/shared/lib/passwordRules';
+import { safeNextPath } from '@/shared/lib/safeNextPath';
 
+type Pending = { pendingId: string; email: string };
+
+async function postJson(url: string, body: unknown) {
+ const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+ const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; code?: string; pendingId?: string; email?: string };
+ if (!res.ok || !payload.ok) {
+  const error = new Error(payload.error || 'Request failed.') as Error & { code?: string };
+  error.code = payload.code;
+  throw error;
+ }
+ return payload;
+}
+
+// Two-step signup: details -> 6-digit code emailed to the address. The account (and its
+// 14-day trial) only exists once the code is confirmed, so nobody can register an address
+// they don't control.
 export default function SignupPage() {
  const router = useRouter();
  const { language } = useLanguage();
@@ -21,57 +41,41 @@ export default function SignupPage() {
  const [phone, setPhone] = useState('');
  const [password, setPassword] = useState('');
  const [confirmPassword, setConfirmPassword] = useState('');
+ const [showPassword, setShowPassword] = useState(false);
  const [error, setError] = useState('');
  const [isSubmitting, setIsSubmitting] = useState(false);
  const [isGoogleEnabled, setIsGoogleEnabled] = useState(false);
- const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
- // The identifier value the in-flight availability check was fired for, so a slow
- // response for an old value can't overwrite the status of what's now in the box.
- const usernameCheckedFor = useRef('');
+ const [pending, setPending] = useState<Pending | null>(null);
+ const [nextPath, setNextPath] = useState('/');
 
  // Live password rules, recomputed on every keystroke to drive the inline checklist.
  const pwHasLength = password.length >= 8;
- const pwHasMix = /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
+ const pwHasMix = /\p{L}/u.test(password) && /\p{Nd}/u.test(password);
  const pwConfirmMatch = confirmPassword.length > 0 && password === confirmPassword;
 
- const checkUsername = async () => {
-  const value = email.trim();
-  if (!value) {
-   setUsernameStatus('idle');
-   return;
-  }
-  usernameCheckedFor.current = value;
-  setUsernameStatus('checking');
-  try {
-   const res = await fetch(`/api/auth/check-username?value=${encodeURIComponent(value)}`);
-   const data = (await res.json()) as { available?: boolean };
-   // Ignore a stale response if the field changed while this request was in flight.
-   if (usernameCheckedFor.current !== value) return;
-   setUsernameStatus(data.available ? 'available' : 'taken');
-  } catch {
-   if (usernameCheckedFor.current === value) setUsernameStatus('idle');
-  }
- };
+ // ?next= (e.g. back to an invite link after signing up) and ?email= (prefill from an invite).
+ useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const prefill = params.get('email');
+  setNextPath(safeNextPath(params.get('next')));
+  if (prefill) setEmail(prefill);
+ }, []);
 
  useEffect(() => {
-  if (status === 'authenticated') {
-   router.replace('/');
+  if (status === 'authenticated' && !pending) {
+   window.location.replace(nextPath);
   }
- }, [status, router]);
+ }, [status, pending, nextPath]);
 
  useEffect(() => {
   let isMounted = true;
-  const loadProviders = async () => {
-   try {
-    const providers = await getProviders();
-    if (!isMounted) return;
-    setIsGoogleEnabled(Boolean(providers?.google));
-   } catch {
-    if (!isMounted) return;
-    setIsGoogleEnabled(false);
-   }
-  };
-  void loadProviders();
+  getProviders()
+   .then((providers) => {
+    if (isMounted) setIsGoogleEnabled(Boolean(providers?.google));
+   })
+   .catch(() => {
+    if (isMounted) setIsGoogleEnabled(false);
+   });
   return () => {
    isMounted = false;
   };
@@ -81,23 +85,15 @@ export default function SignupPage() {
   event.preventDefault();
   setError('');
 
-  if (usernameStatus === 'taken') {
-   setError(t('signup_username_taken'));
-   return;
-  }
   // Digits-only national number; drop a leading trunk '0' so we don't double it after the dial code.
   const nationalNumber = phone.replace(/\D/g, '').replace(/^0+/, '');
   if (nationalNumber.length < 6) {
    setError(t('signup_phone_invalid'));
    return;
   }
-  const fullPhone = `${dialCode}${nationalNumber}`;
-  if (password.length < 8) {
-   setError(t('signup_password_too_short'));
-   return;
-  }
-  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
-   setError(t('signup_password_complexity'));
+  const problem = passwordProblem(password);
+  if (problem) {
+   setError(t(problem));
    return;
   }
   if (password !== confirmPassword) {
@@ -107,27 +103,13 @@ export default function SignupPage() {
 
   setIsSubmitting(true);
   try {
-   const res = await fetch('/api/auth/signup', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: fullName, email, password, phone: fullPhone }),
+   const payload = await postJson('/api/auth/signup', {
+    name: fullName,
+    email: email.trim(),
+    password,
+    phone: `${dialCode}${nationalNumber}`,
    });
-   const payload = (await res.json()) as { ok?: boolean; error?: string };
-   if (!res.ok || !payload.ok) {
-    throw new Error(payload.error || t('signup_error_failed'));
-   }
-
-   const result = await signIn('credentials', { email, password, redirect: false });
-   if (!result || result.error) {
-    // Account was created but auto sign-in failed for some reason — send them
-    // to the login form instead of leaving them stuck on a dead-end screen.
-    router.replace('/login');
-    return;
-   }
-
-   window.localStorage.removeItem('arkam.activeWorkspaceId');
-   router.replace('/');
-   router.refresh();
+   setPending({ pendingId: String(payload.pendingId), email: String(payload.email || email.trim()) });
   } catch (err) {
    setError(err instanceof Error ? err.message : t('signup_error_generic'));
   } finally {
@@ -135,22 +117,42 @@ export default function SignupPage() {
   }
  };
 
- if (status === 'authenticated') {
+ const onVerify = async (code: string) => {
+  if (!pending) return;
+  try {
+   await postJson('/api/auth/signup/verify', { pendingId: pending.pendingId, code });
+  } catch (err) {
+   const codeName = (err as { code?: string }).code;
+   // Dead pending signup (too many tries / expired): back to the form, details kept.
+   if (codeName === 'TOO_MANY_ATTEMPTS' || codeName === 'EXPIRED' || codeName === 'ALREADY_REGISTERED') {
+    setPending(null);
+    setError(err instanceof Error ? err.message : t('signup_error_generic'));
+    return;
+   }
+   throw err;
+  }
+  const result = await signIn('credentials', { email: pending.email, password, remember: 'true', redirect: false });
+  if (!result || result.error) {
+   // Account exists but auto sign-in failed — send them to the login form, not a dead end.
+   window.location.assign(`/login?authEmail=${encodeURIComponent(pending.email)}${nextPath !== '/' ? `&next=${encodeURIComponent(nextPath)}` : ''}`);
+   return;
+  }
+  window.location.assign(nextPath);
+ };
+
+ const onResend = async () => {
+  if (!pending) return;
+  await postJson('/api/auth/signup/resend', { pendingId: pending.pendingId });
+ };
+
+ const inputClass =
+  'w-full rounded border border-border-strong bg-surface px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500';
+
+ if (status === 'loading' || (status === 'authenticated' && !pending)) {
   return (
    <SiteLayout>
     <div className="flex flex-1 items-center justify-center p-4">
-     <div className="w-full max-w-sm">
-      <section className="rounded border border-border-strong bg-surface p-6 shadow-md">
-       <h2 className="mb-4 text-sm font-semibold text-fg-muted">{t('signup_already_signed_in')}</h2>
-       <button
-        type="button"
-        onClick={() => router.push('/')}
-        className="rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800"
-       >
-        {t('signup_go_dashboard')}
-       </button>
-      </section>
-     </div>
+     <div className="rounded border border-border-strong bg-surface px-6 py-4 text-sm text-fg-muted shadow-sm">{t('loading')}</div>
     </div>
    </SiteLayout>
   );
@@ -165,174 +167,208 @@ export default function SignupPage() {
      </div>
 
      <section className="rounded border border-border-strong bg-surface shadow-md">
-      <div className="border-b border-border bg-surface-2 px-5 py-3 flex items-center justify-between">
-       <h2 className="text-sm font-semibold text-fg-muted">{t('signup_heading')}</h2>
+      <div className="flex items-center justify-between border-b border-border bg-surface-2 px-5 py-3">
+       <h2 className="text-sm font-semibold text-fg-muted">{pending ? t('verify_code_title') : t('signup_heading')}</h2>
        <button
         type="button"
-        onClick={() => router.push('/login')}
+        onClick={() => router.push(nextPath !== '/' ? `/login?next=${encodeURIComponent(nextPath)}` : '/login')}
         className="text-sm text-accent transition hover:text-accent hover:underline"
        >
         {t('home_sign_in')}
        </button>
       </div>
 
-      <div className="p-5 space-y-4">
-       <p className="rounded border border-emerald-200 bg-good-bg px-3 py-2 text-center text-xs font-semibold text-good-text">
-        {t('signup_trial_badge', { days: 14 })}
-       </p>
-
-       {isGoogleEnabled ? (
+      <div className="space-y-4 p-5">
+       {pending ? (
+        <VerificationCodeForm
+         email={pending.email}
+         onSubmit={onVerify}
+         onResend={onResend}
+         onBack={() => setPending(null)}
+         submitLabel={t('signup_verify_submit')}
+         compact
+        />
+       ) : (
         <>
-         <button
-          type="button"
-          onClick={() => {
-           setError('');
-           void signIn('google', { callbackUrl: '/' });
-          }}
-          className="inline-flex w-full items-center justify-center gap-2 rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg-muted shadow-sm transition hover:bg-surface-hover"
-         >
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-blue-600 text-xs font-bold text-white">G</span>
-          {t('signup_google')}
-         </button>
-         <div className="flex items-center gap-3 text-xs text-fg-faint">
-          <span className="h-px flex-1 bg-border" />
-          <span>{t('signup_or')}</span>
-          <span className="h-px flex-1 bg-border" />
+         <p className="rounded border border-emerald-200 bg-good-bg px-3 py-2 text-center text-xs font-semibold text-good-text">
+          {t('signup_trial_badge', { days: 14 })}
+         </p>
+
+         {isGoogleEnabled ? (
+          <>
+           <button
+            type="button"
+            onClick={() => {
+             setError('');
+             void signIn('google', { callbackUrl: nextPath });
+            }}
+            className="inline-flex w-full items-center justify-center gap-2 rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg-muted shadow-sm transition hover:bg-surface-hover"
+           >
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-blue-600 text-xs font-bold text-white">G</span>
+            {t('signup_google')}
+           </button>
+           <div className="flex items-center gap-3 text-xs text-fg-faint">
+            <span className="h-px flex-1 bg-border" />
+            <span>{t('signup_or')}</span>
+            <span className="h-px flex-1 bg-border" />
+           </div>
+          </>
+         ) : null}
+
+         <form className="space-y-4" onSubmit={(e) => void onSubmit(e)}>
+          <div>
+           <label className="mb-1 block text-xs font-semibold text-fg-muted" htmlFor="signup-name">
+            {t('signup_full_name')} <span className="font-normal text-fg-faint">({t('signup_optional')})</span>
+           </label>
+           <input
+            id="signup-name"
+            type="text"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder={t('signup_full_name')}
+            className={inputClass}
+            autoComplete="name"
+            maxLength={120}
+           />
+          </div>
+          <div>
+           <label className="mb-1 block text-xs font-semibold text-fg-muted" htmlFor="signup-email">
+            {t('signup_email_label')}
+           </label>
+           <input
+            id="signup-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@example.com"
+            className={inputClass}
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            dir="ltr"
+            required
+            maxLength={254}
+           />
+           <p className="mt-1 text-xs text-fg-faint">{t('signup_email_hint')}</p>
+          </div>
+          <div>
+           <label className="mb-1 block text-xs font-semibold text-fg-muted" htmlFor="signup-phone">
+            {t('signup_whatsapp_label')}
+           </label>
+           <div className="flex gap-2">
+            <select
+             value={dialCode}
+             onChange={(e) => setDialCode(e.target.value)}
+             className="w-28 shrink-0 rounded border border-border-strong bg-surface px-2 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+             aria-label={t('signup_whatsapp_country')}
+            >
+             {COUNTRY_DIAL_CODES.map((c) => (
+              <option key={c.code} value={c.dial}>
+               {c.flag} {c.dial}
+              </option>
+             ))}
+            </select>
+            <input
+             id="signup-phone"
+             type="tel"
+             value={phone}
+             onChange={(e) => setPhone(e.target.value)}
+             placeholder={t('signup_whatsapp_placeholder')}
+             className={inputClass}
+             autoComplete="tel-national"
+             inputMode="tel"
+             dir="ltr"
+             required
+             maxLength={20}
+            />
+           </div>
+           <p className="mt-1 text-xs text-fg-faint">{t('signup_whatsapp_hint')}</p>
+          </div>
+          <div>
+           <label className="mb-1 block text-xs font-semibold text-fg-muted" htmlFor="signup-password">
+            {t('signup_password_label')}
+           </label>
+           <div className="relative">
+            <input
+             id="signup-password"
+             type={showPassword ? 'text' : 'password'}
+             value={password}
+             onChange={(e) => setPassword(e.target.value)}
+             placeholder={t('signup_password_placeholder')}
+             className={`${inputClass} pr-10`}
+             minLength={8}
+             required
+             autoComplete="new-password"
+            />
+            <PasswordVisibilityToggle
+             shown={showPassword}
+             onToggle={() => setShowPassword((current) => !current)}
+             showLabel={t('password_show')}
+             hideLabel={t('password_hide')}
+            />
+           </div>
+           {password.length > 0 ? (
+            <ul className="mt-1.5 space-y-0.5">
+             <li className={`flex items-center gap-1.5 text-xs ${pwHasLength ? 'text-good-text' : 'text-fg-faint'}`}>
+              <span aria-hidden>{pwHasLength ? '✓' : '○'}</span>
+              {t('signup_password_req_length')}
+             </li>
+             <li className={`flex items-center gap-1.5 text-xs ${pwHasMix ? 'text-good-text' : 'text-fg-faint'}`}>
+              <span aria-hidden>{pwHasMix ? '✓' : '○'}</span>
+              {t('signup_password_req_mix')}
+             </li>
+            </ul>
+           ) : null}
+          </div>
+          <div>
+           <label className="mb-1 block text-xs font-semibold text-fg-muted" htmlFor="signup-password-confirm">
+            {t('signup_confirm_password_label')}
+           </label>
+           <input
+            id="signup-password-confirm"
+            type={showPassword ? 'text' : 'password'}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder={t('signup_confirm_password_placeholder')}
+            className={inputClass}
+            minLength={8}
+            required
+            autoComplete="new-password"
+           />
+           {confirmPassword.length > 0 ? (
+            <p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${pwConfirmMatch ? 'text-good-text' : 'text-bad-text'}`}>
+             <span aria-hidden>{pwConfirmMatch ? '✓' : '✕'}</span>
+             {pwConfirmMatch ? t('signup_password_match') : t('signup_password_mismatch')}
+            </p>
+           ) : null}
+          </div>
+
+          {error ? (
+           <p role="alert" className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">
+            {error}
+           </p>
+          ) : null}
+
+          <button
+           type="submit"
+           disabled={isSubmitting}
+           className="w-full rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+           {isSubmitting ? t('signup_sending_code') : t('signup_continue')}
+          </button>
+         </form>
+
+         <div className="border-t border-border pt-4 text-center">
+          <button
+           type="button"
+           onClick={() => router.push(nextPath !== '/' ? `/login?next=${encodeURIComponent(nextPath)}` : '/login')}
+           className="text-sm text-accent transition hover:text-accent hover:underline"
+          >
+           {t('signup_already_have')}
+          </button>
          </div>
         </>
-       ) : null}
-
-       <form className="space-y-4" onSubmit={(e) => void onSubmit(e)}>
-        <div>
-         <label className="mb-1 block text-xs font-semibold text-fg-muted">
-          {t('signup_full_name')} <span className="font-normal text-fg-faint">({t('signup_optional')})</span>
-         </label>
-         <input
-          type="text"
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          placeholder={t('signup_full_name')}
-          className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-         />
-        </div>
-        <div>
-         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_email')}</label>
-         <input
-          type="text"
-          value={email}
-          onChange={(e) => {
-           setEmail(e.target.value);
-           setUsernameStatus('idle');
-          }}
-          onBlur={() => void checkUsername()}
-          placeholder={t('signup_email')}
-          className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          autoComplete="username"
-          autoCapitalize="none"
-          required
-         />
-         {usernameStatus === 'checking' ? (
-          <p className="mt-1 text-xs text-fg-faint">{t('signup_username_checking')}</p>
-         ) : usernameStatus === 'available' ? (
-          <p className="mt-1 text-xs font-medium text-good-text">✓ {t('signup_username_available')}</p>
-         ) : usernameStatus === 'taken' ? (
-          <p className="mt-1 text-xs font-medium text-bad-text">✕ {t('signup_username_taken')}</p>
-         ) : null}
-        </div>
-        <div>
-         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_whatsapp_label')}</label>
-         <div className="flex gap-2">
-          <select
-           value={dialCode}
-           onChange={(e) => setDialCode(e.target.value)}
-           className="w-28 shrink-0 rounded border border-border-strong bg-surface px-2 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-           aria-label={t('signup_whatsapp_country')}
-          >
-           {COUNTRY_DIAL_CODES.map((c) => (
-            <option key={c.code} value={c.dial}>
-             {c.flag} {c.dial}
-            </option>
-           ))}
-          </select>
-          <input
-           type="tel"
-           value={phone}
-           onChange={(e) => setPhone(e.target.value)}
-           placeholder={t('signup_whatsapp_placeholder')}
-           className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-           autoComplete="tel-national"
-           inputMode="tel"
-           dir="ltr"
-           required
-          />
-         </div>
-         <p className="mt-1 text-xs text-fg-faint">{t('signup_whatsapp_hint')}</p>
-        </div>
-        <div>
-         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_password_label')}</label>
-         <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder={t('signup_password_placeholder')}
-          className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          minLength={8}
-          required
-          autoComplete="new-password"
-         />
-         {password.length > 0 ? (
-          <ul className="mt-1.5 space-y-0.5">
-           <li className={`flex items-center gap-1.5 text-xs ${pwHasLength ? 'text-good-text' : 'text-fg-faint'}`}>
-            <span aria-hidden>{pwHasLength ? '✓' : '○'}</span>
-            {t('signup_password_req_length')}
-           </li>
-           <li className={`flex items-center gap-1.5 text-xs ${pwHasMix ? 'text-good-text' : 'text-fg-faint'}`}>
-            <span aria-hidden>{pwHasMix ? '✓' : '○'}</span>
-            {t('signup_password_req_mix')}
-           </li>
-          </ul>
-         ) : null}
-        </div>
-        <div>
-         <label className="mb-1 block text-xs font-semibold text-fg-muted">{t('signup_confirm_password_label')}</label>
-         <input
-          type="password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          placeholder={t('signup_confirm_password_placeholder')}
-          className="w-full rounded border border-border-strong px-3 py-2 text-sm text-fg outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          minLength={8}
-          required
-          autoComplete="new-password"
-         />
-         {confirmPassword.length > 0 ? (
-          <p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${pwConfirmMatch ? 'text-good-text' : 'text-bad-text'}`}>
-           <span aria-hidden>{pwConfirmMatch ? '✓' : '✕'}</span>
-           {pwConfirmMatch ? t('signup_password_match') : t('signup_password_mismatch')}
-          </p>
-         ) : null}
-        </div>
-
-        {error ? <p className="rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{error}</p> : null}
-
-        <button
-         type="submit"
-         disabled={isSubmitting}
-         className="w-full rounded border border-blue-700 bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-         {isSubmitting ? t('signup_sending') : t('signup_continue')}
-        </button>
-       </form>
-
-       <div className="border-t border-border pt-4 text-center">
-        <button
-         type="button"
-         onClick={() => router.push('/login')}
-         className="text-sm text-accent transition hover:text-accent hover:underline"
-        >
-         {t('signup_already_have')}
-        </button>
-       </div>
+       )}
       </div>
      </section>
     </div>

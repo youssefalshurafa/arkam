@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
+import { getAppBaseUrl } from '@/server/app-url';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
       to: adminEmail,
       requesterName: result.name || '',
       requesterUsername: result.username || '',
-      reviewUrl: `${request.nextUrl.origin}/admin`,
+      reviewUrl: `${getAppBaseUrl()}/admin`,
      });
     }
    } catch (mailError) {

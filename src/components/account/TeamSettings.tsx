@@ -5,7 +5,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useStableSession } from '@/hooks/useStableSession';
 import { confirmDialog, promptDialog } from '@/components/ui/AppDialog';
-import { accountingApi, type WorkspaceMember, type WorkspaceRole } from '@/lib/accountingApi';
+import { accountingApi, type WorkspaceInvitation, type WorkspaceMember, type WorkspaceRole } from '@/lib/accountingApi';
 
 const ROLE_OPTIONS: WorkspaceRole[] = ['admin', 'member', 'viewer'];
 
@@ -39,6 +39,43 @@ function roleBadgeClass(role: string) {
 
 const panelClass = 'rounded-lg border border-border bg-surface p-5 shadow-sm';
 
+// A one-time link with a Copy button (invite links, legacy teammate setup links).
+function CopyableLink({ label, url, onDismiss, t }: { label: string; url: string; onDismiss: () => void; t: (key: string) => string }) {
+ const [copied, setCopied] = useState(false);
+ return (
+  <div className="mt-3 rounded border border-border bg-surface-2 p-3">
+   <p className="text-xs font-semibold text-fg-muted">{label}</p>
+   <div className="mt-2 flex gap-2">
+    <input
+     readOnly
+     value={url}
+     onFocus={(e) => e.currentTarget.select()}
+     dir="ltr"
+     className="min-w-0 flex-1 rounded border border-border-strong bg-surface px-2 py-1.5 font-mono text-xs text-fg outline-none"
+    />
+    <button
+     type="button"
+     onClick={() => {
+      void navigator.clipboard
+       .writeText(url)
+       .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+       })
+       .catch(() => {});
+     }}
+     className="shrink-0 rounded border border-blue-700 bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-800"
+    >
+     {copied ? t('team_link_copied') : t('team_link_copy')}
+    </button>
+    <button type="button" onClick={onDismiss} className="shrink-0 text-xs font-semibold text-fg-faint transition hover:text-fg-muted">
+     {t('team_link_dismiss')}
+    </button>
+   </div>
+  </div>
+ );
+}
+
 export default function TeamSettings() {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
@@ -50,6 +87,8 @@ export default function TeamSettings() {
  const [workspaceName, setWorkspaceName] = useState('');
  const [currentRole, setCurrentRole] = useState<string>('');
  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+ const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
+ const [shareLink, setShareLink] = useState<{ label: string; url: string } | null>(null);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState('');
  const [notice, setNotice] = useState('');
@@ -79,6 +118,13 @@ export default function TeamSettings() {
    setMembers(list);
   } catch (e) {
    setError(e instanceof Error ? e.message : 'Failed to load members.');
+  }
+  // Pending invitations are only visible to owners/admins; others get a 403 we ignore.
+  try {
+   const { invitations: pending } = await accountingApi.listWorkspaceInvitations(wsId);
+   setInvitations(pending);
+  } catch {
+   setInvitations([]);
   }
  };
 
@@ -112,12 +158,9 @@ export default function TeamSettings() {
   setNotice('');
   setInviting(true);
   try {
-   const res = await accountingApi.inviteWorkspaceMember({ workspaceId, name: inviteName, email: inviteEmail, role: inviteRole });
-   if (!res.emailSent) {
-    setNotice(t('team_invite_no_email_notice'));
-   } else {
-    setNotice(res.status === 'invited' ? t('team_invite_sent') : t('team_member_added'));
-   }
+   const res = await accountingApi.inviteWorkspaceMember({ workspaceId, name: inviteName, identifier: inviteEmail, role: inviteRole });
+   setNotice(res.emailSent ? t('team_invite_link_emailed') : t('team_invite_link_created'));
+   setShareLink({ label: t('team_invite_link_label'), url: res.inviteUrl });
    setInviteName('');
    setInviteEmail('');
    setInviteRole('member');
@@ -202,6 +245,31 @@ export default function TeamSettings() {
   } catch (e) {
    setWorkspaceActionError(e instanceof Error ? e.message : t('team_workspace_delete_failed'));
    setWorkspaceActionBusyId(null);
+  }
+ };
+
+ const onRevokeInvitation = async (invitation: WorkspaceInvitation) => {
+  if (!workspaceId) return;
+  setError('');
+  try {
+   await accountingApi.revokeWorkspaceInvitation({ workspaceId, invitationId: invitation.id });
+   setInvitations((current) => current.filter((item) => item.id !== invitation.id));
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('team_invite_failed'));
+  }
+ };
+
+ const onMemberSetupLink = async (member: WorkspaceMember) => {
+  if (!workspaceId) return;
+  setError('');
+  setBusyUserId(member.id);
+  try {
+   const { setupUrl } = await accountingApi.createMemberSetupLink({ workspaceId, targetUserId: member.id });
+   setShareLink({ label: t('team_setup_link_label').replace('{name}', member.name || member.email), url: setupUrl });
+  } catch (e) {
+   setError(e instanceof Error ? e.message : t('team_invite_failed'));
+  } finally {
+   setBusyUserId(null);
   }
  };
 
@@ -312,8 +380,7 @@ export default function TeamSettings() {
        type="text"
        value={inviteEmail}
        onChange={(e) => setInviteEmail(e.target.value)}
-       placeholder={t('team_email')}
-       required
+       placeholder={t('team_invite_identifier_placeholder')}
        className="rounded border border-border-strong px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
       />
       <select
@@ -336,7 +403,33 @@ export default function TeamSettings() {
       </button>
      </form>
      {notice && <p className="mt-3 rounded border border-green-300 bg-good-bg px-3 py-2 text-sm text-good-text">{notice}</p>}
+     {shareLink && <CopyableLink label={shareLink.label} url={shareLink.url} onDismiss={() => setShareLink(null)} t={t} />}
      {error && <p className="mt-3 rounded border border-red-300 bg-bad-bg px-3 py-2 text-sm text-bad-text">{error}</p>}
+
+     {invitations.length > 0 && (
+      <div className="mt-5">
+       <h3 className="text-sm font-semibold text-fg">{t('team_pending_invites_title')}</h3>
+       <ul className="mt-2 divide-y divide-border rounded border border-border">
+        {invitations.map((invitation) => (
+         <li key={invitation.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+          <div>
+           <div className="font-medium text-fg">{invitation.name || invitation.identifier || t('team_invite_open_link')}</div>
+           <div className="text-xs text-fg-faint">
+            {roleLabel(invitation.role, t)} · {t('team_invite_expires').replace('{date}', new Date(invitation.expiresAt).toLocaleDateString(language))}
+           </div>
+          </div>
+          <button
+           type="button"
+           onClick={() => void onRevokeInvitation(invitation)}
+           className="rounded border border-red-200 px-3 py-1.5 text-xs text-bad-text transition hover:bg-bad-bg"
+          >
+           {t('team_invite_revoke')}
+          </button>
+         </li>
+        ))}
+       </ul>
+      </div>
+     )}
     </div>
    )}
 
@@ -374,6 +467,9 @@ export default function TeamSettings() {
            <td className="px-4 py-3">
             <div className="font-medium text-fg">{member.name || member.email}</div>
             <div className="text-xs text-fg-faint">{member.email}</div>
+            {member.setupPending ? (
+             <span className="mt-1 inline-flex items-center rounded-full bg-warn-bg px-2 py-0.5 text-xs font-medium text-warn-text">{t('team_setup_pending')}</span>
+            ) : null}
            </td>
            <td className="px-4 py-3">
             {editable ? (
@@ -396,6 +492,17 @@ export default function TeamSettings() {
            {canManage && (
             <td className="px-4 py-3 text-right">
              {editable ? (
+              <div className="flex justify-end gap-2">
+              {member.setupPending ? (
+               <button
+                type="button"
+                onClick={() => void onMemberSetupLink(member)}
+                disabled={busyUserId === member.id}
+                className="rounded border border-border-strong px-3 py-1.5 text-xs text-fg-muted transition hover:bg-surface-hover disabled:opacity-50"
+               >
+                {t('team_setup_link_button')}
+               </button>
+              ) : null}
               <button
                type="button"
                onClick={() => void onRemove(member)}
@@ -404,6 +511,7 @@ export default function TeamSettings() {
               >
                {t('team_remove')}
               </button>
+              </div>
              ) : (
               <span className="text-xs text-fg-faint">—</span>
              )}

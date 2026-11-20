@@ -19,8 +19,67 @@ export function Avatar({ name, image, id, size = 34 }: { name: string; image?: s
  );
 }
 
+// ---------- One-time link dialog ----------
+// Shows a single-use link (setup / reset) for the admin to copy and hand over out-of-band.
+// Several links (bulk actions) render as one labelled row each.
+export function LinkDialog({
+ title,
+ description,
+ links,
+ onClose,
+}: {
+ title: string;
+ description: string;
+ links: Array<{ label?: string; url: string }>;
+ onClose: () => void;
+}) {
+ const { t } = useAdminI18n();
+ const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+ const copy = async (url: string, index: number) => {
+  try {
+   await navigator.clipboard.writeText(url);
+   setCopiedIndex(index);
+   setTimeout(() => setCopiedIndex(null), 2000);
+  } catch {
+   /* user can still select manually */
+  }
+ };
+ return (
+  <Modal onClose={onClose} maxWidth={560}>
+   <h2>{title}</h2>
+   <p className="sub">{description}</p>
+   <div className="acp-stack" style={{ gap: 10 }}>
+    {links.map((link, index) => (
+     <div key={link.url}>
+      {link.label ? <label className="acp-label">{link.label}</label> : null}
+      <div className="acp-row" style={{ gap: 8 }}>
+       <input className="acp-input" readOnly value={link.url} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1 }} dir="ltr" />
+       <button type="button" className="acp-btn primary" onClick={() => void copy(link.url, index)}>
+        {copiedIndex === index ? t('admin_copied') : t('admin_copy')}
+       </button>
+      </div>
+     </div>
+    ))}
+   </div>
+   <div className="acp-modal-actions">
+    <button type="button" className="acp-btn" onClick={onClose}>
+     {t('admin_done')}
+    </button>
+   </div>
+  </Modal>
+ );
+}
+
 // ---------- Badges ----------
-export function AuthBadge({ provider, t }: { provider: 'credentials' | 'oauth'; t: (k: string) => string }) {
+export function AuthBadge({ provider, t }: { provider: 'credentials' | 'oauth' | 'none'; t: (k: string) => string }) {
+ if (provider === 'none') {
+  return (
+   <span className="acp-badge warn" title={t('admin_auth_setup_pending_hint')}>
+    <span className="dot" />
+    {t('admin_auth_setup_pending')}
+   </span>
+  );
+ }
  return provider === 'oauth' ? (
   <span className="acp-badge info">
    <span className="dot" />

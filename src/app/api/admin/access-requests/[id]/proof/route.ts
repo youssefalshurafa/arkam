@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 

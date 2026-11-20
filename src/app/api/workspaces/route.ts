@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
  // TODO: eventually gate this on the user's/workspace's subscription plan instead.
  // For now, creating additional workspaces is restricted to the super admin.
- if (!isSuperAdmin(session?.user?.email)) {
+ if (!isSuperAdmin(session?.user?.id)) {
   return NextResponse.json({ error: 'Creating additional workspaces is not available on your plan yet.' }, { status: 403 });
  }
 

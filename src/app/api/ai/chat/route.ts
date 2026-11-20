@@ -1,6 +1,8 @@
 import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const security = require('@/server/security');
 import { GoogleGenAI, Type, type Content } from '@google/genai';
 import { authOptions } from '@/server/auth-options';
 import { AI_MODEL, AI_THINKING_CONFIG } from '@/server/ai-config';
@@ -248,6 +250,15 @@ export async function POST(request: NextRequest) {
  if (session.user.aiEnabled !== true) {
   return NextResponse.json({ error: 'AI features are not enabled for this account.' }, { status: 403 });
  }
+
+ // Per-user hourly budget: every call spends paid Gemini quota.
+ const aiBudget = await security.hit('aiUser', session.user.id);
+ if (!aiBudget.allowed) {
+  return NextResponse.json(
+   { error: 'AI request limit reached. Please try again later.' },
+   { status: 429, headers: { 'Retry-After': String(aiBudget.retryAfterSeconds) } },
+  );
+ }
  if (!GEMINI_API_KEY) {
   return NextResponse.json({ error: 'missing_api_key' }, { status: 500 });
  }
@@ -256,10 +267,14 @@ export async function POST(request: NextRequest) {
  if (!workspaceId) {
   return NextResponse.json({ error: 'No workspace selected.' }, { status: 400 });
  }
- const role = await authDb.getWorkspaceRole(session.user.id, workspaceId);
- if (!role) {
+ const access = await authDb.getWorkspaceAccess(session.user.id, workspaceId);
+ if (!access) {
   return NextResponse.json({ error: 'Access denied for this workspace.' }, { status: 403 });
  }
+ if (!access.ownerActive) {
+  return NextResponse.json({ error: "This workspace's subscription has ended.", code: 'WORKSPACE_SUBSCRIPTION_EXPIRED' }, { status: 403 });
+ }
+ const role: string = access.role;
 
  let body: { language?: string; message?: string; history?: unknown };
  try {

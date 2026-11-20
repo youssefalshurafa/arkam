@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
+import { getAppBaseUrl } from '@/server/app-url';
+import { sniffImageMime } from '@/server/http';
 import { getPaymentConfig, getPlanTier, getTierAmountLabel } from '@/config/plan';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
@@ -41,6 +43,11 @@ export async function POST(request: NextRequest) {
   }
 
   const proofBuffer = Buffer.from(await screenshot.arrayBuffer());
+  // Trust the bytes, not the client-declared type.
+  const proofMime = sniffImageMime(proofBuffer);
+  if (!proofMime) {
+   return NextResponse.json({ error: 'Screenshot must be a PNG, JPG, or WEBP image.' }, { status: 400 });
+  }
   const { network } = getPaymentConfig();
   const tier = getPlanTier(planId);
   const amount = getTierAmountLabel(tier);
@@ -52,7 +59,7 @@ export async function POST(request: NextRequest) {
    network,
    durationDays: tier.durationDays,
    txReference,
-   proofMime: screenshot.type,
+   proofMime,
    proofBuffer,
   });
 
@@ -66,7 +73,7 @@ export async function POST(request: NextRequest) {
      requesterEmail: session.user?.email || '',
      plan: `${tier.name} (renewal)`,
      amount,
-     reviewUrl: `${request.nextUrl.origin}/admin`,
+     reviewUrl: `${getAppBaseUrl()}/admin`,
     });
    }
   } catch (mailError) {

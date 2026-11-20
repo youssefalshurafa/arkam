@@ -7,7 +7,8 @@ import { useStableSession } from '@/hooks/useStableSession';
 import { getSubscriptionState } from '@/app/admin/subscription';
 import { useAdminI18n } from '../../_ui/useAdminI18n';
 import { Icon } from '../../_ui/icons';
-import { Avatar, AuthBadge, RoleBadge, SubscriptionBadge, StatTile, StateBlock } from '../../_ui/primitives';
+import { Avatar, AuthBadge, RoleBadge, SubscriptionBadge, StatTile, StateBlock, LinkDialog } from '../../_ui/primitives';
+import { alertDialog, confirmDialog } from '@/components/ui/AppDialog';
 import { formatDate, formatDateTime } from '../../_lib/format';
 import type { DetailResponse } from '../../_lib/types';
 
@@ -28,7 +29,8 @@ const RENEW_QUICK_OPTIONS = [
 ];
 
 export default function AdminUserDetailPage() {
- const { status: sessionStatus } = useStableSession();
+ const { status: sessionStatus, data: sessionData } = useStableSession();
+ const sessionUserId = sessionData?.user?.id;
  const router = useRouter();
  const params = useParams<{ userId: string }>();
  const userId = params?.userId || '';
@@ -48,6 +50,8 @@ export default function AdminUserDetailPage() {
  const [phoneSaved, setPhoneSaved] = useState(false);
 
  const [aiMutating, setAiMutating] = useState(false);
+ const [securityBusy, setSecurityBusy] = useState(false);
+ const [setupLink, setSetupLink] = useState<{ title: string; description: string; url: string } | null>(null);
  const [aiError, setAiError] = useState('');
 
  useEffect(() => {
@@ -100,6 +104,50 @@ export default function AdminUserDetailPage() {
    setAiError('Failed to update AI access.');
   } finally {
    setAiMutating(false);
+  }
+ };
+
+ // Setup link / password reset / 2FA reset — all on POST /api/admin/users/[userId].
+ const onSecurityAction = async (action: 'setup_link' | 'reset_password' | 'reset_mfa') => {
+  const u = data?.user;
+  if (!u) return;
+  if (action === 'reset_password') {
+   const ok = await confirmDialog({ title: t('admin_rp_title'), message: t('admin_rp_confirm').replace(/\{name\}/g, u.name).replace(/\{email\}/g, u.email) });
+   if (!ok) return;
+  }
+  if (action === 'reset_mfa') {
+   const ok = await confirmDialog({ title: t('admin_ud_reset_mfa'), message: t('admin_ud_reset_mfa_confirm').replace(/\{name\}/g, u.name) });
+   if (!ok) return;
+  }
+  setSecurityBusy(true);
+  try {
+   const res = await fetch(`/api/admin/users/${userId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+   });
+   const result = (await res.json()) as { ok?: boolean; error?: string; setupUrl?: string };
+   if (!res.ok || !result.ok) {
+    await alertDialog({ title: t('admin_err_title'), message: result.error || t('admin_rp_failed') });
+    return;
+   }
+   if (result.setupUrl) {
+    setSetupLink({
+     title: action === 'setup_link' ? t('admin_ud_new_setup_link') : t('admin_rp_done_title'),
+     description:
+      action === 'setup_link'
+       ? t('admin_setup_link_desc')
+       : t('admin_rp_done_msg').replace(/\{name\}/g, u.name).replace(/\{email\}/g, u.email),
+     url: result.setupUrl,
+    });
+   } else if (action === 'reset_mfa') {
+    await alertDialog({ title: t('admin_ud_reset_mfa'), message: t('admin_ud_reset_mfa_done') });
+   }
+   void loadUser();
+  } catch {
+   await alertDialog({ title: t('admin_err_title'), message: t('admin_err_network') });
+  } finally {
+   setSecurityBusy(false);
   }
  };
 
@@ -249,6 +297,49 @@ export default function AdminUserDetailPage() {
      </button>
     </div>
    </div>
+
+   {/* Sign-in & security */}
+   <div className="acp-card acp-card-pad">
+    <h3 className="acp-section-title" style={{ marginBottom: 2 }}>{t('admin_ud_security_title')}</h3>
+    <p className="acp-faint" style={{ fontSize: 12, marginBottom: 12 }}>{t('admin_ud_security_desc')}</p>
+    <div className="acp-row acp-wrap" style={{ gap: 8, marginBottom: 12 }}>
+     <span className={`acp-badge ${user.hasPassword ? 'good' : 'neutral'}`}>
+      <span className="dot" />
+      {user.hasPassword ? t('admin_ud_has_password') : t('admin_ud_no_password')}
+     </span>
+     <span className={`acp-badge ${user.googleLinked ? 'info' : 'neutral'}`}>
+      <span className="dot" />
+      {user.googleLinked ? t('admin_ud_google_linked') : t('admin_ud_google_not_linked')}
+     </span>
+     <span className={`acp-badge ${user.emailVerified ? 'good' : 'warn'}`}>
+      <span className="dot" />
+      {user.emailVerified ? t('admin_ud_email_verified') : t('admin_ud_email_unverified')}
+     </span>
+     <span className={`acp-badge ${user.mfaEnabled ? 'good' : 'neutral'}`}>
+      <span className="dot" />
+      {user.mfaEnabled ? t('admin_ud_mfa_on') : t('admin_ud_mfa_off')}
+     </span>
+    </div>
+    <div className="acp-row acp-wrap" style={{ gap: 8 }}>
+     {!user.hasPassword && (
+      <button className="acp-btn sm" disabled={securityBusy} onClick={() => void onSecurityAction('setup_link')}>
+       <Icon name="key" />
+       {t('admin_ud_new_setup_link')}
+      </button>
+     )}
+     <button className="acp-btn sm" disabled={securityBusy || sessionUserId === user.id} onClick={() => void onSecurityAction('reset_password')}>
+      <Icon name="key" />
+      {t('admin_reset_password')}
+     </button>
+     {user.mfaEnabled && (
+      <button className="acp-btn sm danger" disabled={securityBusy || sessionUserId === user.id} onClick={() => void onSecurityAction('reset_mfa')}>
+       {t('admin_ud_reset_mfa')}
+      </button>
+     )}
+    </div>
+   </div>
+
+   {setupLink && <LinkDialog title={setupLink.title} description={setupLink.description} links={[{ url: setupLink.url }]} onClose={() => setSetupLink(null)} />}
 
    {/* AI features access */}
    <div className="acp-card acp-card-pad">

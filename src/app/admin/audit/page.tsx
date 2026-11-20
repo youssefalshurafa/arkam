@@ -9,7 +9,7 @@ import { Avatar, StateBlock } from '../_ui/primitives';
 import { formatDateTime } from '../_lib/format';
 
 type AuditEvent = {
- kind: 'admin' | 'login';
+ kind: 'admin' | 'login' | 'security';
  id: string;
  actorEmail: string | null;
  action: string;
@@ -20,7 +20,7 @@ type AuditEvent = {
  createdAt: string;
 };
 
-type Filter = 'all' | 'admin' | 'login';
+type Filter = 'all' | 'admin' | 'login' | 'security';
 
 // Icon + tone for each logged action, so the event type reads at a glance.
 const ACTION_STYLE: Record<string, { icon: IconName; tone: 'good' | 'bad' | 'info' | 'neutral' }> = {
@@ -36,6 +36,33 @@ const ACTION_STYLE: Record<string, { icon: IconName; tone: 'good' | 'bad' | 'inf
  upload_image: { icon: 'images', tone: 'info' },
  remove_image: { icon: 'images', tone: 'bad' },
  login: { icon: 'login', tone: 'neutral' },
+ setup_link: { icon: 'key', tone: 'info' },
+ reset_mfa: { icon: 'key', tone: 'bad' },
+ unlock: { icon: 'key', tone: 'neutral' },
+ unlock_failed: { icon: 'warning', tone: 'bad' },
+ login_failed: { icon: 'warning', tone: 'bad' },
+ login_locked: { icon: 'warning', tone: 'bad' },
+ mfa_failed: { icon: 'warning', tone: 'bad' },
+ mfa_locked: { icon: 'warning', tone: 'bad' },
+ mfa_enabled: { icon: 'check', tone: 'good' },
+ mfa_disabled: { icon: 'x', tone: 'bad' },
+ mfa_backup_code_used: { icon: 'key', tone: 'info' },
+ password_changed: { icon: 'key', tone: 'info' },
+ password_reset: { icon: 'key', tone: 'info' },
+ password_setup: { icon: 'key', tone: 'good' },
+ password_reset_requested: { icon: 'key', tone: 'neutral' },
+ support_reset_requested: { icon: 'key', tone: 'neutral' },
+ email_changed: { icon: 'user', tone: 'info' },
+ email_verified: { icon: 'check', tone: 'good' },
+ signup: { icon: 'user', tone: 'good' },
+ sessions_revoked: { icon: 'login', tone: 'info' },
+ admin_unlock: { icon: 'key', tone: 'neutral' },
+ admin_unlock_failed: { icon: 'warning', tone: 'bad' },
+ admin_unlock_locked: { icon: 'warning', tone: 'bad' },
+ google_login_refused: { icon: 'warning', tone: 'bad' },
+ google_link_password_removed: { icon: 'warning', tone: 'info' },
+ invite_created: { icon: 'user', tone: 'info' },
+ invite_accepted: { icon: 'check', tone: 'good' },
 };
 
 function metaSuffix(ev: AuditEvent): string | null {
@@ -45,6 +72,8 @@ function metaSuffix(ev: AuditEvent): string | null {
  if (typeof m.durationDays === 'number') return `+${m.durationDays}d`;
  if (typeof m.slot === 'string') return m.slot;
  if (typeof m.note === 'string' && m.note) return m.note;
+ if (typeof m.method === 'string') return m.method;
+ if (typeof m.reason === 'string') return m.reason;
  return null;
 }
 
@@ -79,7 +108,12 @@ export default function AdminAuditPage() {
  }, [status, load]);
 
  const counts = useMemo(
-  () => ({ all: events.length, admin: events.filter((e) => e.kind === 'admin').length, login: events.filter((e) => e.kind === 'login').length }),
+  () => ({
+   all: events.length,
+   admin: events.filter((e) => e.kind === 'admin').length,
+   login: events.filter((e) => e.kind === 'login').length,
+   security: events.filter((e) => e.kind === 'security').length,
+  }),
   [events],
  );
  const rows = useMemo(() => (filter === 'all' ? events : events.filter((e) => e.kind === filter)), [events, filter]);
@@ -94,6 +128,7 @@ export default function AdminAuditPage() {
   { key: 'all', labelKey: 'admin_filter_all', count: counts.all },
   { key: 'admin', labelKey: 'admin_audit_filter_admin', count: counts.admin },
   { key: 'login', labelKey: 'admin_audit_filter_login', count: counts.login },
+  { key: 'security', labelKey: 'admin_audit_filter_security', count: counts.security },
  ];
 
  return (
@@ -160,7 +195,13 @@ export default function AdminAuditPage() {
            )}
           </td>
           <td className="acp-muted" style={{ fontSize: 12.5 }}>
-           {ev.kind === 'login' ? <span className="acp-faint">—</span> : ev.actorEmail || t('admin_audit_system')}
+           {ev.kind === 'login' ? (
+            <span className="acp-faint">—</span>
+           ) : ev.kind === 'security' ? (
+            <span className="acp-faint acp-num" dir="ltr">{typeof ev.meta?.ip === 'string' ? ev.meta.ip : '—'}</span>
+           ) : (
+            ev.actorEmail || t('admin_audit_system')
+           )}
           </td>
           <td className="acp-muted acp-num" style={{ whiteSpace: 'nowrap' }}>
            {formatDateTime(ev.createdAt, language)}

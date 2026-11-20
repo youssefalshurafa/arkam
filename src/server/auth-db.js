@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 const crypto = require('node:crypto');
-const bcrypt = require('bcryptjs');
 const { getPool, ensurePublicSchema, withTransaction } = require('@/server/postgres');
+const { validatePassword, hashPassword, verifyPassword, needsRehash, burnPasswordCheck } = require('@/server/passwords');
 
 // Keep in sync with TRIAL_DURATION_DAYS in src/config/plan.ts.
 const TRIAL_DURATION_DAYS = 14;
@@ -86,104 +86,175 @@ async function ensureUserHasWorkspace(userId, preferredName) {
     return workspace.id;
 }
 
-async function createCredentialsUser({ name, email, password, phone, workspaceName }) {
-    await ensurePublicSchema();
+// Self-service signup lives in src/server/email-verification.js: the account is only created
+// once the emailed code is confirmed (startSignup -> completeSignup).
 
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    // WhatsApp/phone doubles as the trusted contact used to verify identity before approving a
-    // password reset (see reviewPasswordResetRequest). Store as '+<digits>' (E.164-style).
-    const phoneDigits = String(phone || '').replace(/\D/g, '');
-    const normalizedPhone = phoneDigits ? `+${phoneDigits}` : '';
+const USER_AUTH_COLUMNS = `
+    id, email, name, image, status,
+    subscription_ends_at AS "subscriptionEndsAt",
+    session_version AS "sessionVersion",
+    password_hash AS "passwordHash",
+    email_verified_at AS "emailVerifiedAt",
+    google_sub AS "googleSub",
+    mfa_enabled_at AS "mfaEnabledAt"`;
 
-    if (!normalizedEmail) {
-        throw new Error('Username or email is required.');
-    }
-
-    if (!password || String(password).length < 8) {
-        throw new Error('Password must be at least 8 characters.');
-    }
-
-    if (!/[a-zA-Z]/.test(String(password)) || !/[0-9]/.test(String(password))) {
-        throw new Error('Password must contain both letters and numbers.');
-    }
-
-    // Full name is optional — fall back to the identifier (the part before any @)
-    // so the user still has a sensible display name and default workspace name.
-    const displayName = String(name || '').trim() || normalizedEmail.split('@')[0] || normalizedEmail;
-
-    const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-    if (existing) {
-        throw new Error('Email is already registered.');
-    }
-
-    const userId = generateId();
-    const hash = bcrypt.hashSync(String(password), 10);
-    const trialStartedAt = new Date();
-    const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
-
-    await withTransaction(async (client) => {
-        await runQuery(
-            `INSERT INTO users (id, email, name, password_hash, phone, subscription_started_at, subscription_ends_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [userId, normalizedEmail, displayName, hash, normalizedPhone, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
-            client,
-        );
-        await createWorkspaceForUserWithExecutor(client, userId, String(workspaceName || `${displayName} Workspace`).trim());
-    });
-
-    return fetchOne('SELECT id, email, name, image FROM users WHERE id = $1', [userId]);
+function toAuthUser(row) {
+    return {
+        id: row.id,
+        email: row.email,
+        name: row.name,
+        image: row.image || null,
+        status: row.status || 'approved',
+        subscriptionEndsAt: row.subscriptionEndsAt || null,
+        sessionVersion: Number(row.sessionVersion) || 0,
+        mfaEnabled: Boolean(row.mfaEnabledAt),
+    };
 }
 
-async function upsertOAuthUser({ email, name, image }) {
+// Resolves (or creates) the Arkam account for a Google sign-in. Replaces the old
+// upsertOAuthUser, which matched purely on email and so handed a Google login to whoever had
+// pre-registered that address with a password.
+//
+// Decision table:
+//   1. Google says the email isn't verified          -> refuse (GOOGLE_EMAIL_UNVERIFIED).
+//   2. An account already carries this google_sub    -> that account.
+//   3. An account has this email:
+//      a. it is linked to a DIFFERENT Google account -> refuse (GOOGLE_ACCOUNT_CONFLICT).
+//      b. it has a password but its email was never verified -> Google just proved who owns
+//         the address, the password holder hasn't. Link it, mark verified, and CLEAR the
+//         password + bump session_version so a squatter is evicted (the real owner can set a
+//         new password via the emailed reset link). The caller notifies the owner by email.
+//      c. otherwise (verified email, or a passwordless legacy Google row) -> link it.
+//   4. No match -> new account (verified email, trial window, own workspace).
+async function resolveGoogleUser({ sub, email, emailVerified, name, image }) {
     await ensurePublicSchema();
 
+    const googleSub = String(sub || '').trim();
     const normalizedEmail = String(email || '').trim().toLowerCase();
-    if (!normalizedEmail) {
+    if (!googleSub || !normalizedEmail) {
         throw new Error('Google account email is missing.');
     }
+    if (emailVerified !== true) {
+        return { error: 'GOOGLE_EMAIL_UNVERIFIED' };
+    }
 
-    const existing = await fetchOne(
-        'SELECT id, email, name, image, status, subscription_ends_at AS "subscriptionEndsAt" FROM users WHERE email = $1',
-        [normalizedEmail],
-    );
+    const displayName = String(name || normalizedEmail.split('@')[0] || 'User').trim();
 
-    if (existing) {
-        await runQuery('UPDATE users SET name = $1, image = $2 WHERE id = $3', [String(name || existing.name || 'User').trim(), image || null, existing.id]);
-        await ensureUserHasWorkspace(existing.id, `${existing.name || 'My'} Workspace`);
-        return {
-            id: existing.id,
-            email: existing.email,
-            name: existing.name,
-            image: existing.image,
-            status: existing.status || 'approved',
-            subscriptionEndsAt: existing.subscriptionEndsAt,
-        };
+    const bySub = await fetchOne(`SELECT ${USER_AUTH_COLUMNS} FROM users WHERE google_sub = $1`, [googleSub]);
+    if (bySub) {
+        await runQuery('UPDATE users SET image = COALESCE($1, image) WHERE id = $2', [image || null, bySub.id]);
+        await ensureUserHasWorkspace(bySub.id, `${bySub.name || 'My'} Workspace`);
+        return { user: toAuthUser(bySub) };
+    }
+
+    const byEmail = await fetchOne(`SELECT ${USER_AUTH_COLUMNS} FROM users WHERE email = $1`, [normalizedEmail]);
+    if (byEmail) {
+        if (byEmail.googleSub && byEmail.googleSub !== googleSub) {
+            return { error: 'GOOGLE_ACCOUNT_CONFLICT' };
+        }
+
+        const evictPassword = Boolean(byEmail.passwordHash) && !byEmail.emailVerifiedAt;
+        const updated = await fetchOne(
+            `UPDATE users
+                SET google_sub = $1,
+                    email_verified_at = COALESCE(email_verified_at, NOW()),
+                    image = COALESCE($2, image),
+                    password_hash = CASE WHEN $3::boolean THEN NULL ELSE password_hash END,
+                    session_version = CASE WHEN $3::boolean THEN session_version + 1 ELSE session_version END
+              WHERE id = $4
+          RETURNING ${USER_AUTH_COLUMNS}`,
+            [googleSub, image || null, evictPassword, byEmail.id],
+        );
+        await ensureUserHasWorkspace(byEmail.id, `${byEmail.name || 'My'} Workspace`);
+        return { user: toAuthUser(updated), passwordEvicted: evictPassword };
     }
 
     const userId = generateId();
-    const displayName = String(name || normalizedEmail.split('@')[0] || 'User').trim();
     // Brand-new Google sign-ups get the same free trial window as a direct signup.
     const trialStartedAt = new Date();
     const trialEndsAt = new Date(trialStartedAt.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
 
     await withTransaction(async (client) => {
         await runQuery(
-            `INSERT INTO users (id, email, name, image, subscription_started_at, subscription_ends_at)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [userId, normalizedEmail, displayName, image || null, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
+            `INSERT INTO users (id, email, name, image, google_sub, email_verified_at, subscription_started_at, subscription_ends_at)
+             VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)`,
+            [userId, normalizedEmail, displayName, image || null, googleSub, trialStartedAt.toISOString(), trialEndsAt.toISOString()],
             client,
         );
         await createWorkspaceForUserWithExecutor(client, userId, `${displayName} Workspace`);
     });
 
     return {
-        id: userId,
-        email: normalizedEmail,
-        name: displayName,
-        image: image || null,
-        status: 'approved',
-        subscriptionEndsAt: trialEndsAt.toISOString(),
+        user: {
+            id: userId,
+            email: normalizedEmail,
+            name: displayName,
+            image: image || null,
+            status: 'approved',
+            subscriptionEndsAt: trialEndsAt.toISOString(),
+            sessionVersion: 0,
+            mfaEnabled: false,
+        },
+        isNewUser: true,
     };
+}
+
+// Only for server-side re-authentication checks; never returned to a client.
+async function getPasswordHash(userId) {
+    await ensurePublicSchema();
+    const row = await fetchOne('SELECT password_hash AS "passwordHash" FROM users WHERE id = $1', [String(userId || '')]);
+    return row?.passwordHash || null;
+}
+
+async function getAuthUserById(userId) {
+    await ensurePublicSchema();
+    const row = await fetchOne(`SELECT ${USER_AUTH_COLUMNS} FROM users WHERE id = $1`, [String(userId || '')]);
+    return row ? toAuthUser(row) : null;
+}
+
+// The jwt callback's lookup after a Google sign-in (resolveGoogleUser already ran in the
+// signIn callback and stamped google_sub, so this is a single indexed read).
+async function getUserByGoogleSub(sub) {
+    await ensurePublicSchema();
+    const row = await fetchOne(`SELECT ${USER_AUTH_COLUMNS} FROM users WHERE google_sub = $1`, [String(sub || '')]);
+    return row ? toAuthUser(row) : null;
+}
+
+// Everything the jwt callback needs to (a) refresh the DB-derived claims and (b) decide
+// whether the session is still valid, in ONE round-trip. Returns null when the user row is
+// gone (deleted account), which the caller treats as a revoked session.
+async function getSessionClaims(userId) {
+    await ensurePublicSchema();
+    return fetchOne(
+        `SELECT u.email,
+                u.name,
+                u.status,
+                u.subscription_ends_at AS "subscriptionEndsAt",
+                u.session_version AS "sessionVersion",
+                u.ai_enabled AS "aiEnabled",
+                (SELECT wm.workspace_id FROM workspace_members wm
+                  WHERE wm.user_id = u.id ORDER BY wm.created_at ASC LIMIT 1) AS "defaultWorkspaceId"
+           FROM users u
+          WHERE u.id = $1`,
+        [userId],
+    );
+}
+
+// Revokes every outstanding session for the user (see users.session_version). Returns the
+// new version so the caller's own device can re-mint its token with it.
+async function bumpSessionVersion(userId, executor) {
+    const row = await fetchOne(
+        'UPDATE users SET session_version = session_version + 1 WHERE id = $1 RETURNING session_version AS "sessionVersion"',
+        [userId],
+        executor,
+    );
+    return Number(row?.sessionVersion) || 0;
+}
+
+async function recordSuccessfulLogin(userId) {
+    try {
+        await runQuery('UPDATE users SET last_login_at = NOW() WHERE id = $1', [userId]);
+    } catch {}
 }
 
 async function verifyCredentials({ email, password }) {
@@ -194,27 +265,26 @@ async function verifyCredentials({ email, password }) {
         return null;
     }
 
-    const user = await fetchOne(
-        'SELECT id, email, name, image, status, subscription_ends_at AS "subscriptionEndsAt", password_hash AS "passwordHash" FROM users WHERE email = $1',
-        [normalizedEmail],
-    );
+    const user = await fetchOne(`SELECT ${USER_AUTH_COLUMNS} FROM users WHERE email = $1`, [normalizedEmail]);
 
     if (!user?.passwordHash) {
+        // Same bcrypt cost as a real check, so "no such account" isn't measurably faster.
+        await burnPasswordCheck(password);
         return null;
     }
 
-    if (!bcrypt.compareSync(String(password), user.passwordHash)) {
+    if (!(await verifyPassword(password, user.passwordHash))) {
         return null;
     }
 
-    return {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        image: user.image,
-        status: user.status || 'approved',
-        subscriptionEndsAt: user.subscriptionEndsAt,
-    };
+    if (needsRehash(user.passwordHash)) {
+        try {
+            const upgraded = await hashPassword(password);
+            await runQuery('UPDATE users SET password_hash = $1 WHERE id = $2 AND password_hash = $3', [upgraded, user.id, user.passwordHash]);
+        } catch {}
+    }
+
+    return toAuthUser(user);
 }
 
 async function listUserWorkspaces(userId) {
@@ -380,42 +450,6 @@ async function deleteWorkspace({ workspaceId, actorUserId }) {
     return { id: workspaceId };
 }
 
-async function addWorkspaceMemberByEmail({ workspaceId, email, role, addedByUserId }) {
-    await ensurePublicSchema();
-
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    const normalizedRole = String(role || 'member').trim().toLowerCase();
-
-    if (!['admin', 'member', 'viewer'].includes(normalizedRole)) {
-        throw new Error('Role must be one of: admin, member, viewer.');
-    }
-
-    const actorRole = await assertWorkspaceAccess(addedByUserId, workspaceId);
-    if (!['owner', 'admin'].includes(actorRole)) {
-        throw new Error('Only owners and admins can add workspace members.');
-    }
-
-    const targetUser = await fetchOne('SELECT id, email, name, image FROM users WHERE email = $1', [normalizedEmail]);
-    if (!targetUser) {
-        throw new Error('User not found. Ask them to sign up first.');
-    }
-
-    await runQuery(
-        `
-            INSERT INTO workspace_members (workspace_id, user_id, role)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role
-        `,
-        [workspaceId, targetUser.id, normalizedRole],
-    );
-
-    return {
-        userId: targetUser.id,
-        email: targetUser.email,
-        role: normalizedRole,
-    };
-}
-
 async function listWorkspaceMembers({ workspaceId, userId }) {
     await ensurePublicSchema();
     await assertWorkspaceAccess(userId, workspaceId);
@@ -428,7 +462,8 @@ async function listWorkspaceMembers({ workspaceId, userId }) {
                 u.name,
                 u.image,
                 wm.role,
-                wm.created_at AS "addedAt"
+                wm.created_at AS "addedAt",
+                (u.password_hash IS NULL AND u.google_sub IS NULL AND u.image IS NULL) AS "setupPending"
             FROM workspace_members wm
             JOIN users u ON u.id = wm.user_id
             WHERE wm.workspace_id = $1
@@ -447,78 +482,229 @@ async function listWorkspaceMembers({ workspaceId, userId }) {
     return result.rows;
 }
 
-// Invites a teammate into a workspace. Existing users are added/role-updated
-// immediately; brand-new people get an approved, password-less, workspace-less
-// account plus a set-password token to email them. Teammates skip the payment flow.
-async function inviteWorkspaceMember({ workspaceId, email, name, role, invitedByUserId }) {
-    await ensurePublicSchema();
+// --- Workspace invitations ---------------------------------------------------------------
+//
+// Joining a workspace now always goes through a single-use invitation link the owner/admin
+// shares (copied, and also emailed when the invitee is an email address). The old flow
+// created approved, never-expiring, passwordless accounts for arbitrary identifiers, silently
+// added EXISTING users without their consent, minted password-reset tokens for their logins,
+// and told the inviter whether the identifier existed. None of that survives:
+//   * no users row is created on anyone's behalf;
+//   * the response is identical whatever the identifier is;
+//   * the invitee accepts explicitly — signed in as an existing account, or by creating one.
 
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    const displayName = String(name || '').trim();
-    const normalizedRole = String(role || 'member').trim().toLowerCase();
+const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const INVITE_ROLES = ['admin', 'member', 'viewer'];
 
-    if (!normalizedEmail) {
-        throw new Error('Email or username is required.');
+async function assertCanManageMembers(actorUserId, workspaceId) {
+    const actorRole = await assertWorkspaceAccess(actorUserId, workspaceId);
+    if (!['owner', 'admin'].includes(actorRole)) {
+        throw new Error('Only owners and admins can invite members.');
     }
-    if (!['admin', 'member', 'viewer'].includes(normalizedRole)) {
+    return actorRole;
+}
+
+async function createWorkspaceInvitation({ workspaceId, invitedByUserId, identifier, name, role }) {
+    await ensurePublicSchema();
+    await assertCanManageMembers(invitedByUserId, workspaceId);
+
+    const normalizedRole = String(role || 'member').trim().toLowerCase();
+    if (!INVITE_ROLES.includes(normalizedRole)) {
         throw new Error('Role must be one of: admin, member, viewer.');
     }
+    const normalizedIdentifier = String(identifier || '').trim().toLowerCase().slice(0, 254) || null;
+    const displayName = String(name || '').trim().slice(0, 120) || null;
 
-    const actorRole = await assertWorkspaceAccess(invitedByUserId, workspaceId);
-    if (!['owner', 'admin'].includes(actorRole)) {
-        throw new Error('Only owners and admins can add workspace members.');
-    }
-
-    const existing = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-
-    if (existing) {
-        await runQuery(
-            `INSERT INTO workspace_members (workspace_id, user_id, role)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (workspace_id, user_id)
-             DO UPDATE SET role = EXCLUDED.role
-             WHERE workspace_members.role <> 'owner'`,
-            [workspaceId, existing.id, normalizedRole],
-        );
-
-        // Notify them they now have access. We never have their existing plaintext
-        // password to send (it's stored as a bcrypt hash), so reuse the same
-        // set-password token flow as a brand-new invite.
-        const addedRawToken = crypto.randomBytes(32).toString('hex');
-        const addedTokenHash = hashResetToken(addedRawToken);
-        const addedExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-        await runQuery(
-            'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
-            [generateId(), existing.id, addedTokenHash, addedExpiresAt],
-        );
-
-        return { status: 'added', email: normalizedEmail, rawToken: addedRawToken };
-    }
-
-    const userId = generateId();
     const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = hashResetToken(rawToken);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7-day invite window
+    const id = generateId();
+    const expiresAt = new Date(Date.now() + INVITATION_TTL_MS).toISOString();
+    await runQuery(
+        `INSERT INTO workspace_invitations (id, workspace_id, token_hash, role, invited_identifier, invited_name, invited_by, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [id, workspaceId, hashResetToken(rawToken), normalizedRole, normalizedIdentifier, displayName, invitedByUserId, expiresAt],
+    );
 
-    await withTransaction(async (client) => {
+    const workspace = await fetchOne('SELECT name FROM workspaces WHERE id = $1', [workspaceId]);
+    const inviter = await fetchOne('SELECT name FROM users WHERE id = $1', [invitedByUserId]);
+    return {
+        id,
+        rawToken,
+        expiresAt,
+        role: normalizedRole,
+        identifier: normalizedIdentifier,
+        workspaceName: workspace?.name || '',
+        inviterName: inviter?.name || '',
+        emailable: Boolean(normalizedIdentifier && EMAILABLE_IDENTIFIER_RE.test(normalizedIdentifier)),
+    };
+}
+
+async function listWorkspaceInvitations({ workspaceId, userId }) {
+    await ensurePublicSchema();
+    await assertCanManageMembers(userId, workspaceId);
+    const result = await runQuery(
+        `SELECT i.id, i.role, i.invited_identifier AS "identifier", i.invited_name AS "name",
+                i.created_at AS "createdAt", i.expires_at AS "expiresAt", u.name AS "invitedByName"
+           FROM workspace_invitations i
+           LEFT JOIN users u ON u.id = i.invited_by
+          WHERE i.workspace_id = $1 AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > NOW()
+          ORDER BY i.created_at DESC`,
+        [workspaceId],
+    );
+    return result.rows;
+}
+
+async function revokeWorkspaceInvitation({ workspaceId, invitationId, actorUserId }) {
+    await ensurePublicSchema();
+    await assertCanManageMembers(actorUserId, workspaceId);
+    await runQuery(
+        'UPDATE workspace_invitations SET revoked_at = NOW() WHERE id = $1 AND workspace_id = $2 AND accepted_at IS NULL',
+        [invitationId, workspaceId],
+    );
+    return { ok: true };
+}
+
+// Public read for the /invite/[token] page. Only what the invitee needs to decide.
+async function getInvitationByToken(rawToken) {
+    await ensurePublicSchema();
+    const row = await fetchOne(
+        `SELECT i.id, i.workspace_id AS "workspaceId", i.role, i.invited_identifier AS "identifier",
+                i.accepted_at AS "acceptedAt", i.revoked_at AS "revokedAt", (i.expires_at <= NOW()) AS expired,
+                w.name AS "workspaceName", u.name AS "inviterName"
+           FROM workspace_invitations i
+           JOIN workspaces w ON w.id = i.workspace_id
+           LEFT JOIN users u ON u.id = i.invited_by
+          WHERE i.token_hash = $1`,
+        [hashResetToken(rawToken)],
+    );
+    if (!row) return { status: 'invalid' };
+    const status = row.revokedAt ? 'revoked' : row.acceptedAt ? 'used' : row.expired ? 'expired' : 'valid';
+    return {
+        status,
+        workspaceId: status === 'valid' ? row.workspaceId : undefined,
+        workspaceName: row.workspaceName,
+        inviterName: row.inviterName || '',
+        role: row.role,
+        identifier: row.identifier || null,
+        emailable: Boolean(row.identifier && EMAILABLE_IDENTIFIER_RE.test(row.identifier)),
+    };
+}
+
+// Atomically claims an invitation inside `client`'s transaction; throws if it is not usable.
+async function claimInvitation(client, rawToken, userId) {
+    const claimed = await fetchOne(
+        `UPDATE workspace_invitations
+            SET accepted_at = NOW(), accepted_by = $2
+          WHERE token_hash = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > NOW()
+      RETURNING id, workspace_id AS "workspaceId", role`,
+        [hashResetToken(rawToken), userId],
+        client,
+    );
+    if (!claimed) {
+        throw new Error('This invitation link is invalid, expired, or has already been used.');
+    }
+    return claimed;
+}
+
+// Signed-in user accepts an invitation. Existing members keep their current role (an invite
+// is never a way to change someone's role, least of all the owner's).
+async function acceptWorkspaceInvitation({ rawToken, userId }) {
+    await ensurePublicSchema();
+    return withTransaction(async (client) => {
+        const invitation = await claimInvitation(client, rawToken, userId);
         await runQuery(
-            "INSERT INTO users (id, email, name, status) VALUES ($1, $2, $3, 'approved')",
-            [userId, normalizedEmail, displayName || normalizedEmail],
+            `INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)
+             ON CONFLICT (workspace_id, user_id) DO NOTHING`,
+            [invitation.workspaceId, userId, invitation.role],
             client,
         );
-        await runQuery(
-            'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)',
-            [workspaceId, userId, normalizedRole],
-            client,
-        );
-        await runQuery(
-            'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
-            [generateId(), userId, tokenHash, expiresAt],
-            client,
-        );
+        return { workspaceId: invitation.workspaceId, role: invitation.role };
     });
+}
 
-    return { status: 'invited', email: normalizedEmail, rawToken };
+const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
+
+// Invite-only account creation with a plain USERNAME (no email): for teammates who have no
+// inbox. The owner's single-use invitation link is the authorization; there is no address to
+// verify. Such accounts have no own workspace and no subscription of their own — their access
+// follows the inviting workspace owner's subscription (see getWorkspaceAccess).
+async function createAccountFromInvitation({ rawToken, username, name, password, phone }) {
+    await ensurePublicSchema();
+    const normalizedUsername = String(username || '').trim().toLowerCase();
+    if (!USERNAME_RE.test(normalizedUsername)) {
+        throw new Error('Usernames are 3–32 characters: letters, numbers, dot, dash or underscore.');
+    }
+    validatePassword(password, { identifier: normalizedUsername });
+    const passwordHash = await hashPassword(password);
+    const displayName = String(name || '').trim().slice(0, 120) || normalizedUsername;
+    const phoneDigits = String(phone || '').replace(/\D/g, '');
+
+    return withTransaction(async (client) => {
+        const taken = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedUsername], client);
+        if (taken) {
+            throw new Error('This username is already taken.');
+        }
+        const userId = generateId();
+        const invitation = await claimInvitation(client, rawToken, userId);
+        await runQuery(
+            `INSERT INTO users (id, email, name, password_hash, status, phone) VALUES ($1, $2, $3, $4, 'approved', $5)`,
+            [userId, normalizedUsername, displayName, passwordHash, phoneDigits ? `+${phoneDigits}` : ''],
+            client,
+        );
+        await runQuery('INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)', [invitation.workspaceId, userId, invitation.role], client);
+        return { userId, username: normalizedUsername, workspaceId: invitation.workspaceId };
+    });
+}
+
+// Legacy teammates created by the old invite flow may still have no password. An owner/admin
+// can hand them a one-time setup link — but only for accounts that are exclusively this
+// workspace's teammate (no password, no Google login, no other memberships, no own
+// workspace), so this can never be pointed at someone else's real account.
+async function createMemberSetupLink({ workspaceId, targetUserId, actorUserId }) {
+    await ensurePublicSchema();
+    await assertCanManageMembers(actorUserId, workspaceId);
+    const target = await fetchOne(
+        `SELECT u.id,
+                (u.password_hash IS NULL AND u.google_sub IS NULL AND u.image IS NULL) AS "setupPending",
+                (SELECT COUNT(*)::int FROM workspace_members m WHERE m.user_id = u.id) AS memberships,
+                (SELECT COUNT(*)::int FROM workspaces w WHERE w.owner_user_id = u.id) AS owned,
+                EXISTS (SELECT 1 FROM workspace_members m WHERE m.user_id = u.id AND m.workspace_id = $2) AS "isMember"
+           FROM users u WHERE u.id = $1`,
+        [targetUserId, workspaceId],
+    );
+    if (!target?.isMember || !target.setupPending || target.memberships !== 1 || target.owned !== 0) {
+        throw new Error('A setup link can only be created for a teammate who has not set a password yet.');
+    }
+    const { rawToken } = await mintPasswordToken(targetUserId, { purpose: 'setup' });
+    return { setupToken: rawToken };
+}
+
+// Workspace access check used by the data APIs: membership role AND whether the workspace
+// owner's subscription is live. Teammates have no subscription of their own, so without the
+// second half an expired trial could be kept alive forever by inviting a second login.
+async function getWorkspaceAccess(userId, workspaceId) {
+    await ensurePublicSchema();
+    const row = await fetchOne(
+        `SELECT wm.role,
+                o.id AS "ownerId",
+                o.name AS "ownerName",
+                o.status AS "ownerStatus",
+                o.subscription_ends_at AS "ownerEndsAt"
+           FROM workspace_members wm
+           JOIN workspaces w ON w.id = wm.workspace_id
+           JOIN users o ON o.id = w.owner_user_id
+          WHERE wm.user_id = $1 AND wm.workspace_id = $2
+          LIMIT 1`,
+        [userId, workspaceId],
+    );
+    if (!row) return null;
+    const ownerExpired = Boolean(row.ownerEndsAt) && new Date(row.ownerEndsAt).getTime() < Date.now();
+    const ownerBlocked = row.ownerStatus === 'rejected' || row.ownerStatus === 'pending';
+    return {
+        role: row.role,
+        ownerId: row.ownerId,
+        ownerName: row.ownerName || '',
+        ownerActive: !ownerExpired && !ownerBlocked,
+    };
 }
 
 async function updateWorkspaceMemberRole({ workspaceId, targetUserId, role, actorUserId }) {
@@ -576,6 +762,57 @@ function hashResetToken(token) {
     return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
+const TOKEN_PURPOSES = ['reset', 'setup'];
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // emailed reset link: 1 hour
+const SETUP_TOKEN_TTL_MS = 72 * 60 * 60 * 1000; // admin/owner-shared setup link: 72 hours
+
+function normalizeTokenPurpose(purpose) {
+    return TOKEN_PURPOSES.includes(purpose) ? purpose : 'reset';
+}
+
+// Mints a single-use password token for `userId`, replacing any earlier unused token of the
+// SAME purpose (an emailed reset no longer silently kills a pending setup link, or vice versa).
+//   'reset' — sent to the account's own email; using it proves ownership of that address.
+//   'setup' — handed over out-of-band by a super admin (new account, admin reset, approved
+//             reset request); says nothing about the email.
+async function mintPasswordToken(userId, { purpose = 'reset', ttlMs } = {}, executor) {
+    const kind = normalizeTokenPurpose(purpose);
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashResetToken(rawToken);
+    const expiresAt = new Date(Date.now() + (ttlMs || (kind === 'setup' ? SETUP_TOKEN_TTL_MS : RESET_TOKEN_TTL_MS))).toISOString();
+
+    const write = async (client) => {
+        await runQuery(
+            'DELETE FROM password_reset_tokens WHERE (user_id = $1 AND purpose = $2) OR expires_at <= NOW()',
+            [userId, kind],
+            client,
+        );
+        await runQuery(
+            'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, purpose) VALUES ($1, $2, $3, $4, $5)',
+            [generateId(), userId, tokenHash, expiresAt, kind],
+            client,
+        );
+    };
+
+    if (executor) {
+        await write(executor);
+    } else {
+        await withTransaction(write);
+    }
+
+    return { rawToken, expiresAt };
+}
+
+async function createSetupToken(userId, { ttlMs } = {}) {
+    await ensurePublicSchema();
+    const user = await fetchOne('SELECT id FROM users WHERE id = $1', [userId]);
+    if (!user) {
+        throw new Error('User not found.');
+    }
+    const { rawToken, expiresAt } = await mintPasswordToken(userId, { purpose: 'setup', ttlMs });
+    return { setupToken: rawToken, expiresAt };
+}
+
 async function requestPasswordReset(email) {
     await ensurePublicSchema();
 
@@ -590,18 +827,7 @@ async function requestPasswordReset(email) {
         return { ok: true, resetToken: null, expiresAt: null };
     }
 
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = hashResetToken(rawToken);
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-
-    await withTransaction(async (client) => {
-        await runQuery('DELETE FROM password_reset_tokens WHERE user_id = $1 OR expires_at <= NOW()', [user.id], client);
-        await runQuery(
-            'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
-            [generateId(), user.id, tokenHash, expiresAt],
-            client,
-        );
-    });
+    const { rawToken, expiresAt } = await mintPasswordToken(user.id, { purpose: 'reset' });
 
     return {
         ok: true,
@@ -610,59 +836,78 @@ async function requestPasswordReset(email) {
     };
 }
 
-async function validatePasswordResetToken(token) {
+async function validatePasswordResetToken(token, purpose = 'reset') {
     await ensurePublicSchema();
 
     const tokenHash = hashResetToken(token);
     const record = await fetchOne(
         `
-            SELECT id
-            FROM password_reset_tokens
-            WHERE token_hash = $1
-                AND used_at IS NULL
-                AND expires_at > NOW()
+            SELECT t.id, u.email
+            FROM password_reset_tokens t
+            JOIN users u ON u.id = t.user_id
+            WHERE t.token_hash = $1
+                AND t.purpose = $2
+                AND t.used_at IS NULL
+                AND t.expires_at > NOW()
             LIMIT 1
         `,
-        [tokenHash],
+        [tokenHash, normalizeTokenPurpose(purpose)],
     );
 
-    return Boolean(record?.id);
+    return record?.id ? { valid: true, identifier: record.email } : { valid: false, identifier: null };
 }
 
-async function resetPasswordWithToken({ token, password }) {
+// Consumes a reset/setup token and sets the password. The token is claimed with a single
+// conditional UPDATE … RETURNING inside the transaction, so two concurrent requests with the
+// same link can't both succeed (the old SELECT-then-UPDATE let both through).
+//
+// Every outstanding session is revoked (session_version bump): if someone else had the old
+// password, resetting it must actually lock them out. An emailed 'reset' link also proves the
+// user controls the address, so it marks the email verified.
+async function resetPasswordWithToken({ token, password, purpose = 'reset' }) {
     await ensurePublicSchema();
 
-    const rawPassword = String(password || '');
-    if (rawPassword.length < 8) {
-        throw new Error('Password must be at least 8 characters.');
-    }
-
+    const kind = normalizeTokenPurpose(purpose);
     const tokenHash = hashResetToken(token);
-    const record = await fetchOne(
-        `
-            SELECT id, user_id AS "userId"
-            FROM password_reset_tokens
-            WHERE token_hash = $1
-                AND used_at IS NULL
-                AND expires_at > NOW()
-            LIMIT 1
-        `,
-        [tokenHash],
+
+    const target = await fetchOne(
+        `SELECT u.email FROM password_reset_tokens t JOIN users u ON u.id = t.user_id
+          WHERE t.token_hash = $1 AND t.purpose = $2 AND t.used_at IS NULL AND t.expires_at > NOW()`,
+        [tokenHash, kind],
     );
-
-    if (!record?.id) {
-        throw new Error('Reset link is invalid or has expired.');
+    if (!target) {
+        throw new Error('This link is invalid or has expired.');
     }
+    validatePassword(password, { identifier: target.email });
+    const passwordHash = await hashPassword(password);
 
-    const passwordHash = bcrypt.hashSync(rawPassword, 10);
+    return withTransaction(async (client) => {
+        const claimed = await fetchOne(
+            `UPDATE password_reset_tokens
+                SET used_at = NOW()
+              WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > NOW()
+          RETURNING id, user_id AS "userId"`,
+            [tokenHash, kind],
+            client,
+        );
+        if (!claimed) {
+            throw new Error('This link is invalid or has expired.');
+        }
 
-    await withTransaction(async (client) => {
-        await runQuery('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, record.userId], client);
-        await runQuery('UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1', [record.id], client);
-        await runQuery('DELETE FROM password_reset_tokens WHERE user_id = $1 AND id != $2', [record.userId, record.id], client);
+        const user = await fetchOne(
+            `UPDATE users
+                SET password_hash = $1,
+                    session_version = session_version + 1,
+                    email_verified_at = CASE WHEN $3::boolean THEN COALESCE(email_verified_at, NOW()) ELSE email_verified_at END
+              WHERE id = $2
+          RETURNING id, email, name`,
+            [passwordHash, claimed.userId, kind === 'reset'],
+            client,
+        );
+        await runQuery('DELETE FROM password_reset_tokens WHERE user_id = $1 AND id != $2', [claimed.userId, claimed.id], client);
+
+        return { ok: true, userId: user.id, email: user.email, name: user.name };
     });
-
-    return { ok: true };
 }
 
 async function getUserByEmail(email) {
@@ -875,9 +1120,9 @@ async function renewSubscription({ userId, durationDays }) {
 // approval needed) with an admin-set subscription window and its own workspace, mirroring
 // what a normal signup gets. `email` doubles as a login username — it's stored and matched
 // as-is (lowercased/trimmed), not validated as an actual email address, since the admin may
-// hand the user a plain username instead of a real address. The account has no password yet;
-// no email is sent — the user sets their own password later via setInitialPassword() (the
-// sign-in page links to a "set your password" screen for first-time logins like this).
+// hand the user a plain username instead of a real address. The account has no password yet
+// and no email is sent: the admin gets back a one-time 72h setup link (/setup/[token]) to
+// hand over out-of-band (e.g. WhatsApp). The link is the ONLY way to claim the account.
 async function createUserBySuperAdmin({ name, email, durationDays, phone }) {
     await ensurePublicSchema();
 
@@ -899,6 +1144,7 @@ async function createUserBySuperAdmin({ name, email, durationDays, phone }) {
     const now = new Date();
     const endsAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
+    let setupToken = null;
     await withTransaction(async (client) => {
         await runQuery(
             `INSERT INTO users (id, email, name, status, phone, subscription_started_at, subscription_ends_at)
@@ -907,6 +1153,7 @@ async function createUserBySuperAdmin({ name, email, durationDays, phone }) {
             client,
         );
         await createWorkspaceForUserWithExecutor(client, userId, `${displayName} Workspace`);
+        ({ rawToken: setupToken } = await mintPasswordToken(userId, { purpose: 'setup' }, client));
     });
 
     return {
@@ -914,43 +1161,15 @@ async function createUserBySuperAdmin({ name, email, durationDays, phone }) {
         email: normalizedEmail,
         name: displayName,
         subscriptionEndsAt: endsAt.toISOString(),
+        setupToken,
     };
 }
 
-// Lets a user created via createUserBySuperAdmin (no password_hash yet) set their own password
-// for the first time, given just their email/username — no token/email involved. Matched on
-// "password_hash IS NULL" so it can never be used to hijack an account that already has a
-// password (that's what forgot-password/reset-password is for).
-async function setInitialPassword({ email, password }) {
-    await ensurePublicSchema();
-
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    const rawPassword = String(password || '');
-
-    if (!normalizedEmail) {
-        throw new Error('Email or username is required.');
-    }
-    if (rawPassword.length < 8) {
-        throw new Error('Password must be at least 8 characters.');
-    }
-
-    const user = await fetchOne('SELECT id FROM users WHERE email = $1 AND password_hash IS NULL', [normalizedEmail]);
-    if (!user) {
-        throw new Error('No pending account found for this email/username, or a password has already been set.');
-    }
-
-    const passwordHash = bcrypt.hashSync(rawPassword, 10);
-    await runQuery('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, user.id]);
-
-    return { ok: true };
-}
-
 // Super-admin password recovery for accounts that can't be reached by email (username-only
-// users have no real address, so the /forgot-password email flow can't help them). Clears
-// password_hash back to NULL, which lets the user set a new password via setInitialPassword()
-// (/set-password) using their username. Note: while cleared, anyone who knows the username
-// could set the password first — the admin should reset then immediately tell the user to
-// set their new password.
+// users have no real address, so the /forgot-password email flow can't help them). Clears the
+// password, revokes every session, and returns a fresh one-time setup link for the admin to
+// hand over. While cleared, the account is unusable — there is no tokenless way to claim it
+// (the old /set-password route let anyone who knew the username grab it in that window).
 async function clearUserPassword({ userId }) {
     await ensurePublicSchema();
 
@@ -959,9 +1178,13 @@ async function clearUserPassword({ userId }) {
         throw new Error('User not found.');
     }
 
-    await runQuery('UPDATE users SET password_hash = NULL WHERE id = $1', [userId]);
+    let setupToken = null;
+    await withTransaction(async (client) => {
+        await runQuery('UPDATE users SET password_hash = NULL, session_version = session_version + 1 WHERE id = $1', [userId], client);
+        ({ rawToken: setupToken } = await mintPasswordToken(userId, { purpose: 'setup' }, client));
+    });
 
-    return { ok: true, email: user.email || '', name: user.name || '' };
+    return { ok: true, email: user.email || '', name: user.name || '', setupToken };
 }
 
 // Sets/changes the trusted contact (phone/WhatsApp) a super admin uses to verify a user's
@@ -1108,10 +1331,10 @@ async function reviewPasswordResetRequest({ id, action, reviewerUserId }) {
         return { ok: true, email: user.email || '', name: user.name || '', resetToken: null };
     }
 
-    // Reuse the existing token machinery (SHA-256 hashed, 1-hour expiry, single-use, prior
-    // tokens purged). Works for username-only accounts since it never sends email itself.
-    const { resetToken } = await requestPasswordReset(user.email);
-    return { ok: true, email: user.email || '', name: user.name || '', resetToken };
+    // A 'setup' token, not a 'reset' one: the admin hands this link over out-of-band, so using
+    // it proves nothing about the email address. 24h gives the admin time to reach the user.
+    const { rawToken } = await mintPasswordToken(request.userId, { purpose: 'setup', ttlMs: 24 * 60 * 60 * 1000 });
+    return { ok: true, email: user.email || '', name: user.name || '', resetToken: rawToken };
 }
 
 // Super-admin override: sets a user's subscription to expire in exactly `days` days from now
@@ -1148,65 +1371,38 @@ async function setSubscriptionDays({ userId, days }) {
     });
 }
 
-// Changes a logged-in user's email. Requires the current password for
-// credentials accounts. Rejects if the new email is already taken.
-async function changeEmail({ userId, currentPassword, newEmail }) {
-    await ensurePublicSchema();
+// Email changes live in src/server/email-verification.js (startEmailChange ->
+// confirmAccountCode): the switch only happens after the NEW inbox confirms a code.
 
-    const normalizedEmail = String(newEmail || '').trim().toLowerCase();
-    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-        throw new Error('Please enter a valid email address.');
-    }
-
-    const user = await fetchOne('SELECT email, password_hash AS "passwordHash" FROM users WHERE id = $1', [userId]);
-    if (!user) {
-        throw new Error('User not found.');
-    }
-
-    if (normalizedEmail === user.email) {
-        throw new Error('The new email is the same as your current email.');
-    }
-
-    if (user.passwordHash) {
-        if (!bcrypt.compareSync(String(currentPassword || ''), user.passwordHash)) {
-            throw new Error('Current password is incorrect.');
-        }
-    }
-
-    const taken = await fetchOne('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-    if (taken) {
-        throw new Error('This email is already in use.');
-    }
-
-    await runQuery('UPDATE users SET email = $1 WHERE id = $2', [normalizedEmail, userId]);
-    return { ok: true };
-}
-
-// Changes a logged-in user's password. Verifies the current password for
-// credentials accounts; OAuth accounts (no password yet) may set one directly.
+// Changes a logged-in user's password. Always requires the current password; an account
+// without one (Google-only) must set it through the emailed reset link instead — otherwise
+// any live session on such an account could set a password and take it over.
+//
+// Revokes every session (session_version bump). The caller's own device re-signs-in with the
+// new password right after, so only OTHER devices are logged out.
 async function changePassword({ userId, currentPassword, newPassword }) {
     await ensurePublicSchema();
 
-    const user = await fetchOne('SELECT password_hash AS "passwordHash" FROM users WHERE id = $1', [userId]);
+    const user = await fetchOne('SELECT email, name, password_hash AS "passwordHash" FROM users WHERE id = $1', [userId]);
     if (!user) {
         throw new Error('User not found.');
     }
 
-    if (user.passwordHash) {
-        if (!bcrypt.compareSync(String(currentPassword || ''), user.passwordHash)) {
-            throw new Error('Current password is incorrect.');
-        }
+    if (!user.passwordHash) {
+        throw new Error('This account signs in with Google. Use "Forgot password" on the sign-in page to add a password.');
+    }
+    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+        throw new Error('Current password is incorrect.');
     }
 
-    const next = String(newPassword || '');
-    if (next.length < 8) {
-        throw new Error('New password must be at least 8 characters.');
-    }
+    validatePassword(newPassword, { identifier: user.email });
+    const passwordHash = await hashPassword(newPassword);
+    await runQuery(
+        'UPDATE users SET password_hash = $1, session_version = session_version + 1 WHERE id = $2',
+        [passwordHash, userId],
+    );
 
-    const passwordHash = bcrypt.hashSync(next, 10);
-    await runQuery('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
-
-    return { ok: true };
+    return { ok: true, email: user.email, name: user.name };
 }
 
 // Account/subscription snapshot for the logged-in user's settings page.
@@ -1217,7 +1413,11 @@ async function getUserAccountInfo(userId) {
         `SELECT email, name, status,
                 subscription_started_at AS "subscriptionStartedAt",
                 subscription_ends_at AS "subscriptionEndsAt",
-                ai_enabled AS "aiEnabled"
+                ai_enabled AS "aiEnabled",
+                (email_verified_at IS NOT NULL) AS "emailVerified",
+                (password_hash IS NOT NULL) AS "hasPassword",
+                (google_sub IS NOT NULL) AS "googleLinked",
+                (mfa_enabled_at IS NOT NULL) AS "mfaEnabled"
          FROM users WHERE id = $1`,
         [userId],
     );
@@ -1236,6 +1436,12 @@ async function getUserAccountInfo(userId) {
         status: user.status,
         subscriptionStartedAt: user.subscriptionStartedAt,
         subscriptionEndsAt: user.subscriptionEndsAt,
+        // Sign-in & security facts for Settings -> Account (no secrets).
+        emailIsAddress: EMAILABLE_IDENTIFIER_RE.test(user.email || ''),
+        emailVerified: user.emailVerified === true,
+        hasPassword: user.hasPassword === true,
+        googleLinked: user.googleLinked === true,
+        mfaEnabled: user.mfaEnabled === true,
         pendingRenewal: pending || null,
     };
 }
@@ -1280,7 +1486,11 @@ async function listAllUsers() {
             u.email,
             u.name,
             u.image,
-            CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' ELSE 'oauth' END AS "authProvider",
+            CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' WHEN u.google_sub IS NOT NULL OR u.image IS NOT NULL THEN 'oauth' ELSE 'none' END AS "authProvider",
+            (u.password_hash IS NOT NULL) AS "hasPassword",
+            (u.google_sub IS NOT NULL) AS "googleLinked",
+            (u.email_verified_at IS NOT NULL) AS "emailVerified",
+            (u.mfa_enabled_at IS NOT NULL) AS "mfaEnabled",
             u.created_at AS "createdAt",
             u.status,
             u.phone,
@@ -1323,7 +1533,11 @@ async function getUserDetailForAdmin(userId) {
             u.email,
             u.name,
             u.image,
-            CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' ELSE 'oauth' END AS "authProvider",
+            CASE WHEN u.password_hash IS NOT NULL THEN 'credentials' WHEN u.google_sub IS NOT NULL OR u.image IS NOT NULL THEN 'oauth' ELSE 'none' END AS "authProvider",
+            (u.password_hash IS NOT NULL) AS "hasPassword",
+            (u.google_sub IS NOT NULL) AS "googleLinked",
+            (u.email_verified_at IS NOT NULL) AS "emailVerified",
+            (u.mfa_enabled_at IS NOT NULL) AS "mfaEnabled",
             u.created_at AS "createdAt",
             u.status,
             u.phone,
@@ -1537,7 +1751,23 @@ async function listAdminAudit({ limit = 100 } = {}) {
         [cap],
     );
 
-    return [...admin.rows, ...logins.rows]
+    // Security events (failed/locked logins, password/email/2FA changes, recovery requests,
+    // admin unlocks…). Successful logins are already covered by the 'login' rows above.
+    const securityRows = await runQuery(
+        `SELECT 'security' AS kind, e.id, NULL AS "actorEmail", e.event AS action,
+                e.user_id AS "targetUserId", COALESCE(u.email, e.identifier) AS "targetEmail",
+                u.name AS "targetName",
+                COALESCE(e.meta, '{}'::jsonb) || jsonb_build_object('ip', e.ip) AS meta,
+                e.created_at AS "createdAt"
+         FROM security_events e
+         LEFT JOIN users u ON u.id = e.user_id
+         WHERE e.event <> 'login_success'
+         ORDER BY e.created_at DESC
+         LIMIT $1`,
+        [cap],
+    );
+
+    return [...admin.rows, ...logins.rows, ...securityRows.rows]
         .map((r) => ({ ...r, id: `${r.kind}-${r.id}` }))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, cap);
@@ -1551,8 +1781,14 @@ module.exports = {
     getMarketingAsset,
     listMarketingAssets,
     deleteMarketingAsset,
-    createCredentialsUser,
-    upsertOAuthUser,
+    createWorkspaceForUserWithExecutor,
+    resolveGoogleUser,
+    getUserByGoogleSub,
+    getAuthUserById,
+    getPasswordHash,
+    getSessionClaims,
+    bumpSessionVersion,
+    recordSuccessfulLogin,
     verifyCredentials,
     listUserWorkspaces,
     getDefaultWorkspaceIdByUserId,
@@ -1566,8 +1802,14 @@ module.exports = {
     createWorkspace,
     renameWorkspace,
     deleteWorkspace,
-    addWorkspaceMemberByEmail,
-    inviteWorkspaceMember,
+    createWorkspaceInvitation,
+    listWorkspaceInvitations,
+    revokeWorkspaceInvitation,
+    getInvitationByToken,
+    acceptWorkspaceInvitation,
+    createAccountFromInvitation,
+    createMemberSetupLink,
+    getWorkspaceAccess,
     updateWorkspaceMemberRole,
     removeWorkspaceMember,
     listWorkspaceMembers,
@@ -1580,7 +1822,7 @@ module.exports = {
     getUserActivitySummary,
     deleteUser,
     createUserBySuperAdmin,
-    setInitialPassword,
+    createSetupToken,
     clearUserPassword,
     updateUserContact,
     createPasswordResetRequest,
@@ -1592,7 +1834,6 @@ module.exports = {
     reviewAccessRequest,
     renewSubscription,
     setSubscriptionDays,
-    changeEmail,
     changePassword,
     getUserAccountInfo,
     createRenewalRequest,

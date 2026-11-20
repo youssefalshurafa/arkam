@@ -2,7 +2,7 @@
 
 import type { Dispatch, SetStateAction } from 'react';
 import Image from 'next/image';
-import { signOut } from 'next-auth/react';
+import { signOutCleanly } from '@/shared/lib/signOut';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -58,7 +58,7 @@ export default function Sidebar({
    return;
   }
   accountingApi.setActiveWorkspaceId(null);
-  void signOut({ callbackUrl: '/login' });
+  void signOutCleanly('/login');
  };
 
  return (

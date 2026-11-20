@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/server/auth-options';
 import { isSuperAdmin, isAdminPanelUnlocked } from '@/server/permissions';
+import { getAppBaseUrl } from '@/server/app-url';
+import { readJson } from '@/server/http';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 
@@ -11,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
@@ -20,18 +22,18 @@ export async function GET(request: NextRequest) {
  return NextResponse.json({ requests });
 }
 
-// Approve or reject a password reset request. On approval the server mints a one-time, 1-hour,
-// single-use reset token and returns the /reset-password/{token} link — the admin verifies the
+// Approve or reject a password reset request. On approval the server mints a one-time, 24-hour,
+// single-use setup token and returns the /setup/{token} link — the admin verifies the
 // requester's identity out-of-band first (calling the trusted contact on file), then sends this
 // link to the user through that trusted channel.
 export async function POST(request: NextRequest) {
  const session = await getServerSession(authOptions);
 
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
  }
 
- const { id, action } = (await request.json()) as { id?: string; action?: 'approve' | 'reject' };
+ const { id, action } = (await readJson(request)) as { id?: string; action?: 'approve' | 'reject' };
 
  if (!id || (action !== 'approve' && action !== 'reject')) {
   return NextResponse.json({ error: 'id and a valid action are required.' }, { status: 400 });
@@ -51,7 +53,7 @@ export async function POST(request: NextRequest) {
    targetName: result.name,
   });
 
-  const resetLink = result.resetToken ? `${request.nextUrl.origin}/reset-password/${result.resetToken}` : null;
+  const resetLink = result.resetToken ? `${getAppBaseUrl()}/setup/${result.resetToken}` : null;
   return NextResponse.json({ ok: true, resetLink });
  } catch (error) {
   const message = error instanceof Error ? error.message : 'Failed to review request.';

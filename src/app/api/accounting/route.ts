@@ -272,10 +272,20 @@ export async function POST(request: NextRequest) {
    return NextResponse.json({ error: 'No workspace selected.' }, { status: 400 });
   }
 
-  const role = await authDb.getWorkspaceRole(userId, workspaceId);
-  if (!role) {
+  // Membership AND the owner's subscription in one query. A teammate has no subscription of
+  // their own, so their access to a workspace ends when its owner's does — otherwise an
+  // expired trial could be kept alive forever through a second, invited login.
+  const access = await authDb.getWorkspaceAccess(userId, workspaceId);
+  if (!access) {
    return NextResponse.json({ error: 'Access denied for this workspace.' }, { status: 403 });
   }
+  if (!access.ownerActive) {
+   return NextResponse.json(
+    { error: "This workspace's subscription has ended.", code: 'WORKSPACE_SUBSCRIPTION_EXPIRED', ownerName: access.ownerName },
+    { status: 403 },
+   );
+  }
+  const role: string = access.role;
 
   if (!readOnlyActions.has(action) && !writeActions.has(action)) {
    return NextResponse.json({ error: `Unsupported action: ${action}` }, { status: 400 });

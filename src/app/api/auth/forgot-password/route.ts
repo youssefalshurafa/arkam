@@ -1,57 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAppBaseUrl } from '@/server/app-url';
+import { parseBody, tooManyRequests } from '@/server/http';
+import { forgotPasswordSchema } from '@/server/auth-schemas';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const authDb = require('@/server/auth-db');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendPasswordResetEmail } = require('@/server/mailer');
+const { sendPasswordResetEmail, sendPasswordResetRequestNotification } = require('@/server/mailer');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const security = require('@/server/security');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type ForgotPasswordBody = {
- // `identifier` is the email OR username the user typed. `email` is kept for backward compatibility.
- identifier?: string;
- email?: string;
-};
-
+// The one "I can't sign in" entry point (it absorbed the separate /reset-request flow).
+//
+// The response is IDENTICAL whatever the identifier is — unknown, email account, username
+// account — so it can't be used to probe which accounts exist (the old route answered 404
+// "no_account" and an `emailable` flag, and /api/auth/check-user leaked the same live).
+// Behind that uniform answer:
+//   * email account    -> a 1-hour reset link is emailed to the address on file;
+//   * username account -> a support reset request is filed and the admin is notified; they
+//                         verify the person via the trusted contact and send a setup link;
+//   * no account       -> nothing.
 export async function POST(request: NextRequest) {
- try {
-  const body = (await request.json()) as ForgotPasswordBody;
-  const identifier = String(body.identifier || body.email || '').trim();
+ const parsed = await parseBody(request, forgotPasswordSchema);
+ if (parsed.response) return parsed.response;
 
-  if (!identifier) {
-   return NextResponse.json({ error: 'Email or username is required.' }, { status: 400 });
+ const identifier = String(parsed.data.identifier || parsed.data.email || '').trim().toLowerCase();
+ if (!identifier) {
+  return NextResponse.json({ error: 'Email or username is required.' }, { status: 400 });
+ }
+
+ const ip = security.getClientIp(request.headers);
+ const [byIp, byIdentifier] = await Promise.all([security.hit('recoveryIp', ip), security.hit('recoveryIdentifier', identifier)]);
+ if (!byIp.allowed) {
+  return tooManyRequests(byIp.retryAfterSeconds);
+ }
+
+ // Over the per-identifier budget we still answer "ok" (uniform) but do nothing, so the
+ // endpoint can't be used to flood someone's inbox or the admin's.
+ if (byIdentifier.allowed) {
+  try {
+   await handleRecovery(identifier, parsed.data.note || '', request);
+  } catch (error) {
+   console.error('[forgot-password] recovery failed:', error instanceof Error ? error.message : error);
   }
+ }
 
-  // This flow intentionally reports whether the account exists (see /api/auth/check-user) so the
-  // user gets clear "no account found" feedback — a deliberate UX choice over strict anti-enumeration.
-  const target = await authDb.lookupResetTarget(identifier);
-  if (!target.exists) {
-   return NextResponse.json({ error: 'no_account' }, { status: 404 });
-  }
+ return NextResponse.json({ ok: true });
+}
 
-  // Username-only accounts have no deliverable email — we can't send them a reset link. Tell the
-  // client to route them to the support-approval flow (/reset-request) instead.
-  if (!target.emailable) {
-   return NextResponse.json({ ok: true, emailable: false });
-  }
+async function handleRecovery(identifier: string, note: string, request: NextRequest) {
+ const target = await authDb.lookupResetTarget(identifier);
+ if (!target.exists) {
+  await security.logSecurityEvent({ identifier, event: 'recovery_unknown_identifier', headers: request.headers });
+  return;
+ }
 
+ const user = await authDb.getUserByEmail(identifier);
+
+ if (target.emailable) {
   const result = await authDb.requestPasswordReset(identifier);
-
   if (result.resetToken) {
-   const resetUrl = `${request.nextUrl.origin}/reset-password/${result.resetToken}`;
-   // Fetch user name for the email
-   const user = await authDb.getUserByEmail(identifier);
    await sendPasswordResetEmail({
     to: identifier,
     name: user?.name || identifier,
-    resetUrl,
+    resetUrl: `${getAppBaseUrl()}/reset-password/${result.resetToken}`,
    });
   }
+  await security.logSecurityEvent({ userId: user?.id, identifier, event: 'password_reset_requested', headers: request.headers });
+  return;
+ }
 
-  return NextResponse.json({ ok: true, emailable: true });
- } catch (error) {
-  console.error('[forgot-password] Error:', error);
-  const message = error instanceof Error ? error.message : 'Failed to request password reset.';
-  return NextResponse.json({ error: message }, { status: 400 });
+ const filed = await authDb.createPasswordResetRequest({ email: identifier, note });
+ await security.logSecurityEvent({ userId: user?.id, identifier, event: 'support_reset_requested', headers: request.headers });
+ if (filed.created) {
+  const adminEmail = process.env.ADMIN_NOTIFY_EMAIL?.trim() || process.env.SUPER_ADMIN_EMAIL?.trim();
+  if (adminEmail) {
+   await sendPasswordResetRequestNotification({
+    to: adminEmail,
+    requesterName: filed.name || '',
+    requesterUsername: identifier,
+    reviewUrl: `${getAppBaseUrl()}/admin/resets`,
+   }).catch((mailError: unknown) => console.error('[forgot-password] admin notification failed:', mailError));
+  }
  }
 }

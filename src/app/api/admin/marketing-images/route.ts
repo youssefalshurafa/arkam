@@ -16,7 +16,7 @@ const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 // gate access and log the acting admin's email).
 async function requireSuperAdmin(request: NextRequest) {
  const session = await getServerSession(authOptions);
- if (!isSuperAdmin(session?.user?.email) || !isAdminPanelUnlocked(request)) {
+ if (!isSuperAdmin(session?.user?.id) || !isAdminPanelUnlocked(request, session?.user?.id) || !session?.user?.mfaEnabled) {
   return null;
  }
  return session;
