@@ -137,6 +137,7 @@ import ImportWizard from '@/features/transactions/components/ImportWizard';
 import CreateOrgDialog from '@/features/organizations/components/CreateOrgDialog';
 import { useOrganizationActions } from '@/features/organizations/hooks/useOrganizationActions';
 import { useBackupActions } from '@/features/settings/hooks/useBackupActions';
+import { localizedCurrencyName } from '@/shared/utils/currencyName';
 import { useClientActions } from '@/features/clients/hooks/useClientActions';
 import { useLedgerActions } from '@/features/ledger/hooks/useLedgerActions';
 import { useTransactionActions } from '@/features/transactions/hooks/useTransactionActions';
@@ -1512,7 +1513,7 @@ function AuthenticatedHome() {
 
 
 
-  const { onDownloadBackup, onRestoreBackupFile, lastBackupLabel, backupFreshness } = useBackupActions({
+  const { onDownloadBackup, onDownloadExcelExport, isExportingExcel, onRestoreBackupFile, lastBackupLabel, backupFreshness } = useBackupActions({
    setIsBackingUp,
    setIsRestoringBackup,
    lastBackupAt,
@@ -1524,6 +1525,8 @@ function AuthenticatedHome() {
    setSelectedClientForAccounts,
    setSelectedClientForLedger,
    setSelectedLedgerAccountId,
+   workspace: { organizations, clients, clientAccounts, transactions, reconciliations, currencies },
+   workspaceLoaded: !isLoading,
   });
 
 
@@ -1639,17 +1642,7 @@ function AuthenticatedHome() {
   ...(isEditorRole ? [] : [{ key: 'danger' as const, label: t('settings_danger_title'), icon: 'settings' as IconName }]),
  ];
 
- const getLocalizedCurrencyName = (currencyCode: string, fallbackName: string) => {
-  try {
-   if (typeof Intl.DisplayNames === 'function') {
-    return new Intl.DisplayNames([language], { type: 'currency' }).of(currencyCode) || fallbackName || currencyCode;
-   }
-  } catch {
-   // ignore and fall back to the stored name
-  }
-
-  return fallbackName || currencyCode;
- };
+ const getLocalizedCurrencyName = (currencyCode: string, fallbackName: string) => localizedCurrencyName(currencyCode, fallbackName, language);
 
  const localizedCurrencies = useMemo(
   () =>
@@ -2445,6 +2438,8 @@ function AuthenticatedHome() {
    lastBackupLabel={lastBackupLabel}
    backupFreshness={backupFreshness}
    onDownloadBackup={onDownloadBackup}
+   isExportingExcel={isExportingExcel}
+   onDownloadExcelExport={onDownloadExcelExport}
    onRestoreBackupFile={onRestoreBackupFile}
    transactions={transactions}
    clients={clients}

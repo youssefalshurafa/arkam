@@ -31,6 +31,10 @@ describe('buildExportFileName', () => {
   expect(buildExportFileName(t, defaultPdfSettings, { type: 'Archive', fromDate: '2026-10-05', toDate: '2026-10-05' }, 'pdf')).toBe('Archive - 2026-10-05.pdf');
  });
 
+ it('names the workspace Excel ZIP in the UI language, as one day', () => {
+  expect(buildExportFileName(t, defaultPdfSettings, { type: 'تصدير Excel', fromDate: '2026-11-20', toDate: '2026-11-20' }, 'zip')).toBe('تصدير Excel - 2026-11-20.zip');
+ });
+
  it('falls back to "export" when every part is off', () => {
   const settings = { ...defaultPdfSettings, fileNameParts: defaultPdfSettings.fileNameParts.map((p) => ({ ...p, enabled: false })) };
   expect(buildExportFileName(t, settings, values, 'pdf')).toBe('export.pdf');

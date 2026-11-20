@@ -17,7 +17,7 @@ import {
  commitPendingCreate,
  failPendingCreate,
 } from '@/lib/pendingTransactionWrites';
-import { transactionTypeLabelKey } from '@/shared/utils/transactionType';
+import { ledgerExcelColumns, type LedgerExcelColumn } from '@/features/ledger/utils/ledgerExcelColumns';
 import { NEW_ROW_REF_ID, marksAffectedByReorder, type LockBoundary } from '@/features/ledger/utils/reconciliation';
 import { getLedgerTransactionDraftKey, isHiddenFromExport, selectLedgerExportEntries } from '@/features/ledger/utils/ledgerEntries';
 import { spreadLedgerPositions, timeOfDayMs, withLedgerPosition } from '@/features/ledger/utils/ledgerOrder';
@@ -1625,20 +1625,8 @@ async function onExportLedgerExcel(
   if (!(await confirmIfLedgerAnomalies(selected, ledger.currencyCode, ledger.accountId))) return;
   if (!(await confirmIfLedgerPendingPricing(selected))) return;
 
-  type ExcelColDef = { key: LedgerColumnKey; header: string; cell: (e: ClientLedgerEntry) => string | number };
-  const allCols: ExcelColDef[] = [
-   { key: 'created', header: t('date'), cell: (e) => formatDateValue(e.createdAt, pdfSettings.dateFormat) },
-   { key: 'counterparty', header: t('counterparty'), cell: (e) => e.counterpartyName },
-   { key: 'direction', header: t('direction'), cell: (e) => t(e.direction === 'outgoing' ? 'outgoing' : 'incoming') },
-   { key: 'type', header: t('transaction_type'), cell: (e) => t(transactionTypeLabelKey(e.type)) },
-   { key: 'amount', header: t('amount'), cell: (e) => e.amount },
-   { key: 'exchangeRate', header: t('exchange_rate'), cell: (e) => (e.pendingRate ? '' : e.exchangeRateReversed ? 1 / e.exchangeRate : e.exchangeRate) },
-   { key: 'commission', header: t('commission'), cell: (e) => e.commission },
-   { key: 'netChange', header: t('net_change'), cell: (e) => (e.pendingRate ? '' : e.netChange) },
-   { key: 'runningBalance', header: t('running_balance'), cell: (e) => e.runningBalance },
-   { key: 'currency', header: t('currency'), cell: (e) => e.currencyCode },
-   { key: 'description', header: t('transaction_description'), cell: (e) => e.description ?? '' },
-  ];
+  type ExcelColDef = LedgerExcelColumn;
+  const allCols = ledgerExcelColumns(t, pdfSettings.dateFormat);
   const visibleCols = ledgerColumnOrder
    .map((key) => allCols.find((col) => col.key === key))
    .filter((col): col is ExcelColDef => Boolean(col))
