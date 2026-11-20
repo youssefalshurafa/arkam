@@ -855,6 +855,7 @@
  "export_round_final_balance_difference": "Écart sur le solde :",
  "export_round_final_balance_reset": "Utiliser la suggestion",
  "export_round_final_balance_hint": "Seul le grand montant en bas du fichier est arrondi ; aucune ligne ne change.",
+ "export_round_step_label": "Arrondir au plus proche",
  "reverse_rate": "Inverser le sens du taux",
  "swap_parties_action": "Inverser les deux parties",
  "rate_multiplication": "Multiplier",

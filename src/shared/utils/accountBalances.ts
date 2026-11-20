@@ -94,10 +94,10 @@ export function writeOffMarginMap(margins: Array<{ currencyId: number; threshold
 }
 
 // A "round" figure near `balance` for the PDF export's round-final-balance option to suggest, so
-// the other party can settle with a clean number. Always the nearest 100, whatever the size:
-// -6,959,294.02 becomes -6,959,300 (-5.98). Sign is kept; the user can still type any difference
-// they like (e.g. just trimming the decimals) in the export dialog.
-export function suggestRoundedBalance(balance: number): number {
- const step = 100;
+// the other party can settle with a clean number. The nearest multiple of `step` (50 or 100,
+// picked in the export dialog), whatever the size: at 50, -8,079,071.57 becomes -8,079,050; at
+// 100, -8,079,100. Sign is kept; the user can still type any difference they like (e.g. just
+// trimming the decimals) in the export dialog.
+export function suggestRoundedBalance(balance: number, step = 50): number {
  return Math.sign(balance) * Math.round(Math.abs(balance) / step) * step;
 }

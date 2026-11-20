@@ -2,13 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { isWriteOffEligible, suggestRoundedBalance } from './accountBalances';
 
 describe('suggestRoundedBalance', () => {
- it('rounds to the nearest hundred, keeping the sign', () => {
+ it('rounds to the nearest fifty, keeping the sign', () => {
   expect(suggestRoundedBalance(-6_959_294.02)).toBe(-6_959_300);
-  expect(suggestRoundedBalance(-8_079_071.57)).toBe(-8_079_100);
+  expect(suggestRoundedBalance(-8_079_071.57)).toBe(-8_079_050);
   expect(suggestRoundedBalance(-550_080.6)).toBe(-550_100);
   expect(suggestRoundedBalance(-2_793_612.76)).toBe(-2_793_600);
-  expect(suggestRoundedBalance(432_026)).toBe(432_000);
-  expect(suggestRoundedBalance(-747)).toBe(-700);
+  expect(suggestRoundedBalance(432_026)).toBe(432_050);
+  expect(suggestRoundedBalance(-747)).toBe(-750);
+  expect(suggestRoundedBalance(1_220)).toBe(1_200);
+ });
+
+ it('rounds to the nearest hundred when asked', () => {
+  expect(suggestRoundedBalance(-6_959_294.02, 100)).toBe(-6_959_300);
+  expect(suggestRoundedBalance(-8_079_071.57, 100)).toBe(-8_079_100);
+  expect(suggestRoundedBalance(432_026, 100)).toBe(432_000);
+  expect(suggestRoundedBalance(-747, 100)).toBe(-700);
  });
 
  it('leaves an already round balance unchanged', () => {

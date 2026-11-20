@@ -758,6 +758,29 @@ export function saveFirstGroupSize(currencyCode: string, size: number) {
  else next[currencyCode] = size;
  saveNumberGrouping(next);
 }
+// The ledger export dialog's "round the final balance" step: the suggested closing figure is the
+// nearest multiple of this. The last pick is remembered for every later export; per-user
+// (sharedTableSettings) like the other personal PDF preferences.
+export const pdfRoundStepStorageKey = 'arkam:pdf-round-step';
+export const pdfRoundSteps = [50, 100] as const;
+export function getStoredPdfRoundStep(): number {
+ if (typeof window === 'undefined') return pdfRoundSteps[0];
+ try {
+  const stored = Number(window.localStorage.getItem(pdfRoundStepStorageKey));
+  return (pdfRoundSteps as readonly number[]).includes(stored) ? stored : pdfRoundSteps[0];
+ } catch {
+  return pdfRoundSteps[0];
+ }
+}
+export function savePdfRoundStep(step: number) {
+ if (typeof window === 'undefined') return;
+ try {
+  window.localStorage.setItem(pdfRoundStepStorageKey, String(step));
+  notifySettingsChanged();
+ } catch {
+  /* ignore quota / privacy-mode errors */
+ }
+}
 // Description strings the user has dismissed from the transaction description
 // autocomplete dropdown (via its per-suggestion "x"). Suggestions are derived live
 // from past transactions, so exclusions are tracked separately rather than deleting

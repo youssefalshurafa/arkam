@@ -858,6 +858,7 @@
  "export_round_final_balance_difference": "الفرق على الرصيد:",
  "export_round_final_balance_reset": "استعادة الفرق المقترح",
  "export_round_final_balance_hint": "يُقرَّب الرقم الكبير في أسفل الملف فقط، ولا يتغير أي سطر.",
+ "export_round_step_label": "التقريب لأقرب",
  "reverse_rate": "عكس اتجاه السعر",
  "swap_parties_action": "تبديل الطرفين",
  "rate_multiplication": "ضرب",

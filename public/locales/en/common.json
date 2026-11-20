@@ -856,6 +856,7 @@
  "export_round_final_balance_difference": "Difference to the balance:",
  "export_round_final_balance_reset": "Use suggested",
  "export_round_final_balance_hint": "Only the large figure at the bottom of the file is rounded; no rows change.",
+ "export_round_step_label": "Round to the nearest",
  "reverse_rate": "Reverse rate direction",
  "swap_parties_action": "Swap the two parties",
  "rate_multiplication": "Multiply",
