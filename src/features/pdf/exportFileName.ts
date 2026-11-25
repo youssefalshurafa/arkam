@@ -45,7 +45,7 @@ export function buildExportFileName(
  t: Translate,
  settings: ExportFileNameSettings,
  values: ExportFileNameValues,
- extension: 'pdf' | 'xlsx',
+ extension: 'pdf' | 'xlsx' | 'zip',
 ): string {
  const separator = FILE_NAME_SEPARATORS.includes(settings.fileNameSeparator) ? settings.fileNameSeparator : defaultPdfSettings.fileNameSeparator;
  const byKey: Record<ExportFileNamePart, string | null | undefined> = {

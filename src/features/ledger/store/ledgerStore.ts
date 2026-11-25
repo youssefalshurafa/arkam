@@ -22,6 +22,9 @@ export type PdfExportModalState = {
  // The difference the user typed in place of the suggested one, as typed; null/absent means the
  // suggestion (suggestRoundedBalance) stands.
  roundDifference?: string | null;
+ // The rounding step picked in this dialog (50 or 100); absent means the remembered one
+ // (getStoredPdfRoundStep).
+ roundStep?: number;
 };
 
 // A transaction with only one real party — the client whose ledger

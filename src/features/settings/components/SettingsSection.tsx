@@ -63,6 +63,8 @@ type SettingsSectionProps = {
  lastBackupLabel: () => string;
  backupFreshness: () => 'never' | 'stale' | 'fresh';
  onDownloadBackup: () => void;
+ isExportingExcel: boolean;
+ onDownloadExcelExport: () => void;
  onRestoreBackupFile: (event: React.ChangeEvent<HTMLInputElement>) => void;
  transactions: Transaction[];
  clients: Client[];
@@ -127,6 +129,8 @@ export default function SettingsSection({
  lastBackupLabel,
  backupFreshness,
  onDownloadBackup,
+ isExportingExcel,
+ onDownloadExcelExport,
  onRestoreBackupFile,
  transactions,
  clients,
@@ -332,6 +336,8 @@ export default function SettingsSection({
      lastBackupLabel={lastBackupLabel}
      backupFreshness={backupFreshness}
      onDownloadBackup={onDownloadBackup}
+     isExportingExcel={isExportingExcel}
+     onDownloadExcelExport={onDownloadExcelExport}
      onRestoreBackupFile={onRestoreBackupFile}
     />
    ) : null}

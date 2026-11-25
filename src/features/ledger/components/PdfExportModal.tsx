@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useStableSession } from '@/hooks/useStableSession';
-import { getStoredPdfDateRange, savePdfCols, savePdfDateRange } from '@/shared/lib/localStorage';
+import { getStoredPdfDateRange, getStoredPdfRoundStep, pdfRoundSteps, savePdfCols, savePdfDateRange, savePdfRoundStep } from '@/shared/lib/localStorage';
 import { formatDateValue, localDateKey } from '@/shared/utils/date';
 import { useSettingsStore } from '@/features/settings/store/settingsStore';
 import { suggestRoundedBalance } from '@/shared/utils/accountBalances';
@@ -59,7 +59,8 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
        // Rounding prints the closing balance plus a difference: the suggested one until the user
        // types their own — e.g. trimming just the 0.6 off -550,080.6 rather than adding the
        // suggested -19.4 to reach -550,100. Kept to cents so the printed figure has no float residue.
-       const suggestedDifference = Math.round((suggestRoundedBalance(closingBalance) - closingBalance) * 100) / 100;
+       const roundStep = pdfExportModal.roundStep ?? getStoredPdfRoundStep();
+       const suggestedDifference = Math.round((suggestRoundedBalance(closingBalance, roundStep) - closingBalance) * 100) / 100;
        const typedDifference = pdfExportModal.roundDifference == null ? null : parseFloat(normalizeDecimalInput(pdfExportModal.roundDifference));
        const roundDifference = typedDifference == null ? suggestedDifference : Number.isFinite(typedDifference) ? typedDifference : 0;
        const roundedBalance = Math.round((closingBalance + roundDifference) * 100) / 100;
@@ -275,15 +276,44 @@ export default function PdfExportModal({ selectedClientLedgers, selectedClientFo
                const format = (value: number) => `${value.toLocaleString(numLocale, { maximumFractionDigits: 2 })} ${ledger.currencySymbol || ledger.currencyCode}`;
                return (
                 <div className="flex flex-col gap-1">
-                 <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
-                  <input
-                   type="checkbox"
-                   checked={pdfExportModal.roundFinalBalance ?? false}
-                   onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, roundFinalBalance: e.target.checked } : prev))}
-                   className="h-4 w-4 cursor-pointer accent-blue-600"
-                  />
-                  {t('export_round_final_balance')}
-                 </label>
+                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+                   <input
+                    type="checkbox"
+                    checked={pdfExportModal.roundFinalBalance ?? false}
+                    onChange={(e) => setPdfExportModal((prev) => (prev ? { ...prev, roundFinalBalance: e.target.checked } : prev))}
+                    className="h-4 w-4 cursor-pointer accent-blue-600"
+                   />
+                   {t('export_round_final_balance')}
+                  </label>
+                  {/* Nearest 50 or 100. Picking one also turns rounding on, drops a typed
+                      difference so the new suggestion shows, and is remembered for next time. */}
+                  <div
+                   role="radiogroup"
+                   aria-label={t('export_round_step_label')}
+                   dir="ltr"
+                   className="inline-flex overflow-hidden rounded border border-border-strong text-xs font-semibold"
+                  >
+                   {pdfRoundSteps.map((step) => {
+                    const isActive = roundStep === step;
+                    return (
+                     <button
+                      key={step}
+                      type="button"
+                      role="radio"
+                      aria-checked={isActive}
+                      onClick={() => {
+                       savePdfRoundStep(step);
+                       setPdfExportModal((prev) => (prev ? { ...prev, roundStep: step, roundFinalBalance: true, roundDifference: step === roundStep ? prev.roundDifference : null } : prev));
+                      }}
+                      className={`cursor-pointer px-2.5 py-1 transition ${isActive ? 'bg-accent text-accent-contrast' : 'bg-surface text-fg-muted hover:bg-surface-hover'}`}
+                     >
+                      {step}
+                     </button>
+                    );
+                   })}
+                  </div>
+                 </div>
                  {pdfExportModal.roundFinalBalance && inRange.length > 0 ? (
                   <p className="flex flex-wrap items-center gap-2 ps-6 text-sm font-semibold">
                    <span className={closingBalance < 0 ? 'text-bad-text' : 'text-good-text'}>{format(closingBalance)}</span>

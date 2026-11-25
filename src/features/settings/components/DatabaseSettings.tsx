@@ -15,10 +15,12 @@ type DatabaseSettingsProps = {
  backupFreshness: () => 'never' | 'stale' | 'fresh';
  lastBackupLabel: () => string;
  onDownloadBackup: () => void;
+ isExportingExcel: boolean;
+ onDownloadExcelExport: () => void;
  onRestoreBackupFile: (event: ChangeEvent<HTMLInputElement>) => void;
 };
 
-export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backupFreshness, lastBackupLabel, backupRestoreInputRef, onDownloadBackup, onRestoreBackupFile }: DatabaseSettingsProps) {
+export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backupFreshness, lastBackupLabel, backupRestoreInputRef, onDownloadBackup, isExportingExcel, onDownloadExcelExport, onRestoreBackupFile }: DatabaseSettingsProps) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
 
@@ -104,6 +106,56 @@ export default function DatabaseSettings({ isBackingUp, isRestoringBackup, backu
         />
        </svg>
        {isRestoringBackup ? t('backup_restore_loading') : t('backup_restore_button')}
+      </button>
+     </div>
+
+     <div className="rounded border border-border bg-surface p-4 md:col-span-2">
+      <h3 className="text-sm font-semibold text-fg">{t('excel_export_title')}</h3>
+      <p className="mt-1 text-sm text-fg-muted">{t('excel_export_hint')}</p>
+      <button
+       type="button"
+       onClick={() => void onDownloadExcelExport()}
+       disabled={isExportingExcel || isRestoringBackup}
+       className="mt-4 inline-flex items-center gap-2 rounded border border-border-strong bg-surface px-4 py-2 text-sm font-semibold text-fg transition hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+      >
+       <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+       >
+        <rect
+         x="3"
+         y="3"
+         width="18"
+         height="18"
+         rx="2"
+        />
+        <line
+         x1="3"
+         y1="9"
+         x2="21"
+         y2="9"
+        />
+        <line
+         x1="3"
+         y1="15"
+         x2="21"
+         y2="15"
+        />
+        <line
+         x1="9"
+         y1="3"
+         x2="9"
+         y2="21"
+        />
+       </svg>
+       {isExportingExcel ? t('backup_download_loading') : t('excel_export_button')}
       </button>
      </div>
     </div>

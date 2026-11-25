@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { ChangeEvent, Dispatch, RefObject, SetStateAction } from 'react';
 import { confirmDialog } from '@/components/ui/AppDialog';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -9,7 +10,13 @@ import { useWorkspaceActions } from '@/features/workspace/hooks/useWorkspaceActi
 import { useTransactionsStore } from '@/features/transactions/store/transactionsStore';
 import { useClientsStore } from '@/features/clients/store/clientsStore';
 import { emptyClientForm } from '@/features/clients/forms';
+import { useLedgerStore } from '@/features/ledger/store/ledgerStore';
+import { useSettingsStore } from '@/features/settings/store/settingsStore';
+import { excelExportWorkbooks, workbookSpecToXlsx, type ExcelExportData } from '@/features/settings/utils/excelExport';
+import { buildExportFileName } from '@/features/pdf/exportFileName';
 import { getDeviceLabel } from '@/shared/utils/device';
+import { localDateKey } from '@/shared/utils/date';
+import { createZip, type ZipEntry } from '@/shared/utils/zip';
 import type { Client } from '@/shared/types';
 
 type UseBackupActionsParams = {
@@ -24,6 +31,11 @@ type UseBackupActionsParams = {
  setSelectedClientForAccounts: Dispatch<SetStateAction<Client | null>>;
  setSelectedClientForLedger: Dispatch<SetStateAction<Client | null>>;
  setSelectedLedgerAccountId: Dispatch<SetStateAction<number | null>>;
+ // The workspace as currently loaded — what the Excel export writes out — and whether it has
+ // arrived yet. Before the first snapshot lands every collection is empty, so exporting then would
+ // quietly hand over a ZIP with no clients in it.
+ workspace: ExcelExportData;
+ workspaceLoaded: boolean;
 };
 
 /**
@@ -43,6 +55,8 @@ export function useBackupActions({
  setSelectedClientForAccounts,
  setSelectedClientForLedger,
  setSelectedLedgerAccountId,
+ workspace,
+ workspaceLoaded,
 }: UseBackupActionsParams) {
  const { language } = useLanguage();
  const { t } = useTranslation(language);
@@ -53,6 +67,9 @@ export function useBackupActions({
  const setCommissionExpandedTxns = useTransactionsStore((s) => s.setCommissionExpandedTxns);
  const setExpensesExpandedTxns = useTransactionsStore((s) => s.setExpensesExpandedTxns);
  const setTransactionsPage = useTransactionsStore((s) => s.setTransactionsPage);
+ const pdfSettings = useSettingsStore((s) => s.pdfSettings);
+ const ledgerColumnOrder = useLedgerStore((s) => s.ledgerColumnOrder);
+ const [isExportingExcel, setIsExportingExcel] = useState(false);
 
 async function onDownloadBackup() {
  if (!accountingApi) {
@@ -88,6 +105,43 @@ async function onDownloadBackup() {
   setError(e instanceof Error ? e.message : t('error_failed_save'));
  } finally {
   setIsBackingUp(false);
+ }
+}
+
+// Every client's ledger as its own workbook, foldered by organization, plus a transactions
+// workbook — zipped into one download (see excelExport.ts for the layout). Built entirely from the
+// data already on screen, so it needs no server round-trip and matches what the user sees.
+async function onDownloadExcelExport() {
+ if (isExportingExcel || !workspaceLoaded) return;
+ setIsExportingExcel(true);
+ try {
+  const xlsx = await import('xlsx');
+  const rtl = language === 'ar';
+  const files: ZipEntry[] = [];
+  for (const spec of excelExportWorkbooks(workspace, { t, language, dateFormat: pdfSettings.dateFormat, ledgerColumnOrder })) {
+   files.push({ path: spec.path, data: workbookSpecToXlsx(xlsx, spec, { rtl }) });
+   // Hand the main thread back now and then: a workspace with hundreds of clients takes a few
+   // seconds to write, and the button should keep showing it's busy instead of freezing.
+   if (files.length % 20 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  const blob = new Blob([createZip(files)], { type: 'application/zip' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  // Named like the app's other exports: in the UI language, following the user's file-name
+  // settings (company name, separator, date style), e.g. "تصدير Excel - <company> - 2026-11-20.zip".
+  const today = localDateKey();
+  link.download = buildExportFileName(t, pdfSettings, { type: t('excel_export_file_type'), fromDate: today, toDate: today }, 'zip');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  setError('');
+  setImportSummary(t('excel_export_success'));
+ } catch (e) {
+  setError(e instanceof Error ? e.message : t('error_failed_save'));
+ } finally {
+  setIsExportingExcel(false);
  }
 }
 
@@ -204,5 +258,14 @@ function lastBackupLabel(): string {
  return t('backup_last_label').replace('{time}', time);
 }
 
- return { onDownloadBackup, onRestoreBackupFile, lastBackupLabel, backupFreshness };
+ return {
+  onDownloadBackup,
+  onDownloadExcelExport,
+  // Busy while the workspace is still loading too: the button stays disabled (showing
+  // "Preparing…") until there is something to export.
+  isExportingExcel: isExportingExcel || !workspaceLoaded,
+  onRestoreBackupFile,
+  lastBackupLabel,
+  backupFreshness,
+ };
 }
