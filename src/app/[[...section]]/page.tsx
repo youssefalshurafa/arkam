@@ -1296,14 +1296,21 @@ function AuthenticatedHome() {
   });
  }
 
- // Clears every highlighted row for the currently open client's ledger.
- function clearLedgerRowHighlights() {
-  setHighlightedLedgerRows(new Map());
-  const clientId = selectedClientForLedger?.id;
-  if (clientId && typeof window !== 'undefined') {
-   window.localStorage.removeItem(ledgerHighlightsStorageKeyPrefix + clientId);
-   notifySettingsChanged();
-  }
+ // Clears highlighted rows for the currently open client's ledger: every currency account
+ // (Ledger Settings button), or only one when accountId is given (the toolbar color popup's
+ // clear circle, which sits under a single account's table). Row keys are `${txId}:${accountId}`.
+ function clearLedgerRowHighlights(accountId?: number) {
+  setHighlightedLedgerRows((current) => {
+   const next = accountId === undefined ? new Map<string, string>() : new Map(Array.from(current).filter(([key]) => !key.endsWith(`:${accountId}`)));
+   const clientId = selectedClientForLedger?.id;
+   if (clientId && typeof window !== 'undefined') {
+    const storageKey = ledgerHighlightsStorageKeyPrefix + clientId;
+    if (next.size === 0) window.localStorage.removeItem(storageKey);
+    else window.localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(next)));
+    notifySettingsChanged();
+   }
+   return next;
+  });
  }
 
  // Explicit mode setter for the highlight / copy / none row-click group shown above the table.
@@ -2160,6 +2167,8 @@ function AuthenticatedHome() {
    onToggleLedgerEntrySelection,
    onDeleteSelectedLedgerEntries,
    onEditSelectedLedgerEntries,
+   onDeleteLedgerEntries,
+   onEditLedgerEntries,
    onLedgerRowDrop,
    onExportLedgerPdf,
    onExportLedgerExcel,
@@ -2784,6 +2793,8 @@ function AuthenticatedHome() {
          onRestoreIgnoredAnomaly={onRestoreIgnoredAnomaly}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditSelectedLedgerEntries={onEditSelectedLedgerEntries}
+         onDeleteLedgerEntries={onDeleteLedgerEntries}
+         onEditLedgerEntries={onEditLedgerEntries}
          onEditAllLedger={onEditAllLedger}
          onLedgerColumnDrop={onLedgerColumnDrop}
          onLedgerEditFieldArrowKey={onLedgerEditFieldArrowKey}
@@ -2805,6 +2816,7 @@ function AuthenticatedHome() {
          onWriteOffBalance={onWriteOffBalance}
          setLedgerRowClickMode={setLedgerRowClickMode}
          toggleLedgerRowHighlight={toggleLedgerRowHighlight}
+         clearLedgerRowHighlights={clearLedgerRowHighlights}
          selectLedgerRowHighlightPreset={selectLedgerRowHighlightPreset}
         />
        ) : null}

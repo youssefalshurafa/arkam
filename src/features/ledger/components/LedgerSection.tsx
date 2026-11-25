@@ -26,6 +26,7 @@ import { getCommissionAmount } from '@/shared/utils/commission';
 import { CommissionDirectionToggle } from '@/shared/components/CommissionDirectionToggle';
 import { isWriteOffEligible, writeOffMarginMap } from '@/shared/utils/accountBalances';
 import { ContextMenu, useContextMenu } from '@/shared/components/ContextMenu';
+import type { ContextMenuItem } from '@/shared/components/ContextMenu';
 import { renderIcon } from '@/shared/utils/icons';
 import ChargesEditFields from '@/shared/components/ChargesEditFields';
 import { getLedgerTransactionDraftKey, highlightedExportRange, isHiddenFromExport, ledgerEntryKey, ledgerEntryMatchesSearch, ledgerEntryMatchesSearchTags } from '@/features/ledger/utils/ledgerEntries';
@@ -85,11 +86,14 @@ type LedgerSectionProps = {
  setClientAccounts: Dispatch<SetStateAction<ClientAccount[]>>;
  setLedgerRowClickMode: (mode: 'highlight' | 'copy' | 'none') => void;
  toggleLedgerRowHighlight: (rowKey: string) => void;
+ clearLedgerRowHighlights: (accountId?: number) => void;
  selectLedgerRowHighlightPreset: (index: number) => void;
  onCancelAllLedger: (ledger: ClientAccountLedger) => void;
  onDeleteLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onDeleteSelectedLedgerEntries: () => void;
  onEditSelectedLedgerEntries: () => void;
+ onDeleteLedgerEntries: (keys: string[], confirmMessageKey?: string) => Promise<void>;
+ onEditLedgerEntries: (keys: Iterable<string>) => void;
  onReconcileLedgerEntry: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onRemoveReconciliation: (entry: ClientLedgerEntry, ledgerAccountId: number) => void;
  onIgnoreAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number, reason?: string, description?: string) => void;
@@ -143,10 +147,10 @@ export default function LedgerSection(props: LedgerSectionProps) {
   isLoading, clients, clientAccounts, transactions, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, ledgerRateAnomalies, ledgerCommissionAnomalies, ignoredAnomalySet,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
-  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onEditAllLedger,
+  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onDeleteLedgerEntries, onEditLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
-  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, selectLedgerRowHighlightPreset, lockPastEditsEnabled, pdfRowHidingEnabled, isWorkspaceOwner, onToggleLedgerRowPdfHidden, writeOffMargins, onWriteOffBalance,
+  setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, clearLedgerRowHighlights, selectLedgerRowHighlightPreset, lockPastEditsEnabled, pdfRowHidingEnabled, isWorkspaceOwner, onToggleLedgerRowPdfHidden, writeOffMargins, onWriteOffBalance,
  } = props;
  const { language, isRTL } = useLanguage();
  const isDark = useTheme().resolvedTheme === 'dark';
@@ -2165,7 +2169,54 @@ export default function LedgerSection(props: LedgerSectionProps) {
                      const ledgerAccount = clientAccounts.find((a) => a.id === ledger.accountId);
                      const writeOffEligible =
                       !!ledgerAccount && isWriteOffEligible(entry.runningBalance, ledgerAccount.currencyId, writeOffMarginByCurrency);
+                     // Highlighted rows double as a marked set: with two or more highlighted in
+                     // this account's table, the menu leads with a collapsed group that edits /
+                     // unhighlights / deletes all of them at once, whichever row was right-clicked.
+                     // Only rows the table can show count (filters respected, other pages
+                     // included), so a highlight left on a deleted row, or on one hidden by a
+                     // search, is never acted on unseen. Edit skips rows the past-edit lock
+                     // freezes, as the single-row Edit does; delete enforces the lock itself.
+                     const highlightedEntries = visibleLedgerEntries(ledger.entries).filter((e) =>
+                      highlightedLedgerRows.has(getLedgerTransactionDraftKey(e.transactionId, ledger.accountId)),
+                     );
+                     const highlightedKeys = highlightedEntries.map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+                     const editableHighlightedKeys = highlightedEntries
+                      .filter((e) => !(lockPastEditsEnabled && isBeforeToday(e.createdAt)))
+                      .map((e) => getLedgerTransactionDraftKey(e.transactionId, ledger.accountId));
+                     const highlightedGroup: ContextMenuItem[] =
+                      highlightedKeys.length >= 2
+                       ? [
+                          {
+                           key: 'highlighted',
+                           label: t('ledger_highlighted_rows_group', { count: highlightedKeys.length }),
+                           icon: renderIcon('highlighter', 'h-4 w-4'),
+                           items: [
+                            {
+                             key: 'highlighted-edit',
+                             label: t('ledger_highlighted_edit_all'),
+                             icon: renderIcon('edit', 'h-4 w-4'),
+                             onSelect: () => onEditLedgerEntries(editableHighlightedKeys),
+                             disabled: editableHighlightedKeys.length === 0,
+                            },
+                            {
+                             key: 'highlighted-clear',
+                             label: t('ledger_clear_row_highlights'),
+                             icon: renderIcon('eraser', 'h-4 w-4'),
+                             onSelect: () => clearLedgerRowHighlights(ledger.accountId),
+                            },
+                            {
+                             key: 'highlighted-delete',
+                             label: t('ledger_highlighted_delete_all'),
+                             icon: renderIcon('trash', 'h-4 w-4'),
+                             onSelect: () => void onDeleteLedgerEntries(highlightedKeys, 'ledger_delete_highlighted_confirm'),
+                             tone: 'danger',
+                            },
+                           ],
+                          },
+                         ]
+                       : [];
                      rowContextMenu.open(event, [
+                      ...highlightedGroup,
                       { key: 'edit', label: t('edit'), icon: renderIcon('edit', 'h-4 w-4'), onSelect: () => openLedgerRowForEdit(entry, ledger.accountId), disabled: rowLocked },
                       { key: 'info', label: t('transaction_more_info_action'), icon: renderIcon('info', 'h-4 w-4'), onSelect: () => setInfoTransactionId(entry.transactionId) },
                       {
@@ -3952,6 +4003,30 @@ export default function LedgerSection(props: LedgerSectionProps) {
                         style={{ backgroundColor: presetColor }}
                        />
                       ))}
+                      {(() => {
+                       // "No color" circle: unhighlights every row of this account's table only
+                       // (other currency tables of the same client keep theirs).
+                       const hasHighlightsForAccount = Array.from(highlightedLedgerRows.keys()).some((key) => key.endsWith(`:${ledger.accountId}`));
+                       return (
+                        <button
+                         type="button"
+                         title={t('ledger_clear_row_highlights')}
+                         aria-label={t('ledger_clear_row_highlights')}
+                         disabled={!hasHighlightsForAccount}
+                         onMouseDown={(e) => {
+                          e.preventDefault();
+                          if (!hasHighlightsForAccount) return;
+                          clearLedgerRowHighlights(ledger.accountId);
+                          setHighlightColorPickerAccountId(null);
+                         }}
+                         className="h-5 w-5 shrink-0 cursor-pointer overflow-hidden rounded-full border border-border-strong bg-surface text-bad-text transition hover:scale-110 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:scale-100"
+                        >
+                         <svg className="block h-full w-full" viewBox="0 0 18 18" aria-hidden>
+                          <line x1="15" y1="3" x2="3" y2="15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                         </svg>
+                        </button>
+                       );
+                      })()}
                      </div>
                     ) : null}
                    </div>

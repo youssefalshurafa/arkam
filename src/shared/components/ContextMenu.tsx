@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 
-export type ContextMenuItem = {
+export type ContextMenuAction = {
  key: string;
  label: string;
  icon?: ReactNode;
@@ -12,7 +12,25 @@ export type ContextMenuItem = {
  disabled?: boolean;
 };
 
+/**
+ * A collapsible sub-list inside the menu: one toggle row, closed every time the menu opens,
+ * that expands its actions in place (indented under it) instead of opening a flyout — flyouts
+ * don't survive touch, and the row menu is opened by tap on phones. One level deep only.
+ */
+export type ContextMenuGroup = {
+ key: string;
+ label: string;
+ icon?: ReactNode;
+ items: ContextMenuAction[];
+};
+
+export type ContextMenuItem = ContextMenuAction | ContextMenuGroup;
+
+const isContextMenuGroup = (item: ContextMenuItem): item is ContextMenuGroup => 'items' in item;
+
 type ContextMenuState = { x: number; y: number; items: ContextMenuItem[] } | null;
+
+const NO_EXPANDED_GROUPS: ReadonlySet<string> = new Set();
 
 /**
  * Manages one right-click context menu's open/closed state. `open` is meant to be wired to
@@ -29,7 +47,7 @@ export function useContextMenu() {
  return { menu, open, close };
 }
 
-const toneClassName: Record<NonNullable<ContextMenuItem['tone']>, string> = {
+const toneClassName: Record<NonNullable<ContextMenuAction['tone']>, string> = {
  default: 'text-fg-muted',
  danger: 'text-bad-text',
  success: 'text-good-text',
@@ -47,6 +65,17 @@ const toneClassName: Record<NonNullable<ContextMenuItem['tone']>, string> = {
  */
 export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<typeof useContextMenu>['menu']; onClose: () => void; zoom?: number }) {
  const ref = useRef<HTMLDivElement>(null);
+ // Which groups are expanded, remembered against the menu they were expanded in: a newly
+ // opened menu is a different object, so every group starts closed again without an effect
+ // having to reset this state.
+ const [expanded, setExpanded] = useState<{ menu: ContextMenuState; keys: ReadonlySet<string> }>({ menu: null, keys: NO_EXPANDED_GROUPS });
+ const expandedKeys = expanded.menu === menu ? expanded.keys : NO_EXPANDED_GROUPS;
+ const toggleGroup = (key: string) => {
+  const next = new Set(expandedKeys);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  setExpanded({ menu, keys: next });
+ };
 
  // Places the menu at the raw click point (via the inline style below), then — before the
  // browser paints — clamps it to the viewport by mutating the DOM directly rather than
@@ -69,7 +98,8 @@ export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<type
   const top = Math.max(4, Math.min(menu.y, window.innerHeight - rect.height - 4));
   node.style.left = `${left / zoom}px`;
   node.style.top = `${top / zoom}px`;
- }, [menu, zoom]);
+  // expandedKeys: an expanded group makes the menu taller, so it is clamped again.
+ }, [menu, zoom, expandedKeys]);
 
  useEffect(() => {
   if (!menu) return;
@@ -94,6 +124,24 @@ export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<type
 
  if (!menu) return null;
 
+ const renderAction = (item: ContextMenuAction, nested = false) => (
+  <button
+   key={item.key}
+   type="button"
+   role="menuitem"
+   disabled={item.disabled}
+   onClick={() => {
+    onClose();
+    item.onSelect();
+   }}
+   className={`flex w-full items-center gap-2 py-2 text-left text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40 ${nested ? 'ps-7 pe-3' : 'px-3'} ${toneClassName[item.tone ?? 'default']}`}
+  >
+   {item.icon && <span className="flex shrink-0">{item.icon}</span>}
+   {item.label}
+  </button>
+ );
+
+ const lastIndex = menu.items.length - 1;
  return (
   <div
    ref={ref}
@@ -101,22 +149,40 @@ export function ContextMenu({ menu, onClose, zoom = 1 }: { menu: ReturnType<type
    role="menu"
    className="min-w-[11rem] overflow-hidden rounded border border-border bg-surface py-1 shadow-xl"
   >
-   {menu.items.map((item) => (
-    <button
-     key={item.key}
-     type="button"
-     role="menuitem"
-     disabled={item.disabled}
-     onClick={() => {
-      onClose();
-      item.onSelect();
-     }}
-     className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40 ${toneClassName[item.tone ?? 'default']}`}
-    >
-     {item.icon && <span className="flex shrink-0">{item.icon}</span>}
-     {item.label}
-    </button>
-   ))}
+   {menu.items.map((item, index) => {
+    if (!isContextMenuGroup(item)) return renderAction(item);
+    const isOpen = expandedKeys.has(item.key);
+    // Ruled off from the plain actions around it so it reads as its own block.
+    const dividers = `${index > 0 ? 'mt-1 border-t' : ''} ${index < lastIndex ? 'mb-1 border-b' : ''} border-border`;
+    return (
+     <div key={item.key} role="group" className={dividers}>
+      <button
+       type="button"
+       aria-expanded={isOpen}
+       onClick={() => toggleGroup(item.key)}
+       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-semibold text-fg hover:bg-surface-hover"
+      >
+       {item.icon && <span className="flex shrink-0">{item.icon}</span>}
+       <span className="flex-1">{item.label}</span>
+       <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+        className={`shrink-0 text-fg-faint transition-transform ${isOpen ? 'rotate-180' : ''}`}
+       >
+        <polyline points="6 9 12 15 18 9" />
+       </svg>
+      </button>
+      {isOpen ? <div className="bg-surface-2 pb-1">{item.items.map((action) => renderAction(action, true))}</div> : null}
+     </div>
+    );
+   })}
   </div>
  );
 }

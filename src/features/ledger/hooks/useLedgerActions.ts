@@ -1131,11 +1131,18 @@ function onToggleLedgerEntrySelection(key: string) {
 }
 
 async function onDeleteSelectedLedgerEntries() {
+ await onDeleteLedgerEntries([...selectedLedgerEntryKeys]);
+}
+
+// Bulk delete by ledger row key (`${transactionId}:${accountId}`): the checkbox selection and the
+// highlighted rows (row menu → highlighted group) both come through here. Once the server accepts
+// it, the deleted rows leave the selection and edit mode, like a single-row delete.
+// confirmMessageKey: i18n key (with {{count}}) for the plain confirm, when no lock line is hit.
+async function onDeleteLedgerEntries(keys: string[], confirmMessageKey = 'transactions_delete_selected_confirm') {
  if (!accountingApi) {
   setError(t('error_bridge'));
   return;
  }
- const keys = [...selectedLedgerEntryKeys];
  const transactionIds: number[] = [];
  const rowsToDelete: Array<{ accountFromId: number | null; accountToId: number | null; createdAt: string; id: number }> = [];
  for (const key of keys) {
@@ -1152,16 +1159,27 @@ async function onDeleteSelectedLedgerEntries() {
  }
  if (!transactionIds.length) return;
 
+ // The workspace's "lock past-dated edits" switch, as every other delete path enforces it
+ // (single ledger delete via onDeleteTransaction, the transactions table's bulk delete) —
+ // archived rows exempt, a mixed set blocked by its non-archived members.
+ const lockableCreatedAts = transactionIds
+  .map((id) => transactions.find((tx) => tx.id === id && !tx.isArchived)?.createdAt)
+  .filter((value): value is string => Boolean(value));
+ if (blockedByPastEditLock(lockableCreatedAts)) return;
+
  // One batch dialog for the whole selection, same pattern as the transactions table's own
  // bulk delete — not one dialog per locked row.
- const deleteLock = await checkLockForBatchDelete(rowsToDelete, 'transactions_delete_selected_confirm', { count: transactionIds.length });
+ const deleteLock = await checkLockForBatchDelete(rowsToDelete, confirmMessageKey, { count: transactionIds.length });
  if (!deleteLock.proceed) {
   return;
  }
 
  try {
   const { batchId } = await accountingApi.deleteTransactionsBulk({ transactionIds, acknowledgeReconciliationOverride: deleteLock.overrode });
-  setSelectedLedgerEntryKeys(new Set());
+  const deletedKeys = new Set(keys);
+  const dropDeleted = (prev: Set<string>) => new Set([...prev].filter((key) => !deletedKeys.has(key)));
+  setSelectedLedgerEntryKeys(dropDeleted);
+  setEditingLedgerRowKeys(dropDeleted);
   setError('');
   await loadData();
   if (batchId != null) {
@@ -1176,7 +1194,12 @@ async function onDeleteSelectedLedgerEntries() {
 // Bulk "Edit" from the selection context menu: drop every selected entry into edit mode
 // at once, reusing the same per-row draft initialisation as opening a single row for edit.
 function onEditSelectedLedgerEntries() {
- for (const key of selectedLedgerEntryKeys) {
+ onEditLedgerEntries(selectedLedgerEntryKeys);
+}
+
+// Same, by ledger row key — also used for the highlighted rows (row menu → highlighted group).
+function onEditLedgerEntries(keys: Iterable<string>) {
+ for (const key of keys) {
   const [txIdStr, accIdStr] = key.split(':');
   const txId = Number(txIdStr);
   const accId = Number(accIdStr);
@@ -1694,6 +1717,8 @@ async function onExportLedgerExcel(
   onToggleLedgerEntrySelection,
   onDeleteSelectedLedgerEntries,
   onEditSelectedLedgerEntries,
+  onDeleteLedgerEntries,
+  onEditLedgerEntries,
   onLedgerRowDrop,
   onExportLedgerPdf,
   onExportLedgerExcel,
