@@ -1744,6 +1744,19 @@ function AuthenticatedHome() {
   [clientAccounts, transactions, ignoredAnomalySet],
  );
  const [pendingPricingModalClientId, setPendingPricingModalClientId] = useState<number | null>(null);
+ // Set only when the popup was opened from a client ledger's "awaiting an exchange rate" note:
+ // narrows the client's pending rows to that one account, so the popup lists exactly the rows
+ // that note counted (a client can hold several accounts, each with its own pending rows).
+ const [pendingPricingModalAccountId, setPendingPricingModalAccountId] = useState<number | null>(null);
+ const openLedgerPendingPricing = useCallback(
+  (accountId: number) => {
+   const account = clientAccountMap.get(accountId);
+   if (!account) return;
+   setPendingPricingModalAccountId(accountId);
+   setPendingPricingModalClientId(account.clientId);
+  },
+  [clientAccountMap],
+ );
  // Organizations-list "awaiting pricing" column: clicking an org's count first opens a list of
  // just that org's clients-with-pending-rows (this id); clicking a client in that list closes
  // it and sets pendingPricingModalClientId instead, reusing the single-client modal above.
@@ -2791,6 +2804,7 @@ function AuthenticatedHome() {
          onIgnoreAnomaly={onIgnoreAnomaly}
          ledgerIgnoredAnomalyKeys={ledgerIgnoredAnomalyKeys}
          onRestoreIgnoredAnomaly={onRestoreIgnoredAnomaly}
+         onOpenPendingPricing={openLedgerPendingPricing}
          onDeleteSelectedLedgerEntries={onDeleteSelectedLedgerEntries}
          onEditSelectedLedgerEntries={onEditSelectedLedgerEntries}
          onDeleteLedgerEntries={onDeleteLedgerEntries}
@@ -3062,13 +3076,15 @@ function AuthenticatedHome() {
     />
    ) : null}
 
-   {/* Org page: "waiting for pricing" entries popup for a client (opened by clicking the count).
-       Lists each pending row (date, counterparty, description, amount) with an inline rate
-       field so the pricing can be done right here, not only in the client ledger. */}
+   {/* "Waiting for pricing" entries popup for a client — opened by clicking the count on the org
+       pages, or the pending note in the client ledger (then scoped to that one account). Lists
+       each pending row (date, counterparty, description, amount) with an inline rate field. */}
    {pendingPricingModalClientId != null ? (
     <PendingPricingModal
      subtitle={clients.find((c) => c.id === pendingPricingModalClientId)?.name ?? null}
-     entries={clientPendingPricingEntries.get(pendingPricingModalClientId) ?? []}
+     entries={(clientPendingPricingEntries.get(pendingPricingModalClientId) ?? []).filter(
+      (entry) => pendingPricingModalAccountId == null || entry.accountId === pendingPricingModalAccountId,
+     )}
      numLocale={numLocale}
      ledgerDecimals={ledgerDecimals}
      ledgerDateFormat={ledgerDateFormat}
@@ -3079,6 +3095,7 @@ function AuthenticatedHome() {
      onClose={() => {
       setPendingPricingModalClientId(null);
       setPendingPricingModalOrgId(null);
+      setPendingPricingModalAccountId(null);
      }}
      onSaveRate={onSavePendingPricingRate}
      onIgnoreAnomaly={onIgnoreAnomaly}

@@ -73,6 +73,12 @@ export default function PendingPricingModal({
  const [reversedInputs, setReversedInputs] = useState<Record<string, boolean>>({});
  const [savingKey, setSavingKey] = useState<string | null>(null);
  const [savingAll, setSavingAll] = useState(false);
+ // Rows whose rate section is folded away (everything starts expanded). Folding only hides the
+ // UI — a rate typed into a collapsed row is kept and still counts toward "Set all".
+ const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+ const allCollapsed = entries.length > 0 && entries.every((entry) => collapsed[entry.key]);
+ const toggleAll = () => setCollapsed(allCollapsed ? {} : Object.fromEntries(entries.map((entry) => [entry.key, true])));
+ const toggleRow = (key: string) => setCollapsed((current) => ({ ...current, [key]: !current[key] }));
 
  const formatAmount = (value: number) => value.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals });
 
@@ -171,16 +177,35 @@ export default function PendingPricingModal({
       </div>
       {subtitle ? <p className="truncate text-lg font-bold leading-snug text-fg">{subtitle}</p> : null}
      </div>
-     <button
-      type="button"
-      onClick={onClose}
-      aria-label={t('close')}
-      className="flex h-8 w-8 shrink-0 items-center justify-center self-start rounded-lg text-fg-faint transition hover:bg-surface-hover hover:text-fg"
-     >
-      <svg width="18" height="18" {...iconProps} strokeWidth="2.2">
-       <path d="M18 6 6 18M6 6l12 12" />
-      </svg>
-     </button>
+     <div className="flex shrink-0 items-center gap-0.5 self-start">
+      {entries.length > 1 ? (
+       <button
+        type="button"
+        onClick={toggleAll}
+        aria-label={allCollapsed ? t('pending_pricing_expand_all') : t('pending_pricing_collapse_all')}
+        title={allCollapsed ? t('pending_pricing_expand_all') : t('pending_pricing_collapse_all')}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+       >
+        <svg width="17" height="17" {...iconProps} strokeWidth="2.2">
+         {allCollapsed ? (
+          <path d="m7 15 5 5 5-5M7 9l5-5 5 5" />
+         ) : (
+          <path d="m7 20 5-5 5 5M7 4l5 5 5-5" />
+         )}
+        </svg>
+       </button>
+      ) : null}
+      <button
+       type="button"
+       onClick={onClose}
+       aria-label={t('close')}
+       className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+      >
+       <svg width="18" height="18" {...iconProps} strokeWidth="2.2">
+        <path d="M18 6 6 18M6 6l12 12" />
+       </svg>
+      </button>
+     </div>
     </div>
 
     {/* Entries */}
@@ -207,6 +232,8 @@ export default function PendingPricingModal({
         const fromCode = isReversed ? entry.accountCurrencyCode : entry.currencyCode;
         const toCode = isReversed ? entry.currencyCode : entry.accountCurrencyCode;
         const converted = rate == null ? null : isReversed ? entry.amount / rate : entry.amount * rate;
+        const isCollapsed = !!collapsed[entry.key];
+        const rateSectionId = `${titleId}-rate-${entry.key}`;
         return (
          <li
           key={entry.key}
@@ -241,84 +268,113 @@ export default function PendingPricingModal({
              </p>
             ) : null}
            </div>
+           <button
+            type="button"
+            onClick={() => toggleRow(entry.key)}
+            aria-expanded={!isCollapsed}
+            aria-controls={rateSectionId}
+            aria-label={isCollapsed ? t('pending_pricing_expand_row') : t('pending_pricing_collapse_row')}
+            title={isCollapsed ? t('pending_pricing_expand_row') : t('pending_pricing_collapse_row')}
+            className="-me-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-fg-faint transition hover:bg-surface-hover hover:text-fg"
+           >
+            <svg
+             width="14"
+             height="14"
+             {...iconProps}
+             strokeWidth="2.2"
+             className={`transition-transform duration-200 ${isCollapsed ? '' : 'rotate-180'}`}
+            >
+             <path d="m6 9 6 6 6-6" />
+            </svg>
+           </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 border-t border-border px-3 py-2">
-           {/* "1 EUR = [rate] MAD ⇄" — always laid out LTR so the equation reads correctly in Arabic too. */}
-           <div
-            dir="ltr"
-            className={`flex h-7 shrink-0 items-center overflow-hidden rounded-md border bg-surface transition focus-within:ring-2 ${
-             isInvalid
-              ? 'border-bad focus-within:ring-bad/20'
-              : 'border-border-strong focus-within:border-accent focus-within:ring-accent/20'
-            } ${isBusy ? 'opacity-60' : ''}`}
-           >
-            <span className="flex h-full shrink-0 items-center whitespace-nowrap border-e border-border bg-surface-2 px-2 text-[11px] font-medium text-fg-muted">
-             1 {fromCode} =
-            </span>
-            <input
-             type="text"
-             inputMode="decimal"
-             value={rateValue}
-             onChange={(e) => setRateInputs((current) => ({ ...current, [entry.key]: e.target.value }))}
-             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !savingAll) {
-               e.preventDefault();
-               void saveEntry(entry);
-              }
-             }}
-             placeholder={t('pending_pricing_rate_placeholder')}
-             aria-label={`1 ${fromCode} = ? ${toCode}`}
-             aria-invalid={isInvalid || undefined}
-             disabled={isBusy}
-             className="h-full w-16 bg-transparent px-1.5 text-right text-xs font-semibold tabular-nums text-fg outline-none placeholder:font-normal placeholder:text-fg-faint sm:w-24"
-            />
-            <span className="shrink-0 pe-2 text-[11px] font-semibold text-fg-muted">{toCode}</span>
-            <button
-             type="button"
-             onClick={() => setReversedInputs((current) => ({ ...current, [entry.key]: !current[entry.key] }))}
-             disabled={isBusy}
-             aria-pressed={isReversed}
-             title={`${t('reverse_rate')} (${isReversed ? t('rate_division') : t('rate_multiplication')})`}
-             aria-label={t('reverse_rate')}
-             className={`flex h-full w-7 shrink-0 items-center justify-center border-s border-border transition hover:bg-surface-hover disabled:pointer-events-none ${
-              isReversed ? 'text-accent' : 'text-fg-faint hover:text-fg'
-             }`}
-            >
-             <svg width="13" height="13" {...iconProps} strokeWidth="2">
-              <path d="M8 3 4 7l4 4M4 7h16" />
-              <path d="m16 21 4-4-4-4M20 17H4" />
-             </svg>
-            </button>
-           </div>
+          {/* Rate section — folds with a height transition (grid 1fr ↔ 0fr); `inert` keeps the
+              hidden field and buttons out of the tab order while collapsed. */}
+          <div
+           id={rateSectionId}
+           inert={isCollapsed}
+           className={`grid transition-[grid-template-rows] duration-200 ease-out ${isCollapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}
+          >
+           <div className="min-h-0 overflow-hidden">
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-border px-3 py-2">
+             {/* "1 EUR = [rate] MAD ⇄" — always laid out LTR so the equation reads correctly in Arabic too. */}
+             <div
+              dir="ltr"
+              className={`flex h-7 shrink-0 items-center overflow-hidden rounded-md border bg-surface transition focus-within:ring-2 ${
+               isInvalid
+                ? 'border-bad focus-within:ring-bad/20'
+                : 'border-border-strong focus-within:border-accent focus-within:ring-accent/20'
+              } ${isBusy ? 'opacity-60' : ''}`}
+             >
+              <span className="flex h-full shrink-0 items-center whitespace-nowrap border-e border-border bg-surface-2 px-2 text-[11px] font-medium text-fg-muted">
+               1 {fromCode} =
+              </span>
+              <input
+               type="text"
+               inputMode="decimal"
+               value={rateValue}
+               onChange={(e) => setRateInputs((current) => ({ ...current, [entry.key]: e.target.value }))}
+               onKeyDown={(e) => {
+                if (e.key === 'Enter' && !savingAll) {
+                 e.preventDefault();
+                 void saveEntry(entry);
+                }
+               }}
+               placeholder={t('pending_pricing_rate_placeholder')}
+               aria-label={`1 ${fromCode} = ? ${toCode}`}
+               aria-invalid={isInvalid || undefined}
+               disabled={isBusy}
+               className="h-full w-16 bg-transparent px-1.5 text-right text-xs font-semibold tabular-nums text-fg outline-none placeholder:font-normal placeholder:text-fg-faint sm:w-24"
+              />
+              <span className="shrink-0 pe-2 text-[11px] font-semibold text-fg-muted">{toCode}</span>
+              <button
+               type="button"
+               onClick={() => setReversedInputs((current) => ({ ...current, [entry.key]: !current[entry.key] }))}
+               disabled={isBusy}
+               aria-pressed={isReversed}
+               title={`${t('reverse_rate')} (${isReversed ? t('rate_division') : t('rate_multiplication')})`}
+               aria-label={t('reverse_rate')}
+               className={`flex h-full w-7 shrink-0 items-center justify-center border-s border-border transition hover:bg-surface-hover disabled:pointer-events-none ${
+                isReversed ? 'text-accent' : 'text-fg-faint hover:text-fg'
+               }`}
+              >
+               <svg width="13" height="13" {...iconProps} strokeWidth="2">
+                <path d="M8 3 4 7l4 4M4 7h16" />
+                <path d="m16 21 4-4-4-4M20 17H4" />
+               </svg>
+              </button>
+             </div>
 
-           <div className="ms-auto flex shrink-0 items-center gap-1">
-            <button
-             type="button"
-             title={t('ignore_anomaly_hint')}
-             aria-label={t('ignore_anomaly_confirm_button')}
-             onClick={() => onIgnoreAnomaly('pendingRate', entry.transactionId, entry.accountId)}
-             disabled={isBusy}
-             className="flex h-7 w-7 items-center justify-center rounded-md text-fg-faint transition hover:bg-surface-hover hover:text-fg disabled:opacity-50"
-            >
-             <svg width="14" height="14" {...iconProps} strokeWidth="1.9">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
-              <path d="m4 4 16 16" />
-             </svg>
-            </button>
-            <button
-             type="button"
-             onClick={() => void saveEntry(entry)}
-             disabled={isBusy || rate == null}
-             className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-accent-contrast transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
-            >
-             {isSaving ? spinner : (
-              <svg width="12" height="12" {...iconProps} strokeWidth="2.6">
-               <path d="M20 6 9 17l-5-5" />
-              </svg>
-             )}
-             {isSaving ? t('saving') : t('pending_pricing_set_rate')}
-            </button>
+             <div className="ms-auto flex shrink-0 items-center gap-1">
+              <button
+               type="button"
+               title={t('ignore_anomaly_hint')}
+               aria-label={t('ignore_anomaly_confirm_button')}
+               onClick={() => onIgnoreAnomaly('pendingRate', entry.transactionId, entry.accountId)}
+               disabled={isBusy}
+               className="flex h-7 w-7 items-center justify-center rounded-md text-fg-faint transition hover:bg-surface-hover hover:text-fg disabled:opacity-50"
+              >
+               <svg width="14" height="14" {...iconProps} strokeWidth="1.9">
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+                <path d="m4 4 16 16" />
+               </svg>
+              </button>
+              <button
+               type="button"
+               onClick={() => void saveEntry(entry)}
+               disabled={isBusy || rate == null}
+               className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-accent-contrast transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+              >
+               {isSaving ? spinner : (
+                <svg width="12" height="12" {...iconProps} strokeWidth="2.6">
+                 <path d="M20 6 9 17l-5-5" />
+                </svg>
+               )}
+               {isSaving ? t('saving') : t('pending_pricing_set_rate')}
+              </button>
+             </div>
+            </div>
            </div>
           </div>
          </li>
