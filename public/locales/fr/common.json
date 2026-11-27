@@ -805,6 +805,7 @@
  "one_sided_counter_party_placeholder": "ex. un fournisseur ou une personne hors de votre liste de clients",
  "reconcile_action": "Marquer rapproche",
  "client_reconciled_mark": "Dernière transaction rapprochée",
+ "organization_reconciled_mark": "Dernière transaction rapprochée pour tous les clients",
  "reconcile_remove_action": "Retirer le rapprochement",
  "reconcile_badge": "Rapproche",
  "reconcile_badge_tooltip": "Rapproche a {{balance}}",

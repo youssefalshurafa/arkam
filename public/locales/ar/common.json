@@ -808,6 +808,7 @@
  "one_sided_counter_party_placeholder": "مثال: مورد أو شخص غير موجود في قائمة عملائك",
  "reconcile_action": "تمييز كمُسوَّى",
  "client_reconciled_mark": "آخر معاملة مُسوَّاة",
+ "organization_reconciled_mark": "آخر معاملة مُسوَّاة لجميع العملاء",
  "reconcile_remove_action": "إزالة التسوية",
  "reconcile_badge": "مُسوَّى",
  "reconcile_badge_tooltip": "تمت التسوية عند {{balance}}",

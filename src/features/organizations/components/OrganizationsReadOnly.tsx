@@ -16,13 +16,16 @@ type OrganizationsReadOnlyProps = {
  // Per-client count of transactions awaiting a manually-entered exchange rate — same map the
  // organization-clients page uses; summed per organization below for this page's own column.
  clientPendingPricingCounts: Map<number, number>;
+ // Clients whose last transaction is reconciled — the same set behind the organization-clients
+ // page's per-client check mark; an organization gets the mark here when all its clients have it.
+ clientReconciledStatus: Set<number>;
  openOrganizationClientsPage: (organization: Organization) => void;
  onOpenSettings: () => void;
  setPendingPricingModalOrgId: (id: number | null) => void;
 };
 
 export default function OrganizationsReadOnly({
- organizations, clients, clientAccounts, transactions, currencies, clientPendingPricingCounts, openOrganizationClientsPage, onOpenSettings, setPendingPricingModalOrgId,
+ organizations, clients, clientAccounts, transactions, currencies, clientPendingPricingCounts, clientReconciledStatus, openOrganizationClientsPage, onOpenSettings, setPendingPricingModalOrgId,
 }: OrganizationsReadOnlyProps) {
  const { language, isRTL } = useLanguage();
  const { t } = useTranslation(language);
@@ -48,6 +51,20 @@ export default function OrganizationsReadOnly({
   }
   return map;
  }, [clients, clientPendingPricingCounts]);
+
+ // Organizations with at least one client where every client carries the reconciled mark
+ // (the same client set the organization-clients page lists). One unreconciled client — or one
+ // with no transactions yet — keeps the organization unmarked.
+ const fullyReconciledOrgIds = useMemo(() => {
+  const unreconciled = new Set<number>();
+  const withClients = new Set<number>();
+  for (const client of clients) {
+   if (client.organizationId == null) continue;
+   withClients.add(client.organizationId);
+   if (!clientReconciledStatus.has(client.id)) unreconciled.add(client.organizationId);
+  }
+  return new Set([...withClients].filter((orgId) => !unreconciled.has(orgId)));
+ }, [clients, clientReconciledStatus]);
 
  // Per-organization cell pieces shared by the desktop table and the mobile card list (below md).
  // Plain render functions (not components) so reusing them in both layouts doesn't trip the
@@ -90,21 +107,38 @@ export default function OrganizationsReadOnly({
    </div>
   );
 
- // The pending-count button (opens PendingPricingModal scoped to every client in this
- // organization), or an em-dash — mirrors OrganizationClientsSection's per-client version.
- const renderPendingMark = (organization: Organization) => {
+ // The pending-count button (opens the org's clients-with-pending-rows list), the reconciled
+ // check when every client in the organization is reconciled, or null — mirrors
+ // OrganizationClientsSection's per-client version. The table cell substitutes an em-dash for
+ // null; the mobile card shows nothing.
+ const renderStatusMark = (organization: Organization) => {
   const pendingCount = orgPendingPricingCounts.get(organization.id) ?? 0;
-  if (pendingCount === 0) return <span className="text-xs text-fg-faint">—</span>;
-  return (
-   <button
-    type="button"
-    onClick={() => setPendingPricingModalOrgId(organization.id)}
-    title={t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
-    className="cursor-pointer rounded bg-warn-bg px-1.5 py-0.5 font-mono text-xs font-semibold text-warn-text transition hover:bg-warn-bg"
-   >
-    {pendingCount}
-   </button>
-  );
+  if (pendingCount > 0) {
+   return (
+    <button
+     type="button"
+     onClick={() => setPendingPricingModalOrgId(organization.id)}
+     title={t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
+     className="cursor-pointer rounded bg-warn-bg px-1.5 py-0.5 font-mono text-xs font-semibold text-warn-text transition hover:bg-warn-bg"
+    >
+     {pendingCount}
+    </button>
+   );
+  }
+  if (fullyReconciledOrgIds.has(organization.id)) {
+   return (
+    <span
+     title={t('organization_reconciled_mark')}
+     aria-label={t('organization_reconciled_mark')}
+     className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-good-bg text-good-text"
+    >
+     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="20 6 9 17 4 12" />
+     </svg>
+    </span>
+   );
+  }
+  return null;
  };
 
  return (
@@ -147,7 +181,7 @@ export default function OrganizationsReadOnly({
         <td className="whitespace-nowrap px-4 py-3">{renderNameLink(organization)}</td>
         <td className="px-4 py-3 text-fg-muted">{clientCount(organization)}</td>
         <td className="px-4 py-3">{renderBalanceChips(byOrg.get(String(organization.id)))}</td>
-        <td className="px-4 py-3">{renderPendingMark(organization)}</td>
+        <td className="px-4 py-3">{renderStatusMark(organization) ?? <span className="text-xs text-fg-faint">—</span>}</td>
        </tr>
       ))}
       {organizations.length === 0 ? (
@@ -185,7 +219,7 @@ export default function OrganizationsReadOnly({
         </div>
         <div className="mt-2 flex items-center justify-between gap-2">
          {renderBalanceChips(byOrg.get(String(organization.id)))}
-         {orgPendingPricingCounts.get(organization.id) ? renderPendingMark(organization) : null}
+         {renderStatusMark(organization)}
         </div>
        </div>
       );
