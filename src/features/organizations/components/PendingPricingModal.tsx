@@ -175,7 +175,7 @@ export default function PendingPricingModal({
         </span>
        ) : null}
       </div>
-      {subtitle ? <p className="truncate text-lg font-bold leading-snug text-fg">{subtitle}</p> : null}
+      {subtitle ? <p className="mt-1 truncate text-lg font-bold leading-snug text-fg">{subtitle}</p> : null}
      </div>
      <div className="flex shrink-0 items-center gap-0.5 self-start">
       {entries.length > 1 ? (
