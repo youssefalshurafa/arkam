@@ -101,6 +101,9 @@ type LedgerSectionProps = {
  // chip rendered in the live badge's place, which is how an ignore gets undone.
  ledgerIgnoredAnomalyKeys: Set<string>;
  onRestoreIgnoredAnomaly: (kind: 'rate' | 'commission' | 'pendingRate', transactionId: number, accountId: number) => void;
+ // Opens PendingPricingModal (the same popup the organization pages use) scoped to one
+ // account's "awaiting an exchange rate" entries, so they can be priced in place.
+ onOpenPendingPricing: (accountId: number) => void;
  onEditAllLedger: (ledger: ClientAccountLedger) => void;
  onLedgerColumnDrop: (targetColumn: LedgerColumnKey) => void;
  onLedgerEditFieldArrowKey: (
@@ -147,7 +150,7 @@ export default function LedgerSection(props: LedgerSectionProps) {
   isLoading, clients, clientAccounts, transactions, currencyMap, enabledCurrencies, organizations, selectedClientForLedger,
   selectedLedgerAccountId, setSelectedLedgerAccountId, selectedOrganizationForClients, selectedClientLedgers, ledgerRateAnomalies, ledgerCommissionAnomalies, ignoredAnomalySet,
   orderedLedgerColumnOptions, ledgerHistory, getClientLedgerDraft, updateLedgerTransactionDraft, renderLedgerCurrencySuffix,
-  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onDeleteLedgerEntries, onEditLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onEditAllLedger,
+  onCancelAllLedger, onDeleteLedgerEntry, onDeleteSelectedLedgerEntries, onEditSelectedLedgerEntries, onDeleteLedgerEntries, onEditLedgerEntries, onReconcileLedgerEntry, onRemoveReconciliation, onIgnoreAnomaly, ledgerIgnoredAnomalyKeys, onRestoreIgnoredAnomaly, onOpenPendingPricing, onEditAllLedger,
   onLedgerColumnDrop, onLedgerEditFieldArrowKey, onLedgerRowDrop, onSaveAllLedger, onSaveLedgerRow, onSaveAllEditingLedgerRows, onCancelAllEditingLedgerRows, onToggleLedgerEntrySelection,
   openNewTransactionModal, openClientLedger, openLedgerRowForEdit, openOrganizationClientsPage, navigateToSection, loadData,
   setSection, setClientAccounts, setLedgerRowClickMode, toggleLedgerRowHighlight, clearLedgerRowHighlights, selectLedgerRowHighlightPreset, lockPastEditsEnabled, pdfRowHidingEnabled, isWorkspaceOwner, onToggleLedgerRowPdfHidden, writeOffMargins, onWriteOffBalance,
@@ -809,9 +812,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
   }
  };
 
- // Tracks which account's "entries awaiting an exchange rate" note has been expanded to list
- // the specific pending entries. Ephemeral UI state — no need to persist across sessions.
- const [pendingEntriesOpenAccountIds, setPendingEntriesOpenAccountIds] = useState<Set<number>>(new Set());
  // Spreadsheet-style zoom for the (often very wide) ledger table, so it fits on narrow screens.
  const tableZoom = useLedgerStore((s) => s.tableZoom);
  const setTableZoom = useLedgerStore((s) => s.setTableZoom);
@@ -819,15 +819,6 @@ export default function LedgerSection(props: LedgerSectionProps) {
   setTableZoom(z);
   saveTableZoom('ledger', z);
  };
- const togglePendingEntriesOpen = (accountId: number) => {
-  setPendingEntriesOpenAccountIds((prev) => {
-   const next = new Set(prev);
-   if (next.has(accountId)) next.delete(accountId);
-   else next.add(accountId);
-   return next;
-  });
- };
-
  // Sum mode: toggling it off clears whatever was accumulated so the next session starts fresh.
  const toggleLedgerSumMode = () => {
   setLedgerSumMode((on) => {
@@ -1234,108 +1225,48 @@ export default function LedgerSection(props: LedgerSectionProps) {
                  {ledger.currentBalance.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })}
                 </p>
                 {(() => {
-                 const pendingEntries = ledger.entries.filter(
+                 const pendingCount = ledger.entries.filter(
                   (e) => e.pendingRate && !ignoredAnomalySet.has(anomalyKey('pendingRate', e.transactionId, ledger.accountId)),
-                 );
-                 const pendingCount = pendingEntries.length;
+                 ).length;
                  if (pendingCount === 0) return null;
-                 const isOpen = pendingEntriesOpenAccountIds.has(ledger.accountId);
+                 // Opens the shared "awaiting pricing" popup scoped to this account, where each entry can
+                 // be priced (or ignored) in place.
                  return (
-                  <>
-                   <button
-                    type="button"
-                    onClick={() => togglePendingEntriesOpen(ledger.accountId)}
-                    aria-expanded={isOpen}
-                    className="mt-1.5 flex cursor-pointer items-center gap-1 text-xs font-medium text-warn-text hover:underline"
+                  <button
+                   type="button"
+                   onClick={() => onOpenPendingPricing(ledger.accountId)}
+                   aria-haspopup="dialog"
+                   className="mt-1.5 flex cursor-pointer items-center gap-1 text-xs font-medium text-warn-text hover:underline"
+                  >
+                   <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
                    >
-                    <svg
-                     width="12"
-                     height="12"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth="2"
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     aria-hidden
-                    >
-                     <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                     <path d="M12 9v4M12 17h.01" />
-                    </svg>
-                    {t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
-                    <svg
-                     width="10"
-                     height="10"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth="2.5"
-                     strokeLinecap="round"
-                     strokeLinejoin="round"
-                     className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                     aria-hidden
-                    >
-                     <path d="m6 9 6 6 6-6" />
-                    </svg>
-                   </button>
-                   {isOpen && (
-                    <ul className="mt-1.5 max-h-40 space-y-1 overflow-y-auto rounded border border-amber-200 bg-warn-bg p-2 text-xs text-fg-muted">
-                     {pendingEntries.map((entry) => {
-                      // Right-click (desktop) opens a one-item menu to dismiss just this entry
-                      // from the warning above — a long-press (rowLongPress, shared with the
-                      // ledger rows below) covers Android/iOS touch, which never fires
-                      // onContextMenu, and the visible "⋮" button is the guaranteed-discoverable
-                      // fallback on touch, same three-way pattern as the row action menu.
-                      const openPendingEntryMenu = (event: ReactMouseEvent) => {
-                       rowContextMenu.open(event, [
-                        {
-                         key: 'ignore',
-                         label: t('ignore_anomaly_confirm_button'),
-                         icon: renderIcon('eye-off', 'h-4 w-4'),
-                         onSelect: () => onIgnoreAnomaly('pendingRate', entry.transactionId, ledger.accountId),
-                        },
-                       ]);
-                      };
-                      return (
-                       <li
-                        key={`${entry.transactionId}-${entry.direction}`}
-                        onContextMenu={openPendingEntryMenu}
-                        {...rowLongPress.bind(openPendingEntryMenu)}
-                        className="flex items-center gap-2 whitespace-nowrap"
-                       >
-                        <span className="shrink-0 text-fg-faint">{formatDateValue(entry.createdAt, ledgerDateFormat)}</span>
-                        <span className="shrink-0 font-medium">{entry.counterpartyName}</span>
-                        <span className="min-w-0 flex-1 truncate italic text-fg-faint" title={entry.description}>
-                         {entry.description}
-                        </span>
-                        <span className="shrink-0">
-                         {entry.amount.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals })} {entry.currencySymbol || entry.currencyCode}
-                        </span>
-                        <button
-                         type="button"
-                         title={t('row_actions_menu')}
-                         aria-label={t('row_actions_menu')}
-                         onClick={openPendingEntryMenu}
-                         className="shrink-0 rounded p-0.5 text-fg-faint hover:bg-surface-hover hover:text-fg-muted"
-                        >
-                         <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="currentColor"
-                          aria-hidden
-                         >
-                          <circle cx="12" cy="5" r="1.8" />
-                          <circle cx="12" cy="12" r="1.8" />
-                          <circle cx="12" cy="19" r="1.8" />
-                         </svg>
-                        </button>
-                       </li>
-                      );
-                     })}
-                    </ul>
-                   )}
-                  </>
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <path d="M12 9v4M12 17h.01" />
+                   </svg>
+                   {t(pendingCount === 1 ? 'ledger_pending_balance_note' : 'ledger_pending_balance_note_plural', { count: pendingCount })}
+                   <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                   >
+                    <path d={isRTL ? 'm15 18-6-6 6-6' : 'm9 18 6-6-6-6'} />
+                   </svg>
+                  </button>
                  );
                 })()}
                </div>
