@@ -2718,6 +2718,7 @@ function AuthenticatedHome() {
          transactions={transactions}
          currencies={currencies}
          clientPendingPricingCounts={clientPendingPricingCounts}
+         clientReconciledStatus={clientReconciledStatus}
          openOrganizationClientsPage={openOrganizationClientsPage}
          onOpenSettings={() => {
           setSettingsTab('organizations');

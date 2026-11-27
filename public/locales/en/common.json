@@ -806,6 +806,7 @@
  "one_sided_counter_party_placeholder": "e.g. a vendor or person not in your client list",
  "reconcile_action": "Mark reconciled",
  "client_reconciled_mark": "Last transaction reconciled",
+ "organization_reconciled_mark": "Every client's last transaction reconciled",
  "reconcile_remove_action": "Remove reconciliation",
  "reconcile_badge": "Reconciled",
  "reconcile_badge_tooltip": "Reconciled at {{balance}}",
