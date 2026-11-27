@@ -306,6 +306,8 @@
  "pending_pricing_set_rate": "Définir le taux",
  "pending_pricing_set_all": "Tout définir ({{count}})",
  "pending_pricing_invalid_rate": "Saisissez un taux de change valide.",
+ "pending_pricing_ready_count": "{{ready}} sur {{total}} prêtes à enregistrer",
+ "pending_pricing_all_done": "Toutes les écritures sont tarifées",
  "client_accounts_for": "Comptes de",
  "client_page_open": "Ouvrir la fiche",
  "client_page_title": "Grand livre client",

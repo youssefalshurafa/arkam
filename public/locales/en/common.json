@@ -307,6 +307,8 @@
  "pending_pricing_set_rate": "Set rate",
  "pending_pricing_set_all": "Set all ({{count}})",
  "pending_pricing_invalid_rate": "Enter a valid exchange rate.",
+ "pending_pricing_ready_count": "{{ready}} of {{total}} ready to save",
+ "pending_pricing_all_done": "All entries are priced",
  "client_accounts_for": "Accounts for",
  "client_page_open": "Open Page",
  "client_page_title": "Client Ledger",
