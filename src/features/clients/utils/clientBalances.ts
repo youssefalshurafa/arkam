@@ -1,6 +1,7 @@
 import { computeAccountBalances, isPendingTransactionFrom, isPendingTransactionTo } from '@/shared/utils/accountBalances';
 import { buildLockBoundaries, isReconciledMember } from '@/features/ledger/utils/reconciliation';
 import { anomalyKey } from '@/features/ledger/utils/ledgerAnomalies';
+import { compareLedgerOrder, ledgerPositionOf } from '@/features/ledger/utils/ledgerOrder';
 import type { ClientAccount, Reconciliation, Transaction } from '@/shared/types';
 
 export type ClientBalanceEntry = { accountId: number; currencyId: number; currencyCode: string; currencySymbol: string; balance: number };
@@ -120,10 +121,14 @@ export type PendingPricingEntry = {
  side: 'from' | 'to';
  accountId: number;
  accountCurrencyCode: string;
+ // This side's spot within its day in the client ledger (see ledgerOrder.ts), so the list
+ // follows the ledger's own row order.
+ ledgerPosition: number;
 };
 
 // Like computeClientPendingPricingCounts, but returns the actual pending rows per client
-// (newest first) so the org page can list them in a popup rather than just count them.
+// (oldest first, in client-ledger order) so the org page can list them in a popup rather
+// than just count them.
 // `ignored` — see computeClientPendingPricingCounts.
 export function computeClientPendingPricingEntries({ clientAccounts, transactions, ignored }: {
  clientAccounts: ClientAccount[];
@@ -154,6 +159,7 @@ export function computeClientPendingPricingEntries({ clientAccounts, transaction
     side: 'from',
     accountId: fromAccount.id,
     accountCurrencyCode: fromAccount.currencyCode,
+    ledgerPosition: ledgerPositionOf(transaction, fromAccount.id),
    });
   }
   const toAccount = transaction.accountToId != null ? accountMap.get(transaction.accountToId) : undefined;
@@ -170,13 +176,16 @@ export function computeClientPendingPricingEntries({ clientAccounts, transaction
     side: 'to',
     accountId: toAccount.id,
     accountCurrencyCode: toAccount.currencyCode,
+    ledgerPosition: ledgerPositionOf(transaction, toAccount.id),
    });
   }
  }
 
- // Newest first, to match the ledger's ordering intuition.
+ // Oldest first, in the same order the client ledger shows its rows: by wall-clock day, then
+ // the row's position within that day. Sorting on the raw createdAt string mixed formats and
+ // ignored same-day reordering, so the ledger comparator is the single source of truth here.
  for (const arr of byClient.values()) {
-  arr.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  arr.sort(compareLedgerOrder);
  }
  return byClient;
 }
