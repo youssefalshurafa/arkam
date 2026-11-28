@@ -246,7 +246,12 @@ export default function PendingPricingModal({
             {entry.description ? (
              <p className="min-w-0 truncate text-sm font-semibold text-fg" title={entry.description}>{entry.description}</p>
             ) : null}
-            <span dir="ltr" className="shrink-0 whitespace-nowrap text-lg font-bold leading-none tabular-nums text-fg">
+            {/* Same colour rule as the ledger's amount column: this client on the "from" side is an
+                outgoing row (green), on the "to" side an incoming one (red). */}
+            <span
+             dir="ltr"
+             className={`shrink-0 whitespace-nowrap text-lg font-bold leading-none tabular-nums ${entry.side === 'from' ? 'text-good-text' : 'text-bad-text'}`}
+            >
              <span className="me-1 text-xs font-medium text-fg-muted">{entry.currencySymbol || entry.currencyCode}</span>
              {formatAmount(entry.amount)}
             </span>
