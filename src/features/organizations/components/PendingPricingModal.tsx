@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { formatDateValue } from '@/shared/utils/date';
@@ -81,6 +81,19 @@ export default function PendingPricingModal({
  const toggleRow = (key: string) => setCollapsed((current) => ({ ...current, [key]: !current[key] }));
 
  const formatAmount = (value: number) => value.toLocaleString(numLocale, { maximumFractionDigits: ledgerDecimals });
+
+ // ↑/↓ in a rate field jumps to the previous/next row's rate field, like the ledger's inline
+ // edit fields. Folded rows (inert) and rows mid-save (disabled) can't take focus, so they're
+ // skipped; the ends don't wrap.
+ const listRef = useRef<HTMLUListElement>(null);
+ const focusAdjacentRateInput = (current: HTMLInputElement, step: 1 | -1) => {
+  const inputs = Array.from(listRef.current?.querySelectorAll<HTMLInputElement>('input[data-pending-rate-input]') ?? [])
+   .filter((input) => input === current || (!input.disabled && !input.closest('[inert]')));
+  const target = inputs[inputs.indexOf(current) + step];
+  if (!target) return;
+  target.focus();
+  target.select();
+ };
 
  const saveEntry = async (entry: PendingPricingEntry) => {
   const value = (rateInputs[entry.key] ?? '').trim();
@@ -220,7 +233,7 @@ export default function PendingPricingModal({
        <p className="text-sm font-medium text-fg-muted">{t('pending_pricing_all_done')}</p>
       </div>
      ) : (
-      <ul className="space-y-2.5">
+      <ul ref={listRef} className="space-y-2.5">
        {entries.map((entry) => {
         const rateValue = rateInputs[entry.key] ?? '';
         const isReversed = !!reversedInputs[entry.key];
@@ -320,10 +333,14 @@ export default function PendingPricingModal({
                inputMode="decimal"
                value={rateValue}
                onChange={(e) => setRateInputs((current) => ({ ...current, [entry.key]: e.target.value }))}
+               data-pending-rate-input=""
                onKeyDown={(e) => {
                 if (e.key === 'Enter' && !savingAll) {
                  e.preventDefault();
                  void saveEntry(entry);
+                } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                 e.preventDefault();
+                 focusAdjacentRateInput(e.currentTarget, e.key === 'ArrowDown' ? 1 : -1);
                 }
                }}
                placeholder={t('pending_pricing_rate_placeholder')}
